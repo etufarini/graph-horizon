@@ -2,7 +2,7 @@
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
  * interfaces, proving early validation, quoted model paths, read-only model
- * handling, and explicit not-verified output without invoking real builds.
+ * handling, and explicit external-verification output without real builds.
  */
 
 use std::fs;
@@ -365,13 +365,188 @@ fn assert_scripts_quote_model_variables(root: &Path) {
 }
 
 #[test]
-fn support_scripts_report_missing_artifacts_as_not_verified() {
-    let output = script(
+fn q4_profiling_contract() {
+    let fixture = fixture_dir("q4 profiling");
+    let models = fixture.join("-models with spaces");
+    let bin = fixture.join("bin");
+    let log = fixture.join("calls");
+    fs::create_dir(&models).unwrap();
+    fs::create_dir(&bin).unwrap();
+
+    let rows = parse_catalog(include_str!("../support/models.tsv")).unwrap();
+    for row in &rows {
+        fs::write(models.join(row.q4_file), b"read-only model fixture").unwrap();
+    }
+
+    let cargo = bin.join("cargo");
+    let stat = bin.join("stat");
+    let sha256sum = bin.join("sha256sum");
+    fs::write(
+        &cargo,
+        r#"#!/usr/bin/env bash
+set -eu
+model=""
+for argument in "$@"; do
+    case "$argument" in *.gguf) model="$argument" ;; esac
+done
+last="${!#}"
+printf '%s\t%s\n' "$model" "$last" >> "$GH_ZERO_TEST_LOG"
+case " $* " in *" --example inspect "*) ;; *) exit 0 ;; esac
+if [[ -n "${GH_ZERO_BAD_INSPECT:-}" && "$model" == *"$GH_ZERO_BAD_INSPECT"* ]]; then
+    printf 'weight_profile: Q4_K_M\n'
+    exit 0
+fi
+printf 'weight_profile: Q4_K_M\n'
+case "$model" in
+    *-3B-*) printf 'dimensions: blocks=26 hidden=3072 q=4096 k=1024 v=1024 ffn=9216 context=262144\noutput: tied-to-embedding\ntensor_histogram:\n  F32: 53\n  Q4_K: 156\n  Q6_K: 27\n' ;;
+    *-8B-*) printf 'dimensions: blocks=34 hidden=4096 q=4096 k=1024 v=1024 ffn=14336 context=262144\noutput: dedicated\ntensor_histogram:\n  F32: 69\n  Q4_K: 205\n  Q6_K: 35\n' ;;
+    *-14B-*) printf 'dimensions: blocks=40 hidden=5120 q=4096 k=1024 v=1024 ffn=16384 context=262144\noutput: dedicated\ntensor_histogram:\n  F32: 81\n  Q4_K: 241\n  Q6_K: 41\n' ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &stat,
+        r#"#!/usr/bin/env bash
+set -eu
+model="${!#}"
+if [[ -n "${GH_ZERO_BAD_SIZE:-}" && "$model" == *"$GH_ZERO_BAD_SIZE"* ]]; then
+    echo 1
+    exit 0
+fi
+case "$model" in
+    *3B-Instruct*) echo 2147023008 ;; *3B-Reasoning*) echo 2147021472 ;;
+    *8B-Instruct*) echo 5198911904 ;; *8B-Reasoning*) echo 5198910368 ;;
+    *14B-Instruct*) echo 8239593024 ;; *14B-Reasoning*) echo 8239591488 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &sha256sum,
+        r#"#!/usr/bin/env bash
+set -eu
+model="${!#}"
+case "$model" in
+    *3B-Instruct*) digest=9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8 ;;
+    *3B-Reasoning*) digest=7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc ;;
+    *8B-Instruct*) digest=33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761 ;;
+    *8B-Reasoning*) digest=894aa3645ef8708a81dbe201c26105ce37c4c741252c89c5a78f81b49ac438c6 ;;
+    *14B-Instruct*) digest=824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613 ;;
+    *14B-Reasoning*) digest=fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c ;;
+esac
+printf '%s  %s\n' "$digest" "$model"
+"#,
+    )
+    .unwrap();
+    for executable in [&cargo, &stat, &sha256sum] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let model = models.join(rows[0].q4_file);
+    let kv = Command::new("bash")
+        .arg(repository().join("support/profiling/validate-kv.sh"))
+        .args([
+            "--model",
+            model.to_str().unwrap(),
+            "--backend",
+            "cpu",
+            "--context",
+            "4096",
+        ])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert!(
+        kv.status.success(),
+        "{}",
+        String::from_utf8_lossy(&kv.stderr)
+    );
+    let calls = fs::read_to_string(&log).unwrap();
+    assert_eq!(calls.lines().count(), 2);
+    assert!(calls.contains(&format!("{}\tf16", model.display())));
+    assert!(calls.contains(&format!("{}\tint8", model.display())));
+
+    fs::write(&log, []).unwrap();
+    let weights = Command::new("bash")
+        .arg(repository().join("support/profiling/validate-weights.sh"))
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert!(
+        weights.status.success(),
+        "{}",
+        String::from_utf8_lossy(&weights.stderr)
+    );
+    let stdout = String::from_utf8(weights.stdout).unwrap();
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.ends_with(": pass"))
+            .count(),
+        6
+    );
+    assert!(stdout.contains("summary: pass=6 external_verification=0 total=6"));
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 6);
+
+    fs::write(&log, []).unwrap();
+    let mismatch = Command::new("bash")
+        .arg(repository().join("support/profiling/validate-weights.sh"))
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GH_ZERO_BAD_SIZE", "3B-Instruct")
+        .output()
+        .unwrap();
+    assert!(mismatch.status.success());
+    let stdout = String::from_utf8(mismatch.stdout).unwrap();
+    assert!(stdout.contains("3b-instruct: external verification: byte count mismatch"));
+    assert!(stdout.contains("summary: pass=5 external_verification=1 total=6"));
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 5);
+
+    fs::remove_file(models.join(rows[1].q4_file)).unwrap();
+    fs::write(&log, []).unwrap();
+    let missing_weight = Command::new("bash")
+        .arg(repository().join("support/profiling/validate-weights.sh"))
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert!(missing_weight.status.success());
+    let stdout = String::from_utf8(missing_weight.stdout).unwrap();
+    assert!(
+        stdout.contains("3b-reasoning: external verification: artifact is missing or unreadable")
+    );
+    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 5);
+    fs::write(models.join(rows[1].q4_file), b"read-only model fixture").unwrap();
+
+    fs::write(&log, []).unwrap();
+    let malformed = Command::new("bash")
+        .arg(repository().join("support/profiling/validate-weights.sh"))
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GH_ZERO_BAD_INSPECT", "14B-Reasoning")
+        .output()
+        .unwrap();
+    assert_eq!(malformed.status.code(), Some(1));
+    assert!(
+        String::from_utf8(malformed.stderr)
+            .unwrap()
+            .contains("14b-reasoning dimensions mismatch")
+    );
+
+    let missing = script(
         "support/profiling/validate-kv.sh",
         &[
-            "--model-q8",
-            "/missing/q8.gguf",
-            "--model-q4",
+            "--model",
             "/missing/q4.gguf",
             "--backend",
             "cpu",
@@ -379,9 +554,49 @@ fn support_scripts_report_missing_artifacts_as_not_verified() {
             "4096",
         ],
     );
-    assert!(output.status.success());
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("Q8_0 cpu: not verified"));
-    assert!(stdout.contains("Q4_K_M cpu: not verified"));
-    assert!(stdout.contains("not verified: no pinned artifact is available"));
+    assert!(missing.status.success());
+    assert!(
+        String::from_utf8(missing.stdout)
+            .unwrap()
+            .contains("Q4_K_M cpu: external verification: artifact is missing or unreadable")
+    );
+
+    let kv_source =
+        fs::read_to_string(repository().join("support/profiling/validate-kv.sh")).unwrap();
+    assert!(!kv_source.contains("--model-q8"));
+    assert!(!kv_source.contains("--model-q4"));
+
+    let copied_root = fixture.join("malformed catalog");
+    fs::create_dir_all(copied_root.join("support/profiling")).unwrap();
+    fs::copy(
+        repository().join("support/profiling/validate-weights.sh"),
+        copied_root.join("support/profiling/validate-weights.sh"),
+    )
+    .unwrap();
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv").replace('\n', "\r\n"),
+    )
+    .unwrap();
+    let bad_catalog = Command::new("bash")
+        .arg(copied_root.join("support/profiling/validate-weights.sh"))
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert_eq!(bad_catalog.status.code(), Some(2));
+    assert!(
+        String::from_utf8(bad_catalog.stderr)
+            .unwrap()
+            .contains("catalog error")
+    );
+
+    for row in rows {
+        assert_eq!(
+            fs::read(models.join(row.q4_file)).unwrap(),
+            b"read-only model fixture"
+        );
+    }
+    fs::remove_dir_all(fixture).unwrap();
 }

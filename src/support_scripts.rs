@@ -10,6 +10,85 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+#[derive(Debug, PartialEq, Eq)]
+struct CatalogRow<'a> {
+    id: &'a str,
+    chat: &'a str,
+    q4_file: &'a str,
+    bytes: u64,
+    sha256: &'a str,
+    q8_file: &'a str,
+}
+
+fn parse_catalog(text: &str) -> Result<Vec<CatalogRow<'_>>, u8> {
+    use std::collections::HashSet;
+
+    if text.contains('\r') {
+        return Err(2);
+    }
+    let mut rows = Vec::new();
+    let mut ids = HashSet::new();
+    let mut q4_files = HashSet::new();
+    let mut q8_files = HashSet::new();
+    let mut hashes = HashSet::new();
+    for line in text.lines() {
+        if line.starts_with('#') {
+            continue;
+        }
+        let fields = line.split('\t').collect::<Vec<_>>();
+        if fields.len() != 6
+            || fields.iter().any(|field| {
+                field.is_empty() || field.chars().any(|character| character.is_whitespace())
+            })
+        {
+            return Err(2);
+        }
+        let [id, chat, q4_file, bytes, sha256, q8_file] = fields.as_slice() else {
+            return Err(2);
+        };
+        if id.starts_with('-')
+            || id.ends_with('-')
+            || !id
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+            || !matches!(*chat, "instruct" | "reasoning")
+            || !bytes.bytes().all(|byte| byte.is_ascii_digit())
+            || bytes
+                .parse::<u64>()
+                .ok()
+                .filter(|value| *value > 0)
+                .is_none()
+            || sha256.len() != 64
+            || !sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            || Path::new(q4_file).components().count() != 1
+            || Path::new(q8_file).components().count() != 1
+            || [q4_file, q8_file].iter().any(|file| {
+                file.starts_with('-')
+                    || !file.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-')
+                    })
+            })
+            || !ids.insert(*id)
+            || !q4_files.insert(*q4_file)
+            || !q8_files.insert(*q8_file)
+            || !hashes.insert(*sha256)
+        {
+            return Err(2);
+        }
+        rows.push(CatalogRow {
+            id,
+            chat,
+            q4_file,
+            bytes: bytes.parse().unwrap(),
+            sha256,
+            q8_file,
+        });
+    }
+    Ok(rows)
+}
+
 fn repository() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
@@ -32,6 +111,131 @@ fn fixture_dir(label: &str) -> PathBuf {
     }
     fs::create_dir_all(&path).expect("create fixture");
     path
+}
+
+#[test]
+fn catalog_contract() {
+    let catalog = include_str!("../support/models.tsv");
+    let rows = parse_catalog(catalog).expect("approved catalog");
+    assert_eq!(
+        rows.iter()
+            .map(|row| {
+                (
+                    row.id,
+                    row.chat,
+                    row.q4_file,
+                    row.bytes,
+                    row.sha256,
+                    row.q8_file,
+                )
+            })
+            .collect::<Vec<_>>(),
+        [
+            (
+                "3b-instruct",
+                "instruct",
+                "Ministral-3-3B-Instruct-2512-Q4_K_M.gguf",
+                2_147_023_008,
+                "9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8",
+                "Ministral-3-3B-Instruct-2512-Q8_0.gguf",
+            ),
+            (
+                "3b-reasoning",
+                "reasoning",
+                "Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf",
+                2_147_021_472,
+                "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
+                "Ministral-3-3B-Reasoning-2512-Q8_0.gguf",
+            ),
+            (
+                "8b-instruct",
+                "instruct",
+                "Ministral-3-8B-Instruct-2512-Q4_K_M.gguf",
+                5_198_911_904,
+                "33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761",
+                "Ministral-3-8B-Instruct-2512-Q8_0.gguf",
+            ),
+            (
+                "8b-reasoning",
+                "reasoning",
+                "Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf",
+                5_198_910_368,
+                "894aa3645ef8708a81dbe201c26105ce37c4c741252c89c5a78f81b49ac438c6",
+                "Ministral-3-8B-Reasoning-2512-Q8_0.gguf",
+            ),
+            (
+                "14b-instruct",
+                "instruct",
+                "Ministral-3-14B-Instruct-2512-Q4_K_M.gguf",
+                8_239_593_024,
+                "824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613",
+                "Ministral-3-14B-Instruct-2512-Q8_0.gguf",
+            ),
+            (
+                "14b-reasoning",
+                "reasoning",
+                "Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf",
+                8_239_591_488,
+                "fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c",
+                "Ministral-3-14B-Reasoning-2512-Q8_0.gguf",
+            ),
+        ]
+    );
+    assert_eq!(rows.len(), 6);
+    assert!(rows.iter().all(|row| !Path::new(row.q4_file).is_absolute()));
+    assert!(rows.iter().all(|row| !Path::new(row.q8_file).is_absolute()));
+
+    for (case, malformed) in [
+        catalog.replacen("\tinstruct\t", "\tunknown\t", 1),
+        catalog.replacen("\t2147023008\t", "\t2GB\t", 1),
+        catalog.replacen("9ed150d4", "9ED150D4", 1),
+        catalog.replacen("9ed150d4", "9ed150d", 1),
+        catalog.replacen("3b-instruct", "3b instruct", 1),
+        catalog.replacen("3b-instruct", "-3b-instruct", 1),
+        catalog.replacen("Ministral-3-3B-Instruct", "$MODEL", 1),
+        catalog.replacen("Ministral-3-3B-Instruct", "-Ministral", 1),
+        catalog.replacen("\t2147023008\t", "\t\t", 1),
+        catalog.replacen(
+            "Ministral-3-3B-Instruct-2512-Q8_0.gguf\n",
+            "Ministral-3-3B-Instruct-2512-Q8_0.gguf\textra\n",
+            1,
+        ),
+        catalog.replace('\n', "\r\n"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(parse_catalog(&malformed), Err(2), "malformed case {case}");
+    }
+
+    let first = catalog
+        .lines()
+        .find(|line| line.starts_with("3b-instruct\t"))
+        .unwrap();
+    let fields = first.split('\t').collect::<Vec<_>>();
+    for duplicate in [
+        format!(
+            "{}\tinstruct\tunique-q4.gguf\t1\t{}\tunique-q8.gguf",
+            fields[0],
+            "a".repeat(64)
+        ),
+        format!(
+            "unique-id\tinstruct\t{}\t1\t{}\tunique-q8.gguf",
+            fields[2],
+            "b".repeat(64)
+        ),
+        format!(
+            "unique-id\tinstruct\tunique-q4.gguf\t1\t{}\tunique-q8.gguf",
+            fields[4]
+        ),
+        format!(
+            "unique-id\tinstruct\tunique-q4.gguf\t1\t{}\t{}",
+            "c".repeat(64),
+            fields[5]
+        ),
+    ] {
+        assert_eq!(parse_catalog(&format!("{catalog}{duplicate}\n")), Err(2));
+    }
 }
 
 #[test]

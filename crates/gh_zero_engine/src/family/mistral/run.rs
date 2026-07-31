@@ -904,14 +904,12 @@ pub(crate) mod numeric {
     #[derive(Clone, Copy)]
     enum Profile {
         Dense,
-        Q8,
         Mixed,
     }
 
     fn weight(input: usize, output: usize, seed: usize, profile: Profile) -> CpuBuffer {
         match profile {
             Profile::Dense => matrix(input, output, seed),
-            Profile::Q8 => quant(input, output, seed, CpuFormat::Q8_0, 34),
             Profile::Mixed if seed.is_multiple_of(2) => {
                 quant(input, output, seed, CpuFormat::Q6_K, 210)
             }
@@ -926,20 +924,11 @@ pub(crate) mod numeric {
         format: CpuFormat,
         block_bytes: usize,
     ) -> CpuBuffer {
-        let block = if matches!(format, CpuFormat::Q8_0) {
-            32
-        } else {
-            256
-        };
+        // All retained K-quants use one 256-value super-block.
+        let block = 256;
         let mut bytes = vec![0u8; output * (input / block) * block_bytes];
-        for (index, chunk) in bytes.chunks_exact_mut(block_bytes).enumerate() {
+        for chunk in bytes.chunks_exact_mut(block_bytes) {
             match format {
-                CpuFormat::Q8_0 => {
-                    chunk[0..2].copy_from_slice(&f16_bits(0.01));
-                    for (i, byte) in chunk[2..].iter_mut().enumerate() {
-                        *byte = ((i + index + seed) as i8 % 17 - 8) as u8;
-                    }
-                }
                 CpuFormat::Q4_K => {
                     chunk[0..2].copy_from_slice(&f16_bits(0.02));
                     chunk[2..4].copy_from_slice(&f16_bits(0.005));
@@ -1080,21 +1069,19 @@ pub(crate) mod numeric {
         cfg.attention_width = 256;
         cfg.rope_dimension = 128;
         cfg.vocab_size = 32;
-        for profile in [Profile::Q8, Profile::Mixed] {
-            for scheme in [KvQuant::F16, KvQuant::Int8] {
-                for dedicated in [false, true] {
-                    let prompt = [1, 3, 4, 5, 6];
-                    let sequential = logits(&cfg, scheme, &prompt, false, dedicated, profile);
-                    let batched = logits(&cfg, scheme, &prompt, true, dedicated, profile);
-                    let max = sequential
-                        .iter()
-                        .zip(&batched)
-                        .map(|(a, b)| (a - b).abs())
-                        .fold(0.0f32, f32::max);
-                    assert!(sequential.iter().all(|v| v.is_finite()));
-                    assert!(batched.iter().all(|v| v.is_finite()));
-                    assert!(max <= 0.05, "quantized prefill error {max}");
-                }
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            for dedicated in [false, true] {
+                let prompt = [1, 3, 4, 5, 6];
+                let sequential = logits(&cfg, scheme, &prompt, false, dedicated, Profile::Mixed);
+                let batched = logits(&cfg, scheme, &prompt, true, dedicated, Profile::Mixed);
+                let max = sequential
+                    .iter()
+                    .zip(&batched)
+                    .map(|(a, b)| (a - b).abs())
+                    .fold(0.0f32, f32::max);
+                assert!(sequential.iter().all(|v| v.is_finite()));
+                assert!(batched.iter().all(|v| v.is_finite()));
+                assert!(max <= 0.05, "quantized prefill error {max}");
             }
         }
     }

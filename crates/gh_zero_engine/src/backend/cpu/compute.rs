@@ -12,8 +12,6 @@ use super::dequant;
 use super::parallel;
 #[cfg(feature = "vulkan")]
 use super::row_dot_q4k;
-#[cfg(feature = "vulkan")]
-use super::row_dot_q8_0;
 use super::{CpuBuffer, CpuFormat};
 
 // Reads weight row `row` (length `in_dim`) from the already-locked weight `bytes`
@@ -50,12 +48,6 @@ pub(crate) fn matmul(w: &CpuBuffer, a: &[f32], in_dim: usize, out_dim: usize) ->
         parallel::for_units(&mut y, 1, |o0, chunk| {
             for (k, dst) in chunk.iter_mut().enumerate() {
                 *dst = row_dot_q4k(a, bytes, o0 + k, in_dim);
-            }
-        });
-    } else if matches!(w.format, CpuFormat::Q8_0) {
-        parallel::for_units(&mut y, 1, |o0, chunk| {
-            for (k, dst) in chunk.iter_mut().enumerate() {
-                *dst = row_dot_q8_0(a, bytes, o0 + k, in_dim);
             }
         });
     } else {

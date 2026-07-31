@@ -1,7 +1,7 @@
 /*
  * gh_zero_engine — CPU matmul kernels
  * Scalar transcription of matmul_*.comp / logits_*.comp: one output row per
- * iteration. The weight format (read off CpuBuffer.format) selects the dequant
+ * iteration. The retained weight format (read off CpuBuffer.format) selects the dequant
  * (dequant::dequant_row), which yields the row in natural in-dimension order so
  * weight `i` pairs with activation `a[i]`. Accumulation is FP32; the result is
  * FP16 for matmul and FP32 for logits. The activation is FP16, widened to f32 on
@@ -24,11 +24,9 @@ pub(crate) mod q5k;
 pub(crate) mod q5k_simd;
 pub(crate) mod q6k;
 pub(crate) mod q6k_simd;
-pub(crate) mod q8_0;
-pub(crate) mod q8_0_simd;
 
 // Dot product of two equal-length f32 slices, used by the generic (non-Q4_K) matmul
-// paths once the weight row has been dequantized to f32 — i.e. Q5_K/Q6_K/Q8_0/F16
+// paths once the weight row has been dequantized to f32 — i.e. Q5_K/Q6_K/F16
 // for both prefill (per token) and decode (incl. the Q6_K lm_head, the biggest single
 // decode GEMV). The scalar `.sum()` it replaces is a sequential fold: latency-bound
 // (each add waits on the previous) and not auto-vectorizable (f32 add is not
@@ -103,7 +101,7 @@ unsafe fn dot_f32_avx2(a: &[f32], b: &[f32]) -> f32 {
 // (one load → two FMAs). The batched generic matmul decodes two output rows at a
 // time, so this halves the activation L1 traffic vs two separate `dot_f32` calls,
 // shifting the inner loop from load-bound toward FMA-bound — the prefill win on the
-// non-Q4_K formats (Q6_K/Q5_K/Q8_0/F16). Each row uses the SAME 4-accumulator /
+// non-Q4_K formats (Q6_K/Q5_K/F16). Each row uses the SAME 4-accumulator /
 // 32-elem-per-iter reduction (and the same < 8 sequential tail) as `dot_f32`, so the
 // results are BIT-IDENTICAL to `dot_f32(a,b0)` and `dot_f32(a,b1)` — no numeric
 // change, the per-token parity test still holds exactly.
@@ -192,9 +190,6 @@ pub(crate) fn matmul(out: &CpuBuffer, a: &CpuBuffer, w: &CpuBuffer, in_dim: usiz
     if w.format == CpuFormat::Q6_K {
         return q6k::matmul(out, a, w, in_dim, out_dim);
     }
-    if w.format == CpuFormat::Q8_0 {
-        return q8_0::matmul(out, a, w, in_dim, out_dim);
-    }
     if w.format == CpuFormat::Q5_K {
         return q5k::matmul(out, a, w, in_dim, out_dim);
     }
@@ -238,9 +233,6 @@ pub(crate) fn matmul_batched(
     }
     if w.format == CpuFormat::Q6_K {
         return q6k::matmul_batched(out, a, w, in_dim, out_dim, n);
-    }
-    if w.format == CpuFormat::Q8_0 {
-        return q8_0::matmul_batched(out, a, w, in_dim, out_dim, n);
     }
     if w.format == CpuFormat::Q5_K {
         return q5k::matmul_batched(out, a, w, in_dim, out_dim, n);
@@ -319,9 +311,6 @@ pub(crate) fn logits(out: &CpuBuffer, x: &CpuBuffer, w: &CpuBuffer, in_dim: usiz
     }
     if w.format == CpuFormat::Q6_K {
         return q6k::logits(out, x, w, in_dim, out_dim);
-    }
-    if w.format == CpuFormat::Q8_0 {
-        return q8_0::logits(out, x, w, in_dim, out_dim);
     }
     if w.format == CpuFormat::Q5_K {
         return q5k::logits(out, x, w, in_dim, out_dim);

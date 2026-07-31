@@ -11,7 +11,7 @@
  * Numerics: per-row accumulation is reordered (chunk lane-accumulators / per-token
  * lanes), and `d*q - m` is a fused `fmsub` (the dequant keeps it as separate mul+sub
  * for scalar bit-identity), so the result is within the quantized tolerance of
- * dequant_row, NOT bit-identical — the Q4_K/Q6_K/Q8_0 fused contract. SAFETY: every
+ * dequant_row, NOT bit-identical — the Q4_K/Q5_K/Q6_K fused contract. SAFETY: every
  * entry is reached only behind a runtime AVX2+FMA check; all loads/stores stay within
  * `a`/`out`/`acc` (sized to `n`) and `bytes` — the load-validated weight tensor slice
  * (SEC-INV: `gguf::loader` rejects any tensor whose `offset+byte_len` overruns the file

@@ -2,7 +2,8 @@
  * gh_zero_engine — CPU weight load
  * The CPU counterpart of vulkan::weights plus the alloc_scratch/create part of
  * vulkan::buffers. Walks the WeightSource in its canonical dense layout and
- * copies each weight's bytes in its original format. Optional output and Q/K
+ * copies each retained weight's bytes in its original format. Family validation
+ * admits Q4_K/Q6_K matrices; this generic loader also retains Q5_K/F16. Optional output and Q/K
  * norms are explicit, and a mismatched list is rejected before indexing.
  * Quantized weights are validated at
  * load (dequant::validate); F32 norms are converted to FP16 on upload, exactly
@@ -154,10 +155,6 @@ fn load_tensor(gguf: &GgufFile, info: &crate::gguf::tensor_index::TensorInfo) ->
     Ok(match info.ggml_type {
         GgmlType::F16 => CpuBuffer::from_bytes(raw.to_vec(), CpuFormat::F16),
         GgmlType::F32 => CpuBuffer::from_bytes(f32_to_f16_bytes(raw), CpuFormat::F16),
-        GgmlType::Q8_0 => {
-            dequant::validate(CpuFormat::Q8_0, raw.len())?;
-            CpuBuffer::from_bytes(raw.to_vec(), CpuFormat::Q8_0)
-        }
         GgmlType::Q4_K => {
             dequant::validate(CpuFormat::Q4_K, raw.len())?;
             CpuBuffer::from_bytes(raw.to_vec(), CpuFormat::Q4_K)
@@ -219,7 +216,6 @@ mod tests {
         match ty {
             GgmlType::F32 => 0,
             GgmlType::F16 => 1,
-            GgmlType::Q8_0 => 8,
             GgmlType::Q4_K => 12,
             GgmlType::Q5_K => 13,
             GgmlType::Q6_K => 14,
@@ -230,7 +226,6 @@ mod tests {
     fn dims_for(ty: GgmlType) -> Vec<u64> {
         match ty {
             GgmlType::F32 | GgmlType::F16 => vec![4],
-            GgmlType::Q8_0 => vec![32],
             GgmlType::Q4_K | GgmlType::Q5_K | GgmlType::Q6_K => vec![256],
             _ => panic!("test dtype is not a CPU weight format"),
         }
@@ -240,7 +235,6 @@ mod tests {
         let bytes = match ty {
             GgmlType::F32 => 4 * 4,
             GgmlType::F16 => 4 * 2,
-            GgmlType::Q8_0 => 34,
             GgmlType::Q4_K => 144,
             GgmlType::Q5_K => 176,
             GgmlType::Q6_K => 210,
@@ -307,7 +301,6 @@ mod tests {
         let formats = [
             (GgmlType::F32, CpuFormat::F16),
             (GgmlType::F16, CpuFormat::F16),
-            (GgmlType::Q8_0, CpuFormat::Q8_0),
             (GgmlType::Q4_K, CpuFormat::Q4_K),
             (GgmlType::Q5_K, CpuFormat::Q5_K),
             (GgmlType::Q6_K, CpuFormat::Q6_K),

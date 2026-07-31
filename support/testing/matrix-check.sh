@@ -40,7 +40,6 @@ done
 [[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) \
     || usage_error "invalid reference port"
 [[ -r "$catalog" ]] || catalog_error "file is missing or unreadable"
-[[ -x "$parity" ]] || usage_error "parity runner is missing or not executable"
 
 set +e
 catalog_rows="$(awk -F '\t' '
@@ -63,6 +62,7 @@ END { if (!bad && rows != 6) exit 2 }
 catalog_status=$?
 set -e
 ((catalog_status == 0)) || catalog_error "invalid row, value, or duplicate"
+[[ -x "$parity" ]] || usage_error "parity runner is missing or not executable"
 command -v cargo >/dev/null 2>&1 || usage_error "cargo is required"
 if (exec 3<>"/dev/tcp/127.0.0.1/$reference_port") 2>/dev/null; then
     usage_error "reference port is occupied"

@@ -35,8 +35,6 @@ done
 
 [[ -n "$models_dir" ]] || usage_error "--models-dir is required"
 [[ -r "$catalog" ]] || catalog_error "file is missing or unreadable"
-command -v sha256sum >/dev/null 2>&1 || usage_error "sha256sum is required"
-command -v stat >/dev/null 2>&1 || usage_error "stat is required"
 
 declare -a ids chats q4_files byte_counts hashes q8_files
 declare -A seen_ids seen_q4 seen_hashes seen_q8
@@ -65,6 +63,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     byte_counts+=("$bytes"); hashes+=("$sha"); q8_files+=("$q8")
 done <"$catalog"
 (( ${#ids[@]} == 6 )) || catalog_error "expected exactly six rows"
+command -v sha256sum >/dev/null 2>&1 || usage_error "sha256sum is required"
+command -v stat >/dev/null 2>&1 || usage_error "stat is required"
 
 verified=0
 external=0

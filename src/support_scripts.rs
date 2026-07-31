@@ -618,6 +618,7 @@ fn parity_script_contract() {
     let temp = fixture.join("owned temp");
     let cargo_log = fixture.join("cargo calls");
     let server_log = fixture.join("server lifecycle");
+    let template_log = fixture.join("apply template request");
     fs::create_dir(&models).unwrap();
     fs::create_dir(&bin).unwrap();
     let model = models.join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf");
@@ -644,12 +645,22 @@ fn parity_script_contract() {
         r#"#!/usr/bin/env bash
 set -eu
 url="${!#}"
+body=''
+while (($#)); do
+    if [[ "$1" == --data-binary ]]; then body="$2"; break; fi
+    shift
+done
 case "$url" in
     */health)
         if [[ "${GH_ZERO_HEALTH_WAIT:-}" == 1 ]]; then /bin/sleep 0.2; exit 1; fi
         exit 0
         ;;
-    */apply-template) printf '{"prompt":"oracle prompt"}\n' ;;
+    */apply-template)
+        if [[ -n "${GH_ZERO_APPLY_TEMPLATE_LOG:-}" ]]; then
+            printf '%s\n' "$body" > "$GH_ZERO_APPLY_TEMPLATE_LOG"
+        fi
+        printf '{"prompt":"oracle prompt"}\n'
+        ;;
     */tokenize)
         if [[ "${GH_ZERO_BAD_HTTP:-}" == tokenize ]]; then printf '{bad json\n'; else printf '{"tokens":[1,2,3]}\n'; fi
         ;;
@@ -728,6 +739,7 @@ while :; do /bin/sleep 0.05; done
         .env("GH_ZERO_TEMP_DIR", &temp)
         .env("GH_ZERO_CARGO_LOG", &cargo_log)
         .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_APPLY_TEMPLATE_LOG", &template_log)
         .output()
         .unwrap();
     assert!(
@@ -752,6 +764,10 @@ while :; do /bin/sleep 0.05; done
     );
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
+    assert_eq!(
+        fs::read_to_string(&template_log).unwrap().trim_end(),
+        r#"{"messages":[{"role":"system","content":""},{"role":"user","content":"Quanto fa 17 × 19?"}],"add_generation_prompt":true}"#
+    );
 
     let port = free_port();
     let malformed = Command::new("bash")
@@ -762,6 +778,7 @@ while :; do /bin/sleep 0.05; done
         .env("GH_ZERO_TEMP_DIR", &temp)
         .env("GH_ZERO_CARGO_LOG", &cargo_log)
         .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_APPLY_TEMPLATE_LOG", &template_log)
         .env("GH_ZERO_BAD_HTTP", "tokenize")
         .output()
         .unwrap();

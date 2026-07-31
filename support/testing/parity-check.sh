@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # Validates one catalogued model/backend/KV row: the pinned offline loopback
-# oracle must match local prompt IDs and every teacher-forced top two. This
-# process owns one oracle PID and temp directory and never retries another row.
+# oracle and local renderer receive the same empty-System/User conversation,
+# then prompt IDs and every teacher-forced top two must match. This process owns
+# one oracle PID and temp directory and never retries another row.
 
 set -euo pipefail
 export LC_ALL=C
@@ -120,7 +121,7 @@ post_json() {
 }
 
 body="$(jq -cn --arg content 'Quanto fa 17 × 19?' \
-    '{messages:[{role:"user",content:$content}],add_generation_prompt:true}')"
+    '{messages:[{role:"system",content:""},{role:"user",content:$content}],add_generation_prompt:true}')"
 post_json apply-template "$body" "$temporary_dir/template.json"
 oracle_prompt="$(jq -er '.prompt | select(type == "string")' "$temporary_dir/template.json")" \
     || real_failure "malformed apply-template response"

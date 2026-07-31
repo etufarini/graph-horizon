@@ -1,9 +1,9 @@
 /*
  * gh_zero_engine — Ministral dense tensor contract
  * Resolves the required `mistral3` logical tensors from an untrusted GGUF tensor
- * table, validates rank, shapes, tied output and profile-specific dtypes, then
- * exposes borrowed descriptors only. No tensor bytes are copied and no backend
- * allocation or dtype widening is performed here.
+ * table, validates rank, shapes, tied output and the sole Q4_K/Q6_K matrix
+ * invariant, then exposes borrowed descriptors only. No tensor bytes are
+ * copied and no backend allocation or dtype widening is performed here.
 */
 
 use color_eyre::eyre::{Result, bail};
@@ -12,7 +12,6 @@ use crate::backend::source::{WeightLayout, WeightSource};
 use crate::gguf::tensor_index::{GgmlType, TensorIndex, TensorInfo};
 
 use super::config::MistralConfig;
-use super::detect::WeightProfile;
 
 pub(crate) struct MistralTensors<'a> {
     pub(crate) token_embd: &'a TensorInfo,
@@ -39,17 +38,12 @@ pub(crate) struct MistralLayer<'a> {
 }
 
 impl<'a> MistralTensors<'a> {
-    pub(crate) fn build(
-        cfg: &MistralConfig,
-        profile: WeightProfile,
-        idx: &TensorIndex<'a>,
-    ) -> Result<Self> {
+    pub(crate) fn build(cfg: &MistralConfig, idx: &TensorIndex<'a>) -> Result<Self> {
         let token_embd = matrix(
             idx,
             "token_embd.weight",
             cfg.embedding_length,
             cfg.vocab_size,
-            profile,
         )?;
         let output_norm = norm(idx, "output_norm.weight", cfg.embedding_length)?;
         let output = match idx.get("output.weight") {
@@ -58,7 +52,6 @@ impl<'a> MistralTensors<'a> {
                 "output.weight",
                 cfg.embedding_length,
                 cfg.vocab_size,
-                profile,
             )?),
             None => OutputTensor::Tied,
         };
@@ -68,33 +61,14 @@ impl<'a> MistralTensors<'a> {
             let p = |name: &str| format!("blk.{i}.{name}");
             layers.push(MistralLayer {
                 attn_norm: norm(idx, &p("attn_norm.weight"), cfg.embedding_length)?,
-                attn_q: matrix(
-                    idx,
-                    &p("attn_q.weight"),
-                    cfg.embedding_length,
-                    cfg.q_width,
-                    profile,
-                )?,
-                attn_k: matrix(
-                    idx,
-                    &p("attn_k.weight"),
-                    cfg.embedding_length,
-                    cfg.k_width,
-                    profile,
-                )?,
-                attn_v: matrix(
-                    idx,
-                    &p("attn_v.weight"),
-                    cfg.embedding_length,
-                    cfg.v_width,
-                    profile,
-                )?,
+                attn_q: matrix(idx, &p("attn_q.weight"), cfg.embedding_length, cfg.q_width)?,
+                attn_k: matrix(idx, &p("attn_k.weight"), cfg.embedding_length, cfg.k_width)?,
+                attn_v: matrix(idx, &p("attn_v.weight"), cfg.embedding_length, cfg.v_width)?,
                 attn_output: matrix(
                     idx,
                     &p("attn_output.weight"),
                     cfg.attention_width,
                     cfg.embedding_length,
-                    profile,
                 )?,
                 ffn_norm: norm(idx, &p("ffn_norm.weight"), cfg.embedding_length)?,
                 ffn_gate: matrix(
@@ -102,21 +76,18 @@ impl<'a> MistralTensors<'a> {
                     &p("ffn_gate.weight"),
                     cfg.embedding_length,
                     cfg.feed_forward_length,
-                    profile,
                 )?,
                 ffn_up: matrix(
                     idx,
                     &p("ffn_up.weight"),
                     cfg.embedding_length,
                     cfg.feed_forward_length,
-                    profile,
                 )?,
                 ffn_down: matrix(
                     idx,
                     &p("ffn_down.weight"),
                     cfg.feed_forward_length,
                     cfg.embedding_length,
-                    profile,
                 )?,
             });
         }
@@ -180,12 +151,11 @@ fn matrix<'a>(
     name: &str,
     input: usize,
     output: usize,
-    profile: WeightProfile,
 ) -> Result<&'a TensorInfo> {
     let t = idx
         .get(name)
         .ok_or_else(|| color_eyre::eyre::eyre!("E07 missing or invalid tensor '{name}'"))?;
-    check_matrix(t, name, input, output, profile)
+    check_matrix(t, name, input, output)
 }
 
 fn check_matrix<'a>(
@@ -193,16 +163,11 @@ fn check_matrix<'a>(
     name: &str,
     input: usize,
     output: usize,
-    profile: WeightProfile,
 ) -> Result<&'a TensorInfo> {
     if t.dims != [input as u64, output as u64] || t.byte_len().is_none() {
         bail!("E07 missing or invalid tensor '{name}'");
     }
-    let ok = match profile {
-        WeightProfile::Q8_0 => t.ggml_type == GgmlType::Q8_0,
-        WeightProfile::Q4_K_M => matches!(t.ggml_type, GgmlType::Q4_K | GgmlType::Q6_K),
-    };
-    if !ok {
+    if !matches!(t.ggml_type, GgmlType::Q4_K | GgmlType::Q6_K) {
         bail!("E08 unsupported tensor type '{}'", t.ggml_type.name());
     }
     Ok(t)
@@ -345,10 +310,10 @@ mod tests {
     }
 
     #[test]
-    fn accepts_q8_and_ties_missing_output() {
-        let tensors = table(GgmlType::Q8_0);
+    fn accepts_q4_and_ties_missing_output() {
+        let tensors = table(GgmlType::Q4_K);
         let idx = TensorIndex::new(&tensors);
-        let set = MistralTensors::build(&cfg(), WeightProfile::Q8_0, &idx).unwrap();
+        let set = MistralTensors::build(&cfg(), &idx).unwrap();
         assert!(matches!(set.output, OutputTensor::Tied));
         assert_eq!(set.layers.len(), 1);
     }
@@ -356,9 +321,9 @@ mod tests {
     #[test]
     fn weight_source_uses_canonical_deduplicated_order() {
         let cfg = cfg();
-        let tensors = table_for(&cfg, GgmlType::Q8_0);
+        let tensors = table_for(&cfg, GgmlType::Q4_K);
         let idx = TensorIndex::new(&tensors);
-        let set = MistralTensors::build(&cfg, WeightProfile::Q8_0, &idx).unwrap();
+        let set = MistralTensors::build(&cfg, &idx).unwrap();
         let names: Vec<&str> = set.tensors().iter().map(|t| t.name.as_str()).collect();
         assert_eq!(
             names,
@@ -383,15 +348,15 @@ mod tests {
         let mut tensors = table(GgmlType::Q4_K);
         tensors[4].ggml_type = GgmlType::Q6_K;
         let idx = TensorIndex::new(&tensors);
-        assert!(MistralTensors::build(&cfg(), WeightProfile::Q4_K_M, &idx).is_ok());
+        assert!(MistralTensors::build(&cfg(), &idx).is_ok());
     }
 
     #[test]
     fn error_matrix_e07_e08_rejects_bad_shape_and_bad_profile_dtype() {
-        let mut tensors = table(GgmlType::Q8_0);
+        let mut tensors = table(GgmlType::Q4_K);
         tensors[3].dims = vec![32, 64];
         let idx = TensorIndex::new(&tensors);
-        let err = match MistralTensors::build(&cfg(), WeightProfile::Q8_0, &idx) {
+        let err = match MistralTensors::build(&cfg(), &idx) {
             Ok(_) => panic!("bad Q shape must fail"),
             Err(err) => err.to_string(),
         };
@@ -399,30 +364,25 @@ mod tests {
 
         let tensors = table(GgmlType::Q5_K);
         let idx = TensorIndex::new(&tensors);
-        let err = match MistralTensors::build(&cfg(), WeightProfile::Q4_K_M, &idx) {
+        let err = match MistralTensors::build(&cfg(), &idx) {
             Ok(_) => panic!("Q5_K must not pass the Q4_K_M contract"),
             Err(err) => err.to_string(),
         };
         assert!(err.contains("E08 unsupported tensor type 'Q5_K'"));
+
+        let tensors = table(GgmlType::Q8_0);
+        let err = match MistralTensors::build(&cfg(), &TensorIndex::new(&tensors)) {
+            Ok(_) => panic!("Q8_0 must not pass the Q4_K_M contract"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("E08 unsupported tensor type 'Q8_0'"));
     }
 
     #[test]
-    fn versioned_rows_accept_both_profiles() {
+    fn versioned_rows_accept_q4_k_m_shapes() {
         for row in REFERENCE_ROWS {
             let dedicated = row.3;
             let cfg = exact_cfg(row);
-            let q8 = table_for(&cfg, GgmlType::Q8_0);
-            let mut q8 = q8;
-            if dedicated {
-                q8.push(t(
-                    "output.weight",
-                    &[cfg.embedding_length as u64, cfg.vocab_size as u64],
-                    GgmlType::Q8_0,
-                ));
-            }
-            let q8_set =
-                MistralTensors::build(&cfg, WeightProfile::Q8_0, &TensorIndex::new(&q8)).unwrap();
-
             let mut q4 = table_for(&cfg, GgmlType::Q4_K);
             q4.iter_mut()
                 .find(|tensor| tensor.name == "blk.0.ffn_down.weight")
@@ -435,19 +395,13 @@ mod tests {
                     GgmlType::Q6_K,
                 ));
             }
-            let q4_set =
-                MistralTensors::build(&cfg, WeightProfile::Q4_K_M, &TensorIndex::new(&q4)).unwrap();
+            let q4_set = MistralTensors::build(&cfg, &TensorIndex::new(&q4)).unwrap();
 
-            assert_eq!(q8_set.layers.len(), cfg.block_count);
             assert_eq!(q4_set.layers.len(), cfg.block_count);
-            assert_eq!(q8_set.layers[0].attn_q.dims[1], Q_WIDTH as u64);
-            assert_eq!(q8_set.layers[0].attn_k.dims[1], K_WIDTH as u64);
-            assert_eq!(q8_set.layers[0].attn_v.dims[1], V_WIDTH as u64);
-            assert_eq!(q8_set.layers[0].attn_output.dims[0], ATTENTION_WIDTH as u64);
-            assert_eq!(
-                matches!(q8_set.output, OutputTensor::Dedicated(_)),
-                dedicated
-            );
+            assert_eq!(q4_set.layers[0].attn_q.dims[1], Q_WIDTH as u64);
+            assert_eq!(q4_set.layers[0].attn_k.dims[1], K_WIDTH as u64);
+            assert_eq!(q4_set.layers[0].attn_v.dims[1], V_WIDTH as u64);
+            assert_eq!(q4_set.layers[0].attn_output.dims[0], ATTENTION_WIDTH as u64);
             assert_eq!(
                 matches!(q4_set.output, OutputTensor::Dedicated(_)),
                 dedicated
@@ -464,39 +418,35 @@ mod tests {
 
     #[test]
     fn error_matrix_e07_e08_rejects_missing_tensor_dtype_and_bad_output() {
-        let mut tensors = table(GgmlType::Q8_0);
+        let mut tensors = table(GgmlType::Q4_K);
         tensors.retain(|t| t.name != "blk.0.attn_v.weight");
-        let err =
-            match MistralTensors::build(&cfg(), WeightProfile::Q8_0, &TensorIndex::new(&tensors)) {
-                Ok(_) => panic!("missing V tensor must fail"),
-                Err(err) => err.to_string(),
-            };
+        let err = match MistralTensors::build(&cfg(), &TensorIndex::new(&tensors)) {
+            Ok(_) => panic!("missing V tensor must fail"),
+            Err(err) => err.to_string(),
+        };
         assert!(err.contains("E07 missing or invalid tensor 'blk.0.attn_v.weight'"));
 
-        let mut tensors = table(GgmlType::Q8_0);
+        let mut tensors = table(GgmlType::Q4_K);
         tensors[1].ggml_type = GgmlType::F16;
-        let err =
-            match MistralTensors::build(&cfg(), WeightProfile::Q8_0, &TensorIndex::new(&tensors)) {
-                Ok(_) => panic!("F16 norm must fail"),
-                Err(err) => err.to_string(),
-            };
+        let err = match MistralTensors::build(&cfg(), &TensorIndex::new(&tensors)) {
+            Ok(_) => panic!("F16 norm must fail"),
+            Err(err) => err.to_string(),
+        };
         assert!(err.contains("E08 unsupported tensor type 'F16'"));
 
         let tensors = table(GgmlType::F16);
-        let err =
-            match MistralTensors::build(&cfg(), WeightProfile::Q8_0, &TensorIndex::new(&tensors)) {
-                Ok(_) => panic!("F16 matrix must fail"),
-                Err(err) => err.to_string(),
-            };
+        let err = match MistralTensors::build(&cfg(), &TensorIndex::new(&tensors)) {
+            Ok(_) => panic!("F16 matrix must fail"),
+            Err(err) => err.to_string(),
+        };
         assert!(err.contains("E08 unsupported tensor type 'F16'"));
 
-        let mut tensors = table(GgmlType::Q8_0);
-        tensors.push(t("output.weight", &[64, 32], GgmlType::Q8_0));
-        let err =
-            match MistralTensors::build(&cfg(), WeightProfile::Q8_0, &TensorIndex::new(&tensors)) {
-                Ok(_) => panic!("bad dedicated output must fail"),
-                Err(err) => err.to_string(),
-            };
+        let mut tensors = table(GgmlType::Q4_K);
+        tensors.push(t("output.weight", &[64, 32], GgmlType::Q4_K));
+        let err = match MistralTensors::build(&cfg(), &TensorIndex::new(&tensors)) {
+            Ok(_) => panic!("bad dedicated output must fail"),
+            Err(err) => err.to_string(),
+        };
         assert!(err.contains("E07 missing or invalid tensor 'output.weight'"));
     }
 }

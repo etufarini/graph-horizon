@@ -265,7 +265,6 @@ fn real_greedy_parity() {
     assert_eq!(prompt, reference_prompt);
     let reference_first = reference_first_id(&model, prompt_text, context);
 
-    let profile = contract.profile;
     let model = match MistralModel::<VulkanBackend>::load(&file, context) {
         Ok(model) => model,
         Err(err) => {
@@ -306,8 +305,7 @@ fn real_greedy_parity() {
         .expect("Vulkan greedy token");
     crate::kv_cache::free(&model.backend, kv);
     println!(
-        "profile={:?} kv={} prompt_ids={prompt:?} reference_first={reference_first} vulkan_first={got}",
-        profile,
+        "profile=Q4_K_M kv={} prompt_ids={prompt:?} reference_first={reference_first} vulkan_first={got}",
         scheme.name()
     );
     assert_eq!(got, reference_first);
@@ -351,8 +349,7 @@ fn real_reasoning_parity() {
     let actual = vulkan_completion(&model, &prompt, context, scheme);
     let top2 = vulkan_teacher_top2(&model, &prompt, context, scheme, &reference.completion);
     println!(
-        "profile={:?} release={} kv={} prompt_ids={prompt:?} reference_completion_ids={:?} vulkan_ids={actual:?} teacher_top2={top2:?}",
-        contract.profile,
+        "profile=Q4_K_M release={} kv={} prompt_ids={prompt:?} reference_completion_ids={:?} vulkan_ids={actual:?} teacher_top2={top2:?}",
         version::RELEASE,
         scheme.name(),
         reference.completion

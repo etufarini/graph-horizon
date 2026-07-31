@@ -1,15 +1,15 @@
 /*
  * gh_zero_engine — read-only Ministral inspector
- * Validates metadata/tokenizer shape and prints capability facts without
- * constructing a backend. It never authenticates provenance from a path/name
- * and normalizes file/parse errors before they reach the caller.
+ * Applies the Q4-only profile gate, validates metadata/tokenizer shape, and
+ * prints capability facts without constructing a backend. It never
+ * authenticates provenance and normalizes file/parse errors for callers.
  */
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use color_eyre::eyre::{Result, bail, eyre};
-use gh_zero_engine::{GgufFile, GgufValue, MistralConfig, TekkenTokenizer, WeightProfile};
+use gh_zero_engine::{GgufFile, GgufValue, MistralConfig, TekkenTokenizer};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -24,6 +24,15 @@ fn main() -> Result<()> {
 
     std::fs::File::open(&path).map_err(|_| eyre!("model file is missing or unreadable"))?;
     let file = GgufFile::open(&path).map_err(|_| eyre!("invalid GGUF file"))?;
+    let architecture = file
+        .metadata()
+        .get("general.architecture")
+        .and_then(GgufValue::as_str)
+        .ok_or_else(|| eyre!("E06 missing or invalid GGUF metadata 'general.architecture'"))?;
+    if architecture != "mistral3" {
+        bail!("E03 unsupported architecture '{architecture}'; supported architecture: mistral3");
+    }
+    profile(file.metadata())?;
     let tokenizer = TekkenTokenizer::from_metadata(file.metadata())
         .map_err(|_| eyre!("invalid Tekken tokenizer"))?;
     let config = MistralConfig::from_metadata(
@@ -32,11 +41,6 @@ fn main() -> Result<()> {
         tokenizer.bos_id(),
         tokenizer.eos_id(),
     )?;
-    let architecture = text(file.metadata(), "general.architecture")?;
-    if architecture != "mistral3" {
-        bail!("unsupported architecture '{architecture}'; supported architecture: mistral3");
-    }
-    let profile = profile(file.metadata())?;
     let output = if file
         .tensors()
         .iter()
@@ -52,7 +56,7 @@ fn main() -> Result<()> {
     }
 
     println!("architecture: {architecture}");
-    println!("weight_profile: {profile:?}");
+    println!("weight_profile: Q4_K_M");
     println!("verification: compatible/unverified");
     println!(
         "dimensions: blocks={} hidden={} q={} k={} v={} ffn={} context={}",
@@ -101,16 +105,25 @@ fn text<'a>(
         .ok_or_else(|| eyre!("missing or invalid GGUF metadata '{key}'"))
 }
 
-fn profile(metadata: &std::collections::HashMap<String, GgufValue>) -> Result<WeightProfile> {
-    match metadata
-        .get("general.file_type")
-        .and_then(GgufValue::as_u64)
-    {
-        Some(7) => Ok(WeightProfile::Q8_0),
-        Some(15) => Ok(WeightProfile::Q4_K_M),
-        Some(value) => {
-            bail!("unsupported GGUF weight profile '{value}'; supported profiles: Q8_0, Q4_K_M")
+fn profile(metadata: &std::collections::HashMap<String, GgufValue>) -> Result<()> {
+    let value = match metadata.get("general.file_type") {
+        Some(GgufValue::U8(value)) => *value as u64,
+        Some(GgufValue::U16(value)) => *value as u64,
+        Some(GgufValue::U32(value)) => *value as u64,
+        Some(GgufValue::U64(value)) => *value,
+        _ => bail!("E06 missing or invalid GGUF metadata 'general.file_type'"),
+    };
+    match value {
+        15 => Ok(()),
+        value => {
+            let name = match value {
+                0 => "F32".into(),
+                1 => "F16".into(),
+                7 => "Q8_0".into(),
+                14 => "Q6_K".into(),
+                other => format!("unknown({other})"),
+            };
+            bail!("E04 unsupported GGUF weight profile '{name}'; supported profile: Q4_K_M")
         }
-        None => bail!("missing or invalid GGUF metadata 'general.file_type'"),
     }
 }

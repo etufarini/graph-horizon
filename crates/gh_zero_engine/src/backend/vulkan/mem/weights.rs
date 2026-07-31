@@ -140,16 +140,6 @@ fn upload_tensor(
         GgmlType::Q4_K => (gguf.tensor_bytes(info)?.into(), WeightFormat::Q4K),
         GgmlType::Q5_K => (gguf.tensor_bytes(info)?.into(), WeightFormat::Q5K),
         GgmlType::Q6_K => (gguf.tensor_bytes(info)?.into(), WeightFormat::Q6K),
-        GgmlType::Q8_0 => {
-            let bytes = gguf.tensor_bytes(info)?;
-            // Backstop on untrusted GGUF: a Q8_0 tensor is a whole number of
-            // 34-byte blocks (32 int8 + one f16 scale). Same guard as the 144/210
-            // checks for Q4_K/Q6_K; message carries no internal path.
-            if bytes.len() % 34 != 0 {
-                bail!("vulkan: malformed Q8_0 weight (length not a multiple of the block size)");
-            }
-            (bytes.into(), WeightFormat::Q8)
-        }
         other => bail!(
             "vulkan: weight '{}' is {} — unsupported quantization",
             info.name,

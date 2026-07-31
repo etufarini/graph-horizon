@@ -3,7 +3,7 @@
  * Records the matmul (FP16 activations × weights) and the final FP32 logits
  * projection. Batch 1: y = W · a with W in ggml row-major [out, in]. The weight
  * dtype is read off the buffer's WeightFormat and selects the kernel: FP16
- * or a quantized path (Q4_K/Q6_K/Q8_0) that dequantizes the ggml blocks on the
+ * or a quantized path (Q4_K/Q5_K/Q6_K) that dequantizes the ggml blocks on the
  * fly. The call interface is identical across formats so the graph never changes.
 */
 
@@ -56,7 +56,6 @@ pub(crate) fn matmul(
         WeightFormat::F16 => Kernel::MatmulF16,
         WeightFormat::Q4K => Kernel::MatmulQ4KTiled,
         WeightFormat::Q6K => Kernel::MatmulQ6K,
-        WeightFormat::Q8 => Kernel::MatmulQ8,
         WeightFormat::Q5K => Kernel::MatmulQ5K,
     };
     log_path_once(kernel);
@@ -192,9 +191,6 @@ pub(crate) fn logits(
         WeightFormat::F16 => Kernel::Logits,
         WeightFormat::Q4K => Kernel::LogitsQ4K,
         WeightFormat::Q6K => Kernel::LogitsQ6K,
-        // Q8_0 lm_head occurs on a Q8_0 causal model with tied embeddings, where
-        // the lm_head reuses the Q8_0 token_embd (tied to token_embd).
-        WeightFormat::Q8 => Kernel::LogitsQ8,
         WeightFormat::Q5K => Kernel::LogitsQ5K,
     };
     project(dev, reg, cmd, kernel, out, x, w, in_dim, out_dim);

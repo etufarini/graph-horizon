@@ -1251,6 +1251,7 @@ printf '%s  %s\n' "$digest" "$model"
 set -eu
 printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
 printf 'semantic-summary: model_id=%s critical=6/6 total=12/12 status=pass\n' "$GH_ZERO_MODEL_ID"
+printf 'internal /secret/path must not escape\n' >&2
 [[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
     )
@@ -1288,6 +1289,7 @@ printf 'semantic-summary: model_id=%s critical=6/6 total=12/12 status=pass\n' "$
     assert_eq!(statuses.len(), 6);
     assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
     assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
+    assert!(!stdout.contains("/secret/path"));
     let cargo_calls = fs::read_to_string(&calls).unwrap();
     assert_eq!(cargo_calls.lines().count(), 6);
     for (line, row) in cargo_calls.lines().zip(&rows) {
@@ -1328,6 +1330,7 @@ printf 'semantic-summary: model_id=%s critical=6/6 total=12/12 status=pass\n' "$
     let stdout = String::from_utf8(failure.stdout).unwrap();
     assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
     assert!(stdout.contains("summary: pass=1 external_verification=0 failure=1 total=2"));
+    assert!(!stdout.contains("/secret/path"));
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
 
     fs::write(

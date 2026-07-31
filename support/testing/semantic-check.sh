@@ -78,14 +78,15 @@ for index in "${!ids[@]}"; do
     digest="$(sha256sum -- "$model" 2>/dev/null)" || { external_row "$id" "SHA-256 unavailable"; continue; }
     [[ "${digest%% *}" == "${hashes[$index]}" ]] || { external_row "$id" "SHA-256 mismatch"; continue; }
     set +e
-    (
+    output="$(
         cd "$project_dir"
         GH_ZERO_MODEL="$model" GH_ZERO_MODEL_ID="$id" \
             cargo test --locked -p gh_zero_engine --no-default-features --features cpu \
-                --test semantic real_semantic_acceptance -- --ignored --nocapture --exact
-    )
+                --test semantic real_semantic_acceptance -- --ignored --nocapture --exact 2>&1
+    )"
     status=$?
     set -e
+    grep -E '^(semantic-case|semantic-summary):' <<<"$output" || true
     if ((status != 0)); then
         printf 'semantic model_id=%s: failure\n' "$id"
         ((failure += 1)); summary; exit 1

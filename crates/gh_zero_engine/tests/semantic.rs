@@ -4,6 +4,11 @@
  * response predicates. It is neither a runtime quality API nor a benchmark.
  */
 
+use std::path::Path;
+
+use gh_zero_engine::{
+    Engine, EngineConfig, Event, GenerationStats, KvQuant, Message, Request, Role, SamplingParams,
+};
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -149,6 +154,14 @@ fn normalize(profile: Profile, raw: &str) -> Result<String, &'static str> {
     }
 }
 
+fn model_profile(model_id: &str) -> Result<Profile, &'static str> {
+    match model_id {
+        "3b-instruct" | "8b-instruct" | "14b-instruct" => Ok(Profile::Instruct),
+        "3b-reasoning" | "8b-reasoning" | "14b-reasoning" => Ok(Profile::Reasoning),
+        _ => Err("unknown GH_ZERO_MODEL_ID"),
+    }
+}
+
 fn predicate(case: Case, response: &str) -> Result<(), &'static str> {
     let pass = match case.predicate {
         Predicate::ExactDigits(expected) => {
@@ -262,6 +275,121 @@ fn excerpt(response: &str) -> String {
     }
 }
 
+fn assembly(parts: &[Vec<u8>]) -> Result<String, &'static str> {
+    let bytes = parts.iter().flatten().copied().collect::<Vec<_>>();
+    String::from_utf8(bytes).map_err(|_| "invalid UTF-8 assembly")
+}
+
+fn event_response(events: &[Event]) -> Result<String, &'static str> {
+    let mut parts = Vec::new();
+    let mut terminals = 0;
+    for event in events {
+        match event {
+            Event::TextDelta(text) if terminals == 0 => parts.push(text.as_bytes().to_vec()),
+            Event::TextDelta(_) => return Err("TextDelta after terminal event"),
+            Event::Finished(_) => terminals += 1,
+            Event::Error(_) => return Err("generation emitted Error"),
+        }
+    }
+    match terminals {
+        1 => assembly(&parts),
+        0 => Err("generation lacks Finished"),
+        _ => Err("generation emitted multiple terminal events"),
+    }
+}
+
+fn assessment(profile: Profile, case: Case, raw: &str) -> Result<(), String> {
+    let scored = normalize(profile, raw).map_err(|reason| {
+        let response = match profile {
+            Profile::Instruct => excerpt(raw),
+            Profile::Reasoning => "[invalid reasoning response omitted]".into(),
+        };
+        format!(
+            "predicate=response-normalization reason={reason} excerpt={}",
+            response.escape_debug()
+        )
+    })?;
+    predicate(case, &scored).map_err(|reason| {
+        format!(
+            "predicate={} reason={reason} excerpt={}",
+            case.name.replace(' ', "-"),
+            excerpt(&scored).escape_debug()
+        )
+    })
+}
+
+#[test]
+#[ignore = "requires one authenticated Ministral Q4_K_M model"]
+fn real_semantic_acceptance() {
+    let model_id = std::env::var("GH_ZERO_MODEL_ID").expect("GH_ZERO_MODEL_ID required");
+    let model = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
+    // Both environment values and the exact profile ID are validated before construction.
+    let profile = model_profile(&model_id).unwrap_or_else(|reason| panic!("{reason}"));
+    let engine = Engine::new(
+        Path::new(&model),
+        EngineConfig {
+            context_tokens: Some(4096),
+            kv_quant: KvQuant::F16,
+            ..EngineConfig::default()
+        },
+    )
+    .unwrap_or_else(|_| panic!("authenticated model failed to load"));
+    let mut results = [false; 12];
+
+    for (index, case) in CASES.iter().copied().enumerate() {
+        let mut events = Vec::new();
+        engine.generate(
+            Request {
+                messages: vec![Message {
+                    role: Role::User,
+                    content: case.prompt.into(),
+                }],
+                sampling: SamplingParams {
+                    temperature: 0.0,
+                    top_p: 1.0,
+                    top_k: 1,
+                    min_p: 0.0,
+                    repeat_penalty: 1.0,
+                    seed: 0,
+                },
+                max_tokens: 256,
+            },
+            &mut |event| {
+                events.push(event);
+                true
+            },
+        );
+        let result = event_response(&events)
+            .map_err(|reason| format!("predicate=engine-events reason={reason}"))
+            .and_then(|raw| assessment(profile, case, &raw));
+        results[index] = result.is_ok();
+        match result {
+            Ok(()) => println!(
+                "semantic-case: model_id={model_id} case_id={} status=pass predicate={}",
+                case.id,
+                case.name.replace(' ', "-")
+            ),
+            Err(reason) => println!(
+                "semantic-case: model_id={model_id} case_id={} status=fail {reason}",
+                case.id
+            ),
+        }
+    }
+
+    let critical = CASES
+        .iter()
+        .zip(results)
+        .filter(|(case, passed)| case.critical && *passed)
+        .count();
+    let total = results.iter().filter(|passed| **passed).count();
+    let passed = threshold(&results);
+    println!(
+        "semantic-summary: model_id={model_id} critical={critical}/6 total={total}/12 status={}",
+        if passed { "pass" } else { "fail" }
+    );
+    assert!(passed, "semantic acceptance threshold missed");
+}
+
 #[test]
 fn corpus_is_exact_and_has_six_critical_cases() {
     assert_eq!(CASES.len(), 12);
@@ -292,6 +420,17 @@ fn normalization_enforces_profile_marker_contracts() {
     ] {
         assert!(normalize(Profile::Reasoning, raw).is_err(), "{raw}");
     }
+}
+
+#[test]
+fn model_ids_select_only_the_approved_profiles() {
+    for id in ["3b-instruct", "8b-instruct", "14b-instruct"] {
+        assert_eq!(model_profile(id), Ok(Profile::Instruct));
+    }
+    for id in ["3b-reasoning", "8b-reasoning", "14b-reasoning"] {
+        assert_eq!(model_profile(id), Ok(Profile::Reasoning));
+    }
+    assert!(model_profile("unknown").is_err());
 }
 
 #[test]
@@ -344,4 +483,41 @@ fn failure_excerpt_is_unicode_bounded() {
     assert_eq!(bounded.chars().count(), 200);
     assert!(bounded.ends_with('…'));
     assert_eq!(excerpt("short"), "short");
+}
+
+#[test]
+fn event_collection_requires_one_finished_and_valid_utf8() {
+    let stats = GenerationStats {
+        prompt_tokens: 1,
+        completion_tokens: 2,
+        prefill_ms: 3,
+        decode_ms: 4,
+    };
+    assert_eq!(
+        event_response(&[
+            Event::TextDelta("a".into()),
+            Event::TextDelta("b".into()),
+            Event::Finished(stats),
+        ])
+        .unwrap(),
+        "ab"
+    );
+    for events in [
+        vec![Event::TextDelta("a".into())],
+        vec![Event::Error("sanitized".into())],
+        vec![Event::Finished(stats), Event::Finished(stats)],
+        vec![Event::Finished(stats), Event::TextDelta("late".into())],
+    ] {
+        assert!(event_response(&events).is_err(), "{events:?}");
+    }
+    assert_eq!(assembly(&[vec![0xff]]), Err("invalid UTF-8 assembly"));
+}
+
+#[test]
+fn reasoning_normalization_failure_omits_raw_thinking() {
+    let error =
+        assessment(Profile::Reasoning, CASES[0], "[THINK]secret without close").unwrap_err();
+    assert!(error.contains("response-normalization"));
+    assert!(error.contains("[invalid reasoning response omitted]"));
+    assert!(!error.contains("secret"));
 }

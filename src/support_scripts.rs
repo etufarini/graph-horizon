@@ -355,11 +355,14 @@ fn assert_scripts_quote_model_variables(root: &Path) {
             source.contains("\"$model\""),
             "{relative} does not quote model"
         );
-        for forbidden in ["eval ", "curl ", "wget ", "git clone"] {
+        for forbidden in ["eval ", "wget ", "git clone"] {
             assert!(
                 !source.contains(forbidden),
                 "{relative} contains {forbidden}"
             );
+        }
+        if relative != "support/testing/parity-check.sh" {
+            assert!(!source.contains("curl "), "{relative} contains curl");
         }
     }
 }
@@ -598,5 +601,338 @@ printf '%s  %s\n' "$digest" "$model"
             b"read-only model fixture"
         );
     }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn parity_script_contract() {
+    use std::net::TcpListener;
+    use std::os::unix::fs::symlink;
+    use std::thread;
+    use std::time::Duration;
+
+    let fixture = fixture_dir("parity script");
+    let models = fixture.join("-models with spaces");
+    let bin = fixture.join("bin");
+    let temp = fixture.join("owned temp");
+    let cargo_log = fixture.join("cargo calls");
+    let server_log = fixture.join("server lifecycle");
+    fs::create_dir(&models).unwrap();
+    fs::create_dir(&bin).unwrap();
+    let model = models.join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf");
+    fs::write(&model, b"immutable parity fixture").unwrap();
+
+    let stat = bin.join("stat");
+    let sha256sum = bin.join("sha256sum");
+    let curl = bin.join("curl");
+    let cargo = bin.join("cargo");
+    let mktemp = bin.join("mktemp");
+    let server = fixture.join("llama server stub");
+    fs::write(
+        &stat,
+        b"#!/usr/bin/env bash\nif [[ \"${GH_ZERO_BAD_SIZE:-}\" == 1 ]]; then echo 1; else echo 2147023008; fi\n",
+    )
+    .unwrap();
+    fs::write(
+        &sha256sum,
+        b"#!/usr/bin/env bash\nprintf '9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8  %s\\n' \"${!#}\"\n",
+    )
+    .unwrap();
+    fs::write(
+        &curl,
+        r#"#!/usr/bin/env bash
+set -eu
+url="${!#}"
+case "$url" in
+    */health)
+        if [[ "${GH_ZERO_HEALTH_WAIT:-}" == 1 ]]; then /bin/sleep 0.2; exit 1; fi
+        exit 0
+        ;;
+    */apply-template) printf '{"prompt":"oracle prompt"}\n' ;;
+    */tokenize)
+        if [[ "${GH_ZERO_BAD_HTTP:-}" == tokenize ]]; then printf '{bad json\n'; else printf '{"tokens":[1,2,3]}\n'; fi
+        ;;
+    */completion) printf '{"tokens":[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]}\n' ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &cargo,
+        r#"#!/usr/bin/env bash
+set -eu
+printf 'args=%s\nmodel=%s\ncontext=%s\nkv=%s\npercent=%s\nprompt=%s\ncompletion=%s\n' \
+    "$*" "$GH_ZERO_MODEL" "$GH_ZERO_CONTEXT" "$GH_ZERO_KV" \
+    "$GH_ZERO_VRAM_WEIGHTS_PERCENT" "$GH_ZERO_REFERENCE_PROMPT_IDS" \
+    "$GH_ZERO_REFERENCE_COMPLETION_IDS" >> "$GH_ZERO_CARGO_LOG"
+if [[ "${GH_ZERO_MEMORY_FAILURE:-}" == 1 ]]; then
+    printf 'Vulkan memory is insufficient: required 2 bytes, available 1 bytes\n' >&2
+    exit 1
+fi
+printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45 oracle_top2=pass\n'
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &mktemp,
+        b"#!/usr/bin/env bash\nmkdir -p -- \"$GH_ZERO_TEMP_DIR\"\nprintf '%s\\n' \"$GH_ZERO_TEMP_DIR\"\n",
+    )
+    .unwrap();
+    fs::write(
+        &server,
+        r#"#!/usr/bin/env bash
+set -eu
+if [[ "${1:-}" == --version ]]; then
+    if [[ "${GH_ZERO_BAD_REVISION:-}" == 1 ]]; then echo 'llama.cpp old'; else echo 'llama.cpp 13f2b28b0'; fi
+    exit 0
+fi
+printf 'started %s\n' "$$" >> "$GH_ZERO_SERVER_LOG"
+trap 'printf "stopped %s\n" "$$" >> "$GH_ZERO_SERVER_LOG"; exit 0' TERM INT HUP
+while :; do /bin/sleep 0.05; done
+"#,
+    )
+    .unwrap();
+    for executable in [&stat, &sha256sum, &curl, &cargo, &mktemp, &server] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let free_port = || {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port.to_string()
+    };
+    let base = [
+        "--models-dir",
+        models.to_str().unwrap(),
+        "--model-id",
+        "3b-instruct",
+        "--backend",
+        "hybrid",
+        "--kv",
+        "int8",
+        "--reference-server",
+        server.to_str().unwrap(),
+    ];
+
+    let port = free_port();
+    let pass = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &port])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .output()
+        .unwrap();
+    assert!(
+        pass.status.success(),
+        "{}",
+        String::from_utf8_lossy(&pass.stderr)
+    );
+    let stdout = String::from_utf8(pass.stdout).unwrap();
+    assert_eq!(stdout.lines().count(), 1);
+    assert!(stdout.starts_with("pass: model_id=3b-instruct backend=hybrid kv=int8"));
+    assert!(
+        stdout.contains(
+            "prompt_ids=1,2,3 oracle_ids=10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25"
+        )
+    );
+    assert!(stdout.contains("local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45"));
+    assert!(!temp.exists());
+    let cargo_call = fs::read_to_string(&cargo_log).unwrap();
+    assert!(
+        cargo_call
+            .contains("--features hybrid family::mistral::hybrid::graph::real_ministral_parity")
+    );
+    assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25"));
+    assert!(cargo_call.contains(&format!("model={}", model.display())));
+
+    let port = free_port();
+    let malformed = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &port])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_BAD_HTTP", "tokenize")
+        .output()
+        .unwrap();
+    assert_eq!(malformed.status.code(), Some(1));
+    assert!(
+        String::from_utf8(malformed.stderr)
+            .unwrap()
+            .contains("malformed tokenize response")
+    );
+    assert!(!temp.exists());
+
+    let revision_port = free_port();
+    let revision = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &revision_port])
+        .env("PATH", &path)
+        .env("GH_ZERO_BAD_REVISION", "1")
+        .output()
+        .unwrap();
+    assert!(revision.status.success());
+    assert_eq!(
+        String::from_utf8(revision.stdout).unwrap().trim(),
+        "external verification: unsupported llama.cpp revision"
+    );
+
+    let server_calls = fs::read_to_string(&server_log).unwrap().lines().count();
+    let cargo_calls = fs::read_to_string(&cargo_log).unwrap().lines().count();
+    let mismatch = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &free_port()])
+        .env("PATH", &path)
+        .env("GH_ZERO_BAD_SIZE", "1")
+        .output()
+        .unwrap();
+    assert!(mismatch.status.success());
+    assert_eq!(
+        String::from_utf8(mismatch.stdout).unwrap().trim(),
+        "external verification: 3b-instruct byte count mismatch"
+    );
+    assert_eq!(
+        fs::read_to_string(&server_log).unwrap().lines().count(),
+        server_calls
+    );
+    assert_eq!(
+        fs::read_to_string(&cargo_log).unwrap().lines().count(),
+        cargo_calls
+    );
+
+    let memory_port = free_port();
+    let memory = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &memory_port])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_MEMORY_FAILURE", "1")
+        .output()
+        .unwrap();
+    assert!(memory.status.success());
+    assert_eq!(
+        String::from_utf8(memory.stdout).unwrap().trim(),
+        "external verification: insufficient memory for hybrid row"
+    );
+    assert!(!temp.exists());
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let occupied_port = listener.local_addr().unwrap().port().to_string();
+    let occupied = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &occupied_port])
+        .env("PATH", &path)
+        .output()
+        .unwrap();
+    assert_eq!(occupied.status.code(), Some(2));
+    assert!(
+        String::from_utf8(occupied.stderr)
+            .unwrap()
+            .contains("reference port is occupied")
+    );
+    drop(listener);
+
+    let port = free_port();
+    let mut signalled = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &port])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_HEALTH_WAIT", "1")
+        .spawn()
+        .unwrap();
+    for _ in 0..100 {
+        if temp.exists()
+            && fs::read_to_string(&server_log)
+                .unwrap_or_default()
+                .contains("started")
+        {
+            break;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(temp.exists());
+    assert!(
+        Command::new("kill")
+            .args(["-TERM", &signalled.id().to_string()])
+            .status()
+            .unwrap()
+            .success()
+    );
+    assert_eq!(signalled.wait().unwrap().code(), Some(130));
+    assert!(!temp.exists());
+    assert!(fs::read_to_string(&server_log).unwrap().contains("stopped"));
+
+    let tool_dir = fixture.join("missing curl path");
+    fs::create_dir(&tool_dir).unwrap();
+    symlink("/usr/bin/dirname", tool_dir.join("dirname")).unwrap();
+    symlink("/usr/bin/awk", tool_dir.join("awk")).unwrap();
+    let missing_tool_port = free_port();
+    let missing_tool = Command::new("/bin/bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &missing_tool_port])
+        .env("PATH", &tool_dir)
+        .output()
+        .unwrap();
+    assert!(missing_tool.status.success());
+    assert_eq!(
+        String::from_utf8(missing_tool.stdout).unwrap().trim(),
+        "external verification: curl unavailable"
+    );
+
+    let invalid_id = script(
+        "support/testing/parity-check.sh",
+        &[
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "unknown",
+            "--backend",
+            "cpu",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(invalid_id.status.code(), Some(2));
+
+    let source = fs::read_to_string(repository().join("support/testing/parity-check.sh")).unwrap();
+    for fixed in [
+        "--ctx-size 4096",
+        "GH_ZERO_CONTEXT=4096",
+        "GH_ZERO_VRAM_WEIGHTS_PERCENT=25",
+        "n_predict:16",
+        "--host 127.0.0.1",
+        "--offline",
+        "--n-gpu-layers 0",
+        "--no-warmup",
+        "--exact",
+    ] {
+        assert!(source.contains(fixed), "missing fixed contract: {fixed}");
+    }
+    assert!(!source.contains("--context)"));
+    assert!(!source.contains("--vram-weights-percent)"));
+    assert!(!source.contains("eval "));
+    assert_eq!(fs::read(&model).unwrap(), b"immutable parity fixture");
     fs::remove_dir_all(fixture).unwrap();
 }

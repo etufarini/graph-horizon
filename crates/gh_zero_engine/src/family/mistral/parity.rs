@@ -1,9 +1,11 @@
 /*
  * gh_zero_engine — shared Ministral parity acceptance boundary
  * This is the single test-only boundary between externally supplied oracle ID
- * vectors and backend-specific real-model tests. Normal tokenizer/profile
- * selection precedes exact prompt and per-step oracle top-two assertions.
+ * vectors and backend-specific real-model tests. Its explicit empty System
+ * message neutralizes implicit defaults before exact prompt and top-two checks.
  */
+
+use crate::api::message::{Message, Role};
 
 pub(super) const USER_CONTENT: &str = "Quanto fa 17 × 19?";
 pub(super) const CONTEXT: usize = 4096;
@@ -12,6 +14,19 @@ pub(super) const TOKEN_COUNT: usize = 16;
 pub(super) struct ReferenceVectors {
     pub(super) prompt: Vec<u32>,
     pub(super) completion: Vec<u32>,
+}
+
+pub(super) fn conversation() -> [Message; 2] {
+    [
+        Message {
+            role: Role::System,
+            content: String::new(),
+        },
+        Message {
+            role: Role::User,
+            content: USER_CONTENT.into(),
+        },
+    ]
 }
 
 pub(super) fn reference_vectors() -> ReferenceVectors {
@@ -81,6 +96,23 @@ fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn conversation_has_empty_system_then_fixed_user() {
+        assert_eq!(
+            conversation(),
+            [
+                Message {
+                    role: Role::System,
+                    content: String::new(),
+                },
+                Message {
+                    role: Role::User,
+                    content: USER_CONTENT.into(),
+                },
+            ]
+        );
+    }
 
     #[test]
     fn parses_strict_unsigned_decimal_ids() {

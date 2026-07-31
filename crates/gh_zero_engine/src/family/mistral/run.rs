@@ -733,15 +733,8 @@ mod tests {
         let reference = parity::reference_vectors();
         let file = GgufFile::open(std::path::Path::new(&path)).expect("open approved GGUF");
         let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
-        let prompt = template::render(
-            &[Message {
-                role: Role::User,
-                content: parity::USER_CONTENT.into(),
-            }],
-            &contract.tokenizer,
-            context,
-        )
-        .expect("Ministral prompt");
+        let prompt = template::render(&parity::conversation(), &contract.tokenizer, context)
+            .expect("Ministral prompt");
         parity::assert_exact("prompt IDs", &prompt, &reference.prompt);
 
         let model = MistralModel::<CpuBackend>::load(&file, context).expect("load CPU model");

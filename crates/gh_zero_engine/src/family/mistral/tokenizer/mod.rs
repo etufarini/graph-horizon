@@ -138,7 +138,7 @@ impl TekkenTokenizer {
         self.special.system_close
     }
     pub(crate) fn uses_reasoning_profile(&self) -> bool {
-        self.profile == profile::ChatProfile::Reasoning3B2512
+        self.profile == profile::ChatProfile::Reasoning2512
     }
     pub(crate) fn encode_reasoning_system(&self, prompt: &str) -> Vec<u32> {
         reasoning::encode(self, prompt)

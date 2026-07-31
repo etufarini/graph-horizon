@@ -1,8 +1,8 @@
 /*
  * gh_zero_engine — private Ministral chat-profile classification
- * Selects only the fixed chat policy from untrusted `general.name`; it never
- * authenticates a model. Unsupported Reasoning variants are rejected before
- * backend allocation, without inspecting any other artifact property.
+ * Maps the exact 3B, 8B, and 14B names to one fixed Reasoning 2512 policy from
+ * untrusted `general.name`; name metadata never authenticates model weights.
+ * Unsupported Reasoning variants fail before backend allocation.
  */
 
 use std::collections::HashMap;
@@ -11,23 +11,27 @@ use color_eyre::eyre::{Result, bail};
 
 use crate::gguf::loader::GgufValue;
 
-const REASONING_3B_2512: &str = "ministral-3B-Reasoning-2512";
+const REASONING_2512: [&str; 3] = [
+    "ministral-3B-Reasoning-2512",
+    "ministral-8B-Reasoning-2512",
+    "ministral-14B-Reasoning-2512",
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum ChatProfile {
     Instruct,
-    Reasoning3B2512,
+    Reasoning2512,
 }
 
 pub(super) fn classify(md: &HashMap<String, GgufValue>) -> Result<ChatProfile> {
     let Some(name) = md.get("general.name").and_then(GgufValue::as_str) else {
         return Ok(ChatProfile::Instruct);
     };
-    if name == REASONING_3B_2512 {
-        Ok(ChatProfile::Reasoning3B2512)
+    if REASONING_2512.contains(&name) {
+        Ok(ChatProfile::Reasoning2512)
     } else if name.contains("Reasoning") {
         bail!(
-            "E05 unsupported reasoning model; supported reasoning model: Ministral 3 3B Reasoning 2512"
+            "E05 unsupported reasoning model; supported reasoning models: Ministral 3 3B, 8B, and 14B Reasoning 2512"
         )
     } else {
         Ok(ChatProfile::Instruct)
@@ -43,9 +47,11 @@ mod tests {
     }
 
     #[test]
-    fn chat_profile_selects_exact_reasoning_name() {
-        let md = metadata(GgufValue::String(REASONING_3B_2512.into()));
-        assert_eq!(classify(&md).unwrap(), ChatProfile::Reasoning3B2512);
+    fn chat_profile_selects_all_exact_reasoning_names() {
+        for name in REASONING_2512 {
+            let md = metadata(GgufValue::String(name.into()));
+            assert_eq!(classify(&md).unwrap(), ChatProfile::Reasoning2512);
+        }
     }
 
     #[test]
@@ -58,6 +64,7 @@ mod tests {
         for name in [
             "Ministral-3-3B-Instruct-2512",
             "ministral-3B-reasoning-2512",
+            "ordinary-instruct",
         ] {
             assert_eq!(
                 classify(&metadata(GgufValue::String(name.into()))).unwrap(),
@@ -70,15 +77,15 @@ mod tests {
     fn chat_profile_rejects_every_other_reasoning_variant() {
         for name in [
             "ministral-3B-Reasoning-2512-modified",
-            "ministral-8B-Reasoning-2512",
-            "ministral-14B-Reasoning-2512",
             "Ministral-3B-Reasoning-2512",
+            "ministral-7B-Reasoning-2512",
+            "ministral-32B-Reasoning-2512",
         ] {
             assert_eq!(
                 classify(&metadata(GgufValue::String(name.into())))
                     .unwrap_err()
                     .to_string(),
-                "E05 unsupported reasoning model; supported reasoning model: Ministral 3 3B Reasoning 2512"
+                "E05 unsupported reasoning model; supported reasoning models: Ministral 3 3B, 8B, and 14B Reasoning 2512"
             );
         }
     }

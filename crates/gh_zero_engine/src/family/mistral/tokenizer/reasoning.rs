@@ -15,7 +15,7 @@ const OPEN: &str = "[THINK]";
 const CLOSE: &str = "[/THINK]";
 
 pub(super) fn validate(profile: ChatProfile, tokens: &HashMap<String, u32>) -> Result<()> {
-    if profile == ChatProfile::Reasoning3B2512
+    if profile == ChatProfile::Reasoning2512
         && (!tokens.contains_key(OPEN) || !tokens.contains_key(CLOSE))
     {
         bail!("E09 invalid Tekken tokenizer");

@@ -11,7 +11,14 @@ use std::path::PathBuf;
 use color_eyre::eyre::{Result, bail, eyre};
 use gh_zero_engine::{GgufFile, GgufValue, MistralConfig, TekkenTokenizer};
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(error) = run() {
+        eprintln!("{error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let path = PathBuf::from(
         args.next()

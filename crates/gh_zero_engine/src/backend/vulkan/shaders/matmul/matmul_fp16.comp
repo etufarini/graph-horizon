@@ -1,0 +1,25 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// FP16 matmul: y = W * a, batch 1. W is row-major [out_dim, in_dim] (one output
+// row = in_dim contiguous weights, ggml order). One invocation per output
+// element; accumulation in FP32 (matches the reference implementation), result stored FP16.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [in_dim]
+layout(std430, binding = 1) readonly buffer W { float16_t w[]; };   // [out_dim*in_dim]
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint base = o * p.in_dim;
+    float acc = 0.0;
+    for (uint i = 0u; i < p.in_dim; i++) {
+        acc += float(a[i]) * float(w[base + i]);
+    }
+    y[o] = float16_t(acc);
+}

@@ -1,0 +1,45 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q8_0 matmul: y = W * a, batch 1. W is row-major [out_dim, in_dim], stored as
+// ggml Q8_0 blocks (32 weights, 34 bytes), dequantized on the fly. One
+// invocation per output row; FP32 accumulation (matches the reference implementation), FP16 result.
+//
+// Q8_0 block (34 bytes): d(f16) | 32 int8 q. For each block acc += d * Σ(q_j*a_j)
+// over its 32 weights, with q_j the signed int8 quant and a_j the activation in
+// natural in-dimension order. Q8_0 has no sub-blocks or minimum terms. FP32
+// accumulation is required (int8 * f16 in F16
+// would overflow).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [in_dim]
+layout(std430, binding = 1) readonly buffer W { uint q[]; };        // Q8_0 bytes
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+// One byte at absolute byte address b within the raw weight buffer.
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+// FP16 at byte address b (two little-endian bytes) decoded to FP32.
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint nb = p.in_dim / 32u;             // blocks per output row
+    float acc = 0.0;
+    for (uint s = 0u; s < nb; s++) {
+        uint blk = (o * nb + s) * 34u;    // byte base of this Q8_0 block
+        float d = hf(blk);
+        uint qso = blk + 2u;              // 32 int8 quants
+        uint abase = s * 32u;
+        float sum = 0.0;                  // Σ(q_j * a_j) for this block, FP32
+        for (uint l = 0u; l < 32u; l++) {
+            int qv = bitfieldExtract(int(gb(qso + l)), 0, 8);
+            sum += float(qv) * float(a[abase + l]);
+        }
+        acc += d * sum;
+    }
+    y[o] = float16_t(acc);
+}

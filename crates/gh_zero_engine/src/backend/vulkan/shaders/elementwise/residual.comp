@@ -1,0 +1,19 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Residual add in place: x[i] = x[i] + y[i]. x is the residual stream — kept in
+// FP32 because the model accumulates massive activations that overflow FP16 in late
+// layers; y is the FP16 sub-block output (attention or MLP).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer X { float x[]; };
+layout(std430, binding = 1) readonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P { uint n; } p;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= p.n) return;
+    x[i] = x[i] + float(y[i]);
+}

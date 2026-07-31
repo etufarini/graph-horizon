@@ -1,0 +1,63 @@
+#version 450
+
+// Per-workgroup partial top-k of the FP32 logits. One single-thread workgroup per
+// stripe (groups = the dispatch's workgroup count): workgroup `g` scans the
+// strided stripe g, g+groups, g+2*groups, ... keeping its own top-k under the
+// EXACT total order `(value desc, index asc)` — the same comparator as
+// `sampling.rs`/`read_topk`, so the per-stripe selection (and the k/k+1 tie) is
+// resolved identically to the host. It writes its k pairs to the scratch as
+// (index, value); the host (`reduce::topk`) merges the groups*k pairs into the
+// final k. Unused slots (stripe shorter than k) are written as the sentinel
+// index 0xFFFFFFFF so the host skips them.
+layout(local_size_x = 1) in;
+
+const uint MAXK = 128u; // == MAX_DEVICE_K; bounds the in-register working set.
+const uint SENTINEL = 0xFFFFFFFFu;
+
+layout(std430, binding = 0) readonly buffer L { float logits[]; };
+struct Pair { uint idx; float val; };
+layout(std430, binding = 1) writeonly buffer O { Pair pairs[]; };
+
+layout(push_constant) uniform P { uint vocab; uint k; } p;
+
+// (av,ai) ranks before (bv,bi) under (value desc, index asc).
+bool better(float av, uint ai, float bv, uint bi) {
+    return av > bv || (av == bv && ai < bi);
+}
+
+void main() {
+    uint g = gl_WorkGroupID.x;
+    uint groups = gl_NumWorkGroups.x;
+    uint k = min(p.k, MAXK);
+
+    float vals[MAXK];
+    uint idxs[MAXK];
+    uint cnt = 0u;
+
+    // Insertion into a descending-sorted prefix `vals[0..cnt]`. A new element
+    // enters when the prefix is not yet full, or when it outranks the worst kept.
+    for (uint e = g; e < p.vocab; e += groups) {
+        float v = logits[e];
+        if (cnt == k && !better(v, e, vals[k - 1u], idxs[k - 1u])) continue;
+        uint pos = (cnt < k) ? cnt : (k - 1u);
+        while (pos > 0u && better(v, e, vals[pos - 1u], idxs[pos - 1u])) {
+            vals[pos] = vals[pos - 1u];
+            idxs[pos] = idxs[pos - 1u];
+            pos -= 1u;
+        }
+        vals[pos] = v;
+        idxs[pos] = e;
+        if (cnt < k) cnt += 1u;
+    }
+
+    uint base = g * k;
+    for (uint r = 0u; r < k; r++) {
+        if (r < cnt) {
+            pairs[base + r].idx = idxs[r];
+            pairs[base + r].val = vals[r];
+        } else {
+            pairs[base + r].idx = SENTINEL;
+            pairs[base + r].val = -1.0 / 0.0;
+        }
+    }
+}

@@ -1,0 +1,19 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// FP16 embedding lookup: copies row `row` of the FP16 token_embd tensor
+// [vocab, embd] into the FP32 residual stream (x). A widening copy, used when
+// token_embd is unquantized; the residual stream is FP32 (see residual.comp).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer W { float16_t w[]; };  // token_embd
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };     // [embd] FP32 x
+
+layout(push_constant) uniform P { uint row; uint embd; } p;
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= p.embd) return;
+    y[i] = float(w[p.row * p.embd + i]);
+}

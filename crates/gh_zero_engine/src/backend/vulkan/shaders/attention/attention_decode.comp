@@ -1,0 +1,120 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// Causal GQA attention for the current token (batch 1), softmax fused via the online
+// (flash) algorithm. One workgroup per query head; the cached positions 0..=pos are
+// split ACROSS the workgroup's subgroups so the long serial KV loop runs in parallel.
+//
+// Layout: subgroup g (of G = gl_NumSubgroups) streams the strided KV subset
+// t = g, g+G, g+2G, ... <= pos. Within a subgroup the head_dim is spread over the
+// S = gl_SubgroupSize lanes (lane l owns dims l, l+S, l+2S, ... < head_dim), so the
+// per-position score = dot(q,k_t) is a `subgroupAdd` — the inner loop needs NO
+// workgroup barrier and no shared memory. Each subgroup keeps its own online-softmax
+// running state (m_g, l_g, acc_g over its owned dims) entirely in registers. After
+// the loop the G partials are combined once (the only workgroup barrier) into the
+// final softmax: m = max m_g, l = Σ l_g·e^{m_g-m}, o_d = (Σ acc_g[d]·e^{m_g-m})/l.
+//
+// vs the previous one-thread-per-dim kernel this removes ~3 barriers PER cached
+// position (the dominant cost of the serial loop at long context) and cuts the
+// serial depth from pos to pos/G. The sum is grouped differently (numerics-changing,
+// f32-oracle gated, f16-level drift), not bit-identical.
+//
+// Invariants (already held by the call sites): head_dim <= 128 (the old kernel used
+// 128 threads = one per dim) and head_dim a multiple of the subgroup size on the
+// target (RTX 3060: S=32, head_dim=128 -> G=4, 4 dims/lane). MAX_DPL/MAX_G below are
+// sized to cover S>=16, head_dim<=128 with margin.
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };   // [q_heads*head_dim]
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };  // [q_heads*head_dim]
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint MAX_DPL = 8u;  // dims per lane: ceil(head_dim / subgroup_size), <=8 for S>=16
+const uint MAX_G = 8u;    // subgroups per workgroup: 128 / S, <=8 for S>=16
+
+// Per-subgroup combine state. sh_acc holds each subgroup's partial output over the
+// full head_dim: sh_acc[g*head_dim + d].
+shared float sh_m[MAX_G];
+shared float sh_l[MAX_G];
+shared float sh_acc[MAX_G * 128u];
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    if (h >= p.q_heads) return;
+
+    uint S = gl_SubgroupSize;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint l = gl_SubgroupInvocationID;
+
+    uint group = p.q_heads / p.kv_heads;  // GQA ratio
+    uint kvh = h / group;
+
+    // This lane's owned head_dim components: d = l + j*S (j = 0..dpl-1), d < head_dim.
+    float qd[MAX_DPL];
+    float acc[MAX_DPL];
+    uint dpl = 0u;
+    for (uint j = 0u; j < MAX_DPL; j++) {
+        uint d = l + j * S;
+        qd[j] = (d < p.head_dim) ? float(q[h * p.head_dim + d]) : 0.0;
+        acc[j] = 0.0;
+        if (d < p.head_dim) dpl = j + 1u;
+    }
+
+    // Online softmax over this subgroup's strided KV subset (registers only).
+    float m_g = -1e30;
+    float l_g = 0.0;
+    for (uint t = g; t <= p.pos; t += G) {
+        uint kbase = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
+        float prod = 0.0;
+        for (uint j = 0u; j < dpl; j++) {
+            prod += qd[j] * float(kc[kbase + l + j * S]);
+        }
+        float score = subgroupAdd(prod) * p.scale;  // full dot, broadcast to all lanes
+        float m_new = max(m_g, score);
+        float alpha = exp(m_g - m_new);
+        float pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        for (uint j = 0u; j < dpl; j++) {
+            acc[j] = acc[j] * alpha + pw * float(vc[kbase + l + j * S]);
+        }
+        m_g = m_new;
+    }
+
+    // Publish this subgroup's partial state for the cross-subgroup combine.
+    if (subgroupElect()) { sh_m[g] = m_g; sh_l[g] = l_g; }
+    for (uint j = 0u; j < dpl; j++) {
+        sh_acc[g * p.head_dim + l + j * S] = acc[j];
+    }
+    barrier();
+
+    // Subgroup 0's lanes finalize: together they own every head_dim component.
+    if (g == 0u) {
+        float m_glob = -1e30;
+        for (uint gg = 0u; gg < G; gg++) { m_glob = max(m_glob, sh_m[gg]); }
+        float l_glob = 0.0;
+        for (uint gg = 0u; gg < G; gg++) { l_glob += sh_l[gg] * exp(sh_m[gg] - m_glob); }
+        for (uint j = 0u; j < dpl; j++) {
+            uint d = l + j * S;
+            float num = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                num += sh_acc[gg * p.head_dim + d] * exp(sh_m[gg] - m_glob);
+            }
+            o[h * p.head_dim + d] = float16_t(num / l_glob);
+        }
+    }
+}

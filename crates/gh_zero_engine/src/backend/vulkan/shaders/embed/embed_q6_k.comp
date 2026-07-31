@@ -1,0 +1,51 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q6_K embedding lookup: dequantizes one row (`row`) of the Q6_K token_embd
+// tensor [vocab, embd] into the FP32 residual stream. The row is `embd`
+// contiguous weights = embd/256 Q6_K super-blocks at block index row*(embd/256).
+// One invocation per super-block, writing its 256 dequantized values. Same block
+// decode as logits_q6_k.comp / matmul_q6_k.comp, but stores d*scale*q directly.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer W { uint q[]; };     // Q6_K bytes
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };   // [embd] FP32 x
+
+layout(push_constant) uniform P { uint row; uint embd; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+int s8(uint b) { int v = int(gb(b)); return v >= 128 ? v - 256 : v; }
+
+void main() {
+    uint s = gl_GlobalInvocationID.x;
+    uint nsb = p.embd / 256u;
+    if (s >= nsb) return;
+    uint blk = (p.row * nsb + s) * 210u;
+    uint qlo = blk;
+    uint qho = blk + 128u;
+    uint sco = blk + 192u;
+    float d = hf(blk + 208u);
+    uint obase = s * 256u;
+    for (uint n = 0u; n < 256u; n += 128u) {
+        uint seg = n / 128u;
+        uint qlb = qlo + seg * 64u;
+        uint qhb = qho + seg * 32u;
+        uint scb = sco + seg * 8u;
+        for (uint l = 0u; l < 32u; l++) {
+            uint is = l / 16u;
+            uint lo0 = gb(qlb + l);
+            uint lo1 = gb(qlb + l + 32u);
+            uint h = gb(qhb + l);
+            int q1 = int((lo0 & 0xFu) | (((h >> 0u) & 3u) << 4u)) - 32;
+            int q2 = int((lo1 & 0xFu) | (((h >> 2u) & 3u) << 4u)) - 32;
+            int q3 = int((lo0 >> 4u) | (((h >> 4u) & 3u) << 4u)) - 32;
+            int q4 = int((lo1 >> 4u) | (((h >> 6u) & 3u) << 4u)) - 32;
+            y[obase + n + l + 0u] = d * float(s8(scb + is + 0u)) * float(q1);
+            y[obase + n + l + 32u] = d * float(s8(scb + is + 2u)) * float(q2);
+            y[obase + n + l + 64u] = d * float(s8(scb + is + 4u)) * float(q3);
+            y[obase + n + l + 96u] = d * float(s8(scb + is + 6u)) * float(q4);
+        }
+    }
+}

@@ -1,0 +1,144 @@
+/*
+ * Sanitized Markdown and syntax presentation within .markdown-body.
+ * These rules are global because injected HTML cannot receive Svelte scope
+ * attributes; all visual values still come from the static theme contract.
+ */
+.markdown-body {
+  overflow-wrap: anywhere;
+
+  p,
+  ul,
+  ol,
+  blockquote,
+  table,
+  pre {
+    margin: 0 0 var(--gn-space-sm);
+  }
+
+  > :last-child {
+    margin-bottom: 0;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    margin: var(--gn-space-md) 0 var(--gn-space-sm);
+    line-height: 1.25;
+  }
+
+  > h1:first-child,
+  > h2:first-child,
+  > h3:first-child,
+  > h4:first-child,
+  > h5:first-child,
+  > h6:first-child {
+    margin-top: 0;
+  }
+
+  /* Headings scaled down to fit chat bubbles; em keeps them relative to
+     the body copy size. */
+  h1 { font-size: 1.3em; }
+  h2 { font-size: 1.15em; }
+  h3 { font-size: 1.05em; }
+  h4, h5, h6 { font-size: 1em; }
+
+  img {
+    max-width: 100%;
+  }
+
+  ul,
+  ol {
+    padding-left: var(--gn-space-xl);
+  }
+
+  a {
+    color: var(--gn-link);
+
+    &:hover {
+      color: var(--gn-link);
+      background: var(--gn-link-hover-bg);
+    }
+  }
+
+  blockquote {
+    border-left: var(--gn-border-width) solid var(--gn-accent-ink);
+    background: var(--gn-bg-panel-raised);
+    padding: var(--gn-space-xs) var(--gn-space-md);
+    color: var(--gn-text-muted);
+  }
+
+  hr {
+    border: none;
+    border-top: var(--gn-rule-width) solid var(--gn-border);
+    margin: var(--gn-space-md) 0;
+  }
+
+  table {
+    border-collapse: collapse;
+    /* Wide tables scroll inside the bubble instead of overflowing it. */
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  th,
+  td {
+    border: var(--gn-rule-width) solid var(--gn-border);
+    padding: var(--gn-space-xs) var(--gn-space-sm);
+    text-align: left;
+  }
+
+  th {
+    background: var(--gn-bg-panel-raised);
+  }
+
+  code {
+    font-family: var(--gn-font-mono);
+    font-size: 0.9em;
+    background: var(--gn-bg-panel-raised);
+    border-radius: var(--gn-radius-sm);
+    padding: 1px var(--gn-space-xs);
+  }
+
+  pre {
+    background: var(--gn-bg-panel-raised);
+    border: var(--gn-rule-width) solid var(--gn-border);
+    border-radius: var(--gn-radius-sm);
+    padding: var(--gn-space-md);
+    /* Long lines scroll instead of stretching the bubble. */
+    overflow-x: auto;
+
+    code {
+      background: none;
+      border-radius: var(--gn-radius-sm);
+      padding: 0;
+      white-space: pre;
+    }
+  }
+}
+
+/* Syntax roles remain semantic and editable only through tokens.scss. */
+.markdown-body {
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-meta { color: var(--gn-syntax-keyword); }
+
+  .hljs-string,
+  .hljs-regexp { color: var(--gn-syntax-string); }
+
+  .hljs-number,
+  .hljs-literal { color: var(--gn-syntax-number); }
+
+  .hljs-comment { color: var(--gn-syntax-comment); font-style: italic; }
+
+  .hljs-title,
+  .hljs-function,
+  .hljs-name { color: var(--gn-syntax-title); }
+
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-variable { color: var(--gn-syntax-variable); }
+}

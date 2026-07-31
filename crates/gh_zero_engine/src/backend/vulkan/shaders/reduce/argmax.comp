@@ -1,0 +1,48 @@
+#version 450
+
+// Argmax over the FP32 logits, single-workgroup reduction. Each thread scans a
+// strided stripe keeping its local (max value, lowest index at that value), then
+// a shared-memory tree-reduction combines them. Tiebreak (identical to
+// `sampling.rs` and `read_argmax`): on equal value the LOWEST index wins, so the
+// per-thread scan uses strict `>` and the merge keeps the smaller index on ties.
+// Output: out_idx[0] = argmax index (the only value the greedy caller needs).
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer L { float logits[]; };
+layout(std430, binding = 1) writeonly buffer O { uint out_idx[]; };
+
+layout(push_constant) uniform P { uint vocab; } p;
+
+shared float sval[256];
+shared uint sidx[256];
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+
+    // Per-thread scan of indices tid, tid+256, ... (ascending), strict `>` keeps
+    // the lowest index on ties within the thread's own stripe.
+    float best = -1.0 / 0.0; // -inf
+    uint bidx = 0u;
+    for (uint i = tid; i < p.vocab; i += 256u) {
+        float v = logits[i];
+        if (v > best) { best = v; bidx = i; }
+    }
+    sval[tid] = best;
+    sidx[tid] = bidx;
+    barrier();
+
+    // Tree reduction: keep the greater value; on equal value keep the lower index.
+    for (uint s = 128u; s > 0u; s >>= 1u) {
+        if (tid < s) {
+            float ov = sval[tid + s];
+            uint oi = sidx[tid + s];
+            if (ov > sval[tid] || (ov == sval[tid] && oi < sidx[tid])) {
+                sval[tid] = ov;
+                sidx[tid] = oi;
+            }
+        }
+        barrier();
+    }
+
+    if (tid == 0u) out_idx[0] = sidx[0];
+}

@@ -1,0 +1,16 @@
+# Build environment for the `shaderc` build-dependency (gh_zero_engine, M2).
+#
+# `shaderc-sys` compiles a bundled glslang/SPIRV-Tools from source. On recent
+# toolchains this needs two overrides, otherwise the build of libshaderc fails
+# before any crate code is reached:
+#   - CMAKE_POLICY_VERSION_MINIMUM: CMake >= 4 dropped compatibility with the
+#     <3.5 policy the bundled CMakeLists declare.
+#   - CXXFLAGS=-include cstdint: the bundled glslang snapshot uses uint32_t in
+#     SpvBuilder.h without including <cstdint>; gcc >= 13 no longer pulls it in
+#     transitively, so it must be force-included. C-only crates (openssl-sys)
+#     are left untouched because cstdint is a C++ header — set CXXFLAGS only,
+#     never CFLAGS.
+# Adjust or remove these if your toolchain builds libshaderc cleanly.
+[env]
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+CXXFLAGS = "-include cstdint"

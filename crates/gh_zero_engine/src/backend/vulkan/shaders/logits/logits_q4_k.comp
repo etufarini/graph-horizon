@@ -1,0 +1,62 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q4_K logits projection with FP32 vocab-sized output, used when the lm_head
+// (output.weight) is Q4_K. Dequantization follows GGML Q4_K block order.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };  // [in_dim]
+layout(std430, binding = 1) readonly buffer W { uint q[]; };       // Q4_K bytes
+layout(std430, binding = 2) writeonly buffer Y { float y[]; };     // [out_dim]
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((lo >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint nsb = p.in_dim / 256u;
+    float acc = 0.0;
+    for (uint s = 0u; s < nsb; s++) {
+        uint blk = (o * nsb + s) * 144u;
+        float d = hf(blk);
+        float dmin = hf(blk + 2u);
+        uint sco = blk + 4u;
+        uint qso = blk + 16u;
+        uint abase = s * 256u;
+        uint is = 0u;
+        uint qb = 0u;
+        for (uint j = 0u; j < 256u; j += 64u) {
+            uint sc1, mn1, sc2, mn2;
+            scale_min(sco, is, sc1, mn1);
+            scale_min(sco, is + 1u, sc2, mn2);
+            float d1 = d * float(sc1);
+            float m1 = dmin * float(mn1);
+            float d2 = d * float(sc2);
+            float m2 = dmin * float(mn2);
+            for (uint l = 0u; l < 32u; l++) {
+                uint qv = gb(qso + qb + l);
+                acc += (d1 * float(qv & 0xFu) - m1) * float(a[abase + j + l]);
+                acc += (d2 * float(qv >> 4u) - m2) * float(a[abase + j + 32u + l]);
+            }
+            qb += 32u;
+            is += 2u;
+        }
+    }
+    y[o] = acc;
+}

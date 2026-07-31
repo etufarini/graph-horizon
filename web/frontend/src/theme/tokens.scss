@@ -1,0 +1,90 @@
+/*
+ * Static Web UI theme contract consumed by global and component styles.
+ * This file owns changeable visual values, but no layout selectors or runtime
+ * theme switching.
+ */
+:root {
+  /* Surfaces, text, and state colors. */
+  --gn-bg-page: #fbfbf8;
+  --gn-bg-panel: #f5f4ef;
+  --gn-bg-panel-raised: #ebe9e0;
+  --gn-text-primary: #151524;
+  --gn-text-muted: #56566c;
+  --gn-border: #151524;
+  --gn-accent: #ff5229;
+  --gn-accent-bright: #ff8204;
+  --gn-accent-ink: #933800;
+  --gn-user-bg: #ffdccf;
+  --gn-user-border: #b75002;
+  --gn-streaming: #ffaf01;
+  --gn-ready: #44ba82;
+  --gn-ready-ink: #055737;
+  --gn-link: #044298;
+  --gn-link-hover-bg: #b9daff;
+  --gn-link-vivid: #55b3fb;
+  --gn-error-vivid: #e51300;
+  --gn-error-fg: #c4001d;
+  --gn-error-bg: #fff0eb;
+  --gn-error-border: #c4001d;
+  --gn-decorative-pink: #ff92dc;
+
+  /* Sanitized Markdown syntax roles. */
+  --gn-syntax-keyword: #044298;
+  --gn-syntax-string: #055737;
+  --gn-syntax-number: #933800;
+  --gn-syntax-comment: #56566c;
+  --gn-syntax-title: #83075c;
+  --gn-syntax-variable: #c4001d;
+
+  /* Composer branding and its seven equal, hard-edged color segments. */
+  --gn-composer-logo-size: 32px;
+  --gn-composer-logo-size-mobile: 28px;
+  --gn-color-rail-height: 4px;
+  --gn-color-rail: linear-gradient(
+    to right,
+    var(--gn-error-vivid) 0 calc(100% / 7),
+    var(--gn-accent) calc(100% / 7) calc(200% / 7),
+    var(--gn-accent-bright) calc(200% / 7) calc(300% / 7),
+    var(--gn-streaming) calc(300% / 7) calc(400% / 7),
+    var(--gn-decorative-pink) calc(400% / 7) calc(500% / 7),
+    var(--gn-link-vivid) calc(500% / 7) calc(600% / 7),
+    var(--gn-ready) calc(600% / 7) 100%
+  );
+
+  /* Square pixel geometry and hard shadows. */
+  --gn-radius-sm: 0;
+  --gn-radius-md: 0;
+  --gn-border-width: 2px;
+  --gn-rule-width: 1px;
+  --gn-cut-size: 8px;
+  --gn-panel-clip: polygon(
+    0 0,
+    calc(100% - var(--gn-cut-size)) 0,
+    100% var(--gn-cut-size),
+    100% 100%,
+    0 100%
+  );
+  --gn-shadow-small: 2px 2px 0 var(--gn-border);
+  --gn-shadow-hard: 4px 4px 0 var(--gn-border);
+  --gn-focus-ring: 0 0 0 3px var(--gn-border);
+  --gn-focus-inset: inset 0 0 0 2px var(--gn-border);
+  /* Motion is centralized so reduced-motion rules can disable every effect. */
+  --gn-motion-fast: 150ms;
+  --gn-motion-pulse: 1200ms;
+  --gn-motion-idle: 2400ms;
+  --gn-motion-low-opacity: 0.35;
+
+  /* Existing spacing, font, type, and line-height scales stay unchanged. */
+  --gn-space-xs: 4px;
+  --gn-space-sm: 8px;
+  --gn-space-md: 12px;
+  --gn-space-lg: 16px;
+  --gn-space-xl: 24px;
+  --gn-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --gn-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --gn-text-xs: 0.75rem;
+  --gn-text-sm: 0.85rem;
+  --gn-text-md: 0.95rem;
+  --gn-text-lg: 1.2rem;
+  --gn-line-height: 1.55;
+}

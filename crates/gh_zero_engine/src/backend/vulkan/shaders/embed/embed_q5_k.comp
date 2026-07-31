@@ -1,0 +1,66 @@
+#version 450
+
+// Q5_K embedding lookup: dequantizes one row (`row`) of a Q5_K token_embd tensor
+// [vocab, embd] into the FP32 residual stream. The row is `embd` contiguous weights
+// = embd/256 Q5_K super-blocks (176 bytes each) at block index row*(embd/256). One
+// invocation per super-block, writing its 256 dequantized f32 values. Mirrors the
+// Q5_K dequant order used by the matching dense projection.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer W { uint q[]; };     // Q5_K bytes
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };   // [embd] FP32 x
+
+layout(push_constant) uniform P { uint row; uint embd; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((gb(sco + j) >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint s = gl_GlobalInvocationID.x;
+    uint nsb = p.embd / 256u;
+    if (s >= nsb) return;
+    uint blk = (p.row * nsb + s) * 176u;
+    float d = hf(blk);
+    float dmin = hf(blk + 2u);
+    uint sco = blk + 4u;             // scales[12]
+    uint qho = blk + 16u;            // qh[32]
+    uint qso = blk + 48u;            // qs[128]
+    uint obase = s * 256u;
+    uint is = 0u;
+    uint qb = 0u;
+    uint u = 0u;
+    for (uint j = 0u; j < 256u; j += 64u) {
+        uint sc1, mn1, sc2, mn2;
+        scale_min(sco, is, sc1, mn1);
+        scale_min(sco, is + 1u, sc2, mn2);
+        float d1 = d * float(sc1);
+        float m1 = dmin * float(mn1);
+        float d2 = d * float(sc2);
+        float m2 = dmin * float(mn2);
+        uint u1 = 1u << u;
+        uint u2 = 1u << (u + 1u);
+        for (uint l = 0u; l < 32u; l++) {
+            uint qv = gb(qso + qb + l);
+            uint qh = gb(qho + l);
+            float lo = float((qv & 0xFu) + ((qh & u1) != 0u ? 16u : 0u));
+            float hi = float((qv >> 4u) + ((qh & u2) != 0u ? 16u : 0u));
+            y[obase + j + l] = d1 * lo - m1;
+            y[obase + j + 32u + l] = d2 * hi - m2;
+        }
+        qb += 32u;
+        is += 2u;
+        u += 2u;
+    }
+}

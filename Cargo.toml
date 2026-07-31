@@ -1,0 +1,48 @@
+[workspace]
+members = [".", "crates/gh_zero_engine"]
+resolver = "3"
+
+[package]
+name = "gh_zero_cli"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+# Forward the backend choice down to gh_zero_engine. A bare build selects
+# `hybrid`; explicit builds may select `vulkan`, `cpu`, or `hybrid`. Enabling
+# `vulkan` and `cpu` manually without `hybrid` is rejected. `cpu` is the portable
+# reference backend.
+vulkan = ["gh_zero_engine/vulkan"]
+cpu = ["gh_zero_engine/cpu"]
+# Build that compiles both backends together for the GPU/CPU split runtime.
+hybrid = ["gh_zero_engine/hybrid"]
+default = ["hybrid"]
+
+# Maximum-performance build profile, used by `support/install.sh --profile fast`.
+# Inherits `release` and adds fat LTO + a single codegen unit so the compiler can
+# fully inline and auto-vectorize the scalar CPU kernels. Slower to compile;
+# meant for optimized runs, not day-to-day dev.
+[profile.fast]
+inherits = "release"
+lto = true
+codegen-units = 1
+
+[dependencies]
+gh_zero_engine = { path = "crates/gh_zero_engine", default-features = false }
+color-eyre = "0.6.5"
+crossterm = "0.29.0"
+ratatui = "0.30.0"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "gzip", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+unicode-width = "0.2"
+tokio = { version = "1.52.1", features = ["full"] }
+tokio-stream = "0.1"
+# Server mode (`--mode server`). Already present in Cargo.lock as
+# transitive deps of reqwest, so they add no new crate to compile; declared here
+# only to use them directly. `hyper` needs the server+http1 features and
+# `hyper-util` the tokio runtime adapter (TokioIo) for the accept loop.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+bytes = "1"

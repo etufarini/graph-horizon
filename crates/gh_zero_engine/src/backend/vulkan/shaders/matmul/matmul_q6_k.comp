@@ -1,0 +1,60 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q6_K matmul: y = W * a, batch 1. W is row-major [out_dim, in_dim], stored as
+// ggml Q6_K super-blocks (256 weights, 210 bytes), dequantized on the fly. One
+// invocation per output row; FP32 accumulation, FP16 result.
+//
+// Q6_K block (210 bytes): ql[128] (low 4 bits) | qh[64] (high 2 bits) |
+// scales[16] (int8) | d(f16). Each 6-bit quant q is (ql_nibble | qh_2bits<<4),
+// recentered by -32, scaled by d * scales[is]. Dequant order is the natural
+// in-dimension order, so weight i pairs with activation a[i].
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [in_dim]
+layout(std430, binding = 1) readonly buffer W { uint q[]; };        // Q6_K bytes
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+// Signed int8 scale at byte b.
+int s8(uint b) { int v = int(gb(b)); return v >= 128 ? v - 256 : v; }
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint nsb = p.in_dim / 256u;
+    float acc = 0.0;
+    for (uint s = 0u; s < nsb; s++) {
+        uint blk = (o * nsb + s) * 210u;
+        uint qlo = blk;             // ql[128]
+        uint qho = blk + 128u;      // qh[64]
+        uint sco = blk + 192u;      // scales[16] (int8)
+        float d = hf(blk + 208u);   // super-block scale
+        uint abase = s * 256u;
+        for (uint n = 0u; n < 256u; n += 128u) {
+            uint seg = n / 128u;
+            uint qlb = qlo + seg * 64u;
+            uint qhb = qho + seg * 32u;
+            uint scb = sco + seg * 8u;
+            for (uint l = 0u; l < 32u; l++) {
+                uint is = l / 16u;
+                uint lo0 = gb(qlb + l);
+                uint lo1 = gb(qlb + l + 32u);
+                uint h = gb(qhb + l);
+                int q1 = int((lo0 & 0xFu) | (((h >> 0u) & 3u) << 4u)) - 32;
+                int q2 = int((lo1 & 0xFu) | (((h >> 2u) & 3u) << 4u)) - 32;
+                int q3 = int((lo0 >> 4u) | (((h >> 4u) & 3u) << 4u)) - 32;
+                int q4 = int((lo1 >> 4u) | (((h >> 6u) & 3u) << 4u)) - 32;
+                acc += d * float(s8(scb + is + 0u)) * float(q1) * float(a[abase + n + l + 0u]);
+                acc += d * float(s8(scb + is + 2u)) * float(q2) * float(a[abase + n + l + 32u]);
+                acc += d * float(s8(scb + is + 4u)) * float(q3) * float(a[abase + n + l + 64u]);
+                acc += d * float(s8(scb + is + 6u)) * float(q4) * float(a[abase + n + l + 96u]);
+            }
+        }
+    }
+    y[o] = float16_t(acc);
+}

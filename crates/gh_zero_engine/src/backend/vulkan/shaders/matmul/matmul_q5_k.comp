@@ -1,0 +1,77 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q5_K matmul: y = W * a, batch 1. W is row-major [out_dim, in_dim], stored as
+// ggml Q5_K super-blocks (256 weights, 176 bytes), dequantized on the fly. One
+// invocation per output row; FP32 accumulation (matches the reference implementation), FP16 result.
+//
+// Q5_K block (176 bytes): d(f16) | dmin(f16) | scales[12] | qh[32] | qs[128].
+// Identical to Q4_K (same get_scale_min_k4 scales, same low-4-bit qs nibbles)
+// plus one high bit per quant from qh[32]: sub-block pair `p` (0..3) uses bit 2*p
+// for the even sub-block and bit 2*p+1 for the odd one. Mirror of the CPU
+// dequant_row_q5_k (single source of truth for the layout).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [in_dim]
+layout(std430, binding = 1) readonly buffer W { uint q[]; };        // Q5_K bytes
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((gb(sco + j) >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint nsb = p.in_dim / 256u;
+    float acc = 0.0;
+    for (uint s = 0u; s < nsb; s++) {
+        uint blk = (o * nsb + s) * 176u; // byte base of this Q5_K block
+        float d = hf(blk);
+        float dmin = hf(blk + 2u);
+        uint sco = blk + 4u;             // scales[12]
+        uint qho = blk + 16u;            // qh[32]
+        uint qso = blk + 48u;            // qs[128]
+        uint abase = s * 256u;
+        uint is = 0u;
+        uint qb = 0u;
+        uint u = 0u;                     // even sub-block's high-bit index
+        for (uint j = 0u; j < 256u; j += 64u) {
+            uint sc1, mn1, sc2, mn2;
+            scale_min(sco, is, sc1, mn1);
+            scale_min(sco, is + 1u, sc2, mn2);
+            float d1 = d * float(sc1);
+            float m1 = dmin * float(mn1);
+            float d2 = d * float(sc2);
+            float m2 = dmin * float(mn2);
+            uint u1 = 1u << u;
+            uint u2 = 1u << (u + 1u);
+            for (uint l = 0u; l < 32u; l++) {
+                uint qv = gb(qso + qb + l);
+                uint qh = gb(qho + l);
+                float lo = float((qv & 0xFu) + ((qh & u1) != 0u ? 16u : 0u));
+                float hi = float((qv >> 4u) + ((qh & u2) != 0u ? 16u : 0u));
+                acc += (d1 * lo - m1) * float(a[abase + j + l]);
+                acc += (d2 * hi - m2) * float(a[abase + j + 32u + l]);
+            }
+            qb += 32u;
+            is += 2u;
+            u += 2u;
+        }
+    }
+    y[o] = float16_t(acc);
+}

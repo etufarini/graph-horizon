@@ -1,0 +1,69 @@
+#version 450
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Dense FP16-output MMVQ decode GEMV. It multiplies Q4_K weights by Q8_1
+// activations with DP4A and FP32 accumulation, then narrows binding 3 on store.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Qs { uint qa[]; };      // [in_dim/4] packed int8 Q8_1
+layout(std430, binding = 1) readonly buffer Ds { float ds[]; };     // [2 per block] (d, s)
+layout(std430, binding = 2) readonly buffer W { uint q[]; };        // Q4_K bytes
+layout(std430, binding = 3) writeonly buffer Y { float16_t y[]; };  // [out_dim] f16
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((gb(sco + j) >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint o = gl_GlobalInvocationID.x;
+    if (o >= p.out_dim) return;
+    uint nsb = p.in_dim / 256u;
+    float acc = 0.0;
+    for (uint s = 0u; s < nsb; s++) {
+        uint blk = (o * nsb + s) * 144u;
+        float d_sb = hf(blk);
+        float dmin_sb = hf(blk + 2u);
+        uint sco = blk + 4u;
+        uint qso = blk + 16u;
+        uint is = 0u;
+        uint qb = 0u;
+        for (uint jj = 0u; jj < 4u; jj++) {
+            for (uint sub = 0u; sub < 2u; sub++) {
+                uint sbi = is + sub;
+                uint sc, mn;
+                scale_min(sco, sbi, sc, mn);
+                uint ab = s * 8u + sbi;
+                float d_a = ds[ab * 2u];
+                float s_a = ds[ab * 2u + 1u];
+                int dot = 0;
+                for (uint g = 0u; g < 8u; g++) {
+                    uint wq = 0u;
+                    for (uint t = 0u; t < 4u; t++) {
+                        uint byteval = gb(qso + qb + g * 4u + t);
+                        uint qv = (sub == 0u) ? (byteval & 0xFu) : (byteval >> 4u);
+                        wq |= (qv & 0xFFu) << (t * 8u);
+                    }
+                    dot = dotPacked4x8AccSatEXT(int(wq), int(qa[ab * 8u + g]), dot);
+                }
+                acc += d_sb * float(sc) * d_a * float(dot) - dmin_sb * float(mn) * s_a;
+            }
+            qb += 32u;
+            is += 2u;
+        }
+    }
+    y[o] = float16_t(acc);
+}

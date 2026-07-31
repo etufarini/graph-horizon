@@ -1,0 +1,37 @@
+[package]
+name = "gh_zero_engine"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+# Mutually-exclusive backends; exactly one must be enabled (enforced by
+# backend/mod.rs). The crate has no default so consumers choose one. The root
+# binary defaults to `hybrid`; `cpu` remains the portable reference.
+vulkan = ["dep:ash", "dep:shaderc"]
+cpu = []
+# Enables both backends in the same build (pulls in `ash`/`shaderc` like
+# `vulkan`). The split runtime orchestrates the two concrete backends.
+hybrid = ["vulkan", "cpu"]
+
+[dependencies]
+# Optional GPU bindings, gated by the matching feature.
+ash = { version = "0.38", optional = true }
+color-eyre = "0.6.5"
+memmap2 = "0.9"
+serde_json = "1"
+
+# build-time only: compiles the GLSL .comp compute shaders to SPIR-V via
+# libshaderc (bundled). Not a runtime dependency; only used by the `vulkan`
+# feature (the `cpu` build must not require it).
+#
+# `build-from-source` is REQUIRED, not an optimization: without it shaderc-sys
+# prefers a system libshaderc when one is present, and on Debian/Ubuntu the
+# packaged `libshaderc_combined.a` is not self-contained (glslang ships as a
+# separate `libglslang.a` that shaderc-sys never links), so the build script
+# fails to link with undefined `glslang::TShader::*` symbols. Forcing the
+# bundled source build makes linking deterministic on every host; the cmake
+# overrides this build needs live in `.cargo/config.toml`.
+[build-dependencies]
+# 0.9+ bundles a glslang new enough for GL_EXT_shader_integer_dot_product (dp4a),
+# used by the int8 Q4_K GEMV. Version bump of an existing build-dep, not a new dep.
+shaderc = { version = "0.9", optional = true, features = ["build-from-source"] }

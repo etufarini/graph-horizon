@@ -1,0 +1,74 @@
+/*
+ * Document surface, application shell, shared panel, and scrollbar styling.
+ * Component presentation remains scoped; every visual value comes from the
+ * static theme contract in tokens.scss.
+ */
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--gn-bg-page);
+  color: var(--gn-text-primary);
+  font-family: var(--gn-font-sans);
+  font-size: var(--gn-text-md);
+  line-height: var(--gn-line-height);
+  /* The page itself never scrolls: only the transcript does. */
+  overflow: hidden;
+}
+
+.app-shell {
+  /* Fixed to the viewport height so the composer can never leave the window. */
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  justify-content: center;
+  padding: var(--gn-space-lg) var(--gn-space-xl);
+}
+
+/* Shared square surface for panels that do not own component-specific rules. */
+.gn-panel {
+  background: var(--gn-bg-panel);
+  border: var(--gn-border-width) solid var(--gn-border);
+  border-radius: var(--gn-radius-sm);
+  clip-path: var(--gn-panel-clip);
+}
+
+/* Pixel scrollbars stay rectangular and inherit the light theme surfaces. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gn-border) var(--gn-bg-page);
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--gn-bg-page);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--gn-border);
+  border-radius: var(--gn-radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 720px) {
+  .app-shell {
+    padding: var(--gn-space-md);
+  }
+}

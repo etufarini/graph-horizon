@@ -1,0 +1,127 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// f16-in / f16-out batched Q4_K GEMM for the prefill path: Y = W * A over n columns
+// (prompt tokens) in ONE dispatch, so each Q4_K weight row is read/dequantized ONCE
+// for the whole batch instead of once per token (the per-token matmul_batched loop
+// re-read every weight n times, which is the prefill weight-bandwidth bottleneck).
+// Tiled Q4_K dequantization feeds FP32 accumulation and FP16 output, so this is
+// a drop-in replacement for the per-token matmul_batched output. FP32
+// accumulation; the result equals the per-token GEMV within Q4_K tolerance (the K-sum
+// is grouped in TK strips here vs per-super-block there) and the f16 output rounding
+// is identical to the per-token path within the existing numeric tolerance.
+//
+// Layout: A POSITION/TOKEN-MAJOR float16_t a[col*in_dim + k]; Y float16_t
+// y[col*out_dim + o] (same token-major [n][out_dim] the per-token path writes); W
+// Q4_K row-major, in_dim a multiple of 256. Grid is 2D (row-tile, col-tile) =
+// (out_dim/64, n/64).
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [n][in_dim] token-major
+layout(std430, binding = 1) readonly buffer W { uint q[]; };        // Q4_K bytes
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [n][out_dim] token-major
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
+
+const uint TILE_ROWS = 64u;
+const uint TILE_COLS = 64u;
+// K-strip staged per barrier round. TK only sets the tiling — the accumulation still
+// runs sequentially over k=0..in_dim, so the result is bit-identical for any TK that
+// divides in_dim (always a multiple of 256 for Q4_K, so 16/32/64 all divide evenly).
+// TK=32 measured fastest on the large batched prefill case: it halves the stage+2-barrier
+// rounds of TK=16 while keeping occupancy (TK=64's 32 KB of shared regressed it).
+const uint TK = 32u;
+const uint TM = 4u;
+const uint TN = 4u;
+const uint THREADS_X = 16u;
+
+shared float ws[TILE_ROWS * TK];
+shared float as_[TILE_COLS * TK];
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((gb(sco + j) >> 6u) << 4u);
+    }
+}
+
+float dequant_w(uint row, uint k, uint nsb) {
+    uint s = k >> 8u;
+    uint kk = k & 255u;
+    uint blk = (row * nsb + s) * 144u;
+    float d = hf(blk);
+    float dmin = hf(blk + 2u);
+    uint sco = blk + 4u;
+    uint qso = blk + 16u;
+    uint jb = kk >> 6u;
+    uint rem = kk & 63u;
+    uint sub = jb * 2u + (rem >> 5u);
+    uint l = rem & 31u;
+    uint byteval = gb(qso + jb * 32u + l);
+    uint qv = (rem < 32u) ? (byteval & 0xFu) : (byteval >> 4u);
+    uint sc, mn;
+    scale_min(sco, sub, sc, mn);
+    return d * float(sc) * float(qv) - dmin * float(mn);
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint nsb = p.in_dim / 256u;
+    uint row_base = gl_WorkGroupID.x * TILE_ROWS;
+    uint col_base = gl_WorkGroupID.y * TILE_COLS;
+
+    uint tr = tid / THREADS_X;
+    uint tc = tid % THREADS_X;
+
+    float acc[TM][TN];
+    for (uint m = 0u; m < TM; m++)
+        for (uint nn = 0u; nn < TN; nn++)
+            acc[m][nn] = 0.0;
+
+    for (uint kbase = 0u; kbase < p.in_dim; kbase += TK) {
+        for (uint li = tid; li < TILE_ROWS * TK; li += 256u) {
+            uint row = li / TK;
+            uint kk = li % TK;
+            uint grow = row_base + row;
+            ws[li] = (grow < p.out_dim) ? dequant_w(grow, kbase + kk, nsb) : 0.0;
+        }
+        for (uint li = tid; li < TILE_COLS * TK; li += 256u) {
+            uint col = li / TK;
+            uint kk = li % TK;
+            uint gcol = col_base + col;
+            as_[li] = (gcol < p.n) ? float(a[gcol * p.in_dim + kbase + kk]) : 0.0;
+        }
+        barrier();
+
+        for (uint kk = 0u; kk < TK; kk++) {
+            float wreg[TM];
+            for (uint m = 0u; m < TM; m++)
+                wreg[m] = ws[(tr * TM + m) * TK + kk];
+            for (uint nn = 0u; nn < TN; nn++) {
+                float areg = as_[(tc * TN + nn) * TK + kk];
+                for (uint m = 0u; m < TM; m++)
+                    acc[m][nn] += wreg[m] * areg;
+            }
+        }
+        barrier();
+    }
+
+    for (uint m = 0u; m < TM; m++) {
+        uint grow = row_base + tr * TM + m;
+        if (grow >= p.out_dim) continue;
+        for (uint nn = 0u; nn < TN; nn++) {
+            uint gcol = col_base + tc * TN + nn;
+            if (gcol < p.n)
+                y[gcol * p.out_dim + grow] = float16_t(acc[m][nn]);
+        }
+    }
+}

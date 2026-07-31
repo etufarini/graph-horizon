@@ -1,0 +1,118 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// INT8 variant of attention_decode.comp: same causal GQA online-softmax and
+// KV-parallel structure (see that file for the layout/invariant notes), but
+// the K-dot and V-axpy element reads dequantize u8 codes on the fly with the
+// group's (min, scale) metadata, fetched ONCE per (token, kv_head) group.
+// Caches are bound as uint words: payload byte j of a vector lives in bits
+// 8*(j%4) of word (base+j)/4; the metadata word at meta_base + vec_idx*4 is
+// min_bits | scale_bits<<16 (f16 pairs, kv_cache/int8.rs layout).
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };   // [q_heads*head_dim]
+layout(std430, binding = 1) readonly buffer KC { uint kc[]; };
+layout(std430, binding = 2) readonly buffer VC { uint vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };  // [q_heads*head_dim]
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    uint meta_base; // BYTE base of the metadata region (kv.meta_base())
+    float scale;
+} p;
+
+const uint MAX_DPL = 8u;
+const uint MAX_G = 8u;
+
+shared float sh_m[MAX_G];
+shared float sh_l[MAX_G];
+shared float sh_acc[MAX_G * 128u];
+
+// u8 code `byte_idx` of the cache bound as words (little-endian bytes).
+float code_at(bool is_k, uint byte_idx) {
+    uint w = is_k ? kc[byte_idx >> 2] : vc[byte_idx >> 2];
+    return float((w >> ((byte_idx & 3u) * 8u)) & 0xFFu);
+}
+
+// The (min, scale) pair of vector `vec_idx`, widened from the f16 metadata.
+vec2 meta_at(bool is_k, uint vec_idx) {
+    uint word_idx = (p.meta_base + vec_idx * 4u) >> 2;
+    uint m = is_k ? kc[word_idx] : vc[word_idx];
+    return vec2(float(uint16BitsToFloat16(uint16_t(m & 0xFFFFu))),
+                float(uint16BitsToFloat16(uint16_t(m >> 16))));
+}
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    if (h >= p.q_heads) return;
+
+    uint S = gl_SubgroupSize;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint l = gl_SubgroupInvocationID;
+
+    uint group = p.q_heads / p.kv_heads;  // GQA ratio
+    uint kvh = h / group;
+
+    float qd[MAX_DPL];
+    float acc[MAX_DPL];
+    uint dpl = 0u;
+    for (uint j = 0u; j < MAX_DPL; j++) {
+        uint d = l + j * S;
+        qd[j] = (d < p.head_dim) ? float(q[h * p.head_dim + d]) : 0.0;
+        acc[j] = 0.0;
+        if (d < p.head_dim) dpl = j + 1u;
+    }
+
+    float m_g = -1e30;
+    float l_g = 0.0;
+    for (uint t = g; t <= p.pos; t += G) {
+        uint vec_idx = (p.layer * p.context + t) * p.kv_heads + kvh;
+        uint kbase = vec_idx * p.head_dim; // BYTE base of the vector's codes
+        vec2 km = meta_at(true, vec_idx);
+        float prod = 0.0;
+        for (uint j = 0u; j < dpl; j++) {
+            prod += qd[j] * (km.x + code_at(true, kbase + l + j * S) * km.y);
+        }
+        float score = subgroupAdd(prod) * p.scale;
+        float m_new = max(m_g, score);
+        float alpha = exp(m_g - m_new);
+        float pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        vec2 vm = meta_at(false, vec_idx);
+        for (uint j = 0u; j < dpl; j++) {
+            acc[j] = acc[j] * alpha + pw * (vm.x + code_at(false, kbase + l + j * S) * vm.y);
+        }
+        m_g = m_new;
+    }
+
+    if (subgroupElect()) { sh_m[g] = m_g; sh_l[g] = l_g; }
+    for (uint j = 0u; j < dpl; j++) {
+        sh_acc[g * p.head_dim + l + j * S] = acc[j];
+    }
+    barrier();
+
+    if (g == 0u) {
+        float m_glob = -1e30;
+        for (uint gg = 0u; gg < G; gg++) { m_glob = max(m_glob, sh_m[gg]); }
+        float l_glob = 0.0;
+        for (uint gg = 0u; gg < G; gg++) { l_glob += sh_l[gg] * exp(sh_m[gg] - m_glob); }
+        for (uint j = 0u; j < dpl; j++) {
+            uint d = l + j * S;
+            float num = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                num += sh_acc[gg * p.head_dim + d] * exp(sh_m[gg] - m_glob);
+            }
+            o[h * p.head_dim + d] = float16_t(num / l_glob);
+        }
+    }
+}

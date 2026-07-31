@@ -1,0 +1,40 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// RMSNorm of the FP32 residual stream into an FP16 output:
+//   out[i] = x[i] / sqrt(mean(x^2) + eps) * weight[i].
+// Identical to rmsnorm.comp but the input x is FP32 (the residual stream is kept
+// in FP32 to avoid FP16 overflow on the model.s massive activations). The output is
+// FP16 because the normalized value is O(1) and feeds the FP16 matmuls. One
+// workgroup over the single hidden row (rows = 1).
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer X { float x[]; };
+layout(std430, binding = 1) readonly buffer Wt { float16_t wt[]; };
+layout(std430, binding = 2) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P { uint n; float eps; } p;
+
+shared float red[256];
+
+void main() {
+    uint base = gl_WorkGroupID.x * p.n;
+    uint tid = gl_LocalInvocationID.x;
+
+    float sum = 0.0;
+    for (uint i = tid; i < p.n; i += 256u) {
+        float v = x[base + i];
+        sum += v * v;
+    }
+    red[tid] = sum;
+    barrier();
+    for (uint s = 128u; s > 0u; s >>= 1u) {
+        if (tid < s) red[tid] += red[tid + s];
+        barrier();
+    }
+    float inv = inversesqrt(red[0] / float(p.n) + p.eps);
+    for (uint i = tid; i < p.n; i += 256u) {
+        o[base + i] = float16_t(x[base + i] * inv * float(wt[i]));
+    }
+}

@@ -1,0 +1,38 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// Q8_0 embedding lookup: dequantizes one row (`row`) of the Q8_0 token_embd
+// tensor [vocab, embd] into the FP32 residual stream (x). The row is `embd`
+// contiguous weights = embd/32 Q8_0 blocks at block index row*(embd/32).
+//
+// Q8_0 block (34 bytes): d(f16) | 32 int8 q. Dequant x_i = d * q_i (signed int8),
+// the multiplication done in FP32. One invocation per block, writing its 32
+// dequantized values. GLSL port of embed_q4_k.comp with a 32-element block
+// instead of the 256-element K super-block (Q8_0 has no sub-blocks nor mins).
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer W { uint q[]; };     // Q8_0 bytes
+layout(std430, binding = 1) writeonly buffer Y { float y[]; };   // [embd] FP32 x
+
+layout(push_constant) uniform P { uint row; uint embd; } p;
+
+// One byte at absolute byte address b within the raw weight buffer.
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+// FP16 at byte address b (two little-endian bytes) decoded to FP32.
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void main() {
+    uint s = gl_GlobalInvocationID.x;
+    uint nb = p.embd / 32u;                 // blocks per row
+    if (s >= nb) return;
+    uint blk = (p.row * nb + s) * 34u;      // byte base of this Q8_0 block
+    float d = hf(blk);
+    uint qso = blk + 2u;                    // 32 int8 quants
+    uint obase = s * 32u;
+    for (uint l = 0u; l < 32u; l++) {
+        // Sign-extend the 8-bit quant to a signed value before scaling.
+        int qv = bitfieldExtract(int(gb(qso + l)), 0, 8);
+        y[obase + l] = d * float(qv);
+    }
+}

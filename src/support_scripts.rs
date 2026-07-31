@@ -265,6 +265,7 @@ fn support_scripts_reject_invalid_values_before_execution() {
             vec!["--backend", "invalid", "--context", "1"],
         ),
         ("support/profiling/validate-weights.sh", vec!["--unknown"]),
+        ("support/testing/semantic-check.sh", vec!["--unknown"]),
         (
             "support/testing/run-ghzero-engine.sh",
             vec![
@@ -349,6 +350,7 @@ fn assert_scripts_quote_model_variables(root: &Path) {
         "support/profiling/validate-weights.sh",
         "support/testing/matrix-check.sh",
         "support/testing/parity-check.sh",
+        "support/testing/semantic-check.sh",
         "support/testing/run-ghzero-engine.sh",
     ] {
         let source = fs::read_to_string(root.join(relative)).unwrap();
@@ -1178,5 +1180,198 @@ exit 1
     assert!(source.contains("for backend in cpu vulkan hybrid"));
     assert!(source.contains("for kv in f16 int8"));
     assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn semantic_script_contract() {
+    use std::collections::HashSet;
+
+    let fixture = fixture_dir("semantic script");
+    let copied_root = fixture.join("copied repository");
+    let testing = copied_root.join("support/testing");
+    let models = fixture.join("-models with spaces");
+    let bin = fixture.join("bin");
+    let calls = fixture.join("cargo calls");
+    fs::create_dir_all(&testing).unwrap();
+    fs::create_dir_all(&models).unwrap();
+    fs::create_dir(&bin).unwrap();
+    fs::copy(
+        repository().join("support/testing/semantic-check.sh"),
+        testing.join("semantic-check.sh"),
+    )
+    .unwrap();
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv"),
+    )
+    .unwrap();
+
+    let rows = parse_catalog(include_str!("../support/models.tsv")).unwrap();
+    for row in &rows {
+        fs::write(models.join(row.q4_file), b"immutable semantic fixture").unwrap();
+    }
+    let stat = bin.join("stat");
+    let sha256sum = bin.join("sha256sum");
+    let cargo = bin.join("cargo");
+    fs::write(
+        &stat,
+        r#"#!/usr/bin/env bash
+set -eu
+model="${!#}"
+if [[ -n "${SEMANTIC_STUB_BAD_SIZE:-}" && "$model" == *"$SEMANTIC_STUB_BAD_SIZE"* ]]; then echo 1; exit 0; fi
+case "$model" in
+    *3B-Instruct*) echo 2147023008 ;; *3B-Reasoning*) echo 2147021472 ;;
+    *8B-Instruct*) echo 5198911904 ;; *8B-Reasoning*) echo 5198910368 ;;
+    *14B-Instruct*) echo 8239593024 ;; *14B-Reasoning*) echo 8239591488 ;;
+esac
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &sha256sum,
+        r#"#!/usr/bin/env bash
+set -eu
+model="${!#}"
+case "$model" in
+    *3B-Instruct*) digest=9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8 ;;
+    *3B-Reasoning*) digest=7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc ;;
+    *8B-Instruct*) digest=33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761 ;;
+    *8B-Reasoning*) digest=894aa3645ef8708a81dbe201c26105ce37c4c741252c89c5a78f81b49ac438c6 ;;
+    *14B-Instruct*) digest=824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613 ;;
+    *14B-Reasoning*) digest=fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c ;;
+esac
+printf '%s  %s\n' "$digest" "$model"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &cargo,
+        r#"#!/usr/bin/env bash
+set -eu
+printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
+printf 'semantic-summary: model_id=%s critical=6/6 total=12/12 status=pass\n' "$GH_ZERO_MODEL_ID"
+[[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
+"#,
+    )
+    .unwrap();
+    for executable in [testing.join("semantic-check.sh"), stat, sha256sum, cargo] {
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let runner = testing.join("semantic-check.sh");
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let run = |bad_size: Option<&str>, fail_id: Option<&str>| {
+        let mut command = Command::new(&runner);
+        command
+            .args(["--models-dir", models.to_str().unwrap()])
+            .env("PATH", &path)
+            .env("SEMANTIC_STUB_LOG", &calls);
+        if let Some(value) = bad_size {
+            command.env("SEMANTIC_STUB_BAD_SIZE", value);
+        }
+        if let Some(value) = fail_id {
+            command.env("SEMANTIC_STUB_FAIL_ID", value);
+        }
+        command.output().unwrap()
+    };
+
+    let complete = run(None, None);
+    assert!(complete.status.success());
+    let stdout = String::from_utf8(complete.stdout).unwrap();
+    let statuses = stdout
+        .lines()
+        .filter(|line| line.starts_with("semantic model_id="))
+        .collect::<Vec<_>>();
+    assert_eq!(statuses.len(), 6);
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
+    assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
+    let cargo_calls = fs::read_to_string(&calls).unwrap();
+    assert_eq!(cargo_calls.lines().count(), 6);
+    for (line, row) in cargo_calls.lines().zip(&rows) {
+        let fields = line.split('\t').collect::<Vec<_>>();
+        assert_eq!(fields[0], row.id);
+        assert_eq!(fields[1], models.join(row.q4_file).to_str().unwrap());
+        assert!(fields[2].contains(
+            "--no-default-features --features cpu --test semantic real_semantic_acceptance"
+        ));
+        assert!(fields[2].contains("--ignored --nocapture --exact"));
+    }
+
+    fs::remove_file(models.join(rows[0].q4_file)).unwrap();
+    fs::write(&calls, []).unwrap();
+    let missing = run(None, None);
+    assert!(missing.status.success());
+    let stdout = String::from_utf8(missing.stdout).unwrap();
+    assert!(stdout.contains(
+        "semantic model_id=3b-instruct: external verification: artifact is missing or unreadable"
+    ));
+    assert!(stdout.contains("summary: pass=5 external_verification=1 failure=0 total=6"));
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
+    fs::write(models.join(rows[0].q4_file), b"immutable semantic fixture").unwrap();
+
+    fs::write(&calls, []).unwrap();
+    let mismatch = run(Some("3B-Instruct"), None);
+    assert!(mismatch.status.success());
+    assert!(
+        String::from_utf8(mismatch.stdout)
+            .unwrap()
+            .contains("summary: pass=5 external_verification=1 failure=0 total=6")
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
+
+    fs::write(&calls, []).unwrap();
+    let failure = run(None, Some("3b-reasoning"));
+    assert_eq!(failure.status.code(), Some(1));
+    let stdout = String::from_utf8(failure.stdout).unwrap();
+    assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
+    assert!(stdout.contains("summary: pass=1 external_verification=0 failure=1 total=2"));
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
+
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv").replace('\n', "\r\n"),
+    )
+    .unwrap();
+    assert_eq!(
+        Command::new(&runner)
+            .args(["--models-dir", models.to_str().unwrap()])
+            .env("PATH", &path)
+            .output()
+            .unwrap()
+            .status
+            .code(),
+        Some(2)
+    );
+    assert_eq!(
+        Command::new(&runner)
+            .arg("--unknown")
+            .status()
+            .unwrap()
+            .code(),
+        Some(2)
+    );
+    let source =
+        fs::read_to_string(repository().join("support/testing/semantic-check.sh")).unwrap();
+    for forbidden in [
+        "curl ",
+        "wget ",
+        "eval ",
+        "--features vulkan",
+        "--features hybrid",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "semantic runner contains {forbidden}"
+        );
+    }
+    for row in &rows {
+        assert_eq!(
+            fs::read(models.join(row.q4_file)).unwrap(),
+            b"immutable semantic fixture"
+        );
+    }
     fs::remove_dir_all(fixture).unwrap();
 }

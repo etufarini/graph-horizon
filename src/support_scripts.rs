@@ -925,8 +925,11 @@ while :; do /bin/sleep 0.05; done
         "n_predict:16",
         "--host 127.0.0.1",
         "--offline",
+        "--device none",
         "--n-gpu-layers 0",
+        "--no-kv-offload",
         "--no-warmup",
+        "--ignore-eos",
         "--exact",
     ] {
         assert!(source.contains(fixed), "missing fixed contract: {fixed}");

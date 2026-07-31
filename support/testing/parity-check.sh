@@ -96,7 +96,8 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM HUP
 temporary_dir="$(mktemp -d)"
 "$reference_server" --host 127.0.0.1 --port "$reference_port" --model "$model" \
-    --ctx-size 4096 --n-gpu-layers 0 --offline --jinja --no-warmup \
+    --ctx-size 4096 --device none --n-gpu-layers 0 --no-kv-offload \
+    --offline --jinja --no-warmup --ignore-eos \
     >"$temporary_dir/server.log" 2>&1 &
 server_pid="$!"
 

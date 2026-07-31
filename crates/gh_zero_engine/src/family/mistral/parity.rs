@@ -1,8 +1,8 @@
 /*
- * gh_zero_engine — Reasoning parity acceptance boundary
+ * gh_zero_engine — shared Ministral parity acceptance boundary
  * This is the single test-only boundary between externally supplied oracle ID
- * vectors and backend-specific real-model tests. It requires exact prompt and
- * local-vector equality plus oracle top-two inclusion at every decode step.
+ * vectors and backend-specific real-model tests. Normal tokenizer/profile
+ * selection precedes exact prompt and per-step oracle top-two assertions.
  */
 
 pub(super) const USER_CONTENT: &str = "Quanto fa 17 × 19?";
@@ -34,6 +34,7 @@ pub(super) fn assert_oracle_top2(actual: &[Vec<u32>], expected: &[u32]) {
         "oracle top-two step count mismatch"
     );
     for (step, (&expected, candidates)) in expected.iter().zip(actual).enumerate() {
+        assert_eq!(candidates.len(), 2, "teacher candidates at step {step}");
         assert!(
             candidates.contains(&expected),
             "oracle completion ID absent from top two at step {step}\n\
@@ -58,9 +59,11 @@ fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32
     let ids = value
         .split(',')
         .map(|part| {
-            let part = part.trim();
             if part.is_empty() {
                 return Err(format!("{name} contains an empty ID"));
+            }
+            if !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                return Err(format!("{name} contains an invalid ID"));
             }
             part.parse::<u32>()
                 .map_err(|_| format!("{name} contains an invalid ID"))
@@ -82,14 +85,14 @@ mod tests {
     #[test]
     fn parses_strict_unsigned_decimal_ids() {
         assert_eq!(
-            parse("IDS", "1, 2,4294967295", None).unwrap(),
+            parse("IDS", "1,2,4294967295", None).unwrap(),
             [1, 2, u32::MAX]
         );
     }
 
     #[test]
     fn rejects_empty_malformed_negative_and_overflow_ids() {
-        for value in ["", "1,", "1,,2", "-1", "4294967296", "one"] {
+        for value in ["", "1,", "1,,2", "-1", "+1", "1, 2", "4294967296", "one"] {
             assert!(parse("IDS", value, None).is_err(), "{value:?}");
         }
     }
@@ -133,5 +136,14 @@ mod tests {
             .unwrap();
         assert!(message.contains("step 1"));
         assert!(message.contains("expected: 5"));
+
+        let panic = std::panic::catch_unwind(|| assert_oracle_top2(&[vec![1]], &[1]));
+        let message = panic.unwrap_err();
+        let message = message
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| message.downcast_ref::<&str>().copied())
+            .unwrap();
+        assert!(message.contains("step 0"));
     }
 }

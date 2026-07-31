@@ -264,8 +264,8 @@ mod graph {
     }
 
     #[test]
-    #[ignore = "requires an approved Reasoning model, mixed Vulkan placement, and oracle IDs"]
-    fn real_reasoning_parity() {
+    #[ignore = "requires an approved Ministral model, mixed Vulkan placement, and oracle IDs"]
+    fn real_ministral_parity() {
         let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
         let context = std::env::var("GH_ZERO_CONTEXT")
             .expect("GH_ZERO_CONTEXT required")
@@ -295,7 +295,7 @@ mod graph {
             Err(error) => panic!("Vulkan initialization failed: {error}"),
         }
         let file = GgufFile::open(std::path::Path::new(&path)).expect("open approved GGUF");
-        let contract = MistralContract::from_gguf(&file).expect("Reasoning contract");
+        let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
         let prompt = template::render(
             &[Message {
                 role: Role::User,
@@ -304,7 +304,7 @@ mod graph {
             &contract.tokenizer,
             context,
         )
-        .expect("Reasoning prompt");
+        .expect("Ministral prompt");
         parity::assert_exact("prompt IDs", &prompt, &reference.prompt);
 
         let runtime = RuntimeModel::load(
@@ -335,6 +335,7 @@ mod graph {
             }
         }
         drop(kv);
+        assert_eq!(actual.len(), parity::TOKEN_COUNT);
         let teacher =
             forward::RequestKv::new(&runtime.backend, &runtime.config, context, runtime.scheme)
                 .expect("hybrid teacher KV");
@@ -364,7 +365,7 @@ mod graph {
         );
         parity::assert_oracle_top2(&top2, &reference.completion);
         println!(
-            "reasoning-parity: local_ids={} oracle_top2=pass",
+            "ministral-parity: local_ids={} oracle_top2=pass",
             parity::csv(&actual)
         );
     }

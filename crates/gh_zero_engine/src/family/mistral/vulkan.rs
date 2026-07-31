@@ -312,8 +312,8 @@ fn real_greedy_parity() {
 }
 
 #[test]
-#[ignore = "requires an approved Reasoning model, Vulkan, and oracle IDs"]
-fn real_reasoning_parity() {
+#[ignore = "requires an approved Ministral model, Vulkan, and oracle IDs"]
+fn real_ministral_parity() {
     let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
     let context = std::env::var("GH_ZERO_CONTEXT")
         .expect("GH_ZERO_CONTEXT required")
@@ -326,7 +326,7 @@ fn real_reasoning_parity() {
         .expect("GH_ZERO_KV must be f16 or int8");
     let reference = parity::reference_vectors();
     let file = GgufFile::open(std::path::Path::new(&path)).expect("open approved GGUF");
-    let contract = MistralContract::from_gguf(&file).expect("Reasoning contract");
+    let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
     let prompt = template::render(
         &[Message {
             role: Role::User,
@@ -335,7 +335,7 @@ fn real_reasoning_parity() {
         &contract.tokenizer,
         context,
     )
-    .expect("Reasoning prompt");
+    .expect("Ministral prompt");
     parity::assert_exact("prompt IDs", &prompt, &reference.prompt);
 
     let model = match MistralModel::<VulkanBackend>::load(&file, context) {
@@ -347,6 +347,7 @@ fn real_reasoning_parity() {
         Err(error) => panic!("Vulkan load failed: {error}"),
     };
     let actual = vulkan_completion(&model, &prompt, context, scheme);
+    assert_eq!(actual.len(), parity::TOKEN_COUNT);
     let top2 = vulkan_teacher_top2(&model, &prompt, context, scheme, &reference.completion);
     println!(
         "profile=Q4_K_M release={} kv={} prompt_ids={prompt:?} reference_completion_ids={:?} vulkan_ids={actual:?} teacher_top2={top2:?}",
@@ -356,7 +357,7 @@ fn real_reasoning_parity() {
     );
     parity::assert_oracle_top2(&top2, &reference.completion);
     println!(
-        "reasoning-parity: local_ids={} oracle_top2=pass",
+        "ministral-parity: local_ids={} oracle_top2=pass",
         parity::csv(&actual)
     );
 }

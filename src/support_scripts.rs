@@ -347,6 +347,7 @@ fn assert_scripts_quote_model_variables(root: &Path) {
         "support/profiling/profile.sh",
         "support/profiling/validate-kv.sh",
         "support/profiling/validate-weights.sh",
+        "support/testing/matrix-check.sh",
         "support/testing/parity-check.sh",
         "support/testing/run-ghzero-engine.sh",
     ] {
@@ -934,5 +935,228 @@ while :; do /bin/sleep 0.05; done
     assert!(!source.contains("--vram-weights-percent)"));
     assert!(!source.contains("eval "));
     assert_eq!(fs::read(&model).unwrap(), b"immutable parity fixture");
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn matrix_script_contract() {
+    use std::collections::HashSet;
+    use std::net::TcpListener;
+
+    let fixture = fixture_dir("matrix script");
+    let copied_root = fixture.join("copied repository");
+    let testing = copied_root.join("support/testing");
+    let models = fixture.join("-models with spaces");
+    let bin = fixture.join("bin");
+    let parity_log = fixture.join("parity calls");
+    let inspect_log = fixture.join("inspect calls");
+    let server = fixture.join("reference server");
+    fs::create_dir_all(&testing).unwrap();
+    fs::create_dir_all(&models).unwrap();
+    fs::create_dir(&bin).unwrap();
+    fs::create_dir_all(copied_root.join("support")).unwrap();
+    fs::copy(
+        repository().join("support/testing/matrix-check.sh"),
+        testing.join("matrix-check.sh"),
+    )
+    .unwrap();
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv"),
+    )
+    .unwrap();
+    fs::write(&server, b"reference fixture").unwrap();
+
+    let rows = parse_catalog(include_str!("../support/models.tsv")).unwrap();
+    for row in &rows {
+        fs::write(models.join(row.q8_file), b"Q8 rejection fixture").unwrap();
+    }
+
+    let parity = testing.join("parity-check.sh");
+    fs::write(
+        &parity,
+        r#"#!/usr/bin/env bash
+set -eu
+id=""; backend=""; kv=""
+while (($#)); do
+    case "$1" in
+        --model-id) id="$2"; shift 2 ;; --backend) backend="$2"; shift 2 ;;
+        --kv) kv="$2"; shift 2 ;; *) shift ;;
+    esac
+done
+key="$id:$backend:$kv"
+printf '%s\n' "$key" >> "$GH_ZERO_PARITY_LOG"
+if [[ "$key" == "${GH_ZERO_FAIL_KEY:-}" ]]; then echo 'injected failure' >&2; exit 1; fi
+if [[ "$key" == "${GH_ZERO_EXTERNAL_KEY:-}" ]]; then echo 'external verification: injected resource unavailable'; exit 0; fi
+printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=3\n' "$id" "$backend" "$kv"
+"#,
+    )
+    .unwrap();
+    let cargo = bin.join("cargo");
+    fs::write(
+        &cargo,
+        r#"#!/usr/bin/env bash
+set -eu
+model="${!#}"
+printf '%s\n' "$model" >> "$GH_ZERO_INSPECT_LOG"
+if [[ -n "${GH_ZERO_BAD_Q8:-}" && "$model" == *"$GH_ZERO_BAD_Q8"* ]]; then
+    echo 'placement: cpu'
+    exit 0
+fi
+echo "E04 unsupported GGUF weight profile 'Q8_0'; supported profile: Q4_K_M" >&2
+exit 1
+"#,
+    )
+    .unwrap();
+    for executable in [testing.join("matrix-check.sh"), parity, cargo] {
+        let mut permissions = fs::metadata(&executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+
+    let matrix = testing.join("matrix-check.sh");
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    drop(listener);
+    let base = [
+        "--models-dir",
+        models.to_str().unwrap(),
+        "--reference-server",
+        server.to_str().unwrap(),
+        "--reference-port",
+        &port,
+    ];
+    let complete = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GH_ZERO_PARITY_LOG", &parity_log)
+        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .output()
+        .unwrap();
+    assert!(
+        complete.status.success(),
+        "{}",
+        String::from_utf8_lossy(&complete.stderr)
+    );
+    let stdout = String::from_utf8(complete.stdout).unwrap();
+    let statuses = stdout
+        .lines()
+        .filter(|line| !line.starts_with("summary:"))
+        .collect::<Vec<_>>();
+    assert_eq!(statuses.len(), 42);
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|line| line.starts_with("q8 "))
+            .count(),
+        6
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|line| line.starts_with("parity "))
+            .count(),
+        36
+    );
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 42);
+    assert!(stdout.contains("summary: pass=42 external_verification=0 failure=0 total=42"));
+    assert_eq!(fs::read_to_string(&inspect_log).unwrap().lines().count(), 6);
+
+    let expected = rows
+        .iter()
+        .flat_map(|row| {
+            ["cpu", "vulkan", "hybrid"]
+                .into_iter()
+                .flat_map(move |backend| {
+                    ["f16", "int8"]
+                        .into_iter()
+                        .map(move |kv| format!("{}:{backend}:{kv}", row.id))
+                })
+        })
+        .collect::<Vec<_>>();
+    let calls = fs::read_to_string(&parity_log).unwrap();
+    assert_eq!(calls.lines().collect::<Vec<_>>(), expected);
+
+    fs::remove_file(models.join(rows[0].q8_file)).unwrap();
+    fs::write(&parity_log, []).unwrap();
+    fs::write(&inspect_log, []).unwrap();
+    let continued = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GH_ZERO_PARITY_LOG", &parity_log)
+        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .env("GH_ZERO_EXTERNAL_KEY", "3b-instruct:cpu:f16")
+        .output()
+        .unwrap();
+    assert!(continued.status.success());
+    let stdout = String::from_utf8(continued.stdout).unwrap();
+    assert!(stdout.contains("q8 model_id=3b-instruct: external verification"));
+    assert!(
+        stdout.contains("parity model_id=3b-instruct backend=cpu kv=f16: external verification")
+    );
+    assert!(stdout.contains("summary: pass=40 external_verification=2 failure=0 total=42"));
+    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 36);
+    fs::write(models.join(rows[0].q8_file), b"Q8 rejection fixture").unwrap();
+
+    fs::write(&parity_log, []).unwrap();
+    fs::write(&inspect_log, []).unwrap();
+    let stopped = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GH_ZERO_PARITY_LOG", &parity_log)
+        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .env("GH_ZERO_FAIL_KEY", "3b-instruct:cpu:int8")
+        .output()
+        .unwrap();
+    assert_eq!(stopped.status.code(), Some(1));
+    let stdout = String::from_utf8(stopped.stdout).unwrap();
+    assert!(stdout.contains("parity model_id=3b-instruct backend=cpu kv=int8: failure"));
+    assert!(stdout.contains("summary: pass=7 external_verification=0 failure=1 total=8"));
+    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 2);
+
+    fs::write(&parity_log, []).unwrap();
+    fs::write(&inspect_log, []).unwrap();
+    let bad_q8 = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GH_ZERO_PARITY_LOG", &parity_log)
+        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .env("GH_ZERO_BAD_Q8", "3B-Instruct")
+        .output()
+        .unwrap();
+    assert_eq!(bad_q8.status.code(), Some(1));
+    let stdout = String::from_utf8(bad_q8.stdout).unwrap();
+    assert!(stdout.contains("q8 model_id=3b-instruct: failure"));
+    assert!(stdout.contains("summary: pass=0 external_verification=0 failure=1 total=1"));
+    assert!(!parity_log.exists() || fs::read_to_string(&parity_log).unwrap().is_empty());
+
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv").replace('\n', "\r\n"),
+    )
+    .unwrap();
+    let malformed = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GH_ZERO_PARITY_LOG", &parity_log)
+        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .output()
+        .unwrap();
+    assert_eq!(malformed.status.code(), Some(2));
+    assert!(
+        String::from_utf8(malformed.stderr)
+            .unwrap()
+            .contains("catalog error")
+    );
+
+    let invalid = Command::new(&matrix).arg("--unknown").output().unwrap();
+    assert_eq!(invalid.status.code(), Some(2));
+    let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
+    assert!(!source.contains("&\n"));
+    assert!(!source.contains("eval "));
+    assert!(source.contains("for backend in cpu vulkan hybrid"));
+    assert!(source.contains("for kv in f16 int8"));
+    assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
     fs::remove_dir_all(fixture).unwrap();
 }

@@ -161,8 +161,8 @@ mod graph {
     }
 
     #[test]
-    #[ignore = "requires pinned 3B Q8_0 model, target Vulkan budget, and reference CLI"]
-    fn hybrid_3b_q8_mixed_chat() {
+    #[ignore = "requires pinned 3B Q4_K_M model, target Vulkan budget, and reference CLI"]
+    fn hybrid_3b_q4_k_m_mixed_chat() {
         let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
         let context = env_usize("GH_ZERO_CONTEXT", 4096);
         let percent = env_usize("GH_ZERO_VRAM_WEIGHTS_PERCENT", 25) as u8;

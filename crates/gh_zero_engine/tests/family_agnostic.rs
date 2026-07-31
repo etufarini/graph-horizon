@@ -71,6 +71,7 @@ fn source_structure() {
         "src/backend/cpu/kernels/attention/read_q.rs",
         "src/backend/cpu/kernels/attention/simd.rs",
         "src/backend/cpu/kernels/attention/write_q.rs",
+        "src/backend/cpu/kernels/elementwise.rs",
         "src/backend/cpu/kernels/matmul/mod.rs",
         "src/backend/cpu/kernels/matmul/q4k.rs",
         "src/backend/cpu/kernels/matmul/q4k_simd.rs",
@@ -78,8 +79,6 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q5k_simd.rs",
         "src/backend/cpu/kernels/matmul/q6k.rs",
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
-        "src/backend/cpu/kernels/matmul/q8_0.rs",
-        "src/backend/cpu/kernels/matmul/q8_0_simd.rs",
         "src/backend/vulkan/kernels/attention.rs",
         "src/backend/vulkan/kernels/matmul.rs",
     ];
@@ -146,6 +145,36 @@ fn removed_surface_scan() {
         assert!(
             !manifest().join(relative).exists(),
             "{relative} must be absent"
+        );
+    }
+    for relative in [
+        "crates/gh_zero_engine/src/backend/cpu/kernels/matmul/q8_0.rs",
+        "crates/gh_zero_engine/src/backend/cpu/kernels/matmul/q8_0_simd.rs",
+        "crates/gh_zero_engine/src/backend/vulkan/shaders/embed/embed_q8_0.comp",
+        "crates/gh_zero_engine/src/backend/vulkan/shaders/logits/logits_q8_0.comp",
+        "crates/gh_zero_engine/src/backend/vulkan/shaders/matmul/matmul_q8_0.comp",
+    ] {
+        assert!(
+            !repository().join(relative).exists(),
+            "{relative} must be absent"
+        );
+    }
+    let facade = fs::read_to_string(manifest().join("src/lib.rs")).expect("library facade");
+    assert!(
+        !facade.contains("WeightProfile"),
+        "public WeightProfile remains"
+    );
+    let parser = fs::read_to_string(manifest().join("src/gguf/tensor_index.rs"))
+        .expect("GGUF tensor parser");
+    for required in [
+        "Q8_0,",
+        "8 => GgmlType::Q8_0",
+        "GgmlType::Q8_0 => \"Q8_0\"",
+        "GgmlType::Q8_0 => (32, 34)",
+    ] {
+        assert!(
+            parser.contains(required),
+            "Q8 parser support missing: {required}"
         );
     }
     for relative in [

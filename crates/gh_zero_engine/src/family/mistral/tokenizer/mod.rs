@@ -444,16 +444,13 @@ pub(crate) mod tests {
 
     #[test]
     #[ignore]
-    fn pinned_differential_vectors_match_both_artifacts() {
+    fn pinned_differential_vectors_match_q4_artifact() {
         use crate::gguf::loader::GgufFile;
         use std::process::Command;
 
         let binary = std::env::var("GH_ZERO_REFERENCE_TOKENIZE")
             .expect("GH_ZERO_REFERENCE_TOKENIZE required");
-        let models = [
-            std::env::var("GH_ZERO_MODEL_Q8_0").expect("GH_ZERO_MODEL_Q8_0 required"),
-            std::env::var("GH_ZERO_MODEL_Q4_K_M").expect("GH_ZERO_MODEL_Q4_K_M required"),
-        ];
+        let model = std::env::var("GH_ZERO_MODEL_Q4_K_M").expect("GH_ZERO_MODEL_Q4_K_M required");
         let corpus = [
             ("ascii", "ASCII words 42"),
             ("contractions punctuation", "can't, won't... /"),
@@ -469,37 +466,35 @@ pub(crate) mod tests {
             ),
         ];
 
-        for model in &models {
-            let file = GgufFile::open(std::path::Path::new(model)).expect("open pinned GGUF");
-            let tokenizer =
-                TekkenTokenizer::from_metadata(file.metadata()).expect("load Tekken metadata");
-            for (name, text) in corpus {
-                let output = Command::new(&binary)
-                    .args([
-                        "--log-disable",
-                        "--ids",
-                        "--no-bos",
-                        "--no-parse-special",
-                        "--no-escape",
-                        "-m",
-                        model,
-                        "-p",
-                        text,
-                    ])
-                    .output()
-                    .expect("run pinned tokenizer");
-                assert!(output.status.success(), "{name}");
-                let expected = std::str::from_utf8(&output.stdout)
-                    .unwrap()
-                    .split_whitespace()
-                    .filter_map(|word| {
-                        word.trim_matches(|ch| ch == '[' || ch == ']' || ch == ',')
-                            .parse::<u32>()
-                            .ok()
-                    })
-                    .collect::<Vec<_>>();
-                assert_eq!(tokenizer.encode(text), expected, "{model}: {name}");
-            }
+        let file = GgufFile::open(std::path::Path::new(&model)).expect("open pinned GGUF");
+        let tokenizer =
+            TekkenTokenizer::from_metadata(file.metadata()).expect("load Tekken metadata");
+        for (name, text) in corpus {
+            let output = Command::new(&binary)
+                .args([
+                    "--log-disable",
+                    "--ids",
+                    "--no-bos",
+                    "--no-parse-special",
+                    "--no-escape",
+                    "-m",
+                    model.as_str(),
+                    "-p",
+                    text,
+                ])
+                .output()
+                .expect("run pinned tokenizer");
+            assert!(output.status.success(), "{name}");
+            let expected = std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .split_whitespace()
+                .filter_map(|word| {
+                    word.trim_matches(|ch| ch == '[' || ch == ']' || ch == ',')
+                        .parse::<u32>()
+                        .ok()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(tokenizer.encode(text), expected, "{model}: {name}");
         }
     }
 }

@@ -306,9 +306,9 @@ mod tests {
 
     #[test]
     fn loader_plan_honors_zero_one_and_full_weight_percent() {
-        let embedding = tensor("token_embd.weight", &[32, 32], GgmlType::Q8_0);
+        let embedding = tensor("token_embd.weight", &[32, 32], GgmlType::Q4_K);
         let norm = tensor("norm.weight", &[32], GgmlType::F32);
-        let matrix = tensor("matrix.weight", &[32, 32], GgmlType::Q8_0);
+        let matrix = tensor("matrix.weight", &[32, 32], GgmlType::Q6_K);
         let layer = || MistralLayer {
             attn_norm: &norm,
             attn_q: &matrix,

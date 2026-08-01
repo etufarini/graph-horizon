@@ -1,14 +1,15 @@
 /*
- * gh_zero_engine — deterministic semantic product acceptance
- * This integration harness separates semantic acceptance from format-
- * conformance diagnostics for one fixed objective corpus. It is neither a
- * runtime quality API nor a benchmark.
+ * gh_zero_engine — M3 all-GPU/CPU-only semantic acceptance harness
+ * Selects one final backend from the observed hybrid placement, then owns the
+ * fixed corpus, scoring, placement evidence, and timing evidence. A mixed
+ * probe never generates; production hybrid policy remains outside this file.
  */
 
-use std::path::Path;
+use std::{path::Path, time::Instant};
 
 use gh_zero_engine::{
-    Engine, EngineConfig, Event, GenerationStats, KvQuant, Message, Request, Role, SamplingParams,
+    BackendMemory, Engine, EngineConfig, Event, GenerationStats, KvQuant, Message, PlacementReport,
+    Request, Role, SamplingParams,
 };
 use serde_json::Value;
 
@@ -16,6 +17,52 @@ use serde_json::Value;
 enum Profile {
     Instruct,
     Reasoning,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SemanticBackend {
+    Vulkan,
+    Cpu,
+}
+
+impl SemanticBackend {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Vulkan => "vulkan",
+            Self::Cpu => "cpu",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SemanticSelection {
+    backend: SemanticBackend,
+    reason: &'static str,
+    probe_mode: &'static str,
+}
+
+#[derive(Default)]
+struct Timing {
+    completed_cases: u8,
+    prefill_ms: u64,
+    decode_ms: u64,
+}
+
+impl Timing {
+    fn add(&mut self, stats: GenerationStats) -> Result<(), &'static str> {
+        let prefill_ms = self
+            .prefill_ms
+            .checked_add(stats.prefill_ms)
+            .ok_or("prefill timing overflow")?;
+        let decode_ms = self
+            .decode_ms
+            .checked_add(stats.decode_ms)
+            .ok_or("decode timing overflow")?;
+        self.prefill_ms = prefill_ms;
+        self.decode_ms = decode_ms;
+        self.completed_cases += 1;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -179,6 +226,91 @@ fn model_profile(model_id: &str) -> Result<Profile, &'static str> {
     }
 }
 
+fn semantic_selection(report: PlacementReport) -> Result<SemanticSelection, &'static str> {
+    match report.mode {
+        "all-gpu" => Ok(SemanticSelection {
+            backend: SemanticBackend::Vulkan,
+            reason: "full-vram-fit",
+            probe_mode: "all-gpu",
+        }),
+        "mixed" => Ok(SemanticSelection {
+            backend: SemanticBackend::Cpu,
+            reason: "no-full-vram-fit",
+            probe_mode: "mixed",
+        }),
+        "cpu-only" => Ok(SemanticSelection {
+            backend: SemanticBackend::Cpu,
+            reason: "no-full-vram-fit",
+            probe_mode: "cpu-only",
+        }),
+        _ => Err("unknown placement mode"),
+    }
+}
+
+fn validate_final(
+    selection: SemanticSelection,
+    report: PlacementReport,
+) -> Result<(), &'static str> {
+    match selection.backend {
+        SemanticBackend::Vulkan if report.mode == "all-gpu" && report.cpu_layers == 0 => Ok(()),
+        SemanticBackend::Cpu if report.mode == "cpu-only" && report.gpu_layers == 0 => Ok(()),
+        _ => Err("final placement contradicts selected backend"),
+    }
+}
+
+fn selection_line(model_id: &str, selection: SemanticSelection, report: PlacementReport) -> String {
+    let BackendMemory {
+        weights: cpu_weights,
+        kv: cpu_kv,
+        scratch: cpu_scratch,
+        fixed: cpu_fixed,
+        staging: cpu_staging,
+        crossing: cpu_crossing,
+        reserve: cpu_reserve,
+        total: cpu_total,
+    } = report.cpu;
+    let BackendMemory {
+        weights: gpu_weights,
+        kv: gpu_kv,
+        scratch: gpu_scratch,
+        fixed: gpu_fixed,
+        staging: gpu_staging,
+        crossing: gpu_crossing,
+        reserve: gpu_reserve,
+        total: gpu_total,
+    } = report.gpu;
+    format!(
+        "semantic-selection: model_id={model_id} backend={} reason={} probe_mode={} run_mode={} cpu_layers={} gpu_layers={} cpu_weights={cpu_weights} cpu_kv={cpu_kv} cpu_scratch={cpu_scratch} cpu_fixed={cpu_fixed} cpu_staging={cpu_staging} cpu_crossing={cpu_crossing} cpu_reserve={cpu_reserve} cpu_total={cpu_total} gpu_weights={gpu_weights} gpu_kv={gpu_kv} gpu_scratch={gpu_scratch} gpu_fixed={gpu_fixed} gpu_staging={gpu_staging} gpu_crossing={gpu_crossing} gpu_reserve={gpu_reserve} gpu_total={gpu_total}",
+        selection.backend.label(),
+        selection.reason,
+        selection.probe_mode,
+        report.mode,
+        report.cpu_layers,
+        report.gpu_layers,
+    )
+}
+
+fn performance(
+    model_id: &str,
+    backend: SemanticBackend,
+    total_ms: u64,
+) -> (&'static str, &'static str, bool) {
+    if model_id == "3b-instruct" && backend == SemanticBackend::Vulkan {
+        let passed = total_ms < 1_506_690;
+        ("1506690", if passed { "pass" } else { "fail" }, passed)
+    } else {
+        ("not-applicable", "not-applicable", true)
+    }
+}
+
+fn insufficient_ram(error: &str) -> bool {
+    matches!(
+        error,
+        "model does not fit available RAM and VRAM"
+            | "context 4096 does not fit the selected backend; context was not reduced"
+    )
+}
+
 fn predicate(case: Case, response: &str) -> Result<(), &'static str> {
     let pass = match case.predicate {
         Predicate::ExactDigits(expected) => {
@@ -301,11 +433,12 @@ fn threshold(results: &[bool; 12]) -> bool {
     critical == 4 && semantic >= 8
 }
 
-fn summary_line(model_id: &str, results: &[bool; 12]) -> String {
+fn summary_line(model_id: &str, backend: SemanticBackend, results: &[bool; 12]) -> String {
     let (critical, semantic, conformance) = scores(results);
     let status = if threshold(results) { "pass" } else { "fail" };
     format!(
-        "semantic-summary: model_id={model_id} critical={critical}/4 semantic={semantic}/9 semantic_status={status} conformance={conformance}/3 conformance_status=diagnostic"
+        "semantic-summary: model_id={model_id} backend={} critical={critical}/4 semantic={semantic}/9 semantic_status={status} conformance={conformance}/3 conformance_status=diagnostic",
+        backend.label()
     )
 }
 
@@ -323,22 +456,20 @@ fn assembly(parts: &[Vec<u8>]) -> Result<String, &'static str> {
     String::from_utf8(bytes).map_err(|_| "invalid UTF-8 assembly")
 }
 
-fn event_response(events: &[Event]) -> Result<String, &'static str> {
+fn event_response(events: &[Event]) -> Result<(String, GenerationStats), &'static str> {
     let mut parts = Vec::new();
-    let mut terminals = 0;
+    let mut terminal = None;
     for event in events {
         match event {
-            Event::TextDelta(text) if terminals == 0 => parts.push(text.as_bytes().to_vec()),
+            Event::TextDelta(text) if terminal.is_none() => parts.push(text.as_bytes().to_vec()),
             Event::TextDelta(_) => return Err("TextDelta after terminal event"),
-            Event::Finished(_) => terminals += 1,
+            Event::Finished(stats) if terminal.is_none() => terminal = Some(*stats),
+            Event::Finished(_) => return Err("generation emitted multiple terminal events"),
             Event::Error(_) => return Err("generation emitted Error"),
         }
     }
-    match terminals {
-        1 => assembly(&parts),
-        0 => Err("generation lacks Finished"),
-        _ => Err("generation emitted multiple terminal events"),
-    }
+    let stats = terminal.ok_or("generation lacks Finished")?;
+    Ok((assembly(&parts)?, stats))
 }
 
 fn assessment(profile: Profile, case: Case, raw: &str) -> Result<(), String> {
@@ -368,16 +499,58 @@ fn real_semantic_acceptance() {
     let model = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
     // Both environment values and the exact profile ID are validated before construction.
     let profile = model_profile(&model_id).unwrap_or_else(|reason| panic!("{reason}"));
-    let engine = Engine::new(
+    let started = Instant::now();
+    let probe = match Engine::new(
         Path::new(&model),
         EngineConfig {
             context_tokens: Some(4096),
             kv_quant: KvQuant::F16,
             ..EngineConfig::default()
         },
-    )
-    .unwrap_or_else(|_| panic!("authenticated model failed to load"));
+    ) {
+        Ok(engine) => engine,
+        Err(error) if insufficient_ram(&error.to_string()) => {
+            println!("semantic-external: model_id={model_id} reason=insufficient RAM");
+            return;
+        }
+        Err(_) => panic!("semantic probe failed"),
+    };
+    let probe_report = probe
+        .placement()
+        .unwrap_or_else(|| panic!("semantic placement unavailable"));
+    let selection = semantic_selection(probe_report).unwrap_or_else(|reason| panic!("{reason}"));
+
+    // A mixed probe owns no request: it is dropped before the CPU-only reopen.
+    let engine = if selection.probe_mode == "mixed" {
+        drop(probe);
+        match Engine::new(
+            Path::new(&model),
+            EngineConfig {
+                context_tokens: Some(4096),
+                vram_weights_percent: Some(0),
+                kv_quant: KvQuant::F16,
+                ..EngineConfig::default()
+            },
+        ) {
+            Ok(engine) => engine,
+            Err(error) if insufficient_ram(&error.to_string()) => {
+                println!("semantic-external: model_id={model_id} reason=insufficient RAM");
+                return;
+            }
+            Err(_) => panic!("semantic CPU reopen failed"),
+        }
+    } else {
+        probe
+    };
+    let final_report = engine
+        .placement()
+        .unwrap_or_else(|| panic!("semantic placement unavailable"));
+    validate_final(selection, final_report).unwrap_or_else(|reason| panic!("{reason}"));
+    println!("{}", selection_line(&model_id, selection, final_report));
+
     let mut results = [false; 12];
+    let mut timing = Timing::default();
+    let mut execution_ok = true;
 
     for (index, case) in CASES.iter().copied().enumerate() {
         let mut events = Vec::new();
@@ -402,9 +575,19 @@ fn real_semantic_acceptance() {
                 true
             },
         );
-        let result = event_response(&events)
-            .map_err(|reason| format!("predicate=engine-events reason={reason}"))
-            .and_then(|raw| assessment(profile, case, &raw));
+        let result = match event_response(&events) {
+            Ok((raw, stats)) => match timing.add(stats) {
+                Ok(()) => assessment(profile, case, &raw),
+                Err(reason) => {
+                    execution_ok = false;
+                    Err(format!("predicate=engine-events reason={reason}"))
+                }
+            },
+            Err(reason) => {
+                execution_ok = false;
+                Err(format!("predicate=engine-events reason={reason}"))
+            }
+        };
         results[index] = result.is_ok();
         match result {
             Ok(()) => println!(
@@ -422,8 +605,21 @@ fn real_semantic_acceptance() {
     }
 
     let passed = threshold(&results);
-    println!("{}", summary_line(&model_id, &results));
+    println!("{}", summary_line(&model_id, selection.backend, &results));
+    let total_ms = u64::try_from(started.elapsed().as_millis())
+        .unwrap_or_else(|_| panic!("semantic total timing overflow"));
+    let (baseline, performance_status, performance_ok) =
+        performance(&model_id, selection.backend, total_ms);
+    println!(
+        "semantic-timing: model_id={model_id} backend={} completed_cases={} total_ms={total_ms} prefill_ms={} decode_ms={} baseline_cpu_ms={baseline} performance_status={performance_status}",
+        selection.backend.label(),
+        timing.completed_cases,
+        timing.prefill_ms,
+        timing.decode_ms,
+    );
+    assert!(execution_ok, "semantic execution contract failed");
     assert!(passed, "semantic acceptance threshold missed");
+    assert!(performance_ok, "semantic performance criterion missed");
 }
 
 #[test]
@@ -549,8 +745,8 @@ fn threshold_separates_semantic_acceptance_from_conformance() {
     assert_eq!(scores(&eight_semantic), (4, 8, 0));
     assert!(threshold(&eight_semantic));
     assert_eq!(
-        summary_line("fixture", &eight_semantic),
-        "semantic-summary: model_id=fixture critical=4/4 semantic=8/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic"
+        summary_line("fixture", SemanticBackend::Cpu, &eight_semantic),
+        "semantic-summary: model_id=fixture backend=cpu critical=4/4 semantic=8/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic"
     );
 
     let mut seven_semantic = eight_semantic;
@@ -566,6 +762,95 @@ fn threshold_separates_semantic_acceptance_from_conformance() {
     let all = [true; 12];
     assert_eq!(scores(&all), (4, 9, 3));
     assert!(threshold(&all));
+}
+
+#[test]
+fn semantic_backend_follows_the_observed_probe() {
+    let report = |mode, cpu_layers, gpu_layers| PlacementReport {
+        mode,
+        cpu_layers,
+        gpu_layers,
+        cpu: BackendMemory::default(),
+        gpu: BackendMemory::default(),
+    };
+    assert_eq!(
+        semantic_selection(report("all-gpu", 0, 34)).unwrap(),
+        SemanticSelection {
+            backend: SemanticBackend::Vulkan,
+            reason: "full-vram-fit",
+            probe_mode: "all-gpu",
+        }
+    );
+    let mixed = semantic_selection(report("mixed", 12, 22)).unwrap();
+    assert_eq!(mixed.backend, SemanticBackend::Cpu);
+    assert_eq!(mixed.probe_mode, "mixed");
+    let cpu = semantic_selection(report("cpu-only", 34, 0)).unwrap();
+    assert_eq!(cpu.backend, SemanticBackend::Cpu);
+    assert_eq!(cpu.probe_mode, "cpu-only");
+    assert!(semantic_selection(report("unknown", 0, 0)).is_err());
+
+    assert!(
+        validate_final(
+            semantic_selection(report("all-gpu", 0, 34)).unwrap(),
+            report("all-gpu", 0, 34),
+        )
+        .is_ok()
+    );
+    assert!(validate_final(mixed, report("cpu-only", 34, 0)).is_ok());
+    assert!(validate_final(cpu, report("cpu-only", 34, 0)).is_ok());
+    assert!(validate_final(mixed, report("mixed", 12, 22)).is_err());
+    assert!(validate_final(cpu, report("cpu-only", 33, 1)).is_err());
+    assert!(
+        validate_final(
+            semantic_selection(report("all-gpu", 0, 34)).unwrap(),
+            report("all-gpu", 1, 33),
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn timing_uses_checked_sums_and_exact_performance_boundary() {
+    let mut timing = Timing::default();
+    timing
+        .add(GenerationStats {
+            prompt_tokens: 1,
+            completion_tokens: 2,
+            prefill_ms: 3,
+            decode_ms: 4,
+        })
+        .unwrap();
+    assert_eq!(
+        (timing.completed_cases, timing.prefill_ms, timing.decode_ms),
+        (1, 3, 4)
+    );
+
+    timing.prefill_ms = u64::MAX;
+    assert_eq!(
+        timing.add(GenerationStats {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            prefill_ms: 1,
+            decode_ms: 1,
+        }),
+        Err("prefill timing overflow")
+    );
+    assert_eq!(
+        performance("3b-instruct", SemanticBackend::Vulkan, 1_506_689),
+        ("1506690", "pass", true)
+    );
+    assert_eq!(
+        performance("3b-instruct", SemanticBackend::Vulkan, 1_506_690),
+        ("1506690", "fail", false)
+    );
+    assert_eq!(
+        performance("3b-instruct", SemanticBackend::Cpu, 1),
+        ("not-applicable", "not-applicable", true)
+    );
+    assert_eq!(
+        performance("8b-instruct", SemanticBackend::Vulkan, 1),
+        ("not-applicable", "not-applicable", true)
+    );
 }
 
 #[test]
@@ -592,7 +877,7 @@ fn event_collection_requires_one_finished_and_valid_utf8() {
             Event::Finished(stats),
         ])
         .unwrap(),
-        "ab"
+        ("ab".into(), stats)
     );
     for events in [
         vec![Event::TextDelta("a".into())],

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Authenticates and runs exactly six CPU/f16 semantic suites without retry or
-# network access. External artifact conditions continue; attempted failures stop.
+# network access. External conditions and attempted failures both continue;
+# the aggregate result determines the final exit status.
 
 set -euo pipefail
 export LC_ALL=C
@@ -89,9 +90,12 @@ for index in "${!ids[@]}"; do
     grep -E '^(semantic-case|semantic-summary):' <<<"$output" || true
     if ((status != 0)); then
         printf 'semantic model_id=%s: failure\n' "$id"
-        ((failure += 1)); summary; exit 1
+        ((failure += 1)); continue
     fi
     printf 'semantic model_id=%s: pass\n' "$id"
     ((pass += 1))
 done
 summary
+if ((failure > 0)); then
+    exit 1
+fi

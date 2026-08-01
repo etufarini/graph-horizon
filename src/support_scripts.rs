@@ -1250,7 +1250,7 @@ printf '%s  %s\n' "$digest" "$model"
         r#"#!/usr/bin/env bash
 set -eu
 printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
-printf 'semantic-summary: model_id=%s critical=6/6 total=12/12 status=pass\n' "$GH_ZERO_MODEL_ID"
+printf 'semantic-summary: model_id=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic\n' "$GH_ZERO_MODEL_ID"
 printf 'internal /secret/path must not escape\n' >&2
 [[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
@@ -1329,9 +1329,35 @@ printf 'internal /secret/path must not escape\n' >&2
     assert_eq!(failure.status.code(), Some(1));
     let stdout = String::from_utf8(failure.stdout).unwrap();
     assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
-    assert!(stdout.contains("summary: pass=1 external_verification=0 failure=1 total=2"));
+    let statuses = stdout
+        .lines()
+        .filter(|line| line.starts_with("semantic model_id="))
+        .collect::<Vec<_>>();
+    assert_eq!(statuses.len(), 6);
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
+    assert!(stdout.contains("summary: pass=5 external_verification=0 failure=1 total=6"));
     assert!(!stdout.contains("/secret/path"));
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
+
+    fs::remove_file(models.join(rows[5].q4_file)).unwrap();
+    fs::write(&calls, []).unwrap();
+    let mixed = run(None, Some("3b-reasoning"));
+    assert_eq!(mixed.status.code(), Some(1));
+    let stdout = String::from_utf8(mixed.stdout).unwrap();
+    assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
+    assert!(stdout.contains(
+        "semantic model_id=14b-reasoning: external verification: artifact is missing or unreadable"
+    ));
+    assert!(stdout.contains("summary: pass=4 external_verification=1 failure=1 total=6"));
+    assert_eq!(
+        stdout
+            .lines()
+            .filter(|line| line.starts_with("semantic model_id="))
+            .count(),
+        6
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
+    fs::write(models.join(rows[5].q4_file), b"immutable semantic fixture").unwrap();
 
     fs::write(
         copied_root.join("support/models.tsv"),

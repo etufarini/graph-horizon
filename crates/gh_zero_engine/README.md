@@ -1,5 +1,6 @@
 <!--
-  Contratto tecnico del crate: API, backend, memoria e confini di validazione.
+  Questo documento possiede il contratto della libreria, dei backend e della
+  memoria; i risultati operativi appartengono ai documenti di validazione.
 -->
 
 # gh_zero_engine
@@ -39,6 +40,13 @@ CPU-only. Un probe `mixed` viene distrutto prima di generare token e il modello
 viene riaperto CPU-only; questo non modifica il supporto mixed delle sessioni
 produttive né aggiunge opzioni a `EngineConfig`.
 
+Il corpus M3 usa contesto 4096 e KV `f16`: Instruct richiede al massimo 256
+token, mentre Reasoning lascia che il guard esistente applichi il contesto
+residuo a una richiesta massima di 4096. Il solo test classifica `eos`,
+`max-tokens` e `context`, valuta soltanto risposte EOS complete e registra i
+marker Reasoning come diagnostica. Il runtime continua a emettere testo raw e
+non possiede questa policy di assessment.
+
 `Engine::placement()` fornisce il placement finale e il suo breakdown di
 memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
 selezione finale resta un failure senza retry o fallback. Il comando e il
@@ -48,26 +56,23 @@ protocollo operativo sono nella [guida degli script](../../support/README.md).
 
 Il riconoscimento di architettura, tensori e quantizzazione è capability-based
 e non autentica un file tramite nome, directory, byte totali o `general.name`.
-Quest'ultimo seleziona soltanto la policy chat: il valore esatto e
-case-sensitive `ministral-3B-Reasoning-2512` abilita il profilo privato
-Ministral 3 3B Reasoning 2512, mentre ogni altra variante contenente
-`Reasoning` viene rifiutata prima dell'allocazione backend. Sono supportati
-pubblicamente due profili GGUF:
+Quest'ultimo seleziona soltanto la policy chat. I valori esatti e case-sensitive
+`ministral-3B-Reasoning-2512`, `ministral-8B-Reasoning-2512` e
+`ministral-14B-Reasoning-2512` abilitano il profilo privato Reasoning; ogni altro
+nome contenente `Reasoning` viene rifiutato prima dell'allocazione backend. La
+configurazione Instruct resta dimension-generic per 3B, 8B e 14B.
 
-- `Q8_0`: matrici Q8_0 e ausiliari monodimensionali F32;
-- `Q4_K_M`: matrici Q4_K/Q6_K e ausiliari monodimensionali F32.
-
-La configurazione Instruct è dimension-generic. Le righe 3B, 8B e 14B sono
-fixture sintetiche realistiche, non whitelist. Il supporto Reasoning è invece
-limitato al 3B 2512 Q8_0/Q4_K_M; Reasoning 8B/14B non è supportato. Solo i due
-file Reasoning 3B alla revisione fissata nel piano sono verificati come
-artefatti reali. I valori fissati per Ministral 3 Instruct/Reasoning 2512
-appartengono al modulo privato
+Il solo profilo GGUF pubblico è `Q4_K_M`: matrici Q4_K/Q6_K e ausiliari
+monodimensionali F32. Il parser conserva `GgmlType::Q8_0` per identificare e
+diagnosticare un file Q8, ma il gate E04 lo rifiuta prima dell'allocazione. Le
+sei righe reali di validazione sono evidenza riproducibile, non una whitelist.
+I valori fissati per Ministral 3 Instruct/Reasoning 2512 appartengono al modulo
+privato
 [`family/mistral/version.rs`](src/family/mistral/version.rs), che possiede anche
 il System prompt Reasoning della release.
 
-Il backend mantiene attivazioni FP16, residuo/logits FP32 e pesi
-F16/Q4_K/Q5_K/Q6_K/Q8_0. Questa superficie interna non aggiunge profili
+Il backend mantiene attivazioni FP16, residuo/logits FP32 e formati numerici
+interni F16/Q4_K/Q5_K/Q6_K. Questa superficie interna non aggiunge profili
 Ministral pubblici.
 
 ## Facciata pubblica
@@ -79,7 +84,7 @@ La radice espone soltanto:
 - chat ed eventi: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
   `GenerationStats`, `EventSink`, `render_chat_prompt`;
 - ispezione Ministral/GGUF: `MistralConfig`, `TekkenTokenizer`,
-  `WeightProfile`, `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
+  `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
 - selezione KV: `KvQuant`;
 - `harness::throughput` con `BenchConfig`, `Stat`, `ThroughputReport` e `run`.
 
@@ -152,9 +157,10 @@ piano non provocano retry.
 
 ## Verifiche
 
-La suite sintetica copre dimensioni 3B/8B/14B, entrambi i profili pubblici,
-attivazioni FP16, residuo/logits FP32, pesi F16/Q4_K/Q5_K/Q6_K/Q8_0, KV
-f16/int8 e i tre placement hybrid.
+La suite sintetica copre dimensioni 3B/8B/14B, il gate pubblico Q4_K_M,
+attivazioni FP16, residuo/logits FP32, formati numerici interni, KV f16/int8 e i
+tre placement hybrid. Test separati verificano che Q8 resti soltanto
+diagnosticabile e venga rifiutato.
 
 Le prove reali sono ignorate per default e non cercano fallback locali. Le
 risorse obbligatorie sono esplicite:
@@ -162,8 +168,7 @@ risorse obbligatorie sono esplicite:
 | Variabile | Uso test-only |
 |---|---|
 | `GH_ZERO_MODEL` | singolo GGUF reale |
-| `GH_ZERO_MODEL_Q8_0` | artefatto Q8_0 per la prova tokenizer differenziale |
-| `GH_ZERO_MODEL_Q4_K_M` | artefatto Q4_K_M per la stessa prova |
+| `GH_ZERO_MODEL_Q4_K_M` | artefatto Q4_K_M per la prova tokenizer |
 | `GH_ZERO_REFERENCE_CLI` | eseguibile oracle per token greedy |
 | `GH_ZERO_REFERENCE_TOKENIZE` | eseguibile oracle per tokenizzazione |
 | `GH_ZERO_REFERENCE_PROMPT_IDS` | vettore prompt Reasoning fornito dallo script |
@@ -180,5 +185,6 @@ GH_ZERO_MODEL="/path/model.gguf" GH_ZERO_CONTEXT=4096 \
   real_greedy_parity -- --ignored --nocapture
 ```
 
-Vedi [la guida KV](../../docs/kv-quant-mistral-validation.md) e
-[il backend](../../docs/backend.md).
+Le interfacce complete della matrice 36-righe e dell'accettazione semantica sono
+descritte nella [guida degli script](../../support/README.md); i risultati
+revisionati appartengono al [registro di validazione](../../VALIDATION.md).

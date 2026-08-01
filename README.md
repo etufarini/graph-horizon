@@ -1,7 +1,7 @@
 <!--
-This README introduces GH Zero Engine and guides users from installation to
-their first run. Internal contracts and development procedures remain in the
-technical documentation.
+This README owns the product-facing introduction and usage. Library details,
+operational procedures, and reviewed evidence belong to the linked crate,
+support, and validation documents.
 -->
 
 <p align="center">
@@ -11,8 +11,8 @@ technical documentation.
 
 # GH Zero Engine - Ministral 3 Version
 
-A local text-to-text runtime for Ministral 3 Instruct 2512 and the approved
-Ministral 3 3B Reasoning 2512 profile. It provides an interactive console, an
+A local text-to-text runtime for Ministral 3 Instruct and Reasoning 2512 in the
+3B, 8B, and 14B sizes. It provides an interactive console, an
 HTTP server compatible with the OpenAI chat subset, and a Web UI. It supports
 text messages only, without tool calling or a separate reasoning channel.
 
@@ -152,7 +152,7 @@ gh-zero-engine --provider local --model "/path/to/model.gguf" \
 ```
 
 Advanced options, including `--vram-reserve-mib` and `--no-attn-simd`, are
-described in the [complete configuration](docs/configuration.md).
+listed by `gh-zero-engine --help`.
 
 The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status
@@ -160,29 +160,25 @@ Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status
 
 ## Supported models
 
-Ministral 3 Instruct 2512 support is unchanged for 3B, 8B, and 14B. Reasoning
-support is limited to Ministral 3 3B Reasoning 2512 in the `Q8_0` and
-`Q4_K_M` public GGUF profiles; Reasoning 8B and 14B variants are rejected.
-Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text
-in the existing stream rather than a separate channel.
+The public model boundary accepts only Ministral 3 2512 `Q4_K_M` GGUF files.
+Both Instruct and Reasoning are supported at 3B, 8B, and 14B; Instruct remains
+dimension-generic while Reasoning requires one of the three exact approved
+release names: `ministral-3B-Reasoning-2512`,
+`ministral-8B-Reasoning-2512`, or `ministral-14B-Reasoning-2512`. A Q8 profile
+is rejected before backend allocation rather than treated as an alternate
+execution format.
 
-Internal backends retain FP16 activations, FP32 residual/logits, and
-F16/Q4_K/Q5_K/Q6_K/Q8_0 weights. Official real-model verification covers the
-3B artifacts listed in the
-[validation guide](docs/kv-quant-mistral-validation.md); other Instruct files
-matching the capability-based contract remain compatible/unverified. The
-Instruct 8B and 14B reference rows are fixtures, not a whitelist. Hybrid startup
-chooses all-GPU, the maximum possible contiguous GPU suffix with a CPU prefix,
-or all-CPU. Pure Vulkan remains all-GPU-or-error, and development remains
-CPU-first. These fixtures do not constitute MoE support.
+Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text
+in the existing stream. The runtime does not parse it into a separate reasoning
+channel. Internal numeric formats do not expand this public GGUF contract.
+Hybrid startup chooses all-GPU, the maximum possible contiguous GPU suffix with
+a CPU prefix, or all-CPU. Pure Vulkan remains all-GPU-or-error, and development
+remains CPU-first. The reviewed artifacts in the validation record are evidence,
+not a runtime whitelist, and do not constitute MoE support.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md)
-- [Console](docs/console.md)
-- [HTTP server](docs/server.md)
-- [Web UI](docs/web.md)
-- [CPU/Vulkan backends](docs/backend.md)
-- [Architecture](docs/architecture.md)
+- [Reviewed validation evidence](VALIDATION.md)
+- [Engine library contract](crates/gh_zero_engine/README.md)
 - [Operational scripts](support/README.md)
 - [Contributing](CONTRIBUTING.md)

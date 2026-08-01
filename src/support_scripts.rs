@@ -1,8 +1,8 @@
 /*
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
- * interfaces, proving early validation, quoted model paths, read-only model
- * handling, semantic placement/timing/stop/marker records, and explicit
+ * interfaces through disposable fixtures, proving early validation, quoted
+ * read-only model handling, class-sensitive semantic protocols, and explicit
  * external-verification output without real builds.
  */
 
@@ -1274,21 +1274,41 @@ for case_id in S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12; do
     marker=not-applicable
     [[ "$chat" != reasoning ]] || marker=complete
     [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "$case_id" != S12 ]] || marker=absent
+    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != zero-format ]] || marker=absent
     stop=eos
-    [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "$case_id" != S01 || "${SEMANTIC_STUB_PROTOCOL:-}" != non-eos ]] || stop=context
+    status=pass
+    details=
+    if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "$case_id" == S01 && "${SEMANTIC_STUB_PROTOCOL:-}" == non-eos ]]; then
+        stop=context; status=fail; details=' reason=incomplete-generation excerpt=fixture'
+    elif [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "$class" == conformance && "${SEMANTIC_STUB_PROTOCOL:-}" == zero-conformance ]]; then
+        status=fail; details=' reason=fixture-failure excerpt=fixture'
+    elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "$case_id" == S11 && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos ]]; then
+        stop=context; status=fail; details=' reason=incomplete-generation excerpt=fixture'
+    elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "$case_id" == S11 && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos-pass ]]; then
+        stop=context
+    fi
     emitted_id="$case_id"
     [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "$case_id" != S02 || "${SEMANTIC_STUB_PROTOCOL:-}" != duplicate-case ]] || emitted_id=S01
-    printf 'semantic-case: model_id=%s case_id=%s status=pass predicate=fixture class=%s stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$class" "$stop" "$marker"
+    printf 'semantic-case: model_id=%s case_id=%s status=%s predicate=fixture class=%s stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$status" "$class" "$stop" "$marker" "$details"
 done
 if [[ "$chat" == reasoning ]]; then
     complete=12
     [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning ]] || complete=11
     [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != marker-total ]] || complete=12
+    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != zero-format ]] || complete=0
     format="$complete/12"; format_status=diagnostic
 else
     format=not-applicable; format_status=not-applicable
 fi
-printf 'semantic-summary: model_id=%s backend=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic reasoning_format=%s reasoning_format_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$format" "$format_status"
+critical=4; semantic=9; semantic_status=pass; conformance=3
+if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == non-eos ]]; then
+    critical=3; semantic=8; semantic_status=fail
+elif [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == zero-conformance ]]; then
+    conformance=0
+elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos ]]; then
+    conformance=2
+fi
+printf 'semantic-summary: model_id=%s backend=%s critical=%s/4 semantic=%s/9 semantic_status=%s conformance=%s/3 conformance_status=diagnostic reasoning_format=%s reasoning_format_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$critical" "$semantic" "$semantic_status" "$conformance" "$format" "$format_status"
 if [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "${SEMANTIC_STUB_PROTOCOL:-}" != missing-timing ]]; then
     total=100
     [[ "${SEMANTIC_STUB_PROTOCOL:-}" != malformed || "$GH_ZERO_MODEL_ID" != 3b-instruct ]] || total=invalid
@@ -1346,6 +1366,33 @@ printf 'internal /secret/path must not escape\n' >&2
     ] {
         assert!(stdout.contains(probe));
     }
+
+    for (protocol, expected) in [
+        (
+            "zero-conformance",
+            "semantic-summary: model_id=3b-instruct backend=vulkan critical=4/4 semantic=9/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic reasoning_format=not-applicable reasoning_format_status=not-applicable",
+        ),
+        (
+            "zero-format",
+            "semantic-summary: model_id=3b-reasoning backend=cpu critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic reasoning_format=0/12 reasoning_format_status=diagnostic",
+        ),
+        (
+            "conformance-non-eos",
+            "semantic-case: model_id=3b-reasoning case_id=S11 status=fail predicate=fixture class=conformance stop=context prompt_tokens=16 completion_tokens=1 marker_status=complete reason=incomplete-generation excerpt=fixture",
+        ),
+    ] {
+        fs::write(&calls, []).unwrap();
+        let valid = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
+        assert!(valid.status.success(), "{protocol}");
+        let stdout = String::from_utf8(valid.stdout).unwrap();
+        assert!(stdout.contains(expected), "{protocol}");
+        if protocol == "conformance-non-eos" {
+            assert!(stdout.contains("conformance=2/3"));
+        }
+        assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
+        assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
+    }
+
     let cargo_calls = fs::read_to_string(&calls).unwrap();
     assert_eq!(cargo_calls.lines().count(), 6);
     for (line, row) in cargo_calls.lines().zip(&rows) {
@@ -1432,6 +1479,7 @@ printf 'internal /secret/path must not escape\n' >&2
         ("contradictory", "3b-instruct"),
         ("malformed", "3b-instruct"),
         ("non-eos", "3b-instruct"),
+        ("conformance-non-eos-pass", "3b-reasoning"),
         ("marker-total", "3b-reasoning"),
     ] {
         fs::write(&calls, []).unwrap();

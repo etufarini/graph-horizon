@@ -110,6 +110,8 @@ contenuto. Per Instruct il marker status è `not-applicable` e qualsiasi marker
 Reasoning è un failure. S08 accetta `0` o esattamente una temperatura Celsius
 riconosciuta di valore zero, ignorando numeri non associati a Celsius.
 
+Nel test M3, ogni caso non-EOS fallisce: se il caso è semantico blocca il modello, mentre se è di conformità resta una diagnostica fallita e non blocca da solo un gate semantico valido.
+
 Per ogni modello tentato lo script inoltra una riga `semantic-selection:` con
 backend e memoria pianificata, dodici righe `semantic-case:`, una
 `semantic-summary:` con gate e diagnostica e una `semantic-timing:` con tempi e

@@ -47,6 +47,8 @@ residuo a una richiesta massima di 4096. Il solo test classifica `eos`,
 marker Reasoning come diagnostica. Il runtime continua a emettere testo raw e
 non possiede questa policy di assessment.
 
+Nel test M3, ogni caso non-EOS fallisce: se il caso è semantico blocca il modello, mentre se è di conformità resta una diagnostica fallita e non blocca da solo un gate semantico valido.
+
 `Engine::placement()` fornisce il placement finale e il suo breakdown di
 memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
 selezione finale resta un failure senza retry o fallback. Il comando e il

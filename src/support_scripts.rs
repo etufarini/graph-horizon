@@ -2,8 +2,8 @@
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
  * interfaces, proving early validation, quoted model paths, read-only model
- * handling, semantic placement/timing records, and explicit external-
- * verification output without real builds.
+ * handling, semantic placement/timing/stop/marker records, and explicit
+ * external-verification output without real builds.
  */
 
 use std::fs;
@@ -1260,6 +1260,7 @@ case "$GH_ZERO_MODEL_ID" in
     3b-reasoning) backend=cpu; reason=no-full-vram-fit; probe=mixed; run=cpu-only; cpu_layers=26; gpu_layers=0 ;;
     *) backend=cpu; reason=no-full-vram-fit; probe=cpu-only; run=cpu-only; cpu_layers=34; gpu_layers=0 ;;
 esac
+case "$GH_ZERO_MODEL_ID" in *reasoning) chat=reasoning ;; *) chat=instruct ;; esac
 if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == contradictory ]]; then
     reason=no-full-vram-fit
 fi
@@ -1270,9 +1271,24 @@ if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == dup
 fi
 for case_id in S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12; do
     case "$case_id" in S05|S11|S12) class=conformance ;; *) class=semantic ;; esac
-    printf 'semantic-case: model_id=%s case_id=%s status=pass predicate=fixture class=%s\n' "$GH_ZERO_MODEL_ID" "$case_id" "$class"
+    marker=not-applicable
+    [[ "$chat" != reasoning ]] || marker=complete
+    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "$case_id" != S12 ]] || marker=absent
+    stop=eos
+    [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "$case_id" != S01 || "${SEMANTIC_STUB_PROTOCOL:-}" != non-eos ]] || stop=context
+    emitted_id="$case_id"
+    [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "$case_id" != S02 || "${SEMANTIC_STUB_PROTOCOL:-}" != duplicate-case ]] || emitted_id=S01
+    printf 'semantic-case: model_id=%s case_id=%s status=pass predicate=fixture class=%s stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$class" "$stop" "$marker"
 done
-printf 'semantic-summary: model_id=%s backend=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic\n' "$GH_ZERO_MODEL_ID" "$backend"
+if [[ "$chat" == reasoning ]]; then
+    complete=12
+    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning ]] || complete=11
+    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != marker-total ]] || complete=12
+    format="$complete/12"; format_status=diagnostic
+else
+    format=not-applicable; format_status=not-applicable
+fi
+printf 'semantic-summary: model_id=%s backend=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic reasoning_format=%s reasoning_format_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$format" "$format_status"
 if [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "${SEMANTIC_STUB_PROTOCOL:-}" != missing-timing ]]; then
     total=100
     [[ "${SEMANTIC_STUB_PROTOCOL:-}" != malformed || "$GH_ZERO_MODEL_ID" != 3b-instruct ]] || total=invalid
@@ -1316,6 +1332,11 @@ printf 'internal /secret/path must not escape\n' >&2
     assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
     assert!(!stdout.contains("/secret/path"));
     assert_eq!(stdout.matches("semantic-selection:").count(), 6);
+    assert_eq!(stdout.matches("semantic-case:").count(), 72);
+    assert_eq!(stdout.matches(" stop=eos ").count(), 72);
+    assert_eq!(stdout.matches("marker_status=not-applicable").count(), 36);
+    assert_eq!(stdout.matches("marker_status=complete").count(), 35);
+    assert_eq!(stdout.matches("marker_status=absent").count(), 1);
     assert_eq!(stdout.matches("semantic-summary:").count(), 6);
     assert_eq!(stdout.matches("semantic-timing:").count(), 6);
     for probe in [
@@ -1404,13 +1425,21 @@ printf 'internal /secret/path must not escape\n' >&2
     assert!(stdout.contains("summary: pass=5 external_verification=1 failure=0 total=6"));
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
 
-    for protocol in ["missing-timing", "duplicate", "contradictory", "malformed"] {
+    for (protocol, failed_id) in [
+        ("missing-timing", "3b-instruct"),
+        ("duplicate", "3b-instruct"),
+        ("duplicate-case", "3b-instruct"),
+        ("contradictory", "3b-instruct"),
+        ("malformed", "3b-instruct"),
+        ("non-eos", "3b-instruct"),
+        ("marker-total", "3b-reasoning"),
+    ] {
         fs::write(&calls, []).unwrap();
         let invalid = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
         assert_eq!(invalid.status.code(), Some(1), "{protocol}");
         let stdout = String::from_utf8(invalid.stdout).unwrap();
         assert!(
-            stdout.contains("semantic model_id=3b-instruct: failure"),
+            stdout.contains(&format!("semantic model_id={failed_id}: failure")),
             "{protocol}"
         );
         assert!(stdout.contains("summary: pass=5 external_verification=0 failure=1 total=6"));
@@ -1456,6 +1485,7 @@ printf 'internal /secret/path must not escape\n' >&2
         );
     }
     assert_eq!(source.matches("--features hybrid").count(), 1);
+    assert!(source.lines().count() < 200);
     for row in &rows {
         assert_eq!(
             fs::read(models.join(row.q4_file)).unwrap(),

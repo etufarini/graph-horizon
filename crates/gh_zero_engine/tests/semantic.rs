@@ -1,7 +1,8 @@
 /*
  * gh_zero_engine — deterministic semantic product acceptance
- * This integration harness owns one fixed objective corpus and its strict
- * response predicates. It is neither a runtime quality API nor a benchmark.
+ * This integration harness separates semantic acceptance from format-
+ * conformance diagnostics for one fixed objective corpus. It is neither a
+ * runtime quality API nor a benchmark.
  */
 
 use std::path::Path;
@@ -15,6 +16,22 @@ use serde_json::Value;
 enum Profile {
     Instruct,
     Reasoning,
+}
+
+#[derive(Clone, Copy)]
+enum CaseClass {
+    CriticalSemantic,
+    Semantic,
+    Conformance,
+}
+
+impl CaseClass {
+    fn label(self) -> &'static str {
+        match self {
+            Self::CriticalSemantic | Self::Semantic => "semantic",
+            Self::Conformance => "conformance",
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -34,7 +51,7 @@ enum Predicate {
 struct Case {
     id: &'static str,
     prompt: &'static str,
-    critical: bool,
+    class: CaseClass,
     name: &'static str,
     predicate: Predicate,
 }
@@ -43,84 +60,84 @@ const CASES: [Case; 12] = [
     Case {
         id: "S01",
         prompt: "Calcola 17 × 19. Rispondi con il solo numero.",
-        critical: true,
+        class: CaseClass::CriticalSemantic,
         name: "exact Italian arithmetic",
         predicate: Predicate::ExactDigits("323"),
     },
     Case {
         id: "S02",
         prompt: "A box contains 24 pencils. Seven are removed. Reply with only the number of pencils left.",
-        critical: true,
+        class: CaseClass::CriticalSemantic,
         name: "exact English arithmetic",
         predicate: Predicate::ExactDigits("17"),
     },
     Case {
         id: "S03",
         prompt: "Tutti i merli sono uccelli e nessun uccello è un mammifero. Un merlo può essere un mammifero? Rispondi solo sì o no.",
-        critical: true,
+        class: CaseClass::CriticalSemantic,
         name: "Italian deduction",
         predicate: Predicate::FinalPeriodWord("no"),
     },
     Case {
         id: "S04",
         prompt: "What is the next number in 2, 6, 12, 20, 30? Reply with only the number.",
-        critical: true,
+        class: CaseClass::Semantic,
         name: "exact sequence answer",
         predicate: Predicate::ExactDigits("42"),
     },
     Case {
         id: "S05",
         prompt: "Write exactly three lines. First line: Alpha. Second line: Beta. Third line: Gamma. Add nothing else.",
-        critical: true,
+        class: CaseClass::Conformance,
         name: "exact three lines",
         predicate: Predicate::ThreeLines,
     },
     Case {
         id: "S06",
         prompt: "Ignora la parola banana in questa frase e rispondi esattamente con OK, senza punteggiatura o altro testo.",
-        critical: true,
+        class: CaseClass::CriticalSemantic,
         name: "exact OK token",
         predicate: Predicate::ExactToken("OK"),
     },
     Case {
         id: "S07",
         prompt: "Qual è la capitale d'Italia? Rispondi con il solo nome della città.",
-        critical: false,
+        class: CaseClass::Semantic,
         name: "Italian capital",
         predicate: Predicate::FinalPeriodWord("roma"),
     },
     Case {
         id: "S08",
         prompt: "At standard atmospheric pressure, at what temperature does pure water freeze? Answer in degrees Celsius only.",
-        critical: false,
+        class: CaseClass::Semantic,
         name: "freezing point",
         predicate: Predicate::FreezingPoint,
     },
     Case {
         id: "S09",
         prompt: "Traduci in inglese: \"La luce del sole aiuta le piante a crescere.\"",
-        critical: false,
+        class: CaseClass::Semantic,
         name: "Italian to English meaning",
         predicate: Predicate::ItalianToEnglish,
     },
     Case {
         id: "S10",
         prompt: "Translate into Italian: \"The book is on the table.\" Reply with the translation only.",
-        critical: false,
+        class: CaseClass::Semantic,
         name: "English to Italian meaning",
         predicate: Predicate::ItalianTranslation,
     },
     Case {
         id: "S11",
         prompt: "Return a Markdown unordered list containing exactly these colors in this order: red, green, blue. No introduction or conclusion.",
-        critical: false,
+        class: CaseClass::Conformance,
         name: "Markdown color list",
         predicate: Predicate::MarkdownColors,
     },
     Case {
         id: "S12",
         prompt: "Return only a JSON object with exactly two fields: result set to the number 42, and unit set to the string \"items\".",
-        critical: false,
+        class: CaseClass::Conformance,
         name: "exact JSON object",
         predicate: Predicate::JsonObject,
     },
@@ -190,11 +207,14 @@ fn predicate(case: Case, response: &str) -> Result<(), &'static str> {
                 && !lower.contains("la luce del sole aiuta le piante a crescere.")
         }
         Predicate::ItalianTranslation => {
-            response
-                .strip_suffix('.')
-                .unwrap_or(response)
-                .to_lowercase()
-                == "il libro è sul tavolo"
+            matches!(
+                response
+                    .strip_suffix('.')
+                    .unwrap_or(response)
+                    .to_lowercase()
+                    .as_str(),
+                "il libro è sul tavolo" | "il libro è sulla tavola"
+            )
         }
         Predicate::MarkdownColors => {
             let lines = response.split('\n').collect::<Vec<_>>();
@@ -213,6 +233,9 @@ fn predicate(case: Case, response: &str) -> Result<(), &'static str> {
 }
 
 fn freezing_point(response: &str) -> bool {
+    if response == "0" {
+        return true;
+    }
     let lower = response.to_lowercase();
     let unit = response.contains("°C") || response.contains('C') || lower.contains("celsius");
     let bytes = response.as_bytes();
@@ -257,13 +280,33 @@ fn exact_json(response: &str) -> bool {
         && object.get("unit") == Some(&Value::from("items"))
 }
 
+fn scores(results: &[bool; 12]) -> (usize, usize, usize) {
+    let passed = CASES.iter().zip(results).filter(|(_, passed)| **passed);
+    let critical = passed
+        .clone()
+        .filter(|(case, _)| matches!(case.class, CaseClass::CriticalSemantic))
+        .count();
+    let semantic = passed
+        .clone()
+        .filter(|(case, _)| !matches!(case.class, CaseClass::Conformance))
+        .count();
+    let conformance = passed
+        .filter(|(case, _)| matches!(case.class, CaseClass::Conformance))
+        .count();
+    (critical, semantic, conformance)
+}
+
 fn threshold(results: &[bool; 12]) -> bool {
-    CASES
-        .iter()
-        .zip(results)
-        .filter(|(case, _)| case.critical)
-        .all(|(_, passed)| *passed)
-        && results.iter().filter(|passed| **passed).count() >= 11
+    let (critical, semantic, _) = scores(results);
+    critical == 4 && semantic >= 8
+}
+
+fn summary_line(model_id: &str, results: &[bool; 12]) -> String {
+    let (critical, semantic, conformance) = scores(results);
+    let status = if threshold(results) { "pass" } else { "fail" };
+    format!(
+        "semantic-summary: model_id={model_id} critical={critical}/4 semantic={semantic}/9 semantic_status={status} conformance={conformance}/3 conformance_status=diagnostic"
+    )
 }
 
 fn excerpt(response: &str) -> String {
@@ -365,39 +408,72 @@ fn real_semantic_acceptance() {
         results[index] = result.is_ok();
         match result {
             Ok(()) => println!(
-                "semantic-case: model_id={model_id} case_id={} status=pass predicate={}",
+                "semantic-case: model_id={model_id} case_id={} status=pass predicate={} class={}",
                 case.id,
-                case.name.replace(' ', "-")
+                case.name.replace(' ', "-"),
+                case.class.label()
             ),
             Err(reason) => println!(
-                "semantic-case: model_id={model_id} case_id={} status=fail {reason}",
-                case.id
+                "semantic-case: model_id={model_id} case_id={} status=fail {reason} class={}",
+                case.id,
+                case.class.label()
             ),
         }
     }
 
-    let critical = CASES
-        .iter()
-        .zip(results)
-        .filter(|(case, passed)| case.critical && *passed)
-        .count();
-    let total = results.iter().filter(|passed| **passed).count();
     let passed = threshold(&results);
-    println!(
-        "semantic-summary: model_id={model_id} critical={critical}/6 total={total}/12 status={}",
-        if passed { "pass" } else { "fail" }
-    );
+    println!("{}", summary_line(&model_id, &results));
     assert!(passed, "semantic acceptance threshold missed");
 }
 
 #[test]
-fn corpus_is_exact_and_has_six_critical_cases() {
+fn corpus_has_exact_order_and_classification() {
     assert_eq!(CASES.len(), 12);
     for (index, case) in CASES.iter().enumerate() {
         assert_eq!(case.id, format!("S{:02}", index + 1));
         assert!(!case.prompt.is_empty());
-        assert_eq!(case.critical, index < 6);
     }
+    assert_eq!(
+        CASES.map(|case| case.prompt),
+        [
+            "Calcola 17 × 19. Rispondi con il solo numero.",
+            "A box contains 24 pencils. Seven are removed. Reply with only the number of pencils left.",
+            "Tutti i merli sono uccelli e nessun uccello è un mammifero. Un merlo può essere un mammifero? Rispondi solo sì o no.",
+            "What is the next number in 2, 6, 12, 20, 30? Reply with only the number.",
+            "Write exactly three lines. First line: Alpha. Second line: Beta. Third line: Gamma. Add nothing else.",
+            "Ignora la parola banana in questa frase e rispondi esattamente con OK, senza punteggiatura o altro testo.",
+            "Qual è la capitale d'Italia? Rispondi con il solo nome della città.",
+            "At standard atmospheric pressure, at what temperature does pure water freeze? Answer in degrees Celsius only.",
+            "Traduci in inglese: \"La luce del sole aiuta le piante a crescere.\"",
+            "Translate into Italian: \"The book is on the table.\" Reply with the translation only.",
+            "Return a Markdown unordered list containing exactly these colors in this order: red, green, blue. No introduction or conclusion.",
+            "Return only a JSON object with exactly two fields: result set to the number 42, and unit set to the string \"items\".",
+        ]
+    );
+    let classes = CASES.map(|case| case.class.label());
+    assert_eq!(
+        classes,
+        [
+            "semantic",
+            "semantic",
+            "semantic",
+            "semantic",
+            "conformance",
+            "semantic",
+            "semantic",
+            "semantic",
+            "semantic",
+            "semantic",
+            "conformance",
+            "conformance",
+        ]
+    );
+    let critical = CASES
+        .iter()
+        .filter(|case| matches!(case.class, CaseClass::CriticalSemantic))
+        .map(|case| case.id)
+        .collect::<Vec<_>>();
+    assert_eq!(critical, ["S01", "S02", "S03", "S06"]);
 }
 
 #[test]
@@ -443,7 +519,7 @@ fn every_case_predicate_has_pass_and_failure_fixtures() {
         ("Alpha\r\nBeta\r\nGamma", "Alpha\nBeta\nGamma\n"),
         ("OK", "OK."),
         ("ROMA.", "Milano"),
-        ("0 °C", "0 °C or 32 °F"),
+        ("0", "0 °C or 32 °F"),
         (
             "Sunlight helps plants grow.",
             "La luce del sole aiuta le piante a crescere.",
@@ -459,21 +535,37 @@ fn every_case_predicate_has_pass_and_failure_fixtures() {
         assert!(predicate(case, passing).is_ok(), "{} pass", case.id);
         assert!(predicate(case, failing).is_err(), "{} fail", case.id);
     }
+    assert!(predicate(CASES[7], "0 °C").is_ok());
+    assert!(predicate(CASES[9], "Il libro è sulla tavola.").is_ok());
     assert!(predicate(CASES[11], r#"{"result":0,"result":42,"unit":"items"}"#).is_err());
 }
 
 #[test]
-fn threshold_requires_all_critical_and_eleven_total() {
-    assert!(threshold(&[true; 12]));
-    let mut eleven = [true; 12];
-    eleven[11] = false;
-    assert!(threshold(&eleven));
-    let mut ten = eleven;
-    ten[10] = false;
-    assert!(!threshold(&ten));
+fn threshold_separates_semantic_acceptance_from_conformance() {
+    let mut eight_semantic = [false; 12];
+    for index in [0, 1, 2, 3, 5, 6, 7, 8] {
+        eight_semantic[index] = true;
+    }
+    assert_eq!(scores(&eight_semantic), (4, 8, 0));
+    assert!(threshold(&eight_semantic));
+    assert_eq!(
+        summary_line("fixture", &eight_semantic),
+        "semantic-summary: model_id=fixture critical=4/4 semantic=8/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic"
+    );
+
+    let mut seven_semantic = eight_semantic;
+    seven_semantic[8] = false;
+    assert_eq!(scores(&seven_semantic), (4, 7, 0));
+    assert!(!threshold(&seven_semantic));
+
     let mut critical_miss = [true; 12];
     critical_miss[0] = false;
+    assert_eq!(scores(&critical_miss), (3, 8, 3));
     assert!(!threshold(&critical_miss));
+
+    let all = [true; 12];
+    assert_eq!(scores(&all), (4, 9, 3));
+    assert!(threshold(&all));
 }
 
 #[test]

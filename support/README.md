@@ -1,3 +1,8 @@
+<!--
+  Guida operativa degli script locali in sola lettura; documenta le loro
+  interfacce, non la policy runtime del prodotto.
+-->
+
 # Supporto operativo
 
 Gli script orchestrano build e verifiche esistenti. Non scaricano modelli, non
@@ -11,6 +16,7 @@ diversi.
 | `profiling/validate-kv.sh` | matrice f16/int8 su Q8_0 e Q4_K_M |
 | `profiling/validate-weights.sh` | size/hash/istogrammi reali e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 Reasoning contro oracle fissato |
+| `testing/semantic-check.sh` | accettazione semantica M3 sui sei Q4_K_M autenticati |
 | `testing/run-ghzero-engine.sh` | avvio esplicito della console locale |
 
 ## Prerequisiti
@@ -75,6 +81,38 @@ retry con altro backend, modello o contesto. Per hybrid è obbligatorio
 `--vram-weights-percent 25`. Una risorsa assente o Vulkan indisponibile produce
 `external verification: <motivo preciso>`; errori di protocollo, codice o
 parità falliscono la riga.
+
+### Accettazione semantica M3
+
+```sh
+support/testing/semantic-check.sh --models-dir /home/user/models
+```
+
+Il runner autentica esattamente i sei artefatti del catalogo e usa sempre KV
+`f16`, contesto 4096, greedy puro e al massimo 256 token per ciascuno dei dodici
+casi. Il backend finale è esclusivamente all-GPU oppure CPU-only. Ogni modello
+viene caricato inizialmente con il planner hybrid esistente: un placement
+completo seleziona il riferimento finale all-GPU con motivo
+`full-vram-fit`; Vulkan assente, VRAM completa insufficiente o un placement
+CPU selezionano il riferimento CPU-only con motivo `no-full-vram-fit`.
+
+Un probe `mixed` può allocare il modello per osservare il placement, ma non
+genera alcun token semantico: viene distrutto e il modello è riaperto CPU-only.
+Il backend finale resta invariato per tutti i dodici casi. Qualsiasi errore dopo
+la selezione è un failure e non attiva fallback o retry.
+
+Per ogni modello tentato lo script inoltra una riga `semantic-selection:` con
+backend e memoria pianificata, dodici righe `semantic-case:`, una
+`semantic-summary:` con gate e diagnostica e una `semantic-timing:` con tempi e
+confronto prestazionale applicabile. Un artefatto assente, illeggibile o non
+autenticato produce `external verification: <motivo preciso>`; l'esatta
+condizione di RAM insufficiente produce lo stesso stato esterno. Ogni ID riceve
+poi una riga normalizzata `semantic model_id=<id>:` e il run termina con
+`summary: pass=<n> external_verification=<n> failure=<n> total=6`.
+
+Il codice di uscita è 0 quando non esistono failure tentati, 1 dopo il riepilogo
+se almeno una riga tentata fallisce e 2, prima di caricare modelli, per argomenti
+o catalogo invalidi. Tutte le sei righe vengono classificate prima dell'uscita.
 
 ## Sicurezza
 

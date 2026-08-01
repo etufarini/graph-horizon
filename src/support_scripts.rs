@@ -2,7 +2,8 @@
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
  * interfaces, proving early validation, quoted model paths, read-only model
- * handling, and explicit external-verification output without real builds.
+ * handling, semantic placement/timing records, and explicit external-
+ * verification output without real builds.
  */
 
 use std::fs;
@@ -1250,7 +1251,34 @@ printf '%s  %s\n' "$digest" "$model"
         r#"#!/usr/bin/env bash
 set -eu
 printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
-printf 'semantic-summary: model_id=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic\n' "$GH_ZERO_MODEL_ID"
+if [[ "$GH_ZERO_MODEL_ID" == "${SEMANTIC_STUB_EXTERNAL_ID:-}" ]]; then
+    printf 'semantic-external: model_id=%s reason=insufficient RAM\n' "$GH_ZERO_MODEL_ID"
+    exit 0
+fi
+case "$GH_ZERO_MODEL_ID" in
+    3b-instruct) backend=vulkan; reason=full-vram-fit; probe=all-gpu; run=all-gpu; cpu_layers=0; gpu_layers=26 ;;
+    3b-reasoning) backend=cpu; reason=no-full-vram-fit; probe=mixed; run=cpu-only; cpu_layers=26; gpu_layers=0 ;;
+    *) backend=cpu; reason=no-full-vram-fit; probe=cpu-only; run=cpu-only; cpu_layers=34; gpu_layers=0 ;;
+esac
+if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == contradictory ]]; then
+    reason=no-full-vram-fit
+fi
+selection="semantic-selection: model_id=$GH_ZERO_MODEL_ID backend=$backend reason=$reason probe_mode=$probe run_mode=$run cpu_layers=$cpu_layers gpu_layers=$gpu_layers cpu_weights=0 cpu_kv=0 cpu_scratch=0 cpu_fixed=0 cpu_staging=0 cpu_crossing=0 cpu_reserve=0 cpu_total=0 gpu_weights=0 gpu_kv=0 gpu_scratch=0 gpu_fixed=0 gpu_staging=0 gpu_crossing=0 gpu_reserve=0 gpu_total=0"
+printf '%s\n' "$selection"
+if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == duplicate ]]; then
+    printf '%s\n' "$selection"
+fi
+for case_id in S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12; do
+    case "$case_id" in S05|S11|S12) class=conformance ;; *) class=semantic ;; esac
+    printf 'semantic-case: model_id=%s case_id=%s status=pass predicate=fixture class=%s\n' "$GH_ZERO_MODEL_ID" "$case_id" "$class"
+done
+printf 'semantic-summary: model_id=%s backend=%s critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic\n' "$GH_ZERO_MODEL_ID" "$backend"
+if [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "${SEMANTIC_STUB_PROTOCOL:-}" != missing-timing ]]; then
+    total=100
+    [[ "${SEMANTIC_STUB_PROTOCOL:-}" != malformed || "$GH_ZERO_MODEL_ID" != 3b-instruct ]] || total=invalid
+    if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct ]]; then baseline=1506690; performance=pass; else baseline=not-applicable; performance=not-applicable; fi
+    printf 'semantic-timing: model_id=%s backend=%s completed_cases=12 total_ms=%s prefill_ms=40 decode_ms=60 baseline_cpu_ms=%s performance_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$total" "$baseline" "$performance"
+fi
 printf 'internal /secret/path must not escape\n' >&2
 [[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
@@ -1264,22 +1292,19 @@ printf 'internal /secret/path must not escape\n' >&2
 
     let runner = testing.join("semantic-check.sh");
     let path = format!("{}:/usr/bin:/bin", bin.display());
-    let run = |bad_size: Option<&str>, fail_id: Option<&str>| {
+    let run = |variables: &[(&str, &str)]| {
         let mut command = Command::new(&runner);
         command
             .args(["--models-dir", models.to_str().unwrap()])
             .env("PATH", &path)
             .env("SEMANTIC_STUB_LOG", &calls);
-        if let Some(value) = bad_size {
-            command.env("SEMANTIC_STUB_BAD_SIZE", value);
-        }
-        if let Some(value) = fail_id {
-            command.env("SEMANTIC_STUB_FAIL_ID", value);
+        for (name, value) in variables {
+            command.env(name, value);
         }
         command.output().unwrap()
     };
 
-    let complete = run(None, None);
+    let complete = run(&[]);
     assert!(complete.status.success());
     let stdout = String::from_utf8(complete.stdout).unwrap();
     let statuses = stdout
@@ -1290,6 +1315,16 @@ printf 'internal /secret/path must not escape\n' >&2
     assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
     assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
     assert!(!stdout.contains("/secret/path"));
+    assert_eq!(stdout.matches("semantic-selection:").count(), 6);
+    assert_eq!(stdout.matches("semantic-summary:").count(), 6);
+    assert_eq!(stdout.matches("semantic-timing:").count(), 6);
+    for probe in [
+        "probe_mode=all-gpu",
+        "probe_mode=mixed",
+        "probe_mode=cpu-only",
+    ] {
+        assert!(stdout.contains(probe));
+    }
     let cargo_calls = fs::read_to_string(&calls).unwrap();
     assert_eq!(cargo_calls.lines().count(), 6);
     for (line, row) in cargo_calls.lines().zip(&rows) {
@@ -1297,14 +1332,14 @@ printf 'internal /secret/path must not escape\n' >&2
         assert_eq!(fields[0], row.id);
         assert_eq!(fields[1], models.join(row.q4_file).to_str().unwrap());
         assert!(fields[2].contains(
-            "--no-default-features --features cpu --test semantic real_semantic_acceptance"
+            "--no-default-features --features hybrid --test semantic real_semantic_acceptance"
         ));
         assert!(fields[2].contains("--ignored --nocapture --exact"));
     }
 
     fs::remove_file(models.join(rows[0].q4_file)).unwrap();
     fs::write(&calls, []).unwrap();
-    let missing = run(None, None);
+    let missing = run(&[]);
     assert!(missing.status.success());
     let stdout = String::from_utf8(missing.stdout).unwrap();
     assert!(stdout.contains(
@@ -1315,7 +1350,7 @@ printf 'internal /secret/path must not escape\n' >&2
     fs::write(models.join(rows[0].q4_file), b"immutable semantic fixture").unwrap();
 
     fs::write(&calls, []).unwrap();
-    let mismatch = run(Some("3B-Instruct"), None);
+    let mismatch = run(&[("SEMANTIC_STUB_BAD_SIZE", "3B-Instruct")]);
     assert!(mismatch.status.success());
     assert!(
         String::from_utf8(mismatch.stdout)
@@ -1325,7 +1360,7 @@ printf 'internal /secret/path must not escape\n' >&2
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
 
     fs::write(&calls, []).unwrap();
-    let failure = run(None, Some("3b-reasoning"));
+    let failure = run(&[("SEMANTIC_STUB_FAIL_ID", "3b-reasoning")]);
     assert_eq!(failure.status.code(), Some(1));
     let stdout = String::from_utf8(failure.stdout).unwrap();
     assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
@@ -1341,7 +1376,7 @@ printf 'internal /secret/path must not escape\n' >&2
 
     fs::remove_file(models.join(rows[5].q4_file)).unwrap();
     fs::write(&calls, []).unwrap();
-    let mixed = run(None, Some("3b-reasoning"));
+    let mixed = run(&[("SEMANTIC_STUB_FAIL_ID", "3b-reasoning")]);
     assert_eq!(mixed.status.code(), Some(1));
     let stdout = String::from_utf8(mixed.stdout).unwrap();
     assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
@@ -1358,6 +1393,30 @@ printf 'internal /secret/path must not escape\n' >&2
     );
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
     fs::write(models.join(rows[5].q4_file), b"immutable semantic fixture").unwrap();
+
+    fs::write(&calls, []).unwrap();
+    let external_ram = run(&[("SEMANTIC_STUB_EXTERNAL_ID", "8b-instruct")]);
+    assert!(external_ram.status.success());
+    let stdout = String::from_utf8(external_ram.stdout).unwrap();
+    assert!(
+        stdout.contains("semantic model_id=8b-instruct: external verification: insufficient RAM")
+    );
+    assert!(stdout.contains("summary: pass=5 external_verification=1 failure=0 total=6"));
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
+
+    for protocol in ["missing-timing", "duplicate", "contradictory", "malformed"] {
+        fs::write(&calls, []).unwrap();
+        let invalid = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
+        assert_eq!(invalid.status.code(), Some(1), "{protocol}");
+        let stdout = String::from_utf8(invalid.stdout).unwrap();
+        assert!(
+            stdout.contains("semantic model_id=3b-instruct: failure"),
+            "{protocol}"
+        );
+        assert!(stdout.contains("summary: pass=5 external_verification=0 failure=1 total=6"));
+        assert!(!stdout.contains("/secret/path"));
+        assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
+    }
 
     fs::write(
         copied_root.join("support/models.tsv"),
@@ -1389,13 +1448,14 @@ printf 'internal /secret/path must not escape\n' >&2
         "wget ",
         "eval ",
         "--features vulkan",
-        "--features hybrid",
+        "--features cpu",
     ] {
         assert!(
             !source.contains(forbidden),
             "semantic runner contains {forbidden}"
         );
     }
+    assert_eq!(source.matches("--features hybrid").count(), 1);
     for row in &rows {
         assert_eq!(
             fs::read(models.join(row.q4_file)).unwrap(),

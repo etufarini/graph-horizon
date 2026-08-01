@@ -1,3 +1,7 @@
+<!--
+  Contratto tecnico del crate: API, backend, memoria e confini di validazione.
+-->
+
 # gh_zero_engine
 
 `gh_zero_engine` è il runtime di inferenza text-to-text per
@@ -26,6 +30,19 @@ Il piano hybrid è immutabile dopo il load. Solo il piano misto copia il residuo
 CPU→GPU, una volta per passaggio; la KV di ogni layer resta sul suo backend. Il
 report contiene modalità, split, conteggi layer e breakdown CPU/GPU di pesi, KV,
 scratch, fixed, staging, crossing e reserve.
+
+### Riferimento semantico M3
+
+La validazione M3 applica una policy separata e solo test: usa il medesimo load
+hybrid come probe, ma accetta come backend finale soltanto all-GPU oppure
+CPU-only. Un probe `mixed` viene distrutto prima di generare token e il modello
+viene riaperto CPU-only; questo non modifica il supporto mixed delle sessioni
+produttive né aggiunge opzioni a `EngineConfig`.
+
+`Engine::placement()` fornisce il placement finale e il suo breakdown di
+memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
+selezione finale resta un failure senza retry o fallback. Il comando e il
+protocollo operativo sono nella [guida degli script](../../support/README.md).
 
 ## Contratto Ministral
 

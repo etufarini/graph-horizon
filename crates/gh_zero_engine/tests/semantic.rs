@@ -1,8 +1,9 @@
 /*
  * gh_zero_engine — M3 all-GPU/CPU-only semantic acceptance harness
  * Selects one final backend from the observed hybrid placement, then owns the
- * fixed corpus, scoring, placement evidence, and timing evidence. A mixed
- * probe never generates; production hybrid policy remains outside this file.
+ * fixed corpus, scoring, stop evidence, marker diagnostics, placement, and
+ * timing. A mixed probe never generates; runtime output and production hybrid
+ * policy remain outside this test-only file.
  */
 
 use std::{path::Path, time::Instant};
@@ -17,6 +18,56 @@ use serde_json::Value;
 enum Profile {
     Instruct,
     Reasoning,
+}
+
+impl Profile {
+    fn max_tokens(self) -> usize {
+        match self {
+            Self::Instruct => 256,
+            Self::Reasoning => 4096,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MarkerStatus {
+    NotApplicable,
+    Complete,
+    Absent,
+    Invalid,
+}
+
+impl MarkerStatus {
+    fn label(self) -> &'static str {
+        match self {
+            Self::NotApplicable => "not-applicable",
+            Self::Complete => "complete",
+            Self::Absent => "absent",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stop {
+    Eos,
+    MaxTokens,
+    Context,
+}
+
+impl Stop {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Eos => "eos",
+            Self::MaxTokens => "max-tokens",
+            Self::Context => "context",
+        }
+    }
+}
+
+struct Normalized {
+    scored: String,
+    marker: MarkerStatus,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -190,20 +241,28 @@ const CASES: [Case; 12] = [
     },
 ];
 
-fn normalize(profile: Profile, raw: &str) -> Result<String, &'static str> {
+fn normalize(profile: Profile, raw: &str) -> Result<Normalized, &'static str> {
     let trimmed = raw.trim();
     match profile {
         Profile::Instruct => {
             if trimmed.contains("[THINK]") || trimmed.contains("[/THINK]") {
                 return Err("reasoning marker in Instruct response");
             }
-            Ok(trimmed.to_owned())
+            Ok(Normalized {
+                scored: trimmed.to_owned(),
+                marker: MarkerStatus::NotApplicable,
+            })
         }
         Profile::Reasoning => {
-            if !trimmed.starts_with("[THINK]")
-                || trimmed.matches("[THINK]").count() != 1
-                || trimmed.matches("[/THINK]").count() != 1
-            {
+            let opening = trimmed.matches("[THINK]").count();
+            let closing = trimmed.matches("[/THINK]").count();
+            if opening == 0 && closing == 0 {
+                return Ok(Normalized {
+                    scored: trimmed.to_owned(),
+                    marker: MarkerStatus::Absent,
+                });
+            }
+            if !trimmed.starts_with("[THINK]") || opening != 1 || closing != 1 {
                 return Err("invalid reasoning marker contract");
             }
             let (_, answer) = trimmed
@@ -213,8 +272,25 @@ fn normalize(profile: Profile, raw: &str) -> Result<String, &'static str> {
             if answer.is_empty() {
                 return Err("empty reasoning final answer");
             }
-            Ok(answer.to_owned())
+            Ok(Normalized {
+                scored: answer.to_owned(),
+                marker: MarkerStatus::Complete,
+            })
         }
+    }
+}
+
+fn stop(max_tokens: usize, stats: GenerationStats) -> Result<Stop, &'static str> {
+    let total = stats
+        .prompt_tokens
+        .checked_add(stats.completion_tokens)
+        .ok_or("token count overflow")?;
+    if total == 4096 {
+        Ok(Stop::Context)
+    } else if stats.completion_tokens == max_tokens {
+        Ok(Stop::MaxTokens)
+    } else {
+        Ok(Stop::Eos)
     }
 }
 
@@ -368,9 +444,12 @@ fn freezing_point(response: &str) -> bool {
     if response == "0" {
         return true;
     }
-    let lower = response.to_lowercase();
-    let unit = response.contains("°C") || response.contains('C') || lower.contains("celsius");
-    let bytes = response.as_bytes();
+    let view = response
+        .chars()
+        .filter(|character| !matches!(character, '*' | '_'))
+        .collect::<String>()
+        .to_lowercase();
+    let bytes = view.as_bytes();
     let mut values = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
@@ -390,12 +469,32 @@ fn freezing_point(response: &str) -> bool {
                     index += 1;
                 }
             }
-            values.push(&response[start..index]);
+            let number_end = index;
+            while bytes.get(index).is_some_and(u8::is_ascii_whitespace) {
+                index += 1;
+            }
+            let unit = &view[index..];
+            let unit_len = ["degrees celsius", "degree celsius", "°c"]
+                .into_iter()
+                .find(|candidate| unit.starts_with(candidate))
+                .map(str::len)
+                .or_else(|| {
+                    unit.starts_with('c')
+                        .then(|| unit[1..].chars().next())
+                        .filter(|next| {
+                            next.is_none_or(|character| !character.is_ascii_alphabetic())
+                        })
+                        .map(|_| 1)
+                });
+            if let Some(unit_len) = unit_len {
+                values.push(&view[start..number_end]);
+                index += unit_len;
+            }
         } else {
             index += 1;
         }
     }
-    unit && values.len() == 1 && values[0].parse::<f64>().is_ok_and(|value| value == 0.0)
+    values.len() == 1 && values[0].parse::<f64>().is_ok_and(|value| value == 0.0)
 }
 
 fn exact_json(response: &str) -> bool {
@@ -433,11 +532,30 @@ fn threshold(results: &[bool; 12]) -> bool {
     critical == 4 && semantic >= 8
 }
 
-fn summary_line(model_id: &str, backend: SemanticBackend, results: &[bool; 12]) -> String {
+fn summary_line(
+    model_id: &str,
+    profile: Profile,
+    backend: SemanticBackend,
+    results: &[bool; 12],
+    markers: &[MarkerStatus; 12],
+) -> String {
     let (critical, semantic, conformance) = scores(results);
     let status = if threshold(results) { "pass" } else { "fail" };
+    let (reasoning_format, reasoning_format_status) = match profile {
+        Profile::Instruct => ("not-applicable".into(), "not-applicable"),
+        Profile::Reasoning => (
+            format!(
+                "{}/12",
+                markers
+                    .iter()
+                    .filter(|marker| **marker == MarkerStatus::Complete)
+                    .count()
+            ),
+            "diagnostic",
+        ),
+    };
     format!(
-        "semantic-summary: model_id={model_id} backend={} critical={critical}/4 semantic={semantic}/9 semantic_status={status} conformance={conformance}/3 conformance_status=diagnostic",
+        "semantic-summary: model_id={model_id} backend={} critical={critical}/4 semantic={semantic}/9 semantic_status={status} conformance={conformance}/3 conformance_status=diagnostic reasoning_format={reasoning_format} reasoning_format_status={reasoning_format_status}",
         backend.label()
     )
 }
@@ -472,24 +590,49 @@ fn event_response(events: &[Event]) -> Result<(String, GenerationStats), &'stati
     Ok((assembly(&parts)?, stats))
 }
 
-fn assessment(profile: Profile, case: Case, raw: &str) -> Result<(), String> {
-    let scored = normalize(profile, raw).map_err(|reason| {
-        let response = match profile {
-            Profile::Instruct => excerpt(raw),
-            Profile::Reasoning => "[invalid reasoning response omitted]".into(),
-        };
+fn assessment(
+    profile: Profile,
+    case: Case,
+    raw: &str,
+    stop: Stop,
+) -> (MarkerStatus, Result<(), String>) {
+    let normalized = match normalize(profile, raw) {
+        Ok(normalized) => normalized,
+        Err(reason) => {
+            let (marker, response) = match profile {
+                Profile::Instruct => (MarkerStatus::NotApplicable, excerpt(raw)),
+                Profile::Reasoning => (
+                    MarkerStatus::Invalid,
+                    "[invalid reasoning response omitted]".into(),
+                ),
+            };
+            return (
+                marker,
+                Err(format!(
+                    "reason={} excerpt={}",
+                    reason.replace(' ', "-"),
+                    response.escape_debug()
+                )),
+            );
+        }
+    };
+    if stop != Stop::Eos {
+        return (
+            normalized.marker,
+            Err(format!(
+                "reason=incomplete-generation excerpt={}",
+                excerpt(&normalized.scored).escape_debug()
+            )),
+        );
+    }
+    let result = predicate(case, &normalized.scored).map_err(|reason| {
         format!(
-            "predicate=response-normalization reason={reason} excerpt={}",
-            response.escape_debug()
+            "reason={} excerpt={}",
+            reason.replace(' ', "-"),
+            excerpt(&normalized.scored).escape_debug()
         )
-    })?;
-    predicate(case, &scored).map_err(|reason| {
-        format!(
-            "predicate={} reason={reason} excerpt={}",
-            case.name.replace(' ', "-"),
-            excerpt(&scored).escape_debug()
-        )
-    })
+    });
+    (normalized.marker, result)
 }
 
 #[test]
@@ -549,8 +692,10 @@ fn real_semantic_acceptance() {
     println!("{}", selection_line(&model_id, selection, final_report));
 
     let mut results = [false; 12];
+    let mut markers = [MarkerStatus::NotApplicable; 12];
     let mut timing = Timing::default();
     let mut execution_ok = true;
+    let max_tokens = profile.max_tokens();
 
     for (index, case) in CASES.iter().copied().enumerate() {
         let mut events = Vec::new();
@@ -568,44 +713,95 @@ fn real_semantic_acceptance() {
                     repeat_penalty: 1.0,
                     seed: 0,
                 },
-                max_tokens: 256,
+                max_tokens,
             },
             &mut |event| {
                 events.push(event);
                 true
             },
         );
-        let result = match event_response(&events) {
-            Ok((raw, stats)) => match timing.add(stats) {
-                Ok(()) => assessment(profile, case, &raw),
+        let (marker, result, stop_label, prompt_tokens, completion_tokens) =
+            match event_response(&events) {
+                Ok((raw, stats)) => match stop(max_tokens, stats) {
+                    Ok(stop) => {
+                        let (marker, mut result) = assessment(profile, case, &raw, stop);
+                        if stop != Stop::Eos {
+                            execution_ok = false;
+                        }
+                        if let Err(reason) = timing.add(stats) {
+                            execution_ok = false;
+                            result = Err(format!(
+                                "reason={} excerpt={}",
+                                reason.replace(' ', "-"),
+                                "".escape_debug()
+                            ));
+                        }
+                        (
+                            marker,
+                            result,
+                            stop.label(),
+                            stats.prompt_tokens,
+                            stats.completion_tokens,
+                        )
+                    }
+                    Err(reason) => {
+                        execution_ok = false;
+                        (
+                            MarkerStatus::Invalid,
+                            Err(format!(
+                                "reason={} excerpt={}",
+                                reason.replace(' ', "-"),
+                                "[invalid reasoning response omitted]".escape_debug()
+                            )),
+                            "error",
+                            stats.prompt_tokens,
+                            stats.completion_tokens,
+                        )
+                    }
+                },
                 Err(reason) => {
                     execution_ok = false;
-                    Err(format!("predicate=engine-events reason={reason}"))
+                    let (marker, response) = match profile {
+                        Profile::Instruct => (MarkerStatus::NotApplicable, ""),
+                        Profile::Reasoning => (
+                            MarkerStatus::Invalid,
+                            "[invalid reasoning response omitted]",
+                        ),
+                    };
+                    (
+                        marker,
+                        Err(format!(
+                            "reason={} excerpt={}",
+                            reason.replace(' ', "-"),
+                            response.escape_debug()
+                        )),
+                        "error",
+                        0,
+                        0,
+                    )
                 }
-            },
-            Err(reason) => {
-                execution_ok = false;
-                Err(format!("predicate=engine-events reason={reason}"))
-            }
-        };
+            };
+        markers[index] = marker;
         results[index] = result.is_ok();
+        let record = format!(
+            "semantic-case: model_id={model_id} case_id={} status={} predicate={} class={} stop={stop_label} prompt_tokens={prompt_tokens} completion_tokens={completion_tokens} marker_status={}",
+            case.id,
+            if result.is_ok() { "pass" } else { "fail" },
+            case.name.replace(' ', "-"),
+            case.class.label(),
+            marker.label(),
+        );
         match result {
-            Ok(()) => println!(
-                "semantic-case: model_id={model_id} case_id={} status=pass predicate={} class={}",
-                case.id,
-                case.name.replace(' ', "-"),
-                case.class.label()
-            ),
-            Err(reason) => println!(
-                "semantic-case: model_id={model_id} case_id={} status=fail {reason} class={}",
-                case.id,
-                case.class.label()
-            ),
+            Ok(()) => println!("{record}"),
+            Err(reason) => println!("{record} {reason}"),
         }
     }
 
     let passed = threshold(&results);
-    println!("{}", summary_line(&model_id, selection.backend, &results));
+    println!(
+        "{}",
+        summary_line(&model_id, profile, selection.backend, &results, &markers)
+    );
     let total_ms = u64::try_from(started.elapsed().as_millis())
         .unwrap_or_else(|_| panic!("semantic total timing overflow"));
     let (baseline, performance_status, performance_ok) =
@@ -674,18 +870,22 @@ fn corpus_has_exact_order_and_classification() {
 
 #[test]
 fn normalization_enforces_profile_marker_contracts() {
-    assert_eq!(normalize(Profile::Instruct, " 323 \n").unwrap(), "323");
+    let instruct = normalize(Profile::Instruct, " 323 \n").unwrap();
+    assert_eq!(instruct.scored, "323");
+    assert_eq!(instruct.marker, MarkerStatus::NotApplicable);
     for raw in ["[THINK]x[/THINK] 323", "x [/THINK]"] {
         assert!(normalize(Profile::Instruct, raw).is_err(), "{raw}");
     }
-    assert_eq!(
-        normalize(Profile::Reasoning, " [THINK]work[/THINK]\n323 ").unwrap(),
-        "323"
-    );
+    let complete = normalize(Profile::Reasoning, " [THINK]work[/THINK]\n323 ").unwrap();
+    assert_eq!(complete.scored, "323");
+    assert_eq!(complete.marker, MarkerStatus::Complete);
+    let absent = normalize(Profile::Reasoning, " 323 ").unwrap();
+    assert_eq!(absent.scored, "323");
+    assert_eq!(absent.marker, MarkerStatus::Absent);
     for raw in [
-        "323",
         "x[THINK]work[/THINK] 323",
         "[THINK]work 323",
+        "[/THINK] 323",
         "[THINK]a[THINK]b[/THINK] 323",
         "[THINK]a[/THINK]x[/THINK] 323",
         "[THINK]work[/THINK]   ",
@@ -703,6 +903,22 @@ fn model_ids_select_only_the_approved_profiles() {
         assert_eq!(model_profile(id), Ok(Profile::Reasoning));
     }
     assert!(model_profile("unknown").is_err());
+    assert_eq!(Profile::Instruct.max_tokens(), 256);
+    assert_eq!(Profile::Reasoning.max_tokens(), 4096);
+}
+
+#[test]
+fn stop_classification_prefers_context_and_requires_exact_limits() {
+    let stats = |prompt_tokens, completion_tokens| GenerationStats {
+        prompt_tokens,
+        completion_tokens,
+        prefill_ms: 0,
+        decode_ms: 0,
+    };
+    assert_eq!(stop(4096, stats(100, 3996)), Ok(Stop::Context));
+    assert_eq!(stop(256, stats(100, 256)), Ok(Stop::MaxTokens));
+    assert_eq!(stop(256, stats(100, 255)), Ok(Stop::Eos));
+    assert_eq!(stop(4096, stats(1, 4095)), Ok(Stop::Context));
 }
 
 #[test]
@@ -715,7 +931,7 @@ fn every_case_predicate_has_pass_and_failure_fixtures() {
         ("Alpha\r\nBeta\r\nGamma", "Alpha\nBeta\nGamma\n"),
         ("OK", "OK."),
         ("ROMA.", "Milano"),
-        ("0", "0 °C or 32 °F"),
+        ("0", "0°C and 100°C"),
         (
             "Sunlight helps plants grow.",
             "La luce del sole aiuta le piante a crescere.",
@@ -731,7 +947,18 @@ fn every_case_predicate_has_pass_and_failure_fixtures() {
         assert!(predicate(case, passing).is_ok(), "{} pass", case.id);
         assert!(predicate(case, failing).is_err(), "{} fail", case.id);
     }
-    assert!(predicate(CASES[7], "0 °C").is_ok());
+    for response in [
+        "0 °C",
+        "At 1 atm, water freezes at **0 degrees Celsius**",
+        "32°F (0°C)",
+        "+0.0 C",
+        "-0 degree CELSIUS",
+    ] {
+        assert!(predicate(CASES[7], response).is_ok(), "{response}");
+    }
+    for response in ["0 Celsius", "1 atm", "1°C", "0°C and 100°C"] {
+        assert!(predicate(CASES[7], response).is_err(), "{response}");
+    }
     assert!(predicate(CASES[9], "Il libro è sulla tavola.").is_ok());
     assert!(predicate(CASES[11], r#"{"result":0,"result":42,"unit":"items"}"#).is_err());
 }
@@ -744,9 +971,28 @@ fn threshold_separates_semantic_acceptance_from_conformance() {
     }
     assert_eq!(scores(&eight_semantic), (4, 8, 0));
     assert!(threshold(&eight_semantic));
+    let markers = [MarkerStatus::NotApplicable; 12];
     assert_eq!(
-        summary_line("fixture", SemanticBackend::Cpu, &eight_semantic),
-        "semantic-summary: model_id=fixture backend=cpu critical=4/4 semantic=8/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic"
+        summary_line(
+            "fixture",
+            Profile::Instruct,
+            SemanticBackend::Cpu,
+            &eight_semantic,
+            &markers,
+        ),
+        "semantic-summary: model_id=fixture backend=cpu critical=4/4 semantic=8/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic reasoning_format=not-applicable reasoning_format_status=not-applicable"
+    );
+    let mut reasoning_markers = [MarkerStatus::Absent; 12];
+    reasoning_markers[..8].fill(MarkerStatus::Complete);
+    assert!(
+        summary_line(
+            "fixture",
+            Profile::Reasoning,
+            SemanticBackend::Cpu,
+            &eight_semantic,
+            &reasoning_markers,
+        )
+        .ends_with("reasoning_format=8/12 reasoning_format_status=diagnostic")
     );
 
     let mut seven_semantic = eight_semantic;
@@ -892,9 +1138,18 @@ fn event_collection_requires_one_finished_and_valid_utf8() {
 
 #[test]
 fn reasoning_normalization_failure_omits_raw_thinking() {
-    let error =
-        assessment(Profile::Reasoning, CASES[0], "[THINK]secret without close").unwrap_err();
-    assert!(error.contains("response-normalization"));
+    let (marker, result) = assessment(
+        Profile::Reasoning,
+        CASES[0],
+        "[THINK]secret without close",
+        Stop::Eos,
+    );
+    let error = result.unwrap_err();
+    assert_eq!(marker, MarkerStatus::Invalid);
     assert!(error.contains("[invalid reasoning response omitted]"));
     assert!(!error.contains("secret"));
+
+    let (marker, result) = assessment(Profile::Reasoning, CASES[0], "323", Stop::Context);
+    assert_eq!(marker, MarkerStatus::Absent);
+    assert!(result.unwrap_err().contains("incomplete-generation"));
 }

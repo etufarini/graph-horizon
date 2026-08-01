@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Authenticates exactly six read-only models, invokes each semantic test once,
-# and strictly validates its all-GPU or CPU-only protocol. External conditions
-# and attempted failures continue to the aggregate exit status.
+# validates class-sensitive stops in its all-GPU or CPU-only protocol, and
+# continues external conditions and attempted failures to the aggregate status.
 
 set -euo pipefail
 export LC_ALL=C
@@ -46,6 +46,7 @@ protocol_valid() {
     [[ $records != *"$models_dir/"* ]] || return 1
     awk -v id="$id" -v chat="$chat" -v backend="$backend" '
     BEGIN {
+        cases=0; summaries=0; semantic=0; conformance=0; critical_pass=0; complete=0; bad=0
         for (i=1; i<=12; i++) class[sprintf("S%02d", i)]="semantic"
         class["S05"]="conformance"; class["S11"]="conformance"; class["S12"]="conformance"
         critical["S01"]=1; critical["S02"]=1; critical["S03"]=1; critical["S06"]=1
@@ -57,7 +58,8 @@ protocol_valid() {
         if ($2 != "model_id=" id || !(case_id in class) || seen[case_id]++ ||
             $5 !~ /^predicate=[A-Za-z0-9-]+$/ || actual_class != class[case_id] ||
             stop !~ /^(eos|max-tokens|context|error)$/ || prompt !~ /^[0-9]+$/ ||
-            completion !~ /^[0-9]+$/ || stop != "eos" || length($0) > 1024) bad=1
+            completion !~ /^[0-9]+$/ || length($0) > 1024) bad=1
+        if (stop != "eos" && (actual_class == "semantic" || status != "fail")) bad=1
         if (status == "pass") {
             if (NF != 10 || marker == "invalid") bad=1
             if (actual_class == "semantic") semantic++

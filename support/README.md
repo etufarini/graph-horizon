@@ -87,9 +87,11 @@ support/testing/semantic-check.sh --models-dir /home/user/models
 ```
 
 Il runner autentica esattamente i sei artefatti del catalogo e usa sempre KV
-`f16`, contesto 4096 e greedy puro per ciascuno dei dodici casi. Instruct usa
-`max_tokens=256`; Reasoning richiede al massimo 4096 e lascia al guard esistente
-il limite effettivo del contesto residuo. Ogni caso viene tentato una volta.
+`f16` e greedy puro per ciascuno dei dodici casi. Instruct usa contesto 4096 e
+`max_tokens=256`; Reasoning usa il contesto prodotto predefinito 32768 e lascia
+al guard esistente il limite effettivo del contesto residuo su una richiesta
+massima di 32768. Tutti i profili usano le stesse fixture base e ogni caso viene
+tentato una volta.
 Il backend finale è esclusivamente all-GPU oppure CPU-only. Ogni modello viene
 caricato inizialmente con il planner hybrid esistente: un placement completo
 seleziona il riferimento finale all-GPU con motivo `full-vram-fit`; Vulkan
@@ -102,8 +104,8 @@ Il backend finale resta invariato per tutti i dodici casi. Qualsiasi errore dopo
 la selezione è un failure e non attiva fallback o retry.
 
 Ogni record di caso classifica `context` quando prompt e completamento
-raggiungono 4096 token, altrimenti `max-tokens` quando il completamento raggiunge
-il massimo richiesto, altrimenti `eos`. Solo `eos` è completo. Per Reasoning,
+raggiungono il limite del profilo, altrimenti `max-tokens` quando il completamento
+raggiunge il massimo richiesto, altrimenti `eos`. Solo `eos` è completo. Per Reasoning,
 `complete` valuta il solo testo dopo la coppia marker, `absent` valuta tutta la
 risposta trimmed come diagnostica mancante e `invalid` fallisce senza esporre il
 contenuto. Per Instruct il marker status è `not-applicable` e qualsiasi marker

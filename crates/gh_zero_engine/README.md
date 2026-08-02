@@ -40,12 +40,14 @@ CPU-only. Un probe `mixed` viene distrutto prima di generare token e il modello
 viene riaperto CPU-only; questo non modifica il supporto mixed delle sessioni
 produttive né aggiunge opzioni a `EngineConfig`.
 
-Il corpus M3 usa contesto 4096 e KV `f16`: Instruct richiede al massimo 256
-token, mentre Reasoning lascia che il guard esistente applichi il contesto
-residuo a una richiesta massima di 4096. Il solo test classifica `eos`,
-`max-tokens` e `context`, valuta soltanto risposte EOS complete e registra i
-marker Reasoning come diagnostica. Il runtime continua a emettere testo raw e
-non possiede questa policy di assessment.
+Il corpus M3 usa KV `f16` e un contesto distinto per profilo: Instruct usa 4096
+e richiede al massimo 256 token; Reasoning usa il contesto prodotto predefinito
+32768 e lascia che il guard esistente applichi il contesto residuo a una
+richiesta massima di 32768. Tutti i profili usano le stesse fixture base. Il
+solo test classifica `eos`, `max-tokens` e `context` rispetto al limite del
+profilo, valuta soltanto risposte EOS complete e registra i marker Reasoning
+come diagnostica. Il runtime continua a emettere testo raw e non possiede
+questa policy di assessment.
 
 Nel test M3, ogni caso non-EOS fallisce: se il caso è semantico blocca il modello, mentre se è di conformità resta una diagnostica fallita e non blocca da solo un gate semantico valido.
 

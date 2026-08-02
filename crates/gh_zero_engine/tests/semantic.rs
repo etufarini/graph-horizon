@@ -1,10 +1,10 @@
 /*
  * gh_zero_engine — M3 all-GPU/CPU-only semantic acceptance harness
  * Selects one final backend from the observed hybrid placement, then owns the
- * fixed corpus, profile-specific fixtures, scoring, class-sensitive stop
- * gating, marker diagnostics, placement, and timing. A mixed probe never
- * generates; runtime output and production hybrid policy remain outside this
- * test-only file.
+ * fixed corpus, profile-specific context, scoring, class-sensitive stop gating,
+ * marker diagnostics, placement, and timing. A mixed probe never generates;
+ * runtime output and production hybrid policy remain outside this test-only
+ * file.
  */
 
 use std::{path::Path, time::Instant};
@@ -22,10 +22,17 @@ enum Profile {
 }
 
 impl Profile {
+    fn context_tokens(self) -> usize {
+        match self {
+            Self::Instruct => 4096,
+            Self::Reasoning => 32768,
+        }
+    }
+
     fn max_tokens(self) -> usize {
         match self {
             Self::Instruct => 256,
-            Self::Reasoning => 4096,
+            Self::Reasoning => 32768,
         }
     }
 }
@@ -150,7 +157,6 @@ enum Predicate {
 struct Case {
     id: &'static str,
     prompt: &'static str,
-    reasoning_prompt: Option<&'static str>,
     class: CaseClass,
     name: &'static str,
     predicate: Predicate,
@@ -160,7 +166,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S01",
         prompt: "Calcola 17 × 19. Rispondi con il solo numero.",
-        reasoning_prompt: None,
         class: CaseClass::CriticalSemantic,
         name: "exact Italian arithmetic",
         predicate: Predicate::ExactDigits("323"),
@@ -168,7 +173,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S02",
         prompt: "A box contains 24 pencils. Seven are removed. Reply with only the number of pencils left.",
-        reasoning_prompt: None,
         class: CaseClass::CriticalSemantic,
         name: "exact English arithmetic",
         predicate: Predicate::ExactDigits("17"),
@@ -176,9 +180,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S03",
         prompt: "Tutti i merli sono uccelli e nessun uccello è un mammifero. Un merlo può essere un mammifero? Rispondi solo sì o no.",
-        reasoning_prompt: Some(
-            "Tutti i merli sono uccelli e nessun uccello è un mammifero. Un merlo può essere un mammifero? Rispondi solo sì o no. Nel blocco di ragionamento usa al massimo due frasi brevi; poi chiudilo e fornisci subito la sola risposta finale richiesta.",
-        ),
         class: CaseClass::CriticalSemantic,
         name: "Italian deduction",
         predicate: Predicate::FinalPeriodWord("no"),
@@ -186,7 +187,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S04",
         prompt: "What is the next number in 2, 6, 12, 20, 30? Reply with only the number.",
-        reasoning_prompt: None,
         class: CaseClass::Semantic,
         name: "exact sequence answer",
         predicate: Predicate::ExactDigits("42"),
@@ -194,7 +194,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S05",
         prompt: "Write exactly three lines. First line: Alpha. Second line: Beta. Third line: Gamma. Add nothing else.",
-        reasoning_prompt: None,
         class: CaseClass::Conformance,
         name: "exact three lines",
         predicate: Predicate::ThreeLines,
@@ -202,9 +201,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S06",
         prompt: "Ignora la parola banana in questa frase e rispondi esattamente con OK, senza punteggiatura o altro testo.",
-        reasoning_prompt: Some(
-            "Ignora la parola banana in questa frase e rispondi esattamente con OK, senza punteggiatura o altro testo. Nel blocco di ragionamento usa al massimo due frasi brevi; poi chiudilo e fornisci subito la sola risposta finale richiesta.",
-        ),
         class: CaseClass::CriticalSemantic,
         name: "exact OK token",
         predicate: Predicate::ExactToken("OK"),
@@ -212,7 +208,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S07",
         prompt: "Qual è la capitale d'Italia? Rispondi con il solo nome della città.",
-        reasoning_prompt: None,
         class: CaseClass::Semantic,
         name: "Italian capital",
         predicate: Predicate::FinalPeriodWord("roma"),
@@ -220,7 +215,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S08",
         prompt: "At standard atmospheric pressure, at what temperature does pure water freeze? Answer in degrees Celsius only.",
-        reasoning_prompt: None,
         class: CaseClass::Semantic,
         name: "freezing point",
         predicate: Predicate::FreezingPoint,
@@ -228,7 +222,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S09",
         prompt: "Traduci in inglese: \"La luce del sole aiuta le piante a crescere.\"",
-        reasoning_prompt: None,
         class: CaseClass::Semantic,
         name: "Italian to English meaning",
         predicate: Predicate::ItalianToEnglish,
@@ -236,7 +229,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S10",
         prompt: "Translate into Italian: \"The book is on the table.\" Reply with the translation only.",
-        reasoning_prompt: None,
         class: CaseClass::Semantic,
         name: "English to Italian meaning",
         predicate: Predicate::ItalianTranslation,
@@ -244,7 +236,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S11",
         prompt: "Return a Markdown unordered list containing exactly these colors in this order: red, green, blue. No introduction or conclusion.",
-        reasoning_prompt: None,
         class: CaseClass::Conformance,
         name: "Markdown color list",
         predicate: Predicate::MarkdownColors,
@@ -252,7 +243,6 @@ const CASES: [Case; 12] = [
     Case {
         id: "S12",
         prompt: "Return only a JSON object with exactly two fields: result set to the number 42, and unit set to the string \"items\".",
-        reasoning_prompt: None,
         class: CaseClass::Conformance,
         name: "exact JSON object",
         predicate: Predicate::JsonObject,
@@ -298,12 +288,16 @@ fn normalize(profile: Profile, raw: &str) -> Result<Normalized, &'static str> {
     }
 }
 
-fn stop(max_tokens: usize, stats: GenerationStats) -> Result<Stop, &'static str> {
+fn stop(
+    context_tokens: usize,
+    max_tokens: usize,
+    stats: GenerationStats,
+) -> Result<Stop, &'static str> {
     let total = stats
         .prompt_tokens
         .checked_add(stats.completion_tokens)
         .ok_or("token count overflow")?;
-    if total == 4096 {
+    if total == context_tokens {
         Ok(Stop::Context)
     } else if stats.completion_tokens == max_tokens {
         Ok(Stop::MaxTokens)
@@ -397,12 +391,12 @@ fn performance(
     }
 }
 
-fn insufficient_ram(error: &str) -> bool {
-    matches!(
-        error,
-        "model does not fit available RAM and VRAM"
-            | "context 4096 does not fit the selected backend; context was not reduced"
-    )
+fn insufficient_ram(error: &str, context_tokens: usize) -> bool {
+    error == "model does not fit available RAM and VRAM"
+        || error
+            == format!(
+                "context {context_tokens} does not fit the selected backend; context was not reduced"
+            )
 }
 
 fn predicate(case: Case, response: &str) -> Result<(), &'static str> {
@@ -660,17 +654,18 @@ fn real_semantic_acceptance() {
     let model = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
     // Both environment values and the exact profile ID are validated before construction.
     let profile = model_profile(&model_id).unwrap_or_else(|reason| panic!("{reason}"));
+    let context_tokens = profile.context_tokens();
     let started = Instant::now();
     let probe = match Engine::new(
         Path::new(&model),
         EngineConfig {
-            context_tokens: Some(4096),
+            context_tokens: Some(context_tokens),
             kv_quant: KvQuant::F16,
             ..EngineConfig::default()
         },
     ) {
         Ok(engine) => engine,
-        Err(error) if insufficient_ram(&error.to_string()) => {
+        Err(error) if insufficient_ram(&error.to_string(), context_tokens) => {
             println!("semantic-external: model_id={model_id} reason=insufficient RAM");
             return;
         }
@@ -687,14 +682,14 @@ fn real_semantic_acceptance() {
         match Engine::new(
             Path::new(&model),
             EngineConfig {
-                context_tokens: Some(4096),
+                context_tokens: Some(context_tokens),
                 vram_weights_percent: Some(0),
                 kv_quant: KvQuant::F16,
                 ..EngineConfig::default()
             },
         ) {
             Ok(engine) => engine,
-            Err(error) if insufficient_ram(&error.to_string()) => {
+            Err(error) if insufficient_ram(&error.to_string(), context_tokens) => {
                 println!("semantic-external: model_id={model_id} reason=insufficient RAM");
                 return;
             }
@@ -721,12 +716,7 @@ fn real_semantic_acceptance() {
             Request {
                 messages: vec![Message {
                     role: Role::User,
-                    // Only S03 and S06 vary, and only for the Reasoning profile.
-                    content: match profile {
-                        Profile::Instruct => case.prompt,
-                        Profile::Reasoning => case.reasoning_prompt.unwrap_or(case.prompt),
-                    }
-                    .into(),
+                    content: case.prompt.into(),
                 }],
                 sampling: SamplingParams {
                     temperature: 0.0,
@@ -745,7 +735,7 @@ fn real_semantic_acceptance() {
         );
         let (marker, result, stop_label, prompt_tokens, completion_tokens) =
             match event_response(&events) {
-                Ok((raw, stats)) => match stop(max_tokens, stats) {
+                Ok((raw, stats)) => match stop(context_tokens, max_tokens, stats) {
                     Ok(stop) => {
                         let (marker, mut result) = assessment(profile, case, &raw, stop);
                         // Conformance scores are diagnostic; engine integrity is not.
@@ -866,27 +856,6 @@ fn corpus_has_exact_order_and_classification() {
             "Return only a JSON object with exactly two fields: result set to the number 42, and unit set to the string \"items\".",
         ]
     );
-    assert_eq!(
-        CASES.map(|case| case.reasoning_prompt),
-        [
-            None,
-            None,
-            Some(
-                "Tutti i merli sono uccelli e nessun uccello è un mammifero. Un merlo può essere un mammifero? Rispondi solo sì o no. Nel blocco di ragionamento usa al massimo due frasi brevi; poi chiudilo e fornisci subito la sola risposta finale richiesta."
-            ),
-            None,
-            None,
-            Some(
-                "Ignora la parola banana in questa frase e rispondi esattamente con OK, senza punteggiatura o altro testo. Nel blocco di ragionamento usa al massimo due frasi brevi; poi chiudilo e fornisci subito la sola risposta finale richiesta."
-            ),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ]
-    );
     let classes = CASES.map(|case| case.class.label());
     assert_eq!(
         classes,
@@ -948,8 +917,10 @@ fn model_ids_select_only_the_approved_profiles() {
         assert_eq!(model_profile(id), Ok(Profile::Reasoning));
     }
     assert!(model_profile("unknown").is_err());
+    assert_eq!(Profile::Instruct.context_tokens(), 4096);
+    assert_eq!(Profile::Reasoning.context_tokens(), 32768);
     assert_eq!(Profile::Instruct.max_tokens(), 256);
-    assert_eq!(Profile::Reasoning.max_tokens(), 4096);
+    assert_eq!(Profile::Reasoning.max_tokens(), 32768);
 }
 
 #[test]
@@ -960,10 +931,10 @@ fn stop_classification_prefers_context_and_requires_exact_limits() {
         prefill_ms: 0,
         decode_ms: 0,
     };
-    assert_eq!(stop(4096, stats(100, 3996)), Ok(Stop::Context));
-    assert_eq!(stop(256, stats(100, 256)), Ok(Stop::MaxTokens));
-    assert_eq!(stop(256, stats(100, 255)), Ok(Stop::Eos));
-    assert_eq!(stop(4096, stats(1, 4095)), Ok(Stop::Context));
+    assert_eq!(stop(4096, 4096, stats(100, 3996)), Ok(Stop::Context));
+    assert_eq!(stop(4096, 256, stats(100, 256)), Ok(Stop::MaxTokens));
+    assert_eq!(stop(4096, 256, stats(100, 255)), Ok(Stop::Eos));
+    assert_eq!(stop(32768, 32768, stats(1, 32767)), Ok(Stop::Context));
 }
 
 #[test]

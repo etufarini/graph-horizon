@@ -1,7 +1,8 @@
 /*
  * GH Zero CLI Modules - Console - Render - Conversation
  * Builds scrollable terminal lines from completed chat turns plus the active input or stream.
- * This folder owns only conversation-to-lines conversion; frame drawing and caching stay in render.
+ * This folder includes display-only Reasoning separation; raw history remains
+ * in turn/message fields, while frame drawing and caching stay in render.
  */
 
 use ratatui::prelude::*;
@@ -15,6 +16,7 @@ use suggestions::push_suggestions;
 
 mod answer;
 mod caret;
+mod reasoning;
 mod suggestions;
 
 pub(crate) use suggestions::SUGGESTION_THRESHOLD;

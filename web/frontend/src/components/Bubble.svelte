@@ -1,11 +1,12 @@
 <script lang="ts">
   /*
    * Bubble.svelte
-   * Single responsibility: render one user or assistant text message. It
-   * depends on Markdown for assistant content and does not render tools,
-   * confirmations, workspace data, or a separate reasoning block.
+   * Single responsibility: render one user or assistant text message,
+   * including its display-only Reasoning view. Tools, confirmations, workspace
+   * data, raw chat ownership, and HTML sanitization remain outside this file.
    */
   import Markdown from './Markdown.svelte';
+  import { splitReasoning } from '../chat/reasoning';
   import type { ChatMessage } from '../chat/types';
 
   export let message: ChatMessage;
@@ -13,17 +14,28 @@
 
   $: isUser = message.role === 'user';
   $: label = isUser ? 'Tu' : 'GH Zero';
-  $: empty = !isUser && !streaming && message.content.trim() === '';
+  // Only assistant presentation derives sections; the raw message stays intact.
+  $: reasoning = isUser ? null : splitReasoning(message.content, streaming);
 </script>
 
 <article class={`bubble ${isUser ? 'bubble-user' : 'bubble-assistant'}`}>
   <div class="bubble-label">{label}</div>
   {#if isUser}
     <p class="user-text">{message.content}</p>
-  {:else if empty}
-    <p class="placeholder">Nessuna risposta</p>
-  {:else}
-    <Markdown content={message.content} />
+  {:else if reasoning}
+    {#if reasoning.thinking !== undefined}
+      <details class="reasoning">
+        <summary>THINK</summary>
+        <Markdown content={reasoning.thinking} />
+      </details>
+    {/if}
+    {#if !reasoning.pending}
+      {#if !streaming && reasoning.answer.trim() === ''}
+        <p class="placeholder">Nessuna risposta</p>
+      {:else if reasoning.answer !== ''}
+        <Markdown content={reasoning.answer} />
+      {/if}
+    {/if}
     {#if streaming}
       <!-- Indicator only on the trailing assistant bubble, never on user bubbles. -->
       <span class="cursor" aria-hidden="true"></span>
@@ -81,6 +93,22 @@
     margin: 0;
     color: var(--gn-text-muted);
     font-style: italic;
+  }
+
+  .reasoning {
+    margin-bottom: var(--gn-space-sm);
+    border-left: var(--gn-border-width) solid var(--gn-text-muted);
+    background: var(--gn-bg-panel-raised);
+    padding: var(--gn-space-xs) var(--gn-space-sm);
+    color: var(--gn-text-muted);
+  }
+
+  .reasoning summary {
+    cursor: pointer;
+    font-family: var(--gn-font-mono);
+    font-size: var(--gn-text-xs);
+    font-weight: 700;
+    letter-spacing: 0.08em;
   }
 
   .cursor {

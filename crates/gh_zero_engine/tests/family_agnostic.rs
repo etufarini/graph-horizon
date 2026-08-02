@@ -225,6 +225,7 @@ fn docs_contract() {
         .expect("source ownership");
     let support = fs::read_to_string(root.join("support/README.md")).expect("support docs");
     let server = fs::read_to_string(root.join("docs/server.md")).expect("server docs");
+    let validation = fs::read_to_string(root.join("VALIDATION.md")).expect("validation register");
     let kv = fs::read_to_string(root.join("docs/kv-quant-mistral-validation.md"))
         .expect("KV validation docs");
     let args = fs::read_to_string(root.join("src/app/args.rs")).expect("runtime arguments");
@@ -239,69 +240,35 @@ fn docs_contract() {
     let support_flat = support.split_whitespace().collect::<Vec<_>>().join(" ");
 
     for required in [
-        "Q8_0",
-        "Q4_K_M",
-        "3B",
-        "8B",
-        "14B",
-        "compatible/unverified",
-        "FP16 activations, FP32 residual/logits, and F16/Q4_K/Q5_K/Q6_K/Q8_0 weights",
-        "all-GPU",
+        "only Ministral 3 2512 `Q4_K_M` GGUF files",
+        "Both Instruct and Reasoning are supported at 3B, 8B, and 14B",
+        "A Q8 profile is rejected before backend allocation",
         "maximum possible contiguous GPU suffix",
-        "all-CPU",
-        "Pure Vulkan",
-        "CPU-first",
-        "do not constitute MoE support",
+        "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",
         "lesser of 32,768 tokens and the GGUF context maximum",
-        "262,144 tokens",
         "floor(MemAvailable × 90 / 100)",
-        "crates/gh_zero_engine/src/family/mistral/version.rs",
-        "Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status `#FFAF01`",
     ] {
         assert!(
             readme_flat.contains(required),
             "root README missing contract phrase: {required}"
         );
     }
-    for forbidden in [
-        "Questo README",
-        "Runtime locale",
-        "## Requisiti",
-        "## Installazione",
-        "## Utilizzo",
-        "## Configurazione runtime",
-        "## Modelli supportati",
-        "## Documentazione",
-    ] {
-        assert!(
-            !readme.contains(forbidden),
-            "root README retains superseded Italian prose: {forbidden}"
-        );
-    }
-    assert!(engine_flat.contains("fixture sintetiche"));
+    assert!(engine_flat.contains("suite sintetica"));
     assert!(engine_flat.contains("EngineConfig.context_tokens = None"));
     assert!(engine_flat.contains("floor(MemAvailable × 90 / 100)"));
     assert!(engine_flat.contains("src/family/mistral/version.rs"));
-    assert!(backend_flat.contains("floor(MemAvailable × 90 / 100)"));
-    assert!(backend_flat.contains("swap"));
-    assert!(backend_flat.contains("MemFree"));
-    assert!(config_flat.contains("minore tra 32.768 token e il massimo dichiarato dal GGUF"));
-    assert!(config_flat.contains("262.144 token"));
-    assert!(config_flat.contains("floor(MemAvailable × 90 / 100)"));
+    assert!(engine_flat.contains("Il solo profilo GGUF pubblico è `Q4_K_M`"));
+    assert!(engine_flat.contains("`GgmlType::Q8_0`"));
+    assert!(backend_flat.contains("Build Backends"));
+    assert!(backend_flat.contains("The library crate has no default feature"));
+    assert!(config_flat.contains("`--context-tokens` requests exactly"));
     assert!(config_flat.contains("GET /props"));
-    assert!(config_flat.contains("../crates/gh_zero_engine/src/family/mistral/version.rs"));
     assert!(ownership.contains("family/mistral/version.rs"));
-    assert!(config_flat.contains("--vram-weights-percent 0"));
-    assert!(config_flat.contains("sceglie esclusivamente il profilo Cargo"));
+    assert!(config_flat.contains("`--vram-weights-percent <n>`"));
     assert!(kv.contains("contesto `4096`"));
     assert!(kv.contains("cpu_layers"));
     assert!(kv.contains("gpu_layers"));
-    assert!(readme_flat.contains(
-        "Ministral 3 Instruct 2512 support is unchanged for 3B, 8B, and 14B. Reasoning support is limited to Ministral 3 3B Reasoning 2512"
-    ));
-    assert!(readme_flat.contains(
-        "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text"
-    ));
+    assert!(kv.contains("non dichiara superate prove che non sono state eseguite"));
     assert!(engine_flat.contains("`general.name`. Quest'ultimo seleziona soltanto la policy chat"));
     assert!(engine_flat.contains("`tokenizer.chat_template` non viene eseguito"));
     assert!(engine_flat.contains("un `System` esplicito, anche vuoto, lo sostituisce"));
@@ -309,88 +276,34 @@ fn docs_contract() {
         engine_flat
             .contains("restano testo raw in `TextDelta`, senza un nuovo evento o canale pubblico")
     );
-    assert!(
-        architecture_flat
-            .contains("`general.name` seleziona soltanto la policy chat dopo il gate capability")
-    );
+    assert!(architecture_flat.contains("there is not yet a multi-family registry or dispatcher"));
+    assert!(architecture_flat.contains("family/mod.rs"));
     assert!(ownership.contains("family/mistral/tokenizer/profile.rs"));
     assert!(ownership.contains("family/mistral/parity.rs"));
-    assert!(
-        config_flat
-            .contains("Non esiste né viene aggiunto un flag runtime `--think` o equivalente")
-    );
-    assert!(
-        support_flat
-            .contains("parity-check.sh --model PATH --backend cpu|vulkan|hybrid --context 4096")
-    );
+    assert!(support_flat.contains("parity-check.sh --models-dir DIR --model-id ID"));
     for prerequisite in ["`curl`", "`jq`", "`sha256sum`", "`13f2b28b0`"] {
         assert!(
             support.contains(prerequisite),
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    for evidence in [
-        "2147021472",
-        "3652203168",
-        "7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc",
-        "3220ac17e246f741f7371e8b0964c399f363a31f9acd2f9a3aacc3bb19fd6466",
-        "b9973-13f2b28b0",
-        "Quanto fa 17 × 19?",
-        "`oracle_top2=pass`",
-    ] {
-        assert!(
-            kv.contains(evidence),
-            "KV guide missing evidence: {evidence}"
-        );
-    }
-    let reasoning_matrix = kv
-        .split("### Registro 2026-07-26")
-        .nth(1)
-        .expect("Reasoning matrix section")
-        .split("### Regressione emoji e UTF-8")
-        .next()
-        .expect("Reasoning matrix boundary");
-    assert_eq!(
-        reasoning_matrix
-            .lines()
-            .filter(|line| { line.starts_with("| Q4_K_M |") || line.starts_with("| Q8_0 |") })
-            .count(),
-        12,
-        "Reasoning matrix must contain twelve independent rows"
-    );
-    for line in reasoning_matrix
-        .lines()
-        .filter(|line| line.starts_with("| Q4_K_M |") || line.starts_with("| Q8_0 |"))
-    {
-        assert!(
-            line.contains("`pass`") && line.contains("`oracle_top2=pass`"),
-            "Reasoning matrix row is not a verified pass: {line}"
-        );
-    }
     assert!(
-        !reasoning_matrix.contains("external verification"),
-        "completed Reasoning matrix retains an external-verification row"
+        validation.contains("summary: qualified=6 not_qualified=0 external_verification=0 total=6")
     );
+    for model in ["3b-reasoning", "8b-reasoning", "14b-reasoning"] {
+        assert!(
+            validation.contains(&format!(
+                "model_id={model} profile=reasoning evidence=current status=qualified"
+            )),
+            "validation register missing current Reasoning row: {model}"
+        );
+    }
     let production_args = args.split("#[cfg(test)]").next().unwrap();
     assert!(
         !production_args.contains("--think"),
         "runtime argument table exposes --think"
     );
-    assert!(server.contains(
-        r#"{"error":{"code":"unsupported_feature","message":"tool calling is not supported","type":"invalid_request_error"}}"#
-    ));
-    for unsupported_reasoning in [
-        "Reasoning 8B support",
-        "Reasoning 14B support",
-        "supporto Reasoning 8B",
-        "supporto Reasoning 14B",
-    ] {
-        assert!(
-            !readme_flat.contains(unsupported_reasoning)
-                && !engine_flat.contains(unsupported_reasoning),
-            "unsupported Reasoning claim: {unsupported_reasoning}"
-        );
-    }
+    assert!(server.contains("no tool calling or filesystem access through HTTP"));
     for unsupported in ["Q5_K_M", "Q6_K_M", "Mistral Small", "24B"] {
         assert!(
             !readme_flat.contains(unsupported) && !engine_flat.contains(unsupported),

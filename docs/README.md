@@ -39,6 +39,7 @@ belong in the [validation register](../VALIDATION.md).
 | [model-addition-process.md](model-addition-process.md) | Process for adding a family or profile |
 | [backend-addition-process.md](backend-addition-process.md) | Process for adding a compute backend |
 | [model-validation-process.md](model-validation-process.md) | Repeatable technical and semantic qualification |
+| [kv-quant-mistral-validation.md](kv-quant-mistral-validation.md) | Ministral f16/int8 KV comparison contract |
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |

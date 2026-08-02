@@ -169,8 +169,11 @@ is rejected before backend allocation rather than treated as an alternate
 execution format.
 
 Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text
-in the existing stream. The runtime does not parse it into a separate reasoning
-channel. Internal numeric formats do not expand this public GGUF contract.
+in the existing stream. The bundled [Web UI](docs/web.md) and
+[CLI](docs/console.md) derive separate THINK and final-answer presentation from
+that raw text; transport, model context, and transcript import/export retain
+the markers. The runtime does not parse it into a separate Reasoning channel.
+Internal numeric formats do not expand this public GGUF contract.
 Hybrid startup chooses all-GPU, the maximum possible contiguous GPU suffix with
 a CPU prefix, or all-CPU. Pure Vulkan remains all-GPU-or-error, and development
 remains CPU-first. The reviewed artifacts in the validation record are evidence,

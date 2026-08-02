@@ -1,6 +1,7 @@
 <!--
-This document owns the current local browser UI, static routes, chat behavior and
-transfer format. It does not describe removed tool or workspace capabilities.
+This document owns the current local browser UI, static routes, chat behavior,
+Reasoning presentation, and transfer format. It does not own server or model
+policy and does not describe removed tool or workspace capabilities.
 -->
 
 # Local Web UI
@@ -61,14 +62,36 @@ Every request uses `fetch` with:
 }
 ```
 
-The browser displays only `delta.content` and final statistics. Tool or reasoning
-frames are protocol errors for the current UI. The stop button aborts the fetch
-and retains the active pair, including partial text, to preserve alternating
-history.
+The browser consumes only `delta.content` plus final usage statistics.
+`reasoning_content` and tool frames remain protocol errors. The stop button
+aborts the fetch and retains the active pair, including partial raw text, to
+preserve alternating history.
 
 `--provider` is ignored. `--context-tokens`, KV, threads, and placement configure
 the local engine. The UI always sends `max_tokens: 1024`, so the corresponding
 flag does not change requests from the included frontend.
+
+## Reasoning Presentation
+
+Raw Reasoning text is recognized only when the assistant response begins, after
+leading whitespace, with the exact case-sensitive marker `[THINK]`. The first
+following `[/THINK]` ends the THINK section. The browser renders that section
+before the final answer in a native `THINK` disclosure that is initially closed.
+Both sections use the existing sanitized Markdown renderer.
+
+During streaming, an incomplete possible opening prefix such as `[TH` remains
+hidden while it is undecided. A contradicting character immediately falls back
+to showing the entire raw response as an ordinary answer. If streaming ends on
+an incomplete prefix, that raw response is also ordinary. A recognized opening
+without a close displays all following text in THINK; after completion its empty
+final-answer position reads `Nessuna risposta`. Empty THINK remains a visible
+disclosure, and additional markers remain literal content. Lowercase, mixed-case,
+misplaced, and otherwise malformed markers are ordinary text, not runtime errors.
+
+Stopping a partial web turn retains its raw content and derives the same view on
+the next render. Browser memory and version-1 import/export likewise retain raw
+assistant content, including markers and leading whitespace; presentation is not
+stored as a separate Reasoning channel.
 
 ## Import And Export
 
@@ -98,4 +121,5 @@ The chat body is limited to 4 MiB. HTTP and stream errors become short UI
 messages; parser, engine, and filesystem details are not shown.
 
 The current UI does not include multiple sessions, login, API keys, tool calling,
-a workspace, a separate reasoning channel, or advanced sampling controls.
+a workspace, a separate Reasoning protocol/state channel, or advanced sampling
+controls.

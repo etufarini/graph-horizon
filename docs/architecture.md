@@ -66,7 +66,10 @@ The view and export preserve the typed prompt. For completed turns, the internal
 history sent back to the model instead retains the expanded copy, so the model
 can use an attachment in later turns of the same session. Notices and failed
 turns do not enter the context. The TUI models only `system`, `user`, and
-`assistant` messages; tool calls and reasoning channels are not part of its state.
+`assistant` messages; tool calls and separate Reasoning channels are not part of
+its state. Raw assistant content, including Reasoning markers, remains the TUI
+context, history, and transcript representation. Only terminal conversation
+rendering derives THINK and final-answer sections from it.
 
 ## Server And Web Flow
 
@@ -76,6 +79,14 @@ including waiting requests, to eight.
 
 Web mode adds only static assets and a browser UI to the same chat endpoint.
 There are no workspace, tool, or command-confirmation routes.
+
+The engine and server expose raw Reasoning markers only as ordinary
+`delta.content` text; neither creates a structured Reasoning field. The browser
+bubble and terminal conversation renderer independently derive their visual
+THINK sections at the presentation boundary. Web context and transfer state also
+retain raw assistant content. A separate visual section is therefore not a
+separate Reasoning protocol channel, and the same boundary applies to both the
+local engine and CLI HTTP provider paths.
 
 ## Engine Boundaries
 

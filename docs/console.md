@@ -1,6 +1,7 @@
 <!--
-This document owns the interactive console lifecycle, controls, rendering and
-status indicators. Commands and pruning algorithms are documented separately.
+This document owns the interactive console lifecycle, controls, rendering,
+derived THINK section, and status indicators. Commands and pruning algorithms
+are documented separately.
 -->
 
 # Console: TUI, Streaming, And Status Bar
@@ -59,6 +60,29 @@ wraps when the last line is full.
 The `generating` spinner indicates an unbounded wait and does not enter history.
 The palette has four centralized roles: input, secondary content, response, and
 hint.
+
+## Reasoning Presentation
+
+The local and HTTP providers keep the same text-only message format. Rendering
+recognizes raw Reasoning text only when, after leading whitespace, it starts with
+the exact case-sensitive `[THINK]` marker. The first following `[/THINK]` closes
+the THINK section. Its `[THINK]` label and content use the `Secondary` style;
+the final answer remains in the `Response` style. This terminal section is not
+collapsible.
+
+While an opening prefix such as `[TH` is still undecided, the prefix stays hidden
+and the existing generating spinner remains visible. A contradiction, or stream
+completion with an incomplete prefix, renders the entire raw response as an
+ordinary Response. A recognized opening without a close renders its remainder as
+THINK and, only after completion, adds `[no response]` in Secondary. Empty THINK
+keeps its label, and markers after the recognized boundaries remain literal.
+Marker-shape fallback does not create a connection or runtime error.
+
+Completed and imported turns derive the same presentation again from their raw
+responses. Token estimation, pruning, model context, history, `/import`, and
+`/export` retain that raw content with markers and leading whitespace. `Ctrl+C`
+continues to cancel streaming and discard the complete partial turn; every other
+keyboard behavior remains as documented above.
 
 ## Status Bar
 

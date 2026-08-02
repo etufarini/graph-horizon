@@ -74,10 +74,11 @@ pub(crate) fn import(file: File) -> Result<(Option<String>, Vec<ChatTurn>)> {
     };
 
     let mut records = records.into_iter().peekable();
-    let mut system = None;
-    if records.peek().is_some_and(|r| r.role == Role::System) {
-        system = records.next().map(|r| r.content);
-    }
+    let system = if records.peek().is_some_and(|r| r.role == Role::System) {
+        records.next().map(|r| r.content)
+    } else {
+        None
+    };
 
     let mut history = Vec::new();
     loop {

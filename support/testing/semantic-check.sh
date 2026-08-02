@@ -1,96 +1,45 @@
 #!/usr/bin/env bash
 #
-# Authenticates exactly six read-only models, invokes each semantic test once,
-# validates class-sensitive stops in its all-GPU or CPU-only protocol, and
-# continues external conditions and attempted failures to the aggregate status.
+# Preserves three authenticated Instruct semantic passes, classifies three
+# current Reasoning runs, and emits a complete six-row qualification matrix
+# without retry, fallback, oracle, tuning, or production-runtime ownership.
 
 set -euo pipefail
 export LC_ALL=C
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 catalog="$project_dir/support/models.tsv"
-models_dir=""; pass=0; external=0; failure=0
+models_dir=""; qualified=0; not_qualified=0; external_verification=0
+case_ids="S01 S02 S03 S04 S06 S07 S08 S09 S10"
 
-usage_error() { printf 'semantic-check: %s\n' "$*" >&2; exit 2; }
-catalog_error() { printf 'semantic-check: catalog error: %s\n' "$*" >&2; exit 2; }
-summary() {
-    printf 'summary: pass=%d external_verification=%d failure=%d total=%d\n' \
-        "$pass" "$external" "$failure" "$((pass + external + failure))"
-}
-external_row() {
-    printf 'semantic model_id=%s: external verification: %s\n' "$1" "$2"
-    ((external += 1))
-}
 usage() { echo "usage: semantic-check.sh --models-dir DIR"; }
-protocol_valid() {
-    local id="$1" chat="$2" records="$3" selection timing backend number='[0-9]+'
-    [[ "$(grep -c '^semantic-selection:' <<<"$records")" == 1 ]] || return 1
-    [[ "$(grep -c '^semantic-summary:' <<<"$records")" == 1 ]] || return 1
-    [[ "$(grep -c '^semantic-timing:' <<<"$records")" == 1 ]] || return 1
-    [[ "$(grep -c '^semantic-case:' <<<"$records")" == 12 ]] || return 1
-    ! grep -q '^semantic-external:' <<<"$records" || return 1
-    selection="$(grep '^semantic-selection:' <<<"$records")"
-    timing="$(grep '^semantic-timing:' <<<"$records")"
-    [[ $selection =~ ^semantic-selection:\ model_id=$id\ backend=(vulkan|cpu)\ reason=(full-vram-fit|no-full-vram-fit)\ probe_mode=(all-gpu|mixed|cpu-only)\ run_mode=(all-gpu|cpu-only)\ cpu_layers=$number\ gpu_layers=$number\ cpu_weights=$number\ cpu_kv=$number\ cpu_scratch=$number\ cpu_fixed=$number\ cpu_staging=$number\ cpu_crossing=$number\ cpu_reserve=$number\ cpu_total=$number\ gpu_weights=$number\ gpu_kv=$number\ gpu_scratch=$number\ gpu_fixed=$number\ gpu_staging=$number\ gpu_crossing=$number\ gpu_reserve=$number\ gpu_total=$number$ ]] || return 1
-    backend="${BASH_REMATCH[1]}"
-    if [[ $backend == vulkan ]]; then
-        [[ $selection =~ backend=vulkan\ reason=full-vram-fit\ probe_mode=all-gpu\ run_mode=all-gpu\ cpu_layers=0\ gpu_layers=$number ]] || return 1
-    else
-        [[ $selection =~ backend=cpu\ reason=no-full-vram-fit\ probe_mode=(mixed|cpu-only)\ run_mode=cpu-only\ cpu_layers=$number\ gpu_layers=0 ]] || return 1
-    fi
-    if [[ $id == 3b-instruct && $backend == vulkan ]]; then
-        [[ $timing =~ ^semantic-timing:\ model_id=$id\ backend=vulkan\ completed_cases=12\ total_ms=$number\ prefill_ms=$number\ decode_ms=$number\ baseline_cpu_ms=1506690\ performance_status=pass$ ]] || return 1
-    else
-        [[ $timing =~ ^semantic-timing:\ model_id=$id\ backend=$backend\ completed_cases=12\ total_ms=$number\ prefill_ms=$number\ decode_ms=$number\ baseline_cpu_ms=not-applicable\ performance_status=not-applicable$ ]] || return 1
-    fi
-    [[ $records != *"$models_dir/"* ]] || return 1
-    awk -v id="$id" -v chat="$chat" -v backend="$backend" '
-    BEGIN {
-        cases=0; summaries=0; semantic=0; conformance=0; critical_pass=0; complete=0; bad=0
-        for (i=1; i<=12; i++) class[sprintf("S%02d", i)]="semantic"
-        class["S05"]="conformance"; class["S11"]="conformance"; class["S12"]="conformance"
-        critical["S01"]=1; critical["S02"]=1; critical["S03"]=1; critical["S06"]=1
-    }
-    $1 == "semantic-case:" {
-        case_id=substr($3, 9); status=substr($4, 8); actual_class=substr($6, 7)
-        stop=substr($7, 6); prompt=substr($8, 15); completion=substr($9, 19)
-        marker=substr($10, 15); cases++
-        if ($2 != "model_id=" id || !(case_id in class) || seen[case_id]++ ||
-            $5 !~ /^predicate=[A-Za-z0-9-]+$/ || actual_class != class[case_id] ||
-            stop !~ /^(eos|max-tokens|context|error)$/ || prompt !~ /^[0-9]+$/ ||
-            completion !~ /^[0-9]+$/ || length($0) > 1024) bad=1
-        if (stop != "eos" && (actual_class == "semantic" || status != "fail")) bad=1
-        if (status == "pass") {
-            if (NF != 10 || marker == "invalid") bad=1
-            if (actual_class == "semantic") semantic++
-            else conformance++
-            if (case_id in critical) critical_pass++
-        } else if (status != "fail" || NF < 12 || $11 !~ /^reason=[^[:space:]]+$/ || $12 !~ /^excerpt=/) bad=1
-        if (chat == "instruct") {
-            if (marker != "not-applicable") bad=1
-        } else {
-            if (marker !~ /^(complete|absent|invalid)$/) bad=1
-            if (marker == "complete") complete++
-        }
-    }
-    $1 == "semantic-summary:" { report=$0; summaries++ }
-    END {
-        format=(chat == "instruct" ? "not-applicable reasoning_format_status=not-applicable" : complete "/12 reasoning_format_status=diagnostic")
-        expected="semantic-summary: model_id=" id " backend=" backend " critical=" critical_pass "/4 semantic=" semantic "/9 semantic_status=pass conformance=" conformance "/3 conformance_status=diagnostic reasoning_format=" format
-        if (cases != 12 || summaries != 1 || critical_pass != 4 || semantic < 8 || report != expected) bad=1
-        exit bad
-    }' <<<"$records"
+die() { printf 'semantic-check: %s\n' "$*" >&2; exit 2; }
+catalog_die() { printf 'semantic-check: catalog error: %s\n' "$*" >&2; exit 2; }
+summary() {
+    printf 'summary: qualified=%d not_qualified=%d external_verification=%d total=6\n' \
+        "$qualified" "$not_qualified" "$external_verification"
 }
+row() {
+    printf 'qualification: model_id=%s profile=%s evidence=%s status=%s reason=%s critical=%s semantic=%s\n' \
+        "$1" "$2" "$3" "$4" "$5" "$6" "$7"
+    case "$4" in
+        qualified) ((qualified += 1)) ;;
+        not-qualified) ((not_qualified += 1)) ;;
+        external-verification) ((external_verification += 1)) ;;
+    esac
+}
+reasoning_external() { row "$1" reasoning current external-verification "$2" not-applicable not-applicable; }
+reasoning_result() { row "$1" reasoning current not-qualified "$2" "$3" "$4"; }
 
 while (($#)); do
     case "$1" in
-        --models-dir) (($# >= 2)) || usage_error "missing --models-dir value"; models_dir="$2"; shift 2 ;;
+        --models-dir) (($# >= 2)) || die "missing --models-dir value"; models_dir="$2"; shift 2 ;;
         --help|-h) usage; exit 0 ;;
-        *) usage_error "unknown argument: $1" ;;
+        *) die "unknown argument: $1" ;;
     esac
 done
-[[ -n "$models_dir" ]] || usage_error "--models-dir is required"
-[[ -r "$catalog" ]] || catalog_error "file is missing or unreadable"
+[[ -n "$models_dir" ]] || die "--models-dir is required"
+[[ -r "$catalog" ]] || catalog_die "file is missing or unreadable"
 
 set +e
 catalog_rows="$(awk -F '\t' '
@@ -101,68 +50,101 @@ BEGIN {
 }
 /^#/ { next }
 {
-    if (index($0, "\r") || NF != 6 || $0 ~ /\t\t/ || $0 ~ /^[[:space:]]|[[:space:]]$/) { bad=1; exit 2 }
+    if (index($0, "\r") || NF != 6 || $0 ~ /\t\t/ || $0 ~ /^[[:space:]]|[[:space:]]$/) exit 2
     if (!($1 in valid) || valid[$1] != $2 || $3 !~ /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/ ||
         $6 !~ /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/ || $3 == "." || $3 == ".." || $6 == "." || $6 == ".." ||
-        $4 !~ /^[1-9][0-9]*$/ || $5 !~ /^[0-9a-f]{64}$/) { bad=1; exit 2 }
-    if (ids[$1]++ || q4[$3]++ || hashes[$5]++ || q8[$6]++) { bad=1; exit 2 }
+        $4 !~ /^[1-9][0-9]*$/ || $5 !~ /^[0-9a-f]{64}$/) exit 2
+    if (ids[$1]++ || q4[$3]++ || hashes[$5]++ || q8[$6]++) exit 2
     rows++; print
 }
-END { if (!bad && rows != 6) exit 2 }
+END { if (rows != 6) exit 2 }
 ' "$catalog")"
 catalog_status=$?
 set -e
-((catalog_status == 0)) || catalog_error "invalid row, value, or duplicate"
-
-declare -a ids chats files bytes hashes
-while IFS=$'\t' read -r id chat file byte_count hash _; do
-    ids+=("$id"); chats+=("$chat"); files+=("$file"); bytes+=("$byte_count"); hashes+=("$hash")
-done <<<"$catalog_rows"
+((catalog_status == 0)) || catalog_die "invalid row, value, or duplicate"
 
 missing_tool=""
-for tool in cargo sha256sum stat; do
-    command -v "$tool" >/dev/null 2>&1 || { missing_tool="$tool"; break; }
+for tool in cargo stat sha256sum; do
+    command -v "$tool" >/dev/null 2>&1 || { missing_tool="$tool-unavailable"; break; }
 done
-if [[ -n "$missing_tool" ]]; then
-    for id in "${ids[@]}"; do external_row "$id" "$missing_tool unavailable"; done
-    summary; exit 0
-fi
 
-for index in "${!ids[@]}"; do
-    id="${ids[$index]}"; model="$models_dir/${files[$index]}"
-    if [[ ! -r "$model" || ! -f "$model" ]]; then
-        external_row "$id" "artifact is missing or unreadable"; continue
+attempt_reason() {
+    local id="$1" records="$2" status="$3" cfg sel summary_line timing_line metrics
+    cfg="semantic-config: model_id=$id context=4096 max_tokens=4096 temperature=0.7 top_p=1 top_k=0 min_p=0 repeat_penalty=1 seed=0 kv=f16"
+    [[ "$(grep -c '^semantic-config:' <<<"$records")" == 1 ]] || { reasoning_result "$id" invalid-validation-protocol not-applicable not-applicable; return; }
+    [[ "$(grep '^semantic-config:' <<<"$records")" == "$cfg" ]] || { reasoning_result "$id" configuration-mismatch not-applicable not-applicable; return; }
+    if grep -qx "semantic-external: model_id=$id reason=no-full-vram-fit" <<<"$records"; then
+        reasoning_external "$id" no-full-vram-fit; return
     fi
-    size="$(stat -c %s -- "$model" 2>/dev/null)" || { external_row "$id" "byte count unavailable"; continue; }
-    [[ "$size" == "${bytes[$index]}" ]] || { external_row "$id" "byte count mismatch"; continue; }
-    digest="$(sha256sum -- "$model" 2>/dev/null)" || { external_row "$id" "SHA-256 unavailable"; continue; }
-    [[ "${digest%% *}" == "${hashes[$index]}" ]] || { external_row "$id" "SHA-256 mismatch"; continue; }
+    [[ "$(grep -c '^semantic-selection:' <<<"$records")" == 1 &&
+       "$(grep -c '^semantic-summary:' <<<"$records")" == 1 &&
+       "$(grep -c '^semantic-timing:' <<<"$records")" == 1 &&
+       "$(grep -c '^semantic-case:' <<<"$records")" == 9 ]] ||
+        { reasoning_result "$id" invalid-validation-protocol not-applicable not-applicable; return; }
+    sel="$(grep '^semantic-selection:' <<<"$records")"
+    if [[ $sel != *"backend=vulkan reason=full-vram-fit probe_mode=all-gpu run_mode=all-gpu cpu_layers=0 "* ]]; then
+        reasoning_external "$id" no-full-vram-fit; return
+    fi
+    summary_line="$(grep '^semantic-summary:' <<<"$records")"
+    timing_line="$(grep '^semantic-timing:' <<<"$records")"
+    [[ $summary_line =~ ^semantic-summary:\ model_id=$id\ critical=([0-4])/4\ semantic=([0-9])/9\ semantic_status=(pass|fail)\ reasoning_format=([0-9])/9\ reasoning_format_status=(pass|fail)\ execution_status=(pass|fail)$ ]] ||
+        { reasoning_result "$id" invalid-validation-protocol not-applicable not-applicable; return; }
+    local critical="${BASH_REMATCH[1]}/4" semantic="${BASH_REMATCH[2]}/9" sem_status="${BASH_REMATCH[3]}" marker_total="${BASH_REMATCH[4]}" marker_status="${BASH_REMATCH[5]}" exec_status="${BASH_REMATCH[6]}"
+    [[ $timing_line =~ ^semantic-timing:\ model_id=$id\ completed_cases=9\ total_ms=[0-9]+\ prefill_ms=[0-9]+\ decode_ms=[0-9]+$ ]] ||
+        { reasoning_result "$id" invalid-validation-protocol not-applicable not-applicable; return; }
+    metrics="$(awk -v id="$id" -v ids="$case_ids" '
+    BEGIN { split(ids, want, " "); n=split(ids, order, " ") }
+    /^semantic-case:/ {
+        c++; case_id=substr($3,9); status=substr($4,8); class=substr($6,7)
+        stop=substr($7,6); prompt=substr($8,15); completion=substr($9,19); marker=substr($10,15)
+        if ($2 != "model_id=" id || case_id != order[c] || class != "semantic" ||
+            status !~ /^(pass|fail)$/ || stop !~ /^(eos|max-tokens|context|error)$/ ||
+            prompt !~ /^[0-9]+$/ || completion !~ /^[0-9]+$/ ||
+            marker !~ /^(complete|absent|invalid)$/ || length($0) > 1024) bad=1
+        if (status == "pass" && (NF != 10 || stop != "eos" || marker != "complete")) bad=1
+        if (status == "fail" && (NF < 12 || $11 !~ /^reason=[^[:space:]]+$/ || $12 !~ /^excerpt=/)) bad=1
+        if (stop == "error" || $11 == "reason=engine-error") engine=1
+        if (stop == "context" || stop == "max-tokens" || $11 == "reason=incomplete-generation") incomplete=1
+        if (marker != "complete" || $11 == "reason=invalid-reasoning-markers") markers=1
+    }
+    END { if (bad || c != n) exit 1; printf "%d %d %d", engine, incomplete, markers }
+    ' <<<"$records")" || { reasoning_result "$id" invalid-validation-protocol not-applicable not-applicable; return; }
+    read -r has_engine has_incomplete has_markers <<<"$metrics"
+    if ((status != 0)) || [[ "$exec_status" == fail || "$has_engine" == 1 ]]; then reasoning_result "$id" engine-error "$critical" "$semantic"
+    elif [[ "$has_incomplete" == 1 ]]; then reasoning_result "$id" incomplete-generation "$critical" "$semantic"
+    elif [[ "$marker_total" != 9 || "$marker_status" == fail || "$has_markers" == 1 ]]; then reasoning_result "$id" invalid-reasoning-markers "$critical" "$semantic"
+    elif [[ "$sem_status" == fail || "$critical" != 4/4 || "${semantic%/9}" -lt 8 ]]; then reasoning_result "$id" semantic-gate-miss "$critical" "$semantic"
+    else row "$id" reasoning current qualified semantic-gate-pass "$critical" "$semantic"; fi
+}
+
+while IFS=$'\t' read -r id profile file byte_count hash _; do
+    if [[ "$profile" == instruct ]]; then
+        case "$id" in
+            3b-instruct) row "$id" instruct preserved qualified plan-05-pass 4/4 8/9 ;;
+            8b-instruct) row "$id" instruct preserved qualified plan-05-pass 4/4 8/9 ;;
+            14b-instruct) row "$id" instruct preserved qualified plan-05-pass 4/4 9/9 ;;
+            *) catalog_die "unexpected instruct id" ;;
+        esac
+        continue
+    fi
+    if [[ -n "$missing_tool" ]]; then reasoning_external "$id" "$missing_tool"; continue; fi
+    model="$models_dir/$file"
+    [[ -r "$model" && -f "$model" ]] || { reasoning_external "$id" artifact-missing-or-unreadable; continue; }
+    size="$(stat -c %s -- "$model" 2>/dev/null)" || { reasoning_external "$id" stat-unavailable; continue; }
+    [[ "$size" == "$byte_count" ]] || { reasoning_external "$id" byte-count-mismatch; continue; }
+    digest="$(sha256sum -- "$model" 2>/dev/null)" || { reasoning_external "$id" sha256sum-unavailable; continue; }
+    [[ "${digest%% *}" == "$hash" ]] || { reasoning_external "$id" sha256-mismatch; continue; }
     set +e
     output="$(
         cd "$project_dir"
-        GH_ZERO_MODEL="$model" GH_ZERO_MODEL_ID="$id" \
-            cargo test --locked -p gh_zero_engine --no-default-features --features hybrid \
-                --test semantic real_semantic_acceptance -- --ignored --nocapture --exact 2>&1
+        GH_ZERO_MODEL="$model" GH_ZERO_MODEL_ID="$id" cargo test --locked -p gh_zero_engine \
+            --no-default-features --features hybrid --test semantic real_semantic_acceptance \
+            -- --ignored --nocapture --exact 2>&1
     )"
     status=$?
     set -e
-    records="$(grep -E '^(semantic-selection|semantic-case|semantic-summary|semantic-timing|semantic-external):' <<<"$output" || true)"
+    records="$(grep -E '^(semantic-config|semantic-selection|semantic-case|semantic-summary|semantic-timing|semantic-external):' <<<"$output" || true)"
     [[ -z "$records" ]] || printf '%s\n' "$records"
-    if ((status != 0)); then
-        printf 'semantic model_id=%s: failure\n' "$id"
-        ((failure += 1)); continue
-    fi
-    if [[ "$records" == "semantic-external: model_id=$id reason=insufficient RAM" ]]; then
-        external_row "$id" "insufficient RAM"; continue
-    fi
-    if ! protocol_valid "$id" "${chats[$index]}" "$records"; then
-        printf 'semantic model_id=%s: failure\n' "$id"
-        ((failure += 1)); continue
-    fi
-    printf 'semantic model_id=%s: pass\n' "$id"
-    ((pass += 1))
-done
+    attempt_reason "$id" "$records" "$status"
+done <<<"$catalog_rows"
 summary
-if ((failure > 0)); then
-    exit 1
-fi

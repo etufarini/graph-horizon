@@ -23,8 +23,9 @@ Ogni dominio possiede un confine stretto.
   renderer fisso senza eseguire Jinja.
 - `family/mistral/parity.rs`: vettori e criteri della parità Reasoning
   esclusivamente test-only.
-- `tests/semantic.rs`: corpus, scoring, stop telemetry e diagnostica marker M3
-  esclusivamente test-only.
+- `tests/semantic.rs`: qualificatore Reasoning-only test-only; possiede
+  corpus, sampling, scoring, stop telemetry e marker Reasoning, senza policy
+  runtime o server.
 - `family/mistral/graph/`: ordine denso condiviso da CPU e Vulkan; non decide
   placement.
 - `family/mistral/hybrid/`: accounting, selezione del prefisso CPU/suffisso GPU,

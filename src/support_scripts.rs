@@ -1194,6 +1194,7 @@ fn semantic_script_contract() {
     let models = fixture.join("-models with spaces");
     let bin = fixture.join("bin");
     let calls = fixture.join("cargo calls");
+    let tool_calls = fixture.join("tool calls");
     fs::create_dir_all(&testing).unwrap();
     fs::create_dir_all(&models).unwrap();
     fs::create_dir(&bin).unwrap();
@@ -1220,11 +1221,13 @@ fn semantic_script_contract() {
         r#"#!/usr/bin/env bash
 set -eu
 model="${!#}"
+printf 'stat\t%s\n' "$model" >> "$SEMANTIC_STUB_TOOL_LOG"
+case "$model" in *Instruct*) echo "unexpected instruct stat" >&2; exit 9 ;; esac
 if [[ -n "${SEMANTIC_STUB_BAD_SIZE:-}" && "$model" == *"$SEMANTIC_STUB_BAD_SIZE"* ]]; then echo 1; exit 0; fi
 case "$model" in
-    *3B-Instruct*) echo 2147023008 ;; *3B-Reasoning*) echo 2147021472 ;;
-    *8B-Instruct*) echo 5198911904 ;; *8B-Reasoning*) echo 5198910368 ;;
-    *14B-Instruct*) echo 8239593024 ;; *14B-Reasoning*) echo 8239591488 ;;
+    *3B-Reasoning*) echo 2147021472 ;;
+    *8B-Reasoning*) echo 5198910368 ;;
+    *14B-Reasoning*) echo 8239591488 ;;
 esac
 "#,
     )
@@ -1234,14 +1237,14 @@ esac
         r#"#!/usr/bin/env bash
 set -eu
 model="${!#}"
+printf 'sha256sum\t%s\n' "$model" >> "$SEMANTIC_STUB_TOOL_LOG"
+case "$model" in *Instruct*) echo "unexpected instruct sha256sum" >&2; exit 9 ;; esac
 case "$model" in
-    *3B-Instruct*) digest=9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8 ;;
     *3B-Reasoning*) digest=7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc ;;
-    *8B-Instruct*) digest=33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761 ;;
     *8B-Reasoning*) digest=894aa3645ef8708a81dbe201c26105ce37c4c741252c89c5a78f81b49ac438c6 ;;
-    *14B-Instruct*) digest=824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613 ;;
     *14B-Reasoning*) digest=fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c ;;
 esac
+if [[ -n "${SEMANTIC_STUB_BAD_SHA:-}" && "$model" == *"$SEMANTIC_STUB_BAD_SHA"* ]]; then digest=0000000000000000000000000000000000000000000000000000000000000000; fi
 printf '%s  %s\n' "$digest" "$model"
 "#,
     )
@@ -1251,70 +1254,30 @@ printf '%s  %s\n' "$digest" "$model"
         r#"#!/usr/bin/env bash
 set -eu
 printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
+temp=0.7; [[ "${SEMANTIC_STUB_PROTOCOL:-}" != config-mismatch || "$GH_ZERO_MODEL_ID" != 3b-reasoning ]] || temp=0
+printf 'semantic-config: model_id=%s context=4096 max_tokens=4096 temperature=%s top_p=1 top_k=0 min_p=0 repeat_penalty=1 seed=0 kv=f16\n' "$GH_ZERO_MODEL_ID" "$temp"
 if [[ "$GH_ZERO_MODEL_ID" == "${SEMANTIC_STUB_EXTERNAL_ID:-}" ]]; then
-    printf 'semantic-external: model_id=%s reason=insufficient RAM\n' "$GH_ZERO_MODEL_ID"
+    printf 'semantic-external: model_id=%s reason=no-full-vram-fit\n' "$GH_ZERO_MODEL_ID"
     exit 0
 fi
-case "$GH_ZERO_MODEL_ID" in
-    3b-instruct) backend=vulkan; reason=full-vram-fit; probe=all-gpu; run=all-gpu; cpu_layers=0; gpu_layers=26 ;;
-    3b-reasoning) backend=cpu; reason=no-full-vram-fit; probe=mixed; run=cpu-only; cpu_layers=26; gpu_layers=0 ;;
-    *) backend=cpu; reason=no-full-vram-fit; probe=cpu-only; run=cpu-only; cpu_layers=34; gpu_layers=0 ;;
-esac
-case "$GH_ZERO_MODEL_ID" in *reasoning) chat=reasoning ;; *) chat=instruct ;; esac
-if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == contradictory ]]; then
-    reason=no-full-vram-fit
-fi
-selection="semantic-selection: model_id=$GH_ZERO_MODEL_ID backend=$backend reason=$reason probe_mode=$probe run_mode=$run cpu_layers=$cpu_layers gpu_layers=$gpu_layers cpu_weights=0 cpu_kv=0 cpu_scratch=0 cpu_fixed=0 cpu_staging=0 cpu_crossing=0 cpu_reserve=0 cpu_total=0 gpu_weights=0 gpu_kv=0 gpu_scratch=0 gpu_fixed=0 gpu_staging=0 gpu_crossing=0 gpu_reserve=0 gpu_total=0"
-printf '%s\n' "$selection"
-if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == duplicate ]]; then
-    printf '%s\n' "$selection"
-fi
-for case_id in S01 S02 S03 S04 S05 S06 S07 S08 S09 S10 S11 S12; do
-    case "$case_id" in S05|S11|S12) class=conformance ;; *) class=semantic ;; esac
-    marker=not-applicable
-    [[ "$chat" != reasoning ]] || marker=complete
-    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "$case_id" != S12 ]] || marker=absent
-    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != zero-format ]] || marker=absent
-    stop=eos
-    status=pass
-    details=
-    if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "$case_id" == S01 && "${SEMANTIC_STUB_PROTOCOL:-}" == non-eos ]]; then
-        stop=context; status=fail; details=' reason=incomplete-generation excerpt=fixture'
-    elif [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "$class" == conformance && "${SEMANTIC_STUB_PROTOCOL:-}" == zero-conformance ]]; then
-        status=fail; details=' reason=fixture-failure excerpt=fixture'
-    elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "$case_id" == S11 && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos ]]; then
-        stop=context; status=fail; details=' reason=incomplete-generation excerpt=fixture'
-    elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "$case_id" == S11 && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos-pass ]]; then
-        stop=context
+printf 'semantic-selection: model_id=%s backend=vulkan reason=full-vram-fit probe_mode=all-gpu run_mode=all-gpu cpu_layers=0 gpu_layers=34 cpu_weights=0 cpu_kv=0 cpu_scratch=0 cpu_fixed=0 cpu_staging=0 cpu_crossing=0 cpu_reserve=0 cpu_total=0 gpu_weights=0 gpu_kv=0 gpu_scratch=0 gpu_fixed=0 gpu_staging=0 gpu_crossing=0 gpu_reserve=0 gpu_total=0\n' "$GH_ZERO_MODEL_ID"
+ids=(S01 S02 S03 S04 S06 S07 S08 S09 S10)
+critical=4; semantic=9; semantic_status=pass; markers=9; marker_status=pass; execution_status=pass
+for case_id in "${ids[@]}"; do
+    emitted_id="$case_id"; stop=eos; status=pass; marker=complete; details=
+    if [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning ]]; then
+        case "${SEMANTIC_STUB_PROTOCOL:-}" in
+            semantic-miss) [[ "$case_id" != S09 && "$case_id" != S10 ]] || { status=fail; semantic=7; semantic_status=fail; details=' reason=semantic-gate-miss excerpt=fixture'; } ;;
+            incomplete) [[ "$case_id" != S01 ]] || { stop=context; status=fail; critical=3; semantic=8; semantic_status=fail; details=' reason=incomplete-generation excerpt=fixture'; } ;;
+            invalid-marker) [[ "$case_id" != S02 ]] || { status=fail; marker=absent; critical=3; semantic=8; semantic_status=fail; markers=8; marker_status=fail; details=' reason=invalid-reasoning-markers excerpt=[invalid reasoning response omitted]'; } ;;
+            engine-error) [[ "$case_id" != S03 ]] || { stop=error; status=fail; critical=3; semantic=8; semantic_status=fail; execution_status=fail; details=' reason=engine-error excerpt=[invalid reasoning response omitted]'; } ;;
+            duplicate-case) [[ "$case_id" != S02 ]] || emitted_id=S01 ;;
+        esac
     fi
-    emitted_id="$case_id"
-    [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "$case_id" != S02 || "${SEMANTIC_STUB_PROTOCOL:-}" != duplicate-case ]] || emitted_id=S01
-    printf 'semantic-case: model_id=%s case_id=%s status=%s predicate=fixture class=%s stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$status" "$class" "$stop" "$marker" "$details"
+    printf 'semantic-case: model_id=%s case_id=%s status=%s predicate=fixture class=semantic stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$status" "$stop" "$marker" "$details"
 done
-if [[ "$chat" == reasoning ]]; then
-    complete=12
-    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning ]] || complete=11
-    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != marker-total ]] || complete=12
-    [[ "$GH_ZERO_MODEL_ID" != 3b-reasoning || "${SEMANTIC_STUB_PROTOCOL:-}" != zero-format ]] || complete=0
-    format="$complete/12"; format_status=diagnostic
-else
-    format=not-applicable; format_status=not-applicable
-fi
-critical=4; semantic=9; semantic_status=pass; conformance=3
-if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == non-eos ]]; then
-    critical=3; semantic=8; semantic_status=fail
-elif [[ "$GH_ZERO_MODEL_ID" == 3b-instruct && "${SEMANTIC_STUB_PROTOCOL:-}" == zero-conformance ]]; then
-    conformance=0
-elif [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning && "${SEMANTIC_STUB_PROTOCOL:-}" == conformance-non-eos ]]; then
-    conformance=2
-fi
-printf 'semantic-summary: model_id=%s backend=%s critical=%s/4 semantic=%s/9 semantic_status=%s conformance=%s/3 conformance_status=diagnostic reasoning_format=%s reasoning_format_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$critical" "$semantic" "$semantic_status" "$conformance" "$format" "$format_status"
-if [[ "$GH_ZERO_MODEL_ID" != 3b-instruct || "${SEMANTIC_STUB_PROTOCOL:-}" != missing-timing ]]; then
-    total=100
-    [[ "${SEMANTIC_STUB_PROTOCOL:-}" != malformed || "$GH_ZERO_MODEL_ID" != 3b-instruct ]] || total=invalid
-    if [[ "$GH_ZERO_MODEL_ID" == 3b-instruct ]]; then baseline=1506690; performance=pass; else baseline=not-applicable; performance=not-applicable; fi
-    printf 'semantic-timing: model_id=%s backend=%s completed_cases=12 total_ms=%s prefill_ms=40 decode_ms=60 baseline_cpu_ms=%s performance_status=%s\n' "$GH_ZERO_MODEL_ID" "$backend" "$total" "$baseline" "$performance"
-fi
+printf 'semantic-summary: model_id=%s critical=%s/4 semantic=%s/9 semantic_status=%s reasoning_format=%s/9 reasoning_format_status=%s execution_status=%s\n' "$GH_ZERO_MODEL_ID" "$critical" "$semantic" "$semantic_status" "$markers" "$marker_status" "$execution_status"
+[[ "${SEMANTIC_STUB_PROTOCOL:-}" == missing-timing && "$GH_ZERO_MODEL_ID" == 3b-reasoning ]] || printf 'semantic-timing: model_id=%s completed_cases=9 total_ms=100 prefill_ms=40 decode_ms=60\n' "$GH_ZERO_MODEL_ID"
 printf 'internal /secret/path must not escape\n' >&2
 [[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
@@ -1333,7 +1296,8 @@ printf 'internal /secret/path must not escape\n' >&2
         command
             .args(["--models-dir", models.to_str().unwrap()])
             .env("PATH", &path)
-            .env("SEMANTIC_STUB_LOG", &calls);
+            .env("SEMANTIC_STUB_LOG", &calls)
+            .env("SEMANTIC_STUB_TOOL_LOG", &tool_calls);
         for (name, value) in variables {
             command.env(name, value);
         }
@@ -1345,57 +1309,38 @@ printf 'internal /secret/path must not escape\n' >&2
     let stdout = String::from_utf8(complete.stdout).unwrap();
     let statuses = stdout
         .lines()
-        .filter(|line| line.starts_with("semantic model_id="))
+        .filter(|line| line.starts_with("qualification:"))
         .collect::<Vec<_>>();
     assert_eq!(statuses.len(), 6);
     assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
-    assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
+    assert!(
+        stdout.contains("summary: qualified=6 not_qualified=0 external_verification=0 total=6")
+    );
     assert!(!stdout.contains("/secret/path"));
-    assert_eq!(stdout.matches("semantic-selection:").count(), 6);
-    assert_eq!(stdout.matches("semantic-case:").count(), 72);
-    assert_eq!(stdout.matches(" stop=eos ").count(), 72);
-    assert_eq!(stdout.matches("marker_status=not-applicable").count(), 36);
-    assert_eq!(stdout.matches("marker_status=complete").count(), 35);
-    assert_eq!(stdout.matches("marker_status=absent").count(), 1);
-    assert_eq!(stdout.matches("semantic-summary:").count(), 6);
-    assert_eq!(stdout.matches("semantic-timing:").count(), 6);
-    for probe in [
-        "probe_mode=all-gpu",
-        "probe_mode=mixed",
-        "probe_mode=cpu-only",
-    ] {
-        assert!(stdout.contains(probe));
-    }
-
-    for (protocol, expected) in [
-        (
-            "zero-conformance",
-            "semantic-summary: model_id=3b-instruct backend=vulkan critical=4/4 semantic=9/9 semantic_status=pass conformance=0/3 conformance_status=diagnostic reasoning_format=not-applicable reasoning_format_status=not-applicable",
-        ),
-        (
-            "zero-format",
-            "semantic-summary: model_id=3b-reasoning backend=cpu critical=4/4 semantic=9/9 semantic_status=pass conformance=3/3 conformance_status=diagnostic reasoning_format=0/12 reasoning_format_status=diagnostic",
-        ),
-        (
-            "conformance-non-eos",
-            "semantic-case: model_id=3b-reasoning case_id=S11 status=fail predicate=fixture class=conformance stop=context prompt_tokens=16 completion_tokens=1 marker_status=complete reason=incomplete-generation excerpt=fixture",
-        ),
-    ] {
-        fs::write(&calls, []).unwrap();
-        let valid = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
-        assert!(valid.status.success(), "{protocol}");
-        let stdout = String::from_utf8(valid.stdout).unwrap();
-        assert!(stdout.contains(expected), "{protocol}");
-        if protocol == "conformance-non-eos" {
-            assert!(stdout.contains("conformance=2/3"));
-        }
-        assert!(stdout.contains("summary: pass=6 external_verification=0 failure=0 total=6"));
-        assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
-    }
-
+    assert_eq!(
+        stdout
+            .matches("profile=instruct evidence=preserved")
+            .count(),
+        3
+    );
+    assert_eq!(
+        stdout.matches("profile=reasoning evidence=current").count(),
+        3
+    );
+    assert_eq!(stdout.matches("semantic-config:").count(), 3);
+    assert_eq!(stdout.matches("semantic-selection:").count(), 3);
+    assert_eq!(stdout.matches("semantic-case:").count(), 27);
+    assert_eq!(stdout.matches("case_id=S05").count(), 0);
+    assert_eq!(stdout.matches("case_id=S11").count(), 0);
+    assert_eq!(stdout.matches("case_id=S12").count(), 0);
+    assert_eq!(stdout.matches("semantic-summary:").count(), 3);
+    assert_eq!(stdout.matches("semantic-timing:").count(), 3);
     let cargo_calls = fs::read_to_string(&calls).unwrap();
-    assert_eq!(cargo_calls.lines().count(), 6);
-    for (line, row) in cargo_calls.lines().zip(&rows) {
+    assert_eq!(cargo_calls.lines().count(), 3);
+    for (line, row) in cargo_calls
+        .lines()
+        .zip(rows.iter().filter(|row| row.chat == "reasoning"))
+    {
         let fields = line.split('\t').collect::<Vec<_>>();
         assert_eq!(fields[0], row.id);
         assert_eq!(fields[1], models.join(row.q4_file).to_str().unwrap());
@@ -1404,96 +1349,74 @@ printf 'internal /secret/path must not escape\n' >&2
         ));
         assert!(fields[2].contains("--ignored --nocapture --exact"));
     }
+    assert_eq!(fs::read_to_string(&tool_calls).unwrap().lines().count(), 6);
 
-    fs::remove_file(models.join(rows[0].q4_file)).unwrap();
+    fs::remove_file(models.join(rows[1].q4_file)).unwrap();
     fs::write(&calls, []).unwrap();
+    fs::write(&tool_calls, []).unwrap();
     let missing = run(&[]);
     assert!(missing.status.success());
     let stdout = String::from_utf8(missing.stdout).unwrap();
     assert!(stdout.contains(
-        "semantic model_id=3b-instruct: external verification: artifact is missing or unreadable"
+        "qualification: model_id=3b-reasoning profile=reasoning evidence=current status=external-verification reason=artifact-missing-or-unreadable critical=not-applicable semantic=not-applicable"
     ));
-    assert!(stdout.contains("summary: pass=5 external_verification=1 failure=0 total=6"));
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
-    fs::write(models.join(rows[0].q4_file), b"immutable semantic fixture").unwrap();
+    assert!(
+        stdout.contains("summary: qualified=5 not_qualified=0 external_verification=1 total=6")
+    );
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
+    fs::write(models.join(rows[1].q4_file), b"immutable semantic fixture").unwrap();
 
     fs::write(&calls, []).unwrap();
-    let mismatch = run(&[("SEMANTIC_STUB_BAD_SIZE", "3B-Instruct")]);
+    let mismatch = run(&[("SEMANTIC_STUB_BAD_SIZE", "3B-Reasoning")]);
     assert!(mismatch.status.success());
     assert!(
         String::from_utf8(mismatch.stdout)
             .unwrap()
-            .contains("summary: pass=5 external_verification=1 failure=0 total=6")
+            .contains("reason=byte-count-mismatch")
     );
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
+    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
 
     fs::write(&calls, []).unwrap();
-    let failure = run(&[("SEMANTIC_STUB_FAIL_ID", "3b-reasoning")]);
-    assert_eq!(failure.status.code(), Some(1));
-    let stdout = String::from_utf8(failure.stdout).unwrap();
-    assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
-    let statuses = stdout
-        .lines()
-        .filter(|line| line.starts_with("semantic model_id="))
-        .collect::<Vec<_>>();
-    assert_eq!(statuses.len(), 6);
-    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 6);
-    assert!(stdout.contains("summary: pass=5 external_verification=0 failure=1 total=6"));
-    assert!(!stdout.contains("/secret/path"));
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
-
-    fs::remove_file(models.join(rows[5].q4_file)).unwrap();
-    fs::write(&calls, []).unwrap();
-    let mixed = run(&[("SEMANTIC_STUB_FAIL_ID", "3b-reasoning")]);
-    assert_eq!(mixed.status.code(), Some(1));
-    let stdout = String::from_utf8(mixed.stdout).unwrap();
-    assert!(stdout.contains("semantic model_id=3b-reasoning: failure"));
-    assert!(stdout.contains(
-        "semantic model_id=14b-reasoning: external verification: artifact is missing or unreadable"
-    ));
-    assert!(stdout.contains("summary: pass=4 external_verification=1 failure=1 total=6"));
-    assert_eq!(
-        stdout
-            .lines()
-            .filter(|line| line.starts_with("semantic model_id="))
-            .count(),
-        6
-    );
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 5);
-    fs::write(models.join(rows[5].q4_file), b"immutable semantic fixture").unwrap();
-
-    fs::write(&calls, []).unwrap();
-    let external_ram = run(&[("SEMANTIC_STUB_EXTERNAL_ID", "8b-instruct")]);
-    assert!(external_ram.status.success());
-    let stdout = String::from_utf8(external_ram.stdout).unwrap();
+    let sha = run(&[("SEMANTIC_STUB_BAD_SHA", "8B-Reasoning")]);
+    assert!(sha.status.success());
     assert!(
-        stdout.contains("semantic model_id=8b-instruct: external verification: insufficient RAM")
+        String::from_utf8(sha.stdout)
+            .unwrap()
+            .contains("reason=sha256-mismatch")
     );
-    assert!(stdout.contains("summary: pass=5 external_verification=1 failure=0 total=6"));
-    assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
 
-    for (protocol, failed_id) in [
-        ("missing-timing", "3b-instruct"),
-        ("duplicate", "3b-instruct"),
-        ("duplicate-case", "3b-instruct"),
-        ("contradictory", "3b-instruct"),
-        ("malformed", "3b-instruct"),
-        ("non-eos", "3b-instruct"),
-        ("conformance-non-eos-pass", "3b-reasoning"),
-        ("marker-total", "3b-reasoning"),
+    for (protocol, reason) in [
+        ("config-mismatch", "configuration-mismatch"),
+        ("semantic-miss", "semantic-gate-miss"),
+        ("incomplete", "incomplete-generation"),
+        ("invalid-marker", "invalid-reasoning-markers"),
+        ("engine-error", "engine-error"),
+        ("missing-timing", "invalid-validation-protocol"),
+        ("duplicate-case", "invalid-validation-protocol"),
     ] {
         fs::write(&calls, []).unwrap();
-        let invalid = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
-        assert_eq!(invalid.status.code(), Some(1), "{protocol}");
-        let stdout = String::from_utf8(invalid.stdout).unwrap();
+        let output = run(&[("SEMANTIC_STUB_PROTOCOL", protocol)]);
+        assert!(output.status.success(), "{protocol}");
+        let stdout = String::from_utf8(output.stdout).unwrap();
         assert!(
-            stdout.contains(&format!("semantic model_id={failed_id}: failure")),
+            stdout.contains(&format!("status=not-qualified reason={reason}")),
             "{protocol}"
         );
-        assert!(stdout.contains("summary: pass=5 external_verification=0 failure=1 total=6"));
+        assert!(
+            stdout.contains("summary: qualified=5 not_qualified=1 external_verification=0 total=6")
+        );
         assert!(!stdout.contains("/secret/path"));
-        assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 6);
+        assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 3);
     }
+
+    fs::write(&calls, []).unwrap();
+    let no_vram = run(&[("SEMANTIC_STUB_EXTERNAL_ID", "8b-reasoning")]);
+    assert!(no_vram.status.success());
+    let stdout = String::from_utf8(no_vram.stdout).unwrap();
+    assert!(stdout.contains("reason=no-full-vram-fit"));
+    assert!(
+        stdout.contains("summary: qualified=5 not_qualified=0 external_verification=1 total=6")
+    );
 
     fs::write(
         copied_root.join("support/models.tsv"),
@@ -1510,6 +1433,30 @@ printf 'internal /secret/path must not escape\n' >&2
             .code(),
         Some(2)
     );
+    fs::write(
+        copied_root.join("support/models.tsv"),
+        include_str!("../support/models.tsv"),
+    )
+    .unwrap();
+    let no_cargo = Command::new(&runner)
+        .args(["--models-dir", models.to_str().unwrap()])
+        .env("PATH", "/usr/bin:/bin")
+        .env("SEMANTIC_STUB_TOOL_LOG", &tool_calls)
+        .output()
+        .unwrap();
+    if !Command::new("bash")
+        .arg("-lc")
+        .arg("PATH=/usr/bin:/bin command -v cargo")
+        .status()
+        .unwrap()
+        .success()
+    {
+        let stdout = String::from_utf8(no_cargo.stdout).unwrap();
+        assert!(stdout.contains("reason=cargo-unavailable"));
+        assert!(
+            stdout.contains("summary: qualified=3 not_qualified=0 external_verification=3 total=6")
+        );
+    }
     assert_eq!(
         Command::new(&runner)
             .arg("--unknown")
@@ -1526,6 +1473,7 @@ printf 'internal /secret/path must not escape\n' >&2
         "eval ",
         "--features vulkan",
         "--features cpu",
+        "pass=6",
     ] {
         assert!(
             !source.contains(forbidden),
@@ -1533,7 +1481,7 @@ printf 'internal /secret/path must not escape\n' >&2
         );
     }
     assert_eq!(source.matches("--features hybrid").count(), 1);
-    assert!(source.lines().count() < 200);
+    assert!(source.lines().count() <= 160);
     for row in &rows {
         assert_eq!(
             fs::read(models.join(row.q4_file)).unwrap(),

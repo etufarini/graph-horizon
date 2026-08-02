@@ -32,24 +32,26 @@ CPU→GPU, una volta per passaggio; la KV di ogni layer resta sul suo backend. I
 report contiene modalità, split, conteggi layer e breakdown CPU/GPU di pesi, KV,
 scratch, fixed, staging, crossing e reserve.
 
-### Riferimento semantico M3
+### Qualifica semantica Reasoning
 
-La validazione M3 applica una policy separata e solo test: usa il medesimo load
-hybrid come probe, ma accetta come backend finale soltanto all-GPU oppure
-CPU-only. Un probe `mixed` viene distrutto prima di generare token e il modello
-viene riaperto CPU-only; questo non modifica il supporto mixed delle sessioni
-produttive né aggiunge opzioni a `EngineConfig`.
+La qualifica semantica corrente è una policy separata e solo test: conserva i
+tre pass Instruct revisionati dal piano storico e invoca soltanto i tre profili
+Reasoning. Il runner usa il load `hybrid` per osservare il placement, ma la
+generazione qualificante è valida solo con Vulkan all-GPU; `mixed`, `cpu-only` o
+risorse assenti diventano `external-verification` e non attivano fallback.
 
-Il corpus M3 usa KV `f16` e un contesto distinto per profilo: Instruct usa 4096
-e richiede al massimo 256 token; Reasoning usa il contesto prodotto predefinito
-32768 e lascia che il guard esistente applichi il contesto residuo a una
-richiesta massima di 32768. Tutti i profili usano le stesse fixture base. Il
-solo test classifica `eos`, `max-tokens` e `context` rispetto al limite del
-profilo, valuta soltanto risposte EOS complete e registra i marker Reasoning
-come diagnostica. Il runtime continua a emettere testo raw e non possiede
-questa policy di assessment.
+Il run Reasoning usa KV `f16`, `context=4096`, `max_tokens=4096`,
+`temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0` e
+`repeat_penalty=1`. Il corpus contiene solo i nove casi S01–S04 e S06–S10. Ogni
+caso viene tentato una volta; `context`, `max-tokens`, errori engine, marker
+Reasoning incompleti e miss semantici sono risultati terminali, non ragioni per
+retry, tuning, CPU fallback o oracle.
 
-Nel test M3, ogni caso non-EOS fallisce: se il caso è semantico blocca il modello, mentre se è di conformità resta una diagnostica fallita e non blocca da solo un gate semantico valido.
+La riga finale di un Reasoning può essere `qualified`, `not-qualified` o
+`external-verification`. Una matrice strutturalmente completa a sei righe è
+successo operativo del runner anche quando un modello non supera il gate
+semantico. Il runtime continua a emettere testo raw e non possiede questa policy
+di assessment.
 
 `Engine::placement()` fornisce il placement finale e il suo breakdown di
 memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la

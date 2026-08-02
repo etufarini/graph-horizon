@@ -16,7 +16,7 @@ diversi.
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 Reasoning contro oracle fissato |
-| `testing/semantic-check.sh` | accettazione semantica M3 sui sei Q4_K_M autenticati |
+| `testing/semantic-check.sh` | matrice terminale di qualifica semantica Reasoning |
 | `testing/run-ghzero-engine.sh` | avvio esplicito della console locale |
 
 ## Prerequisiti
@@ -80,54 +80,42 @@ contesto. Una risorsa assente o Vulkan indisponibile produce
 `external verification: <motivo preciso>`; errori di protocollo, codice o
 parità falliscono la riga.
 
-### Accettazione semantica M3
+### Qualifica semantica Reasoning
 
 ```sh
 support/testing/semantic-check.sh --models-dir /home/user/models
 ```
 
-Il runner autentica esattamente i sei artefatti del catalogo e usa sempre KV
-`f16` e greedy puro per ciascuno dei dodici casi. Instruct usa contesto 4096 e
-`max_tokens=256`; Reasoning usa il contesto prodotto predefinito 32768 e lascia
-al guard esistente il limite effettivo del contesto residuo su una richiesta
-massima di 32768. Tutti i profili usano le stesse fixture base e ogni caso viene
-tentato una volta.
-Il backend finale è esclusivamente all-GPU oppure CPU-only. Ogni modello viene
-caricato inizialmente con il planner hybrid esistente: un placement completo
-seleziona il riferimento finale all-GPU con motivo `full-vram-fit`; Vulkan
-assente, VRAM completa insufficiente o un placement CPU selezionano il
-riferimento CPU-only con motivo `no-full-vram-fit`.
+Il runner costruisce sempre una matrice a sei righe. Le tre righe Instruct sono
+preservate dal pass storico e non aprono artefatti né invocano Cargo. Le tre
+righe Reasoning sono autenticate una alla volta con byte count e SHA-256 del
+catalogo, poi invocate con il test ignorato `real_semantic_acceptance`.
 
-Un probe `mixed` può allocare il modello per osservare il placement, ma non
-genera alcun token semantico: viene distrutto e il modello è riaperto CPU-only.
-Il backend finale resta invariato per tutti i dodici casi. Qualsiasi errore dopo
-la selezione è un failure e non attiva fallback o retry.
+La configurazione Reasoning accettata è esatta: `context=4096`,
+`max_tokens=4096`, `temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0`,
+`repeat_penalty=1`, KV `f16`, feature Cargo `hybrid`, backend finale Vulkan
+all-GPU. I soli casi reali sono S01–S04 e S06–S10, in quest'ordine. Non esiste
+retry, CPU fallback, oracle, tuning o inferenza Instruct.
 
-Ogni record di caso classifica `context` quando prompt e completamento
-raggiungono il limite del profilo, altrimenti `max-tokens` quando il completamento
-raggiunge il massimo richiesto, altrimenti `eos`. Solo `eos` è completo. Per Reasoning,
-`complete` valuta il solo testo dopo la coppia marker, `absent` valuta tutta la
-risposta trimmed come diagnostica mancante e `invalid` fallisce senza esporre il
-contenuto. Per Instruct il marker status è `not-applicable` e qualsiasi marker
-Reasoning è un failure. S08 accetta `0` o esattamente una temperatura Celsius
-riconosciuta di valore zero, ignorando numeri non associati a Celsius.
+Per ogni Reasoning tentato lo script inoltra una riga `semantic-config:`, una
+`semantic-selection:`, nove righe `semantic-case:`, una `semantic-summary:` e
+una `semantic-timing:`. Un placement non all-GPU, un artefatto assente o non
+autenticato, o uno strumento richiesto non disponibile produce
+`external-verification`. Una generazione tentata che non supera il protocollo o
+il gate produce `not-qualified`; un gate completo produce `qualified`.
 
-Nel test M3, ogni caso non-EOS fallisce: se il caso è semantico blocca il modello, mentre se è di conformità resta una diagnostica fallita e non blocca da solo un gate semantico valido.
+Le righe finali normalizzate hanno la forma:
 
-Per ogni modello tentato lo script inoltra una riga `semantic-selection:` con
-backend e memoria pianificata, dodici righe `semantic-case:`, una
-`semantic-summary:` con gate e diagnostica e una `semantic-timing:` con tempi e
-confronto prestazionale applicabile. Un artefatto assente, illeggibile o non
-autenticato produce `external verification: <motivo preciso>`; l'esatta
-condizione di RAM insufficiente produce lo stesso stato esterno. Ogni ID riceve
-poi una riga normalizzata `semantic model_id=<id>:` e il run termina con
-`summary: pass=<n> external_verification=<n> failure=<n> total=6` dopo avere
-classificato tutte e sei le righe.
+```text
+qualification: model_id=<id> profile=<instruct|reasoning> evidence=<preserved|current> status=<qualified|not-qualified|external-verification> reason=<motivo> critical=<n/4|not-applicable> semantic=<n/9|not-applicable>
+summary: qualified=<n> not_qualified=<n> external_verification=<n> total=6
+```
 
-Il codice di uscita è 0 quando non esistono failure tentati, 1 dopo il riepilogo
-se almeno una riga tentata fallisce e 2, prima di caricare modelli, per argomenti
-o catalogo invalidi. Un exit 0 con verifiche esterne è operativo ma non completa
-la validazione a sei modelli. Non esistono retry o fallback.
+Il codice di uscita è 0 per ogni matrice strutturalmente completa, anche con
+`not-qualified` o `external-verification`. Il codice 2 è riservato ad argomenti
+o catalogo invalidi prima dell'inferenza. Il run a `temperature=0.7` e `seed=0`
+è riproducibile solo a parità di commit, artefatto, backend, parametri e seed;
+non è una promessa di determinismo universale tra hardware.
 
 ## Sicurezza
 

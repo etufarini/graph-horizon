@@ -53,6 +53,11 @@ successo operativo del runner anche quando un modello non supera il gate
 semantico. Il runtime continua a emettere testo raw e non possiede questa policy
 di assessment.
 
+La matrice revisionata corrente è nel [registro di validazione](../../VALIDATION.md):
+i tre Reasoning sono `qualified` nel run Piano 07, mentre i tre Instruct sono
+evidenza preservata. Questo qualifica il percorso API Rust configurabile usato
+dall'harness, non il server HTTP greedy.
+
 `Engine::placement()` fornisce il placement finale e il suo breakdown di
 memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
 selezione finale resta un failure senza retry o fallback. Il comando e il

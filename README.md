@@ -176,6 +176,14 @@ a CPU prefix, or all-CPU. Pure Vulkan remains all-GPU-or-error, and development
 remains CPU-first. The reviewed artifacts in the validation record are evidence,
 not a runtime whitelist, and do not constitute MoE support.
 
+Technical load support and reviewed semantic qualification are separate claims.
+The current reviewed evidence is in [VALIDATION.md](VALIDATION.md): the three
+Instruct rows are preserved from the historical pass, and the three Reasoning
+rows are current Plan 07 `qualified` results for the Rust API harness with
+`temperature=0.7`, `seed=0`, `max_tokens=4096`, KV `f16`, and Vulkan all-GPU.
+That run does not qualify the HTTP server path, which continues to use greedy
+sampling through the unchanged server configuration.
+
 ## Documentation
 
 - [Reviewed validation evidence](VALIDATION.md)

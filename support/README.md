@@ -117,6 +117,10 @@ o catalogo invalidi prima dell'inferenza. Il run a `temperature=0.7` e `seed=0`
 è riproducibile solo a parità di commit, artefatto, backend, parametri e seed;
 non è una promessa di determinismo universale tra hardware.
 
+La matrice revisionata corrente è pubblicata in [VALIDATION.md](../VALIDATION.md):
+tre Instruct preservati e tre Reasoning correnti `qualified`. Quella evidenza
+copre il percorso API Rust esercitato dal test, non il server HTTP greedy.
+
 ## Sicurezza
 
 Ogni path modello viene passato come un singolo argomento quotato. Valori enum e

@@ -703,7 +703,6 @@ dependencies = [
  "ash",
  "color-eyre",
  "memmap2",
- "serde_json",
  "shaderc",
 ]
 

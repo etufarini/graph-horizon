@@ -1,0 +1,47 @@
+<!--
+This index owns navigation for the repository documentation. It separates stable,
+model-neutral behavior from the current support contract and validation evidence.
+-->
+
+# Documentation
+
+These pages describe GH Zero Engine surfaces and processes without assuming a
+specific model family, size, or release. Examples therefore use the
+`<model.gguf>` placeholder.
+
+Concrete support changes with the code: currently accepted architectures, GGUF
+profiles, and limits are defined in the
+[library contract](../crates/gh_zero_engine/README.md), while reviewed results
+belong in the [validation register](../VALIDATION.md).
+
+## Usage And Structure
+
+| Document | Contents |
+|---|---|
+| [configuration.md](configuration.md) | Runtime flags, defaults, and build-time backend selection |
+| [architecture.md](architecture.md) | Workspace layout and application flows |
+| [backend.md](backend.md) | Engine facade, CPU/Vulkan/hybrid backends, and KV cache |
+| [server.md](server.md) | Text-only HTTP server and SSE protocol |
+| [web.md](web.md) | Local web UI, assets, and available routes |
+
+## Console
+
+| Document | Contents |
+|---|---|
+| [console.md](console.md) | TUI session, keyboard controls, rendering, and status bar |
+| [commands.md](commands.md) | Slash commands, transcripts, and local attachments |
+| [pruning.md](pruning.md) | Context estimation and removal of the oldest turns |
+
+## Development And Validation
+
+| Document | Contents |
+|---|---|
+| [model-addition-process.md](model-addition-process.md) | Process for adding a family or profile |
+| [backend-addition-process.md](backend-addition-process.md) | Process for adding a compute backend |
+| [model-validation-process.md](model-validation-process.md) | Repeatable technical and semantic qualification |
+| [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
+| [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
+| [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
+
+For installation, catalogs, and operational scripts, also see
+[support/README.md](../support/README.md).

@@ -24,6 +24,8 @@ pub(crate) type SelectedBackend = super::vulkan::VulkanBackend;
 pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::vulkan::VulkanBackend>;
 #[cfg(feature = "metal")]
 pub(crate) type SelectedBackend = super::metal::MetalBackend;
+#[cfg(feature = "metal-hybrid")]
+pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::metal::MetalBackend>;
 
 #[cfg(feature = "cpu")]
 pub(crate) type SelectedSession<'a, G> =
@@ -37,6 +39,9 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "metal")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::homogeneous::HomogeneousSession<'a, super::metal::MetalBackend, G>;
+#[cfg(feature = "metal-hybrid")]
+pub(crate) type SelectedSession<'a, G> =
+    crate::runtime::partitioned::PartitionedSession<'a, super::metal::MetalBackend, G>;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
@@ -67,7 +72,7 @@ pub(crate) fn load(
             reserve_mib,
         )
     }
-    #[cfg(feature = "vulcan-hybrid")]
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     {
         super::hybrid::loader::load(
             file,
@@ -95,7 +100,7 @@ pub(crate) fn session<'a, G: LayeredGraph>(
             backend, config, shape, context, scheme,
         )
     }
-    #[cfg(feature = "vulcan-hybrid")]
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     {
         crate::runtime::partitioned::PartitionedSession::new(
             backend, config, shape, context, scheme,
@@ -109,7 +114,7 @@ pub(crate) fn configure(
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) {
-    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     {
         super::cpu::parallel::set_threads(cpu_threads);
         super::cpu::set_no_simd(no_attn_simd);
@@ -121,16 +126,16 @@ pub(crate) fn configure(
     }
     #[cfg(not(feature = "vulcan"))]
     let _ = (weights_percent, reserve_mib);
-    #[cfg(not(any(feature = "cpu", feature = "vulcan-hybrid")))]
+    #[cfg(not(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid")))]
     let _ = (cpu_threads, no_attn_simd);
 }
 
 pub(crate) fn placement(backend: &SelectedBackend) -> Option<&HybridPlan> {
-    #[cfg(feature = "vulcan-hybrid")]
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     {
         Some(&backend.plan)
     }
-    #[cfg(not(feature = "vulcan-hybrid"))]
+    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
     {
         let _ = backend;
         None

@@ -15,7 +15,12 @@
  * VRAM. No raw math and no concrete GPU API here.
 */
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulcan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 pub(crate) mod int8;
 pub(crate) mod layout;
 pub(crate) mod scheme;

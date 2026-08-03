@@ -19,23 +19,28 @@ pub(crate) use contract::Backend;
 #[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
 pub(crate) mod vulkan;
 
-#[cfg(all(feature = "metal", target_os = "macos", target_arch = "aarch64"))]
+#[cfg(all(
+    any(feature = "metal", feature = "metal-hybrid"),
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
 pub(crate) mod metal;
 
 #[cfg(all(
-    feature = "metal",
+    any(feature = "metal", feature = "metal-hybrid"),
     not(all(target_os = "macos", target_arch = "aarch64"))
 ))]
 compile_error!("metal profiles require macOS on Apple Silicon");
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod cpu;
 
 #[cfg(not(any(
     feature = "cpu",
     feature = "vulcan",
     feature = "vulcan-hybrid",
-    feature = "metal"
+    feature = "metal",
+    feature = "metal-hybrid"
 )))]
 compile_error!(
     "no backend selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"
@@ -47,7 +52,11 @@ compile_error!(
     all(feature = "cpu", feature = "metal"),
     all(feature = "vulcan", feature = "vulcan-hybrid"),
     all(feature = "vulcan", feature = "metal"),
-    all(feature = "vulcan-hybrid", feature = "metal")
+    all(feature = "vulcan-hybrid", feature = "metal"),
+    all(feature = "cpu", feature = "metal-hybrid"),
+    all(feature = "vulcan", feature = "metal-hybrid"),
+    all(feature = "vulcan-hybrid", feature = "metal-hybrid"),
+    all(feature = "metal", feature = "metal-hybrid")
 ))]
 compile_error!(
     "multiple backend profiles selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"

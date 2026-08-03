@@ -10,13 +10,13 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))))]
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))))]
 use crate::gguf::metadata::ModelMetadata;
 
 use super::buffers;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))))]
 use super::source::WeightSource;
 
 // The backend boundary for the forward path. `Buffer` is an opaque handle that
@@ -32,7 +32,7 @@ pub(crate) trait Backend: Sized {
     // Weights arrive through `WeightSource` (the family's concrete weight set) as
     // a `&dyn` since `load` is not perf-critical and must not monomorphize the
     // upload chain per family.
-    #[cfg(any(test, not(feature = "vulcan-hybrid")))]
+    #[cfg(any(test, not(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))))]
     fn load(
         meta: &ModelMetadata,
         ws: &dyn WeightSource,

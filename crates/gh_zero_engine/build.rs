@@ -8,7 +8,7 @@
 fn main() {
     #[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
     build_vulkan();
-    #[cfg(feature = "metal")]
+    #[cfg(any(feature = "metal", feature = "metal-hybrid"))]
     build_metal();
 }
 
@@ -67,7 +67,7 @@ fn collect_comp(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-#[cfg(feature = "metal")]
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
 fn build_metal() {
     use std::collections::BTreeSet;
     use std::path::{Path, PathBuf};
@@ -139,7 +139,7 @@ fn build_metal() {
     }
 }
 
-#[cfg(feature = "metal")]
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
 fn find_tool(name: &str) -> std::path::PathBuf {
     let output = std::process::Command::new("xcrun")
         .args(["--find", name])
@@ -155,14 +155,14 @@ fn find_tool(name: &str) -> std::path::PathBuf {
     path.into()
 }
 
-#[cfg(feature = "metal")]
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
 fn toolchain_unavailable() -> ! {
     panic!(
         "Metal toolchain unavailable: install the Metal Toolchain and ensure xcrun can find metal and metallib"
     )
 }
 
-#[cfg(feature = "metal")]
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
 fn bounded(bytes: &[u8]) -> String {
     const LIMIT: usize = 8 * 1024;
     String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]).into_owned()

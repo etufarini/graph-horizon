@@ -64,6 +64,7 @@ fn source_structure() {
         "src/backend/contract.rs",
         "src/backend/cpu/backend.rs",
         "src/backend/hybrid/contract.rs",
+        "src/backend/metal/backend.rs",
         "src/backend/vulkan/backend.rs",
     ];
     const K: &[&str] = &[

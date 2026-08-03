@@ -6,7 +6,7 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "cpu", feature = "vulcan"))]
+#[cfg(any(feature = "cpu", feature = "vulcan", feature = "metal"))]
 use super::Backend;
 use super::hybrid::HybridPlan;
 use super::hybrid::weights::runtime::RuntimeShape;
@@ -22,6 +22,8 @@ pub(crate) type SelectedBackend = super::cpu::CpuBackend;
 pub(crate) type SelectedBackend = super::vulkan::VulkanBackend;
 #[cfg(feature = "vulcan-hybrid")]
 pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::vulkan::VulkanBackend>;
+#[cfg(feature = "metal")]
+pub(crate) type SelectedBackend = super::metal::MetalBackend;
 
 #[cfg(feature = "cpu")]
 pub(crate) type SelectedSession<'a, G> =
@@ -32,6 +34,9 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "vulcan-hybrid")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::partitioned::PartitionedSession<'a, super::vulkan::VulkanBackend, G>;
+#[cfg(feature = "metal")]
+pub(crate) type SelectedSession<'a, G> =
+    crate::runtime::homogeneous::HomogeneousSession<'a, super::metal::MetalBackend, G>;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
@@ -44,7 +49,7 @@ pub(crate) fn load(
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) -> Result<SelectedBackend> {
-    #[cfg(any(feature = "cpu", feature = "vulcan"))]
+    #[cfg(any(feature = "cpu", feature = "vulcan", feature = "metal"))]
     {
         let _ = (shape, scheme, weights_percent, reserve_mib);
         SelectedBackend::load(metadata, source, file, context)
@@ -71,7 +76,7 @@ pub(crate) fn session<'a, G: LayeredGraph>(
     context: usize,
     scheme: KvQuant,
 ) -> Result<SelectedSession<'a, G>> {
-    #[cfg(any(feature = "cpu", feature = "vulcan"))]
+    #[cfg(any(feature = "cpu", feature = "vulcan", feature = "metal"))]
     {
         crate::runtime::homogeneous::HomogeneousSession::new(
             backend, config, shape, context, scheme,

@@ -30,22 +30,22 @@ pub(crate) fn copy<G: HybridDevice>(
         payload.extend_from_slice(&value.to_le_bytes());
     }
     gpu.upload_residual(target, &payload)?;
-    #[cfg(test)]
+    #[cfg(any(test, feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     CROSSINGS.with(|count| count.set(count.get() + 1));
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 thread_local! {
     static CROSSINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn reset_count() {
     CROSSINGS.with(|count| count.set(0));
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn count() -> usize {
     CROSSINGS.with(std::cell::Cell::get)
 }

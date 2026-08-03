@@ -101,6 +101,14 @@ impl Engine {
     pub fn generate(&self, request: Request, sink: &mut dyn EventSink) {
         mistral::generation::generate(&self.model, request, sink);
     }
+
+    pub(crate) fn validate_parity(
+        &self,
+        prompt_ids: &str,
+        completion_ids: &str,
+    ) -> Result<mistral::parity::ParityReport> {
+        mistral::parity::validate(&self.model, prompt_ids, completion_ids)
+    }
 }
 
 #[cfg(test)]

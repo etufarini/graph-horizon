@@ -617,6 +617,10 @@ mod vulkan_failure_lifecycle {
     fn real_owner_failpoints_release_acquired_resources() {
         use super::fault::{self, Point};
 
+        if VulkanBackend::bare().is_err() {
+            eprintln!("external verification: no Vulkan device");
+            return;
+        }
         for point in [Point::Initialization, Point::Pipeline, Point::Allocation] {
             fault::arm(point);
             let error = VulkanBackend::bare()

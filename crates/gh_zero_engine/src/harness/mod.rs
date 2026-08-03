@@ -10,3 +10,15 @@ mod stats;
 pub mod throughput;
 
 pub use throughput::{BenchConfig, Stat, ThroughputReport};
+
+use crate::Engine;
+pub use crate::family::mistral::parity::ParityReport;
+
+/// Runs the fixed, family-neutral oracle protocol against the selected runtime.
+pub fn validate_parity(
+    engine: &Engine,
+    prompt_ids: &str,
+    completion_ids: &str,
+) -> color_eyre::Result<ParityReport> {
+    engine.validate_parity(prompt_ids, completion_ids)
+}

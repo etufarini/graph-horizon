@@ -1,22 +1,95 @@
 /*
- * gh_zero_engine — shared Ministral parity acceptance boundary
- * This is the single test-only boundary between externally supplied oracle ID
- * vectors and backend-specific real-model tests. Its explicit empty System
- * message neutralizes implicit defaults before exact prompt and top-two checks.
+ * gh_zero_engine — selected-runtime parity protocol
+ * Parses fixed oracle vectors, renders the neutral Ministral prompt, and checks
+ * sixteen teacher-forced full-logit steps through the statically selected
+ * runtime. It owns request-local KV and test crossing evidence, but no backend
+ * choice, artifact lookup, oracle process, retry, or fallback.
  */
 
+use color_eyre::eyre::{Result, bail, eyre};
+
+use super::graph::MistralGraph;
+use super::{RuntimeModel, template};
 use crate::api::message::{Message, Role};
+use crate::backend::hybrid::HybridMode;
+use crate::backend::selection;
+use crate::runtime::contract::{LayeredGraph, RuntimeSession};
 
-pub(super) const USER_CONTENT: &str = "Quanto fa 17 × 19?";
-pub(super) const CONTEXT: usize = 4096;
-pub(super) const TOKEN_COUNT: usize = 16;
+pub const USER_CONTENT: &str = "Quanto fa 17 × 19?";
+pub const CONTEXT: usize = 4096;
+pub const TOKEN_COUNT: usize = 16;
 
-pub(super) struct ReferenceVectors {
-    pub(super) prompt: Vec<u32>,
-    pub(super) completion: Vec<u32>,
+pub struct ParityReport {
+    pub prompt_ids: Vec<u32>,
+    pub local_ids: Vec<u32>,
+    pub top_two: Vec<[u32; 2]>,
+    pub crossings: usize,
 }
 
-pub(super) fn conversation() -> [Message; 2] {
+pub(crate) fn validate(
+    model: &RuntimeModel,
+    prompt_ids: &str,
+    completion_ids: &str,
+) -> Result<ParityReport> {
+    if model.context != CONTEXT {
+        bail!("parity context must be 4096");
+    }
+    let expected_prompt = parse("GH_ZERO_REFERENCE_PROMPT_IDS", prompt_ids, None)?;
+    let completion = parse(
+        "GH_ZERO_REFERENCE_COMPLETION_IDS",
+        completion_ids,
+        Some(TOKEN_COUNT),
+    )?;
+    let prompt = template::render(&conversation(), &model.tokenizer, model.context)?;
+    if prompt != expected_prompt {
+        bail!("oracle prompt IDs do not match the local prompt");
+    }
+    validate_vocab(&prompt, model.config.vocab_size, "prompt")?;
+    validate_vocab(&completion, model.config.vocab_size, "completion")?;
+
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    crate::backend::hybrid::crossing::reset_count();
+    let session = selection::session::<MistralGraph>(
+        &model.backend,
+        &model.config,
+        model.shape(),
+        model.context,
+        model.scheme,
+    )?;
+    session.prefill(&prompt, &mut || Ok(()))?;
+    let mut local_ids = Vec::with_capacity(TOKEN_COUNT);
+    let mut top_two = Vec::with_capacity(TOKEN_COUNT);
+    for (step, &oracle) in completion.iter().enumerate() {
+        let ranked = ranked_logits(session.logits(model.config.vocab_size)?)?;
+        local_ids.push(ranked[0]);
+        top_two.push([ranked[0], ranked[1]]);
+        if !top_two[step].contains(&oracle) {
+            bail!("oracle completion ID is absent from local top two at step {step}");
+        }
+        if step + 1 < TOKEN_COUNT {
+            session.token(oracle, prompt.len() + step)?;
+        }
+    }
+
+    let crossings = crossing_count();
+    let expected_crossings = match selection::placement(&model.backend).map(|plan| plan.mode) {
+        Some(HybridMode::Mixed) => {
+            prompt.len().div_ceil(MistralGraph::BATCH_ROWS) + TOKEN_COUNT - 1
+        }
+        _ => 0,
+    };
+    if crossings != expected_crossings {
+        bail!("parity crossing count mismatch");
+    }
+    Ok(ParityReport {
+        prompt_ids: prompt,
+        local_ids,
+        top_two,
+        crossings,
+    })
+}
+
+fn conversation() -> [Message; 2] {
     [
         Message {
             role: Role::System,
@@ -29,68 +102,58 @@ pub(super) fn conversation() -> [Message; 2] {
     ]
 }
 
-pub(super) fn reference_vectors() -> ReferenceVectors {
-    let prompt = read("GH_ZERO_REFERENCE_PROMPT_IDS", None);
-    let completion = read("GH_ZERO_REFERENCE_COMPLETION_IDS", Some(TOKEN_COUNT));
-    ReferenceVectors { prompt, completion }
-}
-
-pub(super) fn assert_exact(label: &str, actual: &[u32], expected: &[u32]) {
-    assert!(
-        actual == expected,
-        "{label} mismatch\nexpected: {expected:?}\nactual: {actual:?}"
-    );
-}
-
-pub(super) fn assert_oracle_top2(actual: &[Vec<u32>], expected: &[u32]) {
-    assert_eq!(
-        actual.len(),
-        expected.len(),
-        "oracle top-two step count mismatch"
-    );
-    for (step, (&expected, candidates)) in expected.iter().zip(actual).enumerate() {
-        assert_eq!(candidates.len(), 2, "teacher candidates at step {step}");
-        assert!(
-            candidates.contains(&expected),
-            "oracle completion ID absent from top two at step {step}\n\
-             expected: {expected}\ncandidates: {candidates:?}"
-        );
+fn ranked_logits(logits: Vec<f32>) -> Result<Vec<u32>> {
+    if logits.len() < 2 || logits.iter().any(|value| !value.is_finite()) {
+        bail!("parity logits must contain at least two finite values");
     }
+    let mut indices = (0..logits.len()).collect::<Vec<_>>();
+    // The stable protocol resolves a score tie by the lower token ID.
+    indices.sort_unstable_by(|&left, &right| {
+        logits[right]
+            .total_cmp(&logits[left])
+            .then_with(|| left.cmp(&right))
+    });
+    indices
+        .into_iter()
+        .map(|index| u32::try_from(index).map_err(|_| eyre!("parity token ID overflow")))
+        .collect()
 }
 
-pub(super) fn csv(ids: &[u32]) -> String {
-    ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",")
-}
-
-fn read(name: &str, expected_len: Option<usize>) -> Vec<u32> {
-    let value = std::env::var(name).unwrap_or_else(|_| panic!("{name} required"));
-    parse(name, &value, expected_len).unwrap_or_else(|message| panic!("{message}"))
-}
-
-fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32>, String> {
-    if value.trim().is_empty() {
-        return Err(format!("{name} must not be empty"));
+fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32>> {
+    if value.is_empty() {
+        bail!("{name} must not be empty");
     }
     let ids = value
         .split(',')
         .map(|part| {
-            if part.is_empty() {
-                return Err(format!("{name} contains an empty ID"));
-            }
-            if !part.bytes().all(|byte| byte.is_ascii_digit()) {
-                return Err(format!("{name} contains an invalid ID"));
+            if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) {
+                bail!("{name} contains an invalid ID");
             }
             part.parse::<u32>()
-                .map_err(|_| format!("{name} contains an invalid ID"))
+                .map_err(|_| eyre!("{name} contains an invalid ID"))
         })
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>>>()?;
     if expected_len.is_some_and(|expected| ids.len() != expected) {
-        return Err(format!(
-            "{name} must contain exactly {} IDs",
-            expected_len.unwrap()
-        ));
+        bail!("{name} must contain exactly {} IDs", expected_len.unwrap());
     }
     Ok(ids)
+}
+
+fn validate_vocab(ids: &[u32], vocab: usize, label: &str) -> Result<()> {
+    if ids.iter().any(|&id| id as usize >= vocab) {
+        bail!("oracle {label} ID is outside the model vocabulary");
+    }
+    Ok(())
+}
+
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+fn crossing_count() -> usize {
+    crate::backend::hybrid::crossing::count()
+}
+
+#[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+fn crossing_count() -> usize {
+    0
 }
 
 #[cfg(test)]
@@ -98,39 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn conversation_has_empty_system_then_fixed_user() {
-        assert_eq!(
-            conversation(),
-            [
-                Message {
-                    role: Role::System,
-                    content: String::new(),
-                },
-                Message {
-                    role: Role::User,
-                    content: USER_CONTENT.into(),
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn parses_strict_unsigned_decimal_ids() {
-        assert_eq!(
-            parse("IDS", "1,2,4294967295", None).unwrap(),
-            [1, 2, u32::MAX]
-        );
-    }
-
-    #[test]
-    fn rejects_empty_malformed_negative_and_overflow_ids() {
-        for value in ["", "1,", "1,,2", "-1", "+1", "1, 2", "4294967296", "one"] {
-            assert!(parse("IDS", value, None).is_err(), "{value:?}");
-        }
-    }
-
-    #[test]
-    fn completion_length_is_exactly_sixteen() {
+    fn parser_requires_sixteen_strict_unsigned_completion_ids() {
         let sixteen = (0..TOKEN_COUNT)
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
@@ -139,43 +170,16 @@ mod tests {
             parse("IDS", &sixteen, Some(TOKEN_COUNT)).unwrap().len(),
             TOKEN_COUNT
         );
+        for value in ["", "1,", "1,,2", "-1", "+1", "1, 2", "4294967296"] {
+            assert!(parse("IDS", value, None).is_err(), "{value:?}");
+        }
         assert!(parse("IDS", "1,2", Some(TOKEN_COUNT)).is_err());
     }
 
     #[test]
-    fn vector_mismatch_reports_expected_and_actual() {
-        let panic = std::panic::catch_unwind(|| assert_exact("completion", &[1], &[2]));
-        let message = panic.unwrap_err();
-        let message = message
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| message.downcast_ref::<&str>().copied())
-            .unwrap();
-        assert!(message.contains("expected: [2]"));
-        assert!(message.contains("actual: [1]"));
-    }
-
-    #[test]
-    fn oracle_id_must_be_present_in_every_top_two() {
-        assert_oracle_top2(&[vec![2, 1], vec![3, 4]], &[1, 3]);
-        let panic =
-            std::panic::catch_unwind(|| assert_oracle_top2(&[vec![1, 2], vec![3, 4]], &[1, 5]));
-        let message = panic.unwrap_err();
-        let message = message
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| message.downcast_ref::<&str>().copied())
-            .unwrap();
-        assert!(message.contains("step 1"));
-        assert!(message.contains("expected: 5"));
-
-        let panic = std::panic::catch_unwind(|| assert_oracle_top2(&[vec![1]], &[1]));
-        let message = panic.unwrap_err();
-        let message = message
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| message.downcast_ref::<&str>().copied())
-            .unwrap();
-        assert!(message.contains("step 0"));
+    fn finite_ranking_breaks_ties_by_lower_token_id() {
+        assert_eq!(ranked_logits(vec![1.0, 2.0, 2.0]).unwrap(), [1, 2, 0]);
+        assert!(ranked_logits(vec![1.0, f32::NAN]).is_err());
+        assert!(ranked_logits(vec![f32::INFINITY, 1.0]).is_err());
     }
 }

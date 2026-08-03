@@ -10,9 +10,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+use gh_zero_engine::BackendMemory;
 #[cfg(feature = "vulcan-hybrid")]
-use gh_zero_engine::{BackendMemory, PlacementReport};
-use gh_zero_engine::{Engine, EngineConfig};
+use gh_zero_engine::PlacementReport;
+use gh_zero_engine::{Engine, EngineConfig, Event, EventSink, KvQuant, Message, Request, Role};
 
 fn manifest() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -86,7 +88,6 @@ fn source_structure() {
     const TEST_FIXTURES: &[&str] = &[
         "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
-        "src/family/mistral/vulkan_tests.rs",
     ];
     let mut files = Vec::new();
     collect(&manifest().join("src"), &mut files);
@@ -373,6 +374,140 @@ fn hybrid_placement_contract() {
         gpu: BackendMemory::default(),
     };
     assert!(report.cpu_layers > 0 && report.gpu_layers > 0);
+}
+
+#[test]
+#[ignore = "requires an authenticated Ministral model and oracle vectors"]
+fn real_selected_runtime_parity_and_lifecycle() {
+    let model = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
+    let context = required_usize("GH_ZERO_CONTEXT");
+    assert_eq!(context, 4096, "GH_ZERO_CONTEXT must be 4096");
+    let kv = std::env::var("GH_ZERO_KV").expect("GH_ZERO_KV required");
+    let kv_quant = KvQuant::parse(&kv).expect("GH_ZERO_KV must be f16 or int8");
+    let percentage = std::env::var("GH_ZERO_VRAM_WEIGHTS_PERCENT")
+        .ok()
+        .map(|value| value.parse::<u8>().expect("invalid hybrid percentage"));
+    let engine = Engine::new(
+        Path::new(&model),
+        EngineConfig {
+            context_tokens: Some(context),
+            vram_weights_percent: percentage,
+            kv_quant,
+            ..EngineConfig::default()
+        },
+    )
+    .expect("load selected runtime");
+    assert_placement(&engine, percentage);
+
+    let prompt = std::env::var("GH_ZERO_REFERENCE_PROMPT_IDS")
+        .expect("GH_ZERO_REFERENCE_PROMPT_IDS required");
+    let completion = std::env::var("GH_ZERO_REFERENCE_COMPLETION_IDS")
+        .expect("GH_ZERO_REFERENCE_COMPLETION_IDS required");
+    let report = gh_zero_engine::harness::validate_parity(&engine, &prompt, &completion)
+        .expect("selected-runtime parity");
+    assert_eq!(report.local_ids.len(), 16);
+    assert_eq!(report.top_two.len(), 16);
+
+    let mut terminal = Vec::new();
+    engine.generate(parity_request(), &mut |event| {
+        terminal.push(event);
+        true
+    });
+    assert_eq!(
+        terminal
+            .iter()
+            .filter(|event| matches!(event, Event::Finished(_) | Event::Error(_)))
+            .count(),
+        1
+    );
+    assert!(matches!(terminal.last(), Some(Event::Finished(_))));
+
+    let mut cancelled = Cancelled { events: Vec::new() };
+    engine.generate(parity_request(), &mut cancelled);
+    assert!(cancelled.events.is_empty());
+    println!(
+        "ministral-parity: local_ids={} oracle_top2=pass crossings={}",
+        report
+            .local_ids
+            .iter()
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(","),
+        report.crossings
+    );
+}
+
+fn required_usize(name: &str) -> usize {
+    std::env::var(name)
+        .unwrap_or_else(|_| panic!("{name} required"))
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} must be an unsigned decimal"))
+}
+
+fn assert_placement(engine: &Engine, percentage: Option<u8>) {
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    {
+        let expected = std::env::var("GH_ZERO_EXPECTED_MODE")
+            .expect("GH_ZERO_EXPECTED_MODE required for hybrid profiles");
+        let placement = engine.placement().expect("hybrid placement report");
+        assert_eq!(placement.mode, expected);
+        assert_eq!(percentage.is_some(), true);
+        if expected == "mixed" {
+            assert!(placement.cpu_layers > 0 && placement.gpu_layers > 0);
+        }
+        if expected == "cpu-only" {
+            assert_eq!(placement.gpu, BackendMemory::default());
+        }
+        for bytes in [placement.cpu, placement.gpu] {
+            assert_eq!(
+                bytes.total,
+                bytes.weights
+                    + bytes.kv
+                    + bytes.scratch
+                    + bytes.fixed
+                    + bytes.staging
+                    + bytes.crossing
+                    + bytes.reserve
+            );
+        }
+    }
+    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+    {
+        assert!(percentage.is_none());
+        assert!(engine.placement().is_none());
+    }
+}
+
+fn parity_request() -> Request {
+    Request {
+        messages: vec![
+            Message {
+                role: Role::System,
+                content: String::new(),
+            },
+            Message {
+                role: Role::User,
+                content: "Quanto fa 17 × 19?".into(),
+            },
+        ],
+        sampling: gh_zero_engine::SamplingParams::greedy(),
+        max_tokens: 16,
+    }
+}
+
+struct Cancelled {
+    events: Vec<Event>,
+}
+
+impl EventSink for Cancelled {
+    fn cancelled(&self) -> bool {
+        true
+    }
+
+    fn emit(&mut self, event: Event) -> bool {
+        self.events.push(event);
+        false
+    }
 }
 
 fn push_str(bytes: &mut Vec<u8>, value: &str) {

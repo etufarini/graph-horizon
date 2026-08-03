@@ -10,14 +10,11 @@ pub(crate) mod decode;
 pub(crate) mod detect;
 pub(crate) mod generation;
 pub(crate) mod graph;
-#[cfg(test)]
-mod parity;
+pub(crate) mod parity;
 pub(crate) mod template;
 pub(crate) mod tensors;
 pub(crate) mod tokenizer;
 mod version;
-#[cfg(all(test, any(feature = "vulcan", feature = "vulcan-hybrid")))]
-mod vulkan_tests;
 
 use color_eyre::eyre::Result;
 
@@ -66,21 +63,6 @@ impl<'a> MistralContract<'a> {
 pub(crate) struct MistralModel<B: Backend> {
     pub(crate) config: MistralConfig,
     pub(crate) backend: B,
-}
-
-#[cfg(test)]
-impl<B: Backend> MistralModel<B> {
-    pub(crate) fn load(file: &GgufFile, context: usize) -> Result<Self> {
-        let contract = MistralContract::from_gguf(file)?;
-        let metadata = ModelMetadata::from_gguf(file)?;
-        // WeightSource is consumed synchronously: after load, only backend-owned
-        // buffers remain, including one allocation for tied embedding/output.
-        let backend = B::load(&metadata, &contract.tensors, file, context)?;
-        Ok(Self {
-            config: contract.config,
-            backend,
-        })
-    }
 }
 
 pub(crate) struct RuntimeModel {

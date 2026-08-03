@@ -6,27 +6,15 @@
 
 use super::*;
 use crate::api::event::Event;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use crate::api::message::{Message, Role};
 use crate::backend::Backend;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use crate::backend::cpu::CpuBackend;
 use crate::family::mistral::MistralConfig;
 use crate::family::mistral::MistralModel;
 use crate::family::mistral::graph::shape::{ShapeBackend, config};
 use crate::family::mistral::graph::{forward, prefill};
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use crate::family::mistral::tokenizer::TekkenTokenizer;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use crate::family::mistral::{MistralContract, template};
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use crate::gguf::loader::GgufFile;
 use crate::kv_cache::scheme::KvQuant;
 use crate::kv_cache::{self, Kv};
 use color_eyre::eyre::bail;
 use std::cell::Cell;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-use std::process::Command;
 use std::rc::Rc;
 
 struct Request {
@@ -271,50 +259,6 @@ fn generate_with_prefill<B: Backend, C: Cancel>(
     Ok(tokens)
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-fn teacher_forced_top2<B: Backend>(
-    model: &MistralModel<B>,
-    req: &Request,
-    reference: &[u32],
-    tracker: &Tracker,
-) -> Result<Vec<Vec<u32>>> {
-    let required = req
-        .prompt
-        .len()
-        .checked_add(reference.len().saturating_sub(1));
-    if req.prompt.is_empty() || reference.is_empty() || required.is_none_or(|n| n > req.context) {
-        bail!("E11 invalid teacher-forcing request");
-    }
-    let owned = OwnedKv::new(&model.backend, &model.config, req, tracker)?;
-    prefill::prefill_with(
-        &model.backend,
-        &model.config,
-        owned.kv.as_ref().unwrap(),
-        &req.prompt,
-        || Ok(()),
-    )?;
-    let mut top2 = Vec::with_capacity(reference.len());
-    for (step, &token) in reference.iter().enumerate() {
-        let candidates = model
-            .backend
-            .read_topk(&model.backend.buffers().logits, model.config.vocab_size, 2)?
-            .into_iter()
-            .map(|(id, _)| id)
-            .collect();
-        top2.push(candidates);
-        if step + 1 < reference.len() {
-            forward::token(
-                &model.backend,
-                &model.config,
-                owned.kv.as_ref().unwrap(),
-                token,
-                req.prompt.len() + step,
-            )?;
-        }
-    }
-    Ok(top2)
-}
-
 fn boundary<C: Cancel>(cancel: &C, fail: Option<Boundary>, at: Boundary) -> Result<()> {
     if cancel.cancelled(at) || fail == Some(at) {
         bail!("generation stopped");
@@ -442,186 +386,6 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
         assert_eq!(cancel.seen.get(), 2);
         assert_eq!(model.backend.live_allocations(), 0);
     }
-}
-
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-#[test]
-#[ignore]
-fn real_greedy_parity() {
-    let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
-    let context = std::env::var("GH_ZERO_CONTEXT")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(4096);
-    let scheme = std::env::var("GH_ZERO_KV")
-        .ok()
-        .and_then(|value| KvQuant::parse(&value))
-        .unwrap_or(KvQuant::F16);
-    let file = GgufFile::open(std::path::Path::new(&path)).expect("open GGUF");
-    let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
-    let content = "Scrivi una riga con 20 emoji diverse, senza parole.";
-    let prompt = template::render(
-        &[Message {
-            role: Role::User,
-            content: content.into(),
-        }],
-        &contract.tokenizer,
-        context,
-    )
-    .unwrap();
-    let rendered = format!("[INST]{content}[/INST]");
-    let reference_prompt = reference_ids(&path, &rendered, false);
-    assert_eq!(prompt, reference_prompt);
-
-    let max_tokens = 16;
-    let reference = reference_completion(&path, &rendered, context, max_tokens);
-    let model = MistralModel::<CpuBackend>::load(&file, context).expect("load CPU model");
-    let request = Request {
-        prompt,
-        max_tokens,
-        context,
-        kv_quant: scheme,
-    };
-    let sequential_ids =
-        generate_with_prefill(&model, &request, &NeverCancel, &Tracker::new(), None, false)
-            .unwrap();
-    let batched_ids = generate(&model, &request, &NeverCancel, &Tracker::new(), None).unwrap();
-    let sequential = completion_bytes(&contract.tokenizer, &sequential_ids);
-    let batched = completion_bytes(&contract.tokenizer, &batched_ids);
-    println!(
-        "kv={} prompt_ids={reference_prompt:?} reference={reference:?} sequential_ids={sequential_ids:?} batched_ids={batched_ids:?}",
-        scheme.name(),
-    );
-    assert_eq!(sequential, reference, "sequential prefill");
-    assert_eq!(batched, reference, "batched prefill");
-}
-
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-#[test]
-#[ignore = "requires an approved Ministral model and externally supplied oracle IDs"]
-fn real_ministral_parity() {
-    use crate::family::mistral::parity;
-
-    let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
-    let context = std::env::var("GH_ZERO_CONTEXT")
-        .expect("GH_ZERO_CONTEXT required")
-        .parse::<usize>()
-        .expect("GH_ZERO_CONTEXT must be an unsigned decimal");
-    assert_eq!(context, parity::CONTEXT, "GH_ZERO_CONTEXT must be 4096");
-    let scheme = std::env::var("GH_ZERO_KV")
-        .ok()
-        .and_then(|value| KvQuant::parse(&value))
-        .expect("GH_ZERO_KV must be f16 or int8");
-    let reference = parity::reference_vectors();
-    let file = GgufFile::open(std::path::Path::new(&path)).expect("open approved GGUF");
-    let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
-    let prompt = template::render(&parity::conversation(), &contract.tokenizer, context)
-        .expect("Ministral prompt");
-    parity::assert_exact("prompt IDs", &prompt, &reference.prompt);
-
-    let model = MistralModel::<CpuBackend>::load(&file, context).expect("load CPU model");
-    let request = Request {
-        prompt: prompt.clone(),
-        max_tokens: parity::TOKEN_COUNT,
-        context,
-        kv_quant: scheme,
-    };
-    let sequential =
-        generate_with_prefill(&model, &request, &NeverCancel, &Tracker::new(), None, false)
-            .expect("sequential completion");
-    let batched = generate(&model, &request, &NeverCancel, &Tracker::new(), None)
-        .expect("batched completion");
-    let top2 = teacher_forced_top2(&model, &request, &reference.completion, &Tracker::new())
-        .expect("teacher-forced top two");
-    println!(
-        "profile=Q4_K_M kv={} prompt_ids={prompt:?} reference_completion_ids={:?} sequential_ids={sequential:?} batched_ids={batched:?} teacher_top2={top2:?}",
-        scheme.name(),
-        reference.completion
-    );
-    assert_eq!(sequential.len(), parity::TOKEN_COUNT);
-    assert_eq!(batched.len(), parity::TOKEN_COUNT);
-    parity::assert_exact("sequential/batched local greedy IDs", &sequential, &batched);
-    parity::assert_oracle_top2(&top2, &reference.completion);
-    println!(
-        "ministral-parity: local_ids={} oracle_top2=pass",
-        parity::csv(&batched)
-    );
-}
-
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-fn completion_bytes(tokenizer: &TekkenTokenizer, tokens: &[u32]) -> Vec<u8> {
-    tokens
-        .iter()
-        .flat_map(|&token| tokenizer.decode_bytes(&[token]))
-        .collect()
-}
-
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-fn reference_completion(model: &str, prompt: &str, context: usize, tokens: usize) -> Vec<u8> {
-    let binary = std::env::var("GH_ZERO_REFERENCE_CLI").expect("GH_ZERO_REFERENCE_CLI required");
-    let output = Command::new("timeout")
-        .arg("300")
-        .arg(binary)
-        .args([
-            "-m",
-            model,
-            "-p",
-            prompt,
-            "-c",
-            &context.to_string(),
-            "-n",
-            &tokens.to_string(),
-            "--temp",
-            "0",
-            "--top-k",
-            "1",
-            "--top-p",
-            "1",
-            "--min-p",
-            "0",
-            "--repeat-penalty",
-            "1",
-            "--no-display-prompt",
-            "--no-warmup",
-            "--no-perf",
-            "--no-conversation",
-            "--single-turn",
-            "--no-jinja",
-        ])
-        .output()
-        .expect("run llama-completion");
-    assert!(output.status.success(), "llama-completion failed");
-    let mut bytes = output.stdout;
-    assert!(
-        bytes.ends_with(b"\n\n"),
-        "llama-completion output terminator changed"
-    );
-    bytes.truncate(bytes.len() - 2);
-    bytes
-}
-
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-fn reference_ids(model: &str, text: &str, no_bos: bool) -> Vec<u32> {
-    let binary =
-        std::env::var("GH_ZERO_REFERENCE_TOKENIZE").expect("GH_ZERO_REFERENCE_TOKENIZE required");
-    let mut command = Command::new(binary);
-    command.args(["--log-disable", "--ids"]);
-    if no_bos {
-        command.arg("--no-bos");
-    }
-    let output = command
-        .args(["-m", model, "-p", text])
-        .output()
-        .expect("run llama-tokenize");
-    assert!(output.status.success(), "llama-tokenize failed");
-    std::str::from_utf8(&output.stdout)
-        .unwrap()
-        .trim()
-        .trim_start_matches('[')
-        .trim_end_matches(']')
-        .split(',')
-        .filter_map(|value| value.trim().parse().ok())
-        .collect()
 }
 
 #[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]

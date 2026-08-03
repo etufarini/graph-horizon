@@ -1,10 +1,9 @@
 /*
  * gh_zero_engine — CPU weight load
- * The CPU counterpart of vulkan::weights plus the alloc_scratch/create part of
- * vulkan::buffers. Walks the WeightSource in its canonical dense layout and
- * copies each retained weight's bytes in its original format. Family validation
- * admits Q4_K/Q6_K matrices; this generic loader also retains Q5_K/F16. Optional output and Q/K
- * norms are explicit, and a mismatched list is rejected before indexing.
+ * The CPU counterpart of vulkan::weights plus scratch allocation. Walks neutral
+ * embedding/tail/layer groups and copies only selected bytes in their retained
+ * format. Family validation admits Q4_K/Q6_K matrices; this generic loader also
+ * retains Q5_K/F16 and rejects malformed layer groups before allocation.
  * Quantized weights are validated at
  * load (dequant::validate); F32 norms are converted to FP16 on upload, exactly
  * like Vulkan. Scratch and logits use the same byte sizes as
@@ -16,7 +15,7 @@ use color_eyre::eyre::{Result, bail};
 use super::buffer::{CpuBuffer, CpuFormat, f32_to_f16_bytes};
 use super::dequant;
 use crate::backend::buffers::{Buffers, LayerWeights, Scratch, WeightSet};
-use crate::backend::source::{WeightSelection, WeightSource};
+use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::GgmlType;
@@ -31,12 +30,8 @@ pub(super) fn load(
     gguf: &GgufFile,
     _context: usize,
 ) -> Result<Buffers<CpuBuffer>> {
-    load_selected(
-        meta,
-        ws,
-        gguf,
-        &WeightSelection::full(ws.layout().layer_count),
-    )
+    let layer_count = ws.groups().layers.len();
+    load_selected(meta, ws, gguf, &WeightSelection::full(layer_count))
 }
 
 pub(super) fn load_selected(
@@ -70,74 +65,49 @@ fn load_weights(
     ws: &dyn WeightSource,
     selection: &WeightSelection,
 ) -> Result<WeightSet<CpuBuffer>> {
-    let tensors = ws.tensors();
-    let layout = ws.layout();
-    let per_layer = 9;
-    let expected = layout
-        .layer_count
-        .checked_mul(per_layer)
-        .and_then(|n| n.checked_add(2 + usize::from(layout.has_output)))
-        .ok_or_else(|| color_eyre::eyre::eyre!("cpu: invalid weight layout"))?;
-    if tensors.len() != expected
-        || selection.layers.start > selection.layers.end
-        || selection.layers.end > layout.layer_count
-    {
+    let groups = ws.groups();
+    if selection.layers.start > selection.layers.end || selection.layers.end > groups.layers.len() {
         bail!("cpu: invalid weight layout");
     }
-
-    let mut i = 0usize;
-    let take = |i: &mut usize, selected: bool| -> Result<Option<CpuBuffer>> {
-        let tensor = tensors[*i];
-        *i += 1;
-        if !selected {
-            return Ok(None);
-        }
-        load_tensor(gguf, tensor).map(Some)
+    let tied = groups.tail.output.is_tied();
+    let token_embd = (selection.embedding || (selection.tail && tied))
+        .then(|| load_tensor(gguf, groups.embedding))
+        .transpose()?;
+    let output_norm = selection
+        .tail
+        .then(|| load_tensor(gguf, groups.tail.norm))
+        .transpose()?;
+    let output = match groups.tail.output {
+        OutputWeight::Dedicated(tensor) if selection.tail => Some(load_tensor(gguf, tensor)?),
+        _ => None,
     };
-
-    let token_embd = take(
-        &mut i,
-        selection.embedding || (selection.tail && !layout.has_output),
-    )?;
-    let output_norm = take(&mut i, selection.tail)?;
-    // `output` only takes a slot when present (absent for an embedding model), so
-    // `i` must NOT advance otherwise or the per-layer tensors read off by one.
-    let output = layout
-        .has_output
-        .then(|| take(&mut i, selection.tail))
-        .transpose()?
-        .flatten();
     let mut layers = Vec::with_capacity(selection.layers.len());
-    for layer in 0..layout.layer_count {
-        let selected = selection.layers.contains(&layer);
-        let values = [
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-        ];
-        let tail = [
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-            take(&mut i, selected)?,
-        ];
-        if selected {
-            let [attn_norm, attn_q, attn_k, attn_v] = values.map(Option::unwrap);
-            let [attn_output, ffn_norm, ffn_gate, ffn_up, ffn_down] = tail.map(Option::unwrap);
-            layers.push(LayerWeights {
-                attn_norm,
-                attn_q,
-                attn_k,
-                attn_v,
-                attn_output,
-                ffn_norm,
-                ffn_gate,
-                ffn_up,
-                ffn_down,
-            });
-        }
+    for group in &groups.layers[selection.layers.clone()] {
+        let [
+            attn_norm,
+            attn_q,
+            attn_k,
+            attn_v,
+            attn_output,
+            ffn_norm,
+            ffn_gate,
+            ffn_up,
+            ffn_down,
+        ] = group.as_slice()
+        else {
+            bail!("cpu: invalid weight layout");
+        };
+        layers.push(LayerWeights {
+            attn_norm: load_tensor(gguf, attn_norm)?,
+            attn_q: load_tensor(gguf, attn_q)?,
+            attn_k: load_tensor(gguf, attn_k)?,
+            attn_v: load_tensor(gguf, attn_v)?,
+            attn_output: load_tensor(gguf, attn_output)?,
+            ffn_norm: load_tensor(gguf, ffn_norm)?,
+            ffn_gate: load_tensor(gguf, ffn_gate)?,
+            ffn_up: load_tensor(gguf, ffn_up)?,
+            ffn_down: load_tensor(gguf, ffn_down)?,
+        });
     }
     Ok(WeightSet {
         token_embd,

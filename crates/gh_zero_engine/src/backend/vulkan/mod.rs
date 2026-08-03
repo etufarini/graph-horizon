@@ -87,6 +87,73 @@ pub(crate) use mem::budget::vram_for_auto;
 pub(crate) use mem::budget::{set_reserve_mib, set_weights_percent};
 pub(crate) use mem::{buffers, weights};
 
+#[cfg(feature = "vulcan-hybrid")]
+impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
+    type Device = Device;
+
+    fn acquire() -> color_eyre::eyre::Result<Option<Self::Device>> {
+        hybrid_device()
+    }
+
+    fn budget(
+        device: &Self::Device,
+    ) -> color_eyre::eyre::Result<crate::backend::hybrid::placement::BudgetInput> {
+        Ok(crate::backend::hybrid::placement::BudgetInput::Separate {
+            gpu_available: vram_for_auto(device),
+        })
+    }
+
+    fn topology() -> crate::backend::hybrid::placement::MemoryTopology {
+        crate::backend::hybrid::placement::MemoryTopology::Separate
+    }
+
+    fn all_mode_name() -> &'static str {
+        "all-gpu"
+    }
+
+    fn invalid_percentage_error() -> &'static str {
+        "invalid Vulkan weight percentage"
+    }
+
+    fn fixed_bytes(
+        shape: &crate::backend::hybrid::weights::runtime::RuntimeShape,
+    ) -> color_eyre::eyre::Result<crate::backend::hybrid::weights::runtime::DeviceFixedBytes> {
+        let logits = (shape.vocab as u64)
+            .checked_mul(4)
+            .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
+        let reduce = (kernels::reduce::TOPK_GROUPS as u64)
+            .checked_mul(kernels::reduce::MAX_K as u64)
+            .and_then(|bytes| bytes.checked_mul(8))
+            .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
+        let mmvq = MMVQ_SCRATCH_IN_DIM + MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4;
+        Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
+            host: logits,
+            device: logits
+                .checked_add(reduce)
+                .and_then(|bytes| bytes.checked_add(mmvq))
+                .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?,
+        })
+    }
+
+    fn load_selected(
+        device: Self::Device,
+        meta: &crate::gguf::metadata::ModelMetadata,
+        source: &dyn crate::backend::source::WeightSource,
+        gguf: &crate::gguf::loader::GgufFile,
+        selection: &crate::backend::source::WeightSelection,
+    ) -> color_eyre::eyre::Result<Self> {
+        VulkanBackend::load_selected(device, meta, source, gguf, selection)
+    }
+
+    fn buffer_bytes(buffer: &Self::Buffer) -> u64 {
+        buffer.size
+    }
+
+    fn upload_residual(&self, target: &Self::Buffer, bytes: &[u8]) -> color_eyre::eyre::Result<()> {
+        self.upload_bytes(target, bytes)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod fault {
     use std::cell::{Cell, RefCell};

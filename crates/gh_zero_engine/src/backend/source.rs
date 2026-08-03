@@ -67,12 +67,6 @@ impl<'a> WeightGroups<'a> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct WeightLayout {
-    pub has_output: bool,
-    pub layer_count: usize,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WeightSelection {
     pub layers: Range<usize>,
@@ -91,22 +85,13 @@ impl WeightSelection {
 }
 
 // A source of model weights, exposed to the backends as a flat list of tensors
-// in the canonical order (globals first — `token_embd`, `output_norm`, optional
-// `output` — then each layer's tensors in block order). `layout` states which
-// optional slots exist; loaders validate the exact count before allocation.
+// in the canonical order (globals first — embedding, norm, optional dedicated
+// output — then each layer's tensors in block order).
 pub(crate) trait WeightSource {
     fn groups(&self) -> WeightGroups<'_>;
 
     fn tensors(&self) -> Vec<&TensorInfo> {
         self.groups().tensors()
-    }
-
-    fn layout(&self) -> WeightLayout {
-        let groups = self.groups();
-        WeightLayout {
-            has_output: !groups.tail.output.is_tied(),
-            layer_count: groups.layers.len(),
-        }
     }
 }
 

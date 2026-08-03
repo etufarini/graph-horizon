@@ -40,7 +40,7 @@ pub(crate) struct CpuBackend {
     buffers: Buffers<CpuBuffer>,
 }
 
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(any(feature = "vulcan-hybrid", test))]
 impl CpuBackend {
     pub(crate) fn load_selected(
         meta: &crate::gguf::metadata::ModelMetadata,

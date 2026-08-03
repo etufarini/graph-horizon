@@ -5,96 +5,18 @@
  * consume this value without mutating or reconsidering the selected split.
  */
 
-pub(crate) mod crossing;
 pub(crate) mod forward;
 pub(crate) mod loader;
-pub(crate) mod placement;
 pub(crate) mod prefill;
-pub(crate) mod weights;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum HybridMode {
-    AllGpu,
-    Mixed,
-    CpuOnly,
-}
-
-impl HybridMode {
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::AllGpu => "all-gpu",
-            Self::Mixed => "mixed",
-            Self::CpuOnly => "cpu-only",
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct HybridPlan {
-    pub(crate) mode: HybridMode,
-    pub(crate) split: usize,
-    pub(crate) block_count: usize,
-    pub(crate) cpu_layers: usize,
-    pub(crate) gpu_layers: usize,
-    pub(crate) cpu: BackendBytes,
-    pub(crate) gpu: BackendBytes,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct BackendBytes {
-    pub(crate) weights: u64,
-    pub(crate) kv: u64,
-    pub(crate) scratch: u64,
-    pub(crate) fixed: u64,
-    pub(crate) staging: u64,
-    pub(crate) crossing: u64,
-    pub(crate) reserve: u64,
-    pub(crate) total: u64,
-}
-
-pub(crate) struct LoadedHybrid {
-    pub(crate) plan: HybridPlan,
-    pub(crate) backends: HybridBackends,
-}
-
-// Resource ownership stays direct; boxing would add indirection to save only ~500 bytes.
-#[allow(clippy::large_enum_variant)]
-pub(crate) enum HybridBackends {
-    AllGpu(crate::backend::vulkan::VulkanBackend),
-    Mixed {
-        cpu: crate::backend::cpu::CpuBackend,
-        gpu: crate::backend::vulkan::VulkanBackend,
-    },
-    CpuOnly(crate::backend::cpu::CpuBackend),
-}
-
-impl HybridPlan {
-    pub(super) fn new(
-        split: usize,
-        block_count: usize,
-        cpu: BackendBytes,
-        gpu: BackendBytes,
-    ) -> Self {
-        // The split is the sole placement authority: no later code may create
-        // alternating ranges or reinterpret the two homogeneous endpoints.
-        let mode = if split == 0 {
-            HybridMode::AllGpu
-        } else if split == block_count {
-            HybridMode::CpuOnly
-        } else {
-            HybridMode::Mixed
-        };
-        Self {
-            mode,
-            split,
-            block_count,
-            cpu_layers: split,
-            gpu_layers: block_count - split,
-            cpu,
-            gpu,
-        }
-    }
-}
+pub(crate) use crate::backend::hybrid::BackendBytes;
+#[cfg(test)]
+pub(crate) use crate::backend::hybrid::HybridMode;
+pub(crate) use crate::backend::hybrid::crossing;
+pub(crate) type LoadedHybrid =
+    crate::backend::hybrid::HybridRuntime<crate::backend::vulkan::VulkanBackend>;
+pub(crate) type HybridBackends =
+    crate::backend::hybrid::HybridBackends<crate::backend::vulkan::VulkanBackend>;
 
 #[cfg(test)]
 mod graph {

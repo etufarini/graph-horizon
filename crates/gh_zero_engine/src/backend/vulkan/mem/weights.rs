@@ -1,7 +1,7 @@
 /*
  * gh_zero_engine — transactional Vulkan weight upload
- * Validates the canonical dense selection, converts F32 norms through shared
- * FP16, and uploads F16/quantized GGUF blocks with their dispatch format.
+ * Validates neutral embedding/tail/layer selection, converts F32 norms through
+ * shared FP16, and uploads retained GGUF blocks with their dispatch format.
  * Partial globals are `None`; the local guard owns cleanup until commit.
 */
 
@@ -10,7 +10,7 @@ use color_eyre::eyre::{Result, bail};
 use super::buffers::{GpuBuffer, WeightFormat};
 use crate::backend::buffers::{LayerWeights, WeightSet as GpuWeightSet};
 use crate::backend::f16::f32_to_f16_bytes;
-use crate::backend::source::{WeightSelection, WeightSource};
+use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::backend::vulkan::device::Device;
 use crate::gguf::loader::GgufFile;
 use crate::gguf::tensor_index::{GgmlType, TensorInfo};
@@ -23,49 +23,60 @@ pub(crate) fn upload_weights(
     selection: Option<&WeightSelection>,
 ) -> Result<GpuWeightSet<GpuBuffer>> {
     let tensors = ws.tensors();
-    let mut layout = ws.layout();
-    let per_layer = 9;
-    let globals = 2 + usize::from(layout.has_output);
-    let expected = layout
-        .layer_count
-        .checked_mul(per_layer)
-        .and_then(|n| n.checked_add(globals))
-        .ok_or_else(|| color_eyre::eyre::eyre!("vulkan: invalid weight layout"))?;
-    let full = WeightSelection::full(layout.layer_count);
+    let groups = ws.groups();
+    let full = WeightSelection::full(groups.layers.len());
     let selection = selection.unwrap_or(&full);
-    if tensors.len() != expected
-        || (!host.is_empty() && host.len() != tensors.len())
+    if (!host.is_empty() && host.len() != tensors.len())
         || selection.layers.start > selection.layers.end
-        || selection.layers.end > layout.layer_count
+        || selection.layers.end > groups.layers.len()
     {
         bail!("vulkan: invalid weight layout");
     }
-    let start = globals + selection.layers.start * per_layer;
-    let end = globals + selection.layers.end * per_layer;
-    let indices = (0..globals).chain(start..end).collect::<Vec<_>>();
-    let slots = indices
-        .iter()
-        .enumerate()
-        .map(|(slot, &index)| {
-            let owned = match slot {
-                0 => selection.embedding || (selection.tail && !layout.has_output),
-                1 => selection.tail,
-                2 if layout.has_output => selection.tail,
-                _ => true,
-            };
-            owned.then_some((index, host.get(index).copied().unwrap_or(false)))
-        })
-        .collect::<Vec<_>>();
-    layout.layer_count = selection.layers.len();
-    upload_slots(dev, gguf, &tensors, layout, &slots)
+    let dedicated = matches!(groups.tail.output, OutputWeight::Dedicated(_));
+    let mut index = 0usize;
+    let mut slots = vec![
+        selected_slot(
+            groups.embedding,
+            selection.embedding || (selection.tail && !dedicated),
+            host,
+            &mut index,
+        ),
+        selected_slot(groups.tail.norm, selection.tail, host, &mut index),
+    ];
+    if let OutputWeight::Dedicated(output) = groups.tail.output {
+        slots.push(selected_slot(output, selection.tail, host, &mut index));
+    }
+    for (layer, group) in groups.layers.iter().enumerate() {
+        if group.len() != 9 {
+            bail!("vulkan: invalid weight layout");
+        }
+        for tensor in group {
+            let slot = selected_slot(tensor, selection.layers.contains(&layer), host, &mut index);
+            if selection.layers.contains(&layer) {
+                slots.push(slot);
+            }
+        }
+    }
+    upload_slots(dev, gguf, dedicated, selection.layers.len(), &slots)
 }
 
-fn upload_slots(
+fn selected_slot<'a>(
+    tensor: &'a TensorInfo,
+    owned: bool,
+    host: &[bool],
+    index: &mut usize,
+) -> Option<(&'a TensorInfo, bool)> {
+    let slot = owned.then_some((tensor, host.get(*index).copied().unwrap_or(false)));
+    *index += 1;
+    slot
+}
+
+fn upload_slots<'a>(
     dev: &Device,
     gguf: &GgufFile,
-    tensors: &[&TensorInfo],
-    layout: crate::backend::source::WeightLayout,
-    slots: &[Option<(usize, bool)>],
+    has_output: bool,
+    layer_count: usize,
+    slots: &[Option<(&'a TensorInfo, bool)>],
 ) -> Result<GpuWeightSet<GpuBuffer>> {
     // This guard owns every partial upload until the complete selected set is
     // assembled, so any failure destroys each prior allocation exactly once.
@@ -75,7 +86,7 @@ fn upload_slots(
     };
     for slot in slots {
         uploaded.buffers.push(
-            slot.map(|(index, host)| upload_tensor(dev, gguf, tensors[index], host))
+            slot.map(|(tensor, host)| upload_tensor(dev, gguf, tensor, host))
                 .transpose()?,
         );
     }
@@ -83,9 +94,9 @@ fn upload_slots(
     let mut take = || buffers.next().expect("validated weight layout");
     let token_embd = take();
     let output_norm = take();
-    let output = layout.has_output.then(&mut take).flatten();
-    let mut layers = Vec::with_capacity(layout.layer_count);
-    for _ in 0..layout.layer_count {
+    let output = has_output.then(&mut take).flatten();
+    let mut layers = Vec::with_capacity(layer_count);
+    for _ in 0..layer_count {
         let attn_norm = take().expect("selected layer weight");
         let attn_q = take().expect("selected layer weight");
         let attn_k = take().expect("selected layer weight");

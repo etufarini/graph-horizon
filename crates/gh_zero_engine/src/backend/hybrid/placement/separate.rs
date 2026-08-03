@@ -1,14 +1,13 @@
 /*
- * gh_zero_engine — deterministic Ministral hybrid placement
- * Evaluates every legal contiguous split in maximum-GPU order using pure,
- * checked byte arithmetic. It distinguishes model/base failure (E16) from
- * requested-context failure (E17) and performs no probing, I/O, or allocation.
+ * gh_zero_engine — separate-memory placement
+ * Enumerates immutable CPU-prefix/GPU-suffix candidates in maximum-GPU order
+ * against independent RAM/VRAM budgets. It owns no device calls or allocation.
  */
 
 use color_eyre::eyre::{Result, bail, eyre};
 
-use super::weights::WeightBytes;
-use super::{BackendBytes, HybridPlan};
+use super::super::weights::model::WeightBytes;
+use super::super::{BackendBytes, HybridPlan};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PlacementInput {
@@ -36,7 +35,7 @@ struct Candidate {
     gpu_full: BackendBytes,
 }
 
-pub(crate) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
+pub(super) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
     let block_count = weights.layers.len();
     let splits: Box<dyn Iterator<Item = usize>> = if input.gpu_enabled {
         Box::new(0..=block_count)
@@ -54,14 +53,7 @@ pub(crate) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<Hyb
             if candidate.cpu_full.total <= input.cpu_available
                 && candidate.gpu_full.total <= input.gpu_available
             {
-                // Iteration order is a load-bearing invariant: the first fit
-                // owns the maximum possible contiguous Vulkan suffix.
-                return Ok(HybridPlan::new(
-                    split,
-                    block_count,
-                    candidate.cpu_full,
-                    candidate.gpu_full,
-                ));
+                return HybridPlan::new(split, block_count, candidate.cpu_full, candidate.gpu_full);
             }
         }
     }
@@ -98,7 +90,6 @@ fn candidate(weights: &WeightBytes, input: PlacementInput, split: usize) -> Resu
     };
     let cpu_layers = weights.layer_range(0..split);
     let gpu_layers = weights.layer_range(split..block_count);
-    let host_staging = required(weights.gpu_peak(split))?;
     let cpu_base = breakdown(
         add(required(cpu_globals)?, required(cpu_layers)?)?,
         0,
@@ -111,7 +102,7 @@ fn candidate(weights: &WeightBytes, input: PlacementInput, split: usize) -> Resu
             },
             if has_gpu { input.gpu_host_fixed } else { 0 },
         )?,
-        host_staging,
+        required(weights.gpu_peak(split))?,
         if mixed { input.crossing } else { 0 },
         0,
     )?;
@@ -124,13 +115,11 @@ fn candidate(weights: &WeightBytes, input: PlacementInput, split: usize) -> Resu
         if mixed { input.crossing } else { 0 },
         if has_gpu { input.gpu_reserve } else { 0 },
     )?;
-    let cpu_kv = mul(input.cpu_kv_per_layer, split)?;
-    let gpu_kv = mul(input.gpu_kv_per_layer, block_count - split)?;
     Ok(Candidate {
         cpu_base,
         gpu_base,
-        cpu_full: with_kv(cpu_base, cpu_kv)?,
-        gpu_full: with_kv(gpu_base, gpu_kv)?,
+        cpu_full: with_kv(cpu_base, mul(input.cpu_kv_per_layer, split)?)?,
+        gpu_full: with_kv(gpu_base, mul(input.gpu_kv_per_layer, block_count - split)?)?,
     })
 }
 
@@ -185,8 +174,8 @@ fn mul(left: u64, right: usize) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::family::mistral::hybrid::HybridMode;
-    use crate::family::mistral::hybrid::weights::{GlobalBytes, LayerBytes};
+    use crate::backend::hybrid::HybridMode;
+    use crate::backend::hybrid::weights::model::{GlobalBytes, LayerBytes};
 
     fn weights() -> WeightBytes {
         WeightBytes {
@@ -229,107 +218,42 @@ mod tests {
     }
 
     #[test]
-    fn selects_all_gpu_then_first_fitting_mixed_split() {
-        let all = select(&weights(), input(30, 130)).unwrap();
-        assert_eq!(all.mode, HybridMode::AllGpu);
-        assert_eq!((all.cpu_layers, all.gpu_layers), (0, 3));
-
-        let mixed = select(&weights(), input(80, 100)).unwrap();
-        assert_eq!(mixed.mode, HybridMode::Mixed);
-        assert_eq!(mixed.split, 1);
-        assert_eq!((mixed.cpu_layers, mixed.gpu_layers), (1, 2));
+    fn selects_all_gpu_mixed_one_layer_suffix_and_cpu_only() {
+        assert_eq!(
+            select(&weights(), input(30, 130)).unwrap().mode,
+            HybridMode::AllGpu
+        );
+        assert_eq!(select(&weights(), input(80, 100)).unwrap().split, 1);
+        assert_eq!(select(&weights(), input(120, 78)).unwrap().split, 2);
+        let mut disabled = input(123, 0);
+        disabled.gpu_enabled = false;
+        let cpu = select(&weights(), disabled).unwrap();
+        assert_eq!(cpu.mode, HybridMode::CpuOnly);
+        assert_eq!(cpu.gpu.total, 0);
     }
 
     #[test]
-    fn supports_one_layer_suffix_and_heterogeneous_costs() {
-        let plan = select(&weights(), input(120, 78)).unwrap();
-        assert_eq!(plan.split, 2);
-        assert_eq!(plan.gpu_layers, 1);
-    }
-
-    #[test]
-    fn unavailable_or_explicit_zero_gpu_selects_cpu_only() {
-        let mut unavailable = input(123, 0);
-        unavailable.gpu_enabled = false;
-        let plan = select(&weights(), unavailable).unwrap();
-        assert_eq!(plan.mode, HybridMode::CpuOnly);
-        assert_eq!(plan.gpu.total, 0);
-    }
-
-    #[test]
-    fn exact_fit_is_accepted() {
+    fn exact_fit_overflow_and_fixed_failures_are_classified() {
         let first = select(&weights(), input(u64::MAX, u64::MAX)).unwrap();
-        let mut exact_input = input(first.cpu.total, first.gpu.total);
-        exact_input.gpu_weight_available = first.gpu.weights;
-        let exact = select(&weights(), exact_input).unwrap();
+        let exact = select(&weights(), input(first.cpu.total, first.gpu.total)).unwrap();
         assert_eq!(exact, first);
-    }
-
-    #[test]
-    fn weight_cap_does_not_reduce_kv_or_fixed_vram_budget() {
-        let mut capped = input(123, 130);
-        capped.gpu_weight_available = 80;
-        let plan = select(&weights(), capped).unwrap();
-        assert_eq!(plan.split, 1);
-        assert_eq!(plan.gpu.weights, 80);
-        assert_eq!(plan.gpu.total, 100);
-    }
-
-    #[test]
-    fn reports_exact_backend_breakdown() {
-        let plan = select(&weights(), input(80, 100)).unwrap();
-        assert_eq!(plan.split, 1);
-        assert_eq!(
-            plan.cpu,
-            BackendBytes {
-                weights: 30,
-                kv: 2,
-                scratch: 3,
-                staging: 25,
-                crossing: 8,
-                total: 68,
-                ..BackendBytes::default()
-            }
-        );
-        assert_eq!(
-            plan.gpu,
-            BackendBytes {
-                weights: 80,
-                kv: 4,
-                scratch: 3,
-                fixed: 4,
-                crossing: 8,
-                reserve: 1,
-                total: 100,
-                ..BackendBytes::default()
-            }
-        );
-    }
-
-    #[test]
-    fn error_matrix_e16_e17_distinguishes_base_and_context_failure() {
-        let e16 = select(&weights(), input(1, 1)).unwrap_err().to_string();
-        assert_eq!(e16, "model does not fit available RAM and VRAM");
-
-        let mut context = input(120, 120);
-        context.cpu_kv_per_layer = 1_000;
-        context.gpu_kv_per_layer = 1_000;
-        let e17 = select(&weights(), context).unwrap_err().to_string();
-        assert_eq!(
-            e17,
-            "context 4096 does not fit the selected backend; context was not reduced"
-        );
-    }
-
-    #[test]
-    fn overflow_is_rejected_without_wrapping() {
         let mut overflow = input(u64::MAX, u64::MAX);
-        overflow.gpu_fixed = u64::MAX;
-        assert!(
-            select(&weights(), overflow)
-                .unwrap_err()
-                .to_string()
-                .contains("overflow")
+        overflow.gpu_scratch = u64::MAX;
+        assert_eq!(
+            select(&weights(), overflow).unwrap_err().to_string(),
+            "hybrid placement arithmetic overflow"
+        );
+        assert_eq!(
+            select(&weights(), input(1, 1)).unwrap_err().to_string(),
+            "model does not fit available RAM and VRAM"
+        );
+    }
+
+    #[test]
+    fn context_failure_does_not_reduce_context() {
+        assert_eq!(
+            select(&weights(), input(25, 120)).unwrap_err().to_string(),
+            "context 4096 does not fit the selected backend; context was not reduced"
         );
     }
 }

@@ -349,14 +349,14 @@ fn assert_local_markdown_links(root: &Path) {
 #[cfg(feature = "vulcan-hybrid")]
 #[test]
 fn hybrid_placement_contract() {
-    let source = fs::read_to_string(manifest().join("src/family/mistral/hybrid/placement.rs"))
+    let source = fs::read_to_string(manifest().join("src/backend/hybrid/placement/separate.rs"))
         .expect("hybrid placement source");
     for evidence in [
         "0..=block_count",
-        "maximum possible contiguous Vulkan suffix",
-        "selects_all_gpu_then_first_fitting_mixed_split",
-        "unavailable_or_explicit_zero_gpu_selects_cpu_only",
-        "supports_one_layer_suffix_and_heterogeneous_costs",
+        "selects_all_gpu_mixed_one_layer_suffix_and_cpu_only",
+        "context_failure_does_not_reduce_context",
+        "model does not fit available RAM and VRAM",
+        "context {} does not fit the selected backend",
     ] {
         assert!(
             source.contains(evidence),

@@ -155,7 +155,8 @@ cargo run --no-default-features --features cpu --example bench -- \
   /path/to/model.gguf --context 4096 --kv f16
 ```
 
-Repeat with `vulkan` or `hybrid` only when those rows are claimed. Record context,
+Repeat with `vulcan`, `vulcan-hybrid`, `metal`, or `metal-hybrid` only when
+those rows are claimed. Record context,
 KV, build profile, hardware, prompt, generation length, warmup and repetitions.
 An allocation failure is capacity evidence, not a correctness result.
 
@@ -171,6 +172,12 @@ After acceptance, update:
 - this process only when the reusable method changes.
 
 ## Definition Of Done
+
+A conforming family exposes weights through `WeightSource` and execution
+through `LayeredGraph`. It thereby gains homogeneous and partitioned profiles
+from the runtime without importing a concrete backend or creating backend-pair
+modules. Family tests assert the neutral contract; device tests stay in backend
+or selected-runtime integration coverage.
 
 The addition is complete when unsupported variants fail deliberately, supported
 artifacts load and generate through the public API, tokenizer/template behavior

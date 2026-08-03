@@ -20,7 +20,8 @@ text messages only, without tool calling or a separate reasoning channel.
 
 - Git, Rust/Cargo, and Node.js/npm;
 - platform build dependencies;
-- a Vulkan loader and driver for the `vulkan` and `hybrid` backends;
+- a Vulkan loader and driver for `vulcan` and `vulcan-hybrid`;
+- macOS arm64 plus Xcode command-line `metal` and `metallib` tools for Metal;
 - a compatible GGUF model already present on the computer.
 
 The installer builds from source and does not download models.
@@ -30,10 +31,10 @@ The installer builds from source and does not download models.
 ```sh
 git clone https://github.com/etufarini/gh-zero-engine.git
 cd gh-zero-engine
-./support/install.sh
+./support/install.sh --backend cpu
 ```
 
-The default command builds the `hybrid` backend with the `release` profile and
+There is no default backend. Installation requires one explicit profile and
 installs `$HOME/.local/bin/gh-zero-engine`. If that directory is not in `PATH`:
 
 ```sh
@@ -48,14 +49,14 @@ To make the `PATH` change permanent, add the `export` line to `~/.profile`,
 
 ```text
 ./support/install.sh \
-  [--backend cpu|vulkan|hybrid] \
+  --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid \
   [--profile release|fast] \
   [--prefix PATH]
 ```
 
 | Option | Default | Effect |
 |---|---|---|
-| `--backend` | `hybrid` | Builds CPU, Vulkan, or both |
+| `--backend` | required | Selects exactly one static runtime profile |
 | `--profile` | `release` | `fast` optimizes more but takes longer to build |
 | `--prefix` | `$HOME/.local` | Installs the command into `PATH/bin` |
 
@@ -65,11 +66,11 @@ Examples:
 # Portable backend
 ./support/install.sh --backend cpu
 
-# More optimized hybrid build
-./support/install.sh --backend hybrid --profile fast
+# More optimized qualified Metal build
+./support/install.sh --backend metal --profile fast
 
 # Custom prefix (equivalent to --prefix "$HOME/.local")
-GH_ZERO_INSTALL_PREFIX="$HOME/.local" ./support/install.sh
+GH_ZERO_INSTALL_PREFIX="$HOME/.local" ./support/install.sh --backend cpu
 ```
 
 Run the installer again to rebuild and replace the binary.
@@ -135,9 +136,15 @@ The official/reference maximum for Ministral 3 Instruct 2512 is 262,144 tokens.
 The repository source of truth is the private
 [Ministral version contract](crates/gh_zero_engine/src/family/mistral/version.rs).
 
-Hybrid placement exposes `floor(MemAvailable × 90 / 100)` bytes—90% of Linux
-`MemAvailable`—to the planner. Swap and `MemFree` are excluded, while the
-automatic VRAM reserve remains the greater of 256 MiB and 5% of available VRAM.
+The five profiles are `cpu`, `vulcan`, `vulcan-hybrid`, `metal`, and
+`metal-hybrid`. Selection is compile-time and there is no runtime backend
+switch or fallback. Separate-memory Vulkan planning uses Linux `MemAvailable`
+and a VRAM budget: its automatic mixed policy selects the maximum possible
+contiguous GPU suffix and budgets host memory as
+`floor(MemAvailable × 90 / 100)`. Metal planning treats CPU and Metal
+allocations as competing claims on one unified-memory capacity; 0 means
+CPU-only, 100 means all-Metal, and an omitted percentage lets the planner
+choose.
 
 Examples:
 
@@ -146,7 +153,7 @@ Examples:
 gh-zero-engine --provider local --model "/path/to/model.gguf" \
   --context-tokens 4096 --kv-quant int8
 
-# CPU-only with a hybrid build
+# CPU-only placement with a hybrid build
 gh-zero-engine --provider local --model "/path/to/model.gguf" \
   --vram-weights-percent 0
 ```
@@ -174,10 +181,12 @@ in the existing stream. The bundled [Web UI](docs/web.md) and
 that raw text; transport, model context, and transcript import/export retain
 the markers. The runtime does not parse it into a separate Reasoning channel.
 Internal numeric formats do not expand this public GGUF contract.
-Hybrid startup chooses all-GPU, the maximum possible contiguous GPU suffix with
-a CPU prefix, or all-CPU. Pure Vulkan remains all-GPU-or-error, and development
-remains CPU-first. The reviewed artifacts in the validation record are evidence,
-not a runtime whitelist, and do not constitute MoE support.
+Hybrid startup chooses the device-only endpoint, one contiguous device suffix
+with a CPU prefix, or all-CPU. Standalone device profiles are device-only or
+error. Metal and Metal-hybrid are qualified on a 10-core Apple M4 MacBook Air,
+24 GB unified memory, macOS 26.3; this is evidence, not a promise for every
+Apple GPU. The reviewed artifacts are not a runtime whitelist and do not imply
+MoE support.
 
 Technical load support and reviewed semantic qualification are separate claims.
 The current reviewed evidence is in [VALIDATION.md](VALIDATION.md): the three

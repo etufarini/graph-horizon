@@ -13,6 +13,10 @@ Correctness comes first, measurement second, and optimization third. Performance
 cannot justify a changed numeric or public behavior unless that trade-off was
 explicitly approved before implementation.
 
+The initial Metal qualification has no minimum speed or standalone-to-hybrid
+ratio. Once correctness passes, record finite TTFT milliseconds, prompt
+tokens/second, and decode tokens/second; those values are descriptive evidence.
+
 ## Freeze A Baseline
 
 Before editing performance-sensitive code, record:
@@ -75,6 +79,12 @@ Run comparisons with one intentional variable changed:
 
 If two variables change, split the experiment. Record variance rather than
 treating one favorable sample as a result.
+
+For the current Metal comparison, freeze the complete tuple: authenticated
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, context 4096, KV f16, prompt
+`Quanto fa 17 × 19?`, 32 requested tokens, one warmup, and three repetitions.
+The standalone row uses `metal`; the partitioned row uses `metal-hybrid` at 25%
+and must report `mixed`. Changing any tuple field creates a different experiment.
 
 ## Context Regimes
 

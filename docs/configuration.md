@@ -9,7 +9,7 @@ The binary reads runtime configuration only from flags. Flags with values use
 `--flag value`; `--flag=value` is not accepted. Unknown flags and missing values
 terminate execution before loading a model or initializing a surface.
 
-CPU/Vulkan/hybrid selection is a build-time decision described in
+Profile selection is a build-time decision described in
 [backend.md](backend.md) and [support/README.md](../support/README.md).
 
 ## Minimal Usage
@@ -106,12 +106,19 @@ setting for the current web composer.
 ## Build And Environment
 
 ```sh
-support/install.sh --backend cpu|vulkan|hybrid \
+support/install.sh --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid \
   --profile release|fast --prefix /path/to/prefix
 ```
 
-The script defaults to `hybrid`, `release`, and `${HOME}/.local`. Its only user
+The backend is required; there is no default or runtime backend setting. Build
+profile defaults to `release` and prefix to `${HOME}/.local`. The only user
 environment variable is `GH_ZERO_INSTALL_PREFIX`, an alternative to `--prefix`.
 The `GH_ZERO_*` variables used by tests, profiling, and diagnostics are not
 binary runtime configuration; their scripts and sources remain authoritative
 for those development interfaces.
+
+On separate-memory Vulkan, `--vram-weights-percent` limits only device weights
+after reserve. On unified-memory Metal it selects the intended share while CPU
+and Metal categories still compete for one capacity. `0` is CPU-only, `100` is
+the device-only endpoint, and omission requests automatic planning. No value
+causes a retry on another profile, percentage, context, or KV scheme.

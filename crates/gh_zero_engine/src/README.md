@@ -21,16 +21,18 @@ Ogni dominio possiede un confine stretto.
 - `family/mistral/tokenizer/`: BPE e pre-tokenizzazione Tekken incorporati nel GGUF.
 - `family/mistral/template.rs`: sequenza chat, System implicito/esplicito e
   renderer fisso senza eseguire Jinja.
-- `family/mistral/parity.rs`: vettori e criteri della parità Reasoning
-  esclusivamente test-only.
+- `family/mistral/parity.rs`: parsing bounded dei vettori oracle e criterio
+  top-two family-neutral, esclusivamente per harness.
 - `tests/semantic.rs`: qualificatore Reasoning-only test-only; possiede
   corpus, sampling, scoring, stop telemetry e marker Reasoning, senza policy
   runtime o server.
-- `family/mistral/graph/`: ordine denso condiviso da CPU e Vulkan; non decide
+- `family/mistral/graph/`: ordine denso condiviso da ogni backend; non decide
   placement.
-- `family/mistral/hybrid/`: accounting, selezione del prefisso CPU/suffisso GPU,
-  ownership dei due backend e unico attraversamento del residuo.
-- `backend/`: contratto tensoriale e implementazioni CPU/Vulkan. Non conosce
+- `runtime/`: lifecycle omogeneo o partizionato; il partizionato esegue un
+  prefisso CPU, un solo crossing e un suffisso device.
+- `backend/`: contratto tensoriale, sorgente pesi, selezione statica e
+  implementazioni CPU/Vulkan/Metal; `backend/hybrid/` possiede placement e
+  risorse dei due lati. Non conosce
   profili pubblici della famiglia.
 - `gguf/`: parsing limitato, metadati e indice tensoriale, compreso Q8_0 solo
   per diagnostica e rifiuto; non alloca backend.
@@ -41,7 +43,7 @@ Ogni dominio possiede un confine stretto.
 Il flusso è:
 
 ```text
-GGUF -> contratto Mistral -> prompt ID -> piano/backend -> grafo -> decoder -> eventi
+GGUF -> family/WeightSource -> runtime <- backend -> decoder -> eventi
 ```
 
 Invarianti:

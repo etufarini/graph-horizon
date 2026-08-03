@@ -19,7 +19,8 @@ vale soltanto per l'artefatto autenticato e per la configurazione registrata.
 
 - modello Ministral Q4_K_M leggibile e autenticato tramite dimensione e SHA-256;
 - revisione Git e profilo Cargo registrati;
-- backend `cpu`, `vulkan` oppure `hybrid` compilabile;
+- uno dei profili `cpu`, `vulcan`, `vulcan-hybrid`, `metal`,
+  `metal-hybrid` compilabile;
 - contesto `4096` disponibile senza cambiare placement;
 - hardware e driver richiesti dal backend scelto;
 - criterio numerico e soglia definiti prima di osservare l'esito.
@@ -36,7 +37,17 @@ Ogni riga fissa un artefatto e un backend, quindi esegue esattamente due casi:
 | baseline | 4096 | `f16` |
 | candidato | 4096 | `int8` |
 
-Per `hybrid`, percentuale e riserva restano identiche tra i due casi. Il report
+La matrice di profilo richiesta rende esplicite entrambe le righe KV:
+
+| Profilo | KV richieste |
+|---|---|
+| `cpu` | f16, int8 |
+| `vulcan` | f16, int8 |
+| `vulcan-hybrid` | f16, int8 |
+| `metal` | f16, int8 |
+| `metal-hybrid` | f16, int8 |
+
+Per un profilo hybrid, percentuale e riserva restano identiche tra i due casi. Il report
 di caricamento deve registrare almeno `cpu_layers` e `gpu_layers`; una differenza
 di placement invalida il confronto invece di diventare un risultato numerico.
 
@@ -57,7 +68,7 @@ support/profiling/validate-kv.sh \
   --model "/path/to/model.gguf" --backend cpu --context 4096
 ```
 
-La stessa interfaccia accetta `vulkan` e `hybrid`. Lo script non effettua retry
+La stessa interfaccia accetta tutti i cinque profili. Lo script non effettua retry
 e non sostituisce automaticamente il backend quando una riga non è eseguibile.
 
 ## Evidenza richiesta

@@ -40,7 +40,8 @@ these fields, but they remain available in `ThroughputReport` to other callers.
 
 ```text
 bench <model.gguf> --context N --kv f16|int8
-  [--prompt TEXT] [--max-tokens N] [--warmup N] [--reps N]
+  [--weights-percent 0..100] [--prompt TEXT]
+  [--max-tokens N] [--warmup N] [--reps N]
 ```
 
 `--context` and `--kv` are required. Other defaults are:
@@ -63,18 +64,28 @@ cargo run --no-default-features --features cpu --example bench -- \
   --prompt "Hello" --max-tokens 32 --warmup 1 --reps 3
 ```
 
-To measure another backend, replace the feature with `vulkan` or `hybrid`
-without changing the artifact, prompt, context, or KV of the compared row.
+Qualified Metal commands keep every tuple input fixed:
+
+```sh
+cargo run --locked --release --no-default-features --features metal \
+  --example bench -- /path/to/model.gguf --context 4096 --kv f16 \
+  --prompt "Quanto fa 17 × 19?" --max-tokens 32 --warmup 1 --reps 3
+cargo run --locked --release --no-default-features --features metal-hybrid \
+  --example bench -- /path/to/model.gguf --context 4096 --kv f16 \
+  --weights-percent 25 --prompt "Quanto fa 17 × 19?" \
+  --max-tokens 32 --warmup 1 --reps 3
+```
 
 ## Output
 
 The example prints one line similar to:
 
 ```text
-prompt_tokens=27 prompt_tps=123.45±1.23 ttft_ms=218.70 decode_tps=35.60
+prompt_tokens=27 decoded_tokens=32 prompt_tps=123.45 ttft_ms=218.70 decode_tps=35.60
 ```
 
-A decode with fewer than two deltas displays `decode_tps=n/a`.
+A decode with fewer than two deltas fails; rerun the fixed 32-token request
+unchanged. Finite values are recorded without a minimum gate.
 
 ## Interpretation
 

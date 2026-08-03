@@ -8,8 +8,11 @@ prodotto o whitelist di modelli.
 
 ## Ambito e data
 
-Registro aggiornato il 2 agosto 2026 per il commit di implementazione
-`21466e3d141e7f6e48a8156a49a4ad698e873fcf`.
+Registro aggiornato il 3 agosto 2026 per la specifica `01-metal-backend`.
+
+Gli artefatti locali di questa campagna sono in
+`/Users/emanuele/Documents/models`; il percorso è solo un input di validazione
+e non è un default del runtime.
 
 L'evidenza distingue tre piani:
 
@@ -41,13 +44,42 @@ non caricabile. L'evidenza storica registra sei rifiuti Q8; nella
 rivalidazione più recente gli artefatti Q8 non erano disponibili e sono stati
 registrati come verifiche esterne, senza riabilitare il formato.
 
-La matrice tecnica Q4_K_M conserva 36 righe di parità completate su sei modelli,
-tre backend (`cpu`, `vulkan`, `hybrid`) e due KV (`f16`, `int8`). Il log
-operativo `target/ministral-q4-validation/matrix.log` termina con
-`summary: pass=42 external_verification=0 failure=0 total=42`, dove le 42 righe
-comprendono sei rifiuti Q8 e 36 righe di parità Q4. L'oracolo pinned resta
-`llama.cpp` commit `13f2b28b098623391b1aacfd27995e1c8b7de9a9`, build string
-`b9973-13f2b28b0`.
+La matrice finale contiene 70 righe: sei rifiuti Q8, 60 righe Q4_K_M (sei
+modelli × cinque profili × due KV) e quattro endpoint 3B-Instruct
+Metal-hybrid. Ogni riga usa contesto 4096, prompt token IDs identici all'oracolo
+e 16 token teacher-forced; ogni token oracle deve essere nel top-two locale
+finito e deterministico. Le righe hybrid principali usano 25%/`mixed`; gli
+endpoint usano 100%/`all-metal` e 0%/`cpu-only`, f16 e int8.
+
+Il run finale termina con
+`summary: pass=40 external_verification=30 failure=0 total=70`: passano tutte le
+12 CPU, 12 Metal, 12 Metal-hybrid mixed e 4 endpoint. Le 24 righe Vulkan sono
+esterne perché il device non è presente; i sei Q8 sono esterni perché gli
+artefatti non sono presenti. Non sono dichiarati pass. L'oracolo è il worktree
+CPU-only/offline `target/oracle/llama.cpp-13f2b28b`, commit
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`, versione `9973 (13f2b28b0)`;
+ascolta solo su loopback, senza GPU o KV offload, ed è terminato dal wrapper.
+
+Gli stati terminali della matrice tecnica sono esclusivi: `pass` indica una riga
+eseguita che soddisfa tutti i gate; `failure` indica una riga tentata con errore
+di protocollo, lifecycle, prompt o numerica; `external_verification` indica un
+prerequisito autenticato, device, tool o capacità assente e non conta come pass.
+Le tre quantità devono sommare esattamente al totale fissato.
+
+## Prestazioni Metal (nessun gate)
+
+Hardware: MacBook Air `Mac16,13`, Apple M4 10 core, 24 GB, macOS 26.3
+(`25D125`), Xcode 26.2, Metal 32023.864, Rust 1.95.0. Artefatto
+3B-Instruct Q4_K_M autenticato, contesto 4096, KV f16, prompt
+`Quanto fa 17 × 19?`, 32 token, warmup 1, ripetizioni 3:
+
+| Profilo | Placement | TTFT ms | Prompt tok/s | Decode tok/s |
+|---|---|---:|---:|---:|
+| `metal` | standalone | 5433.02 | 2.58 | 2.13 |
+| `metal-hybrid` | 25%, mixed (24 CPU / 2 Metal) | 6292.69 | 2.23 | 1.28 |
+
+Le metriche sono finite e descrittive. Questa modifica non impone velocità o
+rapporto minimo.
 
 ## Configurazione semantica Piano 07
 
@@ -109,4 +141,4 @@ ragionamento.
 - Piani 02, 03, 04, 05, 06 e 07 in `plans/`;
 - `support/models.tsv`;
 - `target/ministral-q4-validation/semantic-reasoning-qualification.log`;
-- `target/ministral-q4-validation/matrix.log`.
+- `target/m3-matrix.log` (evidenza locale non versionata).

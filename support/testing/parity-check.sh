@@ -48,7 +48,7 @@ case "$backend" in
     vulcan-hybrid|metal-hybrid)
         [[ "$weights_percent" =~ ^[0-9]+$ ]] && ((weights_percent <= 100)) \
             || usage_error "hybrid backend requires --weights-percent 0..100"
-        case "$expected_mode" in all-gpu|mixed|cpu-only) ;; *) usage_error "hybrid backend requires --expect-mode" ;; esac
+        case "$expected_mode" in all-gpu|all-metal|mixed|cpu-only) ;; *) usage_error "hybrid backend requires --expect-mode" ;; esac
         ;;
     *) [[ -z "$weights_percent" && -z "$expected_mode" ]] || usage_error "placement arguments require a hybrid backend" ;;
 esac

@@ -894,6 +894,45 @@ while :; do /bin/sleep 0.05; done
         r#"{"messages":[{"role":"system","content":""},{"role":"user","content":"Quanto fa 17 × 19?"}],"add_generation_prompt":true}"#
     );
 
+    let endpoint_port = free_port();
+    let endpoint = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args([
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "3b-instruct",
+            "--backend",
+            "metal-hybrid",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+            "--reference-port",
+            &endpoint_port,
+            "--weights-percent",
+            "100",
+            "--expect-mode",
+            "all-metal",
+        ])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .output()
+        .unwrap();
+    assert!(
+        endpoint.status.success(),
+        "{}",
+        String::from_utf8_lossy(&endpoint.stderr)
+    );
+    assert!(
+        String::from_utf8(endpoint.stdout)
+            .unwrap()
+            .starts_with("pass: model_id=3b-instruct backend=metal-hybrid kv=f16")
+    );
+    assert!(!temp.exists());
+
     let port = free_port();
     let malformed = Command::new("bash")
         .arg(repository().join("support/testing/parity-check.sh"))

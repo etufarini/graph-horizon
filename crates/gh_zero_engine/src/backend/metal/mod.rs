@@ -9,6 +9,7 @@
 mod backend;
 mod device;
 mod exec;
+mod kernels;
 mod loader;
 mod mem;
 mod pipeline;

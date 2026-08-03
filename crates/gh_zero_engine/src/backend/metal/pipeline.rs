@@ -49,16 +49,16 @@ const KERNELS: [Kernel; 10] = [
 impl Kernel {
     pub(crate) fn name(self) -> &'static str {
         match self {
-            Self::Embedding => "metal_embedding_stub",
-            Self::Matmul => "metal_matmul_stub",
-            Self::Rmsnorm => "metal_rmsnorm_stub",
-            Self::Rope => "metal_rope_stub",
-            Self::SiluMul => "metal_silu_mul_stub",
-            Self::ResidualAdd => "metal_residual_add_stub",
-            Self::KvWrite => "metal_kv_write_stub",
-            Self::Attention => "metal_attention_stub",
-            Self::Argmax => "metal_argmax_stub",
-            Self::Topk => "metal_topk_stub",
+            Self::Embedding => "metal_embedding",
+            Self::Matmul => "metal_matmul",
+            Self::Rmsnorm => "metal_rmsnorm",
+            Self::Rope => "metal_rope",
+            Self::SiluMul => "metal_silu_mul",
+            Self::ResidualAdd => "metal_residual_add",
+            Self::KvWrite => "metal_kv_write",
+            Self::Attention => "metal_attention",
+            Self::Argmax => "metal_argmax",
+            Self::Topk => "metal_topk",
         }
     }
 }

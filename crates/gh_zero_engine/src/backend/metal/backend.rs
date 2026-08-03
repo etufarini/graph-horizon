@@ -6,8 +6,8 @@
 
 use color_eyre::eyre::Result;
 
-use super::exec::{dispatch, readback};
-use super::pipeline::Kernel;
+use super::exec::readback;
+use super::kernels;
 use super::{MetalBackend, MetalBuffer, MetalEncoder, MetalFormat};
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
@@ -88,11 +88,18 @@ impl Backend for MetalBackend {
     }
 
     fn read_argmax(&self, logits: &MetalBuffer, vocab: usize) -> Result<u32> {
-        readback::argmax(logits, vocab)
+        kernels::argmax::read(&self.device, &self.pipelines, logits, &self.reduce, vocab)
     }
 
     fn read_topk(&self, logits: &MetalBuffer, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>> {
-        readback::topk(logits, vocab, k)
+        kernels::topk::read(
+            &self.device,
+            &self.pipelines,
+            logits,
+            &self.reduce,
+            vocab,
+            k,
+        )
     }
 
     fn kv_write(
@@ -101,19 +108,23 @@ impl Backend for MetalBackend {
         kv: &crate::kv_cache::Kv<MetalBuffer>,
         k: &MetalBuffer,
         v: &MetalBuffer,
-        _k_payload_offset: u64,
-        _v_payload_offset: u64,
-        _k_meta_offset: u64,
-        _v_meta_offset: u64,
-        _vectors: u32,
+        k_payload_offset: u64,
+        v_payload_offset: u64,
+        k_meta_offset: u64,
+        v_meta_offset: u64,
+        vectors: u32,
     ) -> Result<()> {
-        dispatch::encode(
+        kernels::kv_write::encode(
             encoder,
             &self.pipelines,
-            Kernel::KvWrite,
-            &[k, v, &kv.k, &kv.v],
-            &[],
-            [1, 1, 1],
+            kv,
+            k,
+            v,
+            k_payload_offset,
+            v_payload_offset,
+            k_meta_offset,
+            v_meta_offset,
+            vectors,
         )
     }
 
@@ -122,17 +133,10 @@ impl Backend for MetalBackend {
         encoder: &MetalEncoder,
         x: &MetalBuffer,
         weight: &MetalBuffer,
-        _token: u32,
-        _embd: u32,
+        token: u32,
+        embd: u32,
     ) -> Result<()> {
-        dispatch::encode(
-            encoder,
-            &self.pipelines,
-            Kernel::Embedding,
-            &[weight, x],
-            &[],
-            [1, 1, 1],
-        )
+        kernels::embedding::encode(encoder, &self.pipelines, x, weight, token, embd)
     }
 
     fn matmul(
@@ -141,16 +145,18 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         input: &MetalBuffer,
         weight: &MetalBuffer,
-        _in_dim: u32,
-        _out_dim: u32,
+        in_dim: u32,
+        out_dim: u32,
     ) {
-        let _ = dispatch::encode(
+        let _ = kernels::matmul::encode(
             encoder,
             &self.pipelines,
-            Kernel::Matmul,
-            &[input, weight, out],
-            &[],
-            [1, 1, 1],
+            out,
+            input,
+            weight,
+            in_dim,
+            out_dim,
+            false,
         );
     }
 
@@ -160,16 +166,18 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         input: &MetalBuffer,
         weight: &MetalBuffer,
-        _in_dim: u32,
-        _out_dim: u32,
+        in_dim: u32,
+        out_dim: u32,
     ) {
-        let _ = dispatch::encode(
+        let _ = kernels::matmul::encode(
             encoder,
             &self.pipelines,
-            Kernel::Matmul,
-            &[input, weight, out],
-            &[],
-            [1, 1, 1],
+            out,
+            input,
+            weight,
+            in_dim,
+            out_dim,
+            true,
         );
     }
 
@@ -179,17 +187,19 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         input: &MetalBuffer,
         weight: &MetalBuffer,
-        _dim: u32,
-        _eps: f32,
-        _rows: u32,
+        dim: u32,
+        eps: f32,
+        rows: u32,
     ) {
-        let _ = dispatch::encode(
+        let _ = kernels::normalization::encode(
             encoder,
             &self.pipelines,
-            Kernel::Rmsnorm,
-            &[input, weight, out],
-            &[],
-            [1, 1, 1],
+            out,
+            input,
+            weight,
+            dim,
+            eps,
+            rows,
         );
     }
 
@@ -197,19 +207,21 @@ impl Backend for MetalBackend {
         &self,
         encoder: &MetalEncoder,
         input: &MetalBuffer,
-        _heads: u32,
-        _head_dim: u32,
-        _position: u32,
-        _yarn: &crate::backend::rope::Yarn,
-        _role: crate::backend::rope::RopeRole,
+        heads: u32,
+        head_dim: u32,
+        position: u32,
+        yarn: &crate::backend::rope::Yarn,
+        role: crate::backend::rope::RopeRole,
     ) -> Result<()> {
-        dispatch::encode(
+        kernels::rope::encode(
             encoder,
             &self.pipelines,
-            Kernel::Rope,
-            &[input],
-            &[],
-            [1, 1, 1],
+            input,
+            heads,
+            head_dim,
+            position,
+            yarn,
+            role,
         )
     }
 
@@ -219,27 +231,13 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         gate: &MetalBuffer,
         up: &MetalBuffer,
-        _n: u32,
+        n: u32,
     ) {
-        let _ = dispatch::encode(
-            encoder,
-            &self.pipelines,
-            Kernel::SiluMul,
-            &[gate, up, out],
-            &[],
-            [1, 1, 1],
-        );
+        let _ = kernels::silu_mul::encode(encoder, &self.pipelines, out, gate, up, n);
     }
 
-    fn residual_add(&self, encoder: &MetalEncoder, x: &MetalBuffer, y: &MetalBuffer, _n: u32) {
-        let _ = dispatch::encode(
-            encoder,
-            &self.pipelines,
-            Kernel::ResidualAdd,
-            &[x, y],
-            &[],
-            [1, 1, 1],
-        );
+    fn residual_add(&self, encoder: &MetalEncoder, x: &MetalBuffer, y: &MetalBuffer, n: u32) {
+        let _ = kernels::residual_add::encode(encoder, &self.pipelines, x, y, n);
     }
 
     fn attention_decode(
@@ -248,17 +246,20 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         q: &MetalBuffer,
         kv: &crate::kv_cache::Kv<MetalBuffer>,
-        _q_heads: u32,
-        _position: u32,
-        _layer: u32,
+        q_heads: u32,
+        position: u32,
+        layer: u32,
     ) {
-        let _ = dispatch::encode(
+        let _ = kernels::attention::encode(
             encoder,
             &self.pipelines,
-            Kernel::Attention,
-            &[q, &kv.k, &kv.v, out],
-            &[],
-            [1, 1, 1],
+            out,
+            q,
+            kv,
+            q_heads,
+            position,
+            1,
+            layer,
         );
     }
 
@@ -268,18 +269,21 @@ impl Backend for MetalBackend {
         out: &MetalBuffer,
         q: &MetalBuffer,
         kv: &crate::kv_cache::Kv<MetalBuffer>,
-        _q_heads: u32,
-        _base: u32,
-        _n: u32,
-        _layer: u32,
+        q_heads: u32,
+        base: u32,
+        n: u32,
+        layer: u32,
     ) {
-        let _ = dispatch::encode(
+        let _ = kernels::attention::encode(
             encoder,
             &self.pipelines,
-            Kernel::Attention,
-            &[q, &kv.k, &kv.v, out],
-            &[],
-            [1, 1, 1],
+            out,
+            q,
+            kv,
+            q_heads,
+            base,
+            n,
+            layer,
         );
     }
 }

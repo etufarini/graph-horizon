@@ -106,6 +106,9 @@ mod tests {
     use super::*;
     use crate::backend::metal::mem::buffer::{reset_test_counts, test_counts};
     use crate::backend::source::WeightGroups;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 
     struct Source<'a> {
         tensors: &'a [TensorInfo],
@@ -181,8 +184,9 @@ mod tests {
 
     fn with_file<R>(formats: &[GgmlType], run: impl FnOnce(&GgufFile) -> R) -> R {
         let path = std::env::temp_dir().join(format!(
-            "gh_zero_metal_weights_{}_{}.gguf",
+            "gh_zero_metal_weights_{}_{}_{}.gguf",
             std::process::id(),
+            NEXT_FILE.fetch_add(1, Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

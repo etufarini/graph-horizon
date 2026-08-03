@@ -27,6 +27,7 @@ pub(crate) fn logits(buffer: &MetalBuffer, vocab: usize) -> Result<Vec<f32>> {
     Ok(values)
 }
 
+#[cfg(test)]
 pub(crate) fn argmax(buffer: &MetalBuffer, vocab: usize) -> Result<u32> {
     let values = logits(buffer, vocab)?;
     let index = values
@@ -40,6 +41,7 @@ pub(crate) fn argmax(buffer: &MetalBuffer, vocab: usize) -> Result<u32> {
     u32::try_from(index).map_err(|_| arithmetic())
 }
 
+#[cfg(test)]
 pub(crate) fn topk(buffer: &MetalBuffer, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>> {
     if k == 0 {
         bail!("metal: invalid readback size");

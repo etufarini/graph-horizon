@@ -13,6 +13,12 @@ use super::RuntimeSession;
 
 pub(crate) const DECODE_STEPS: usize = 31;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhaseFixture {
+    Short,
+    Long,
+}
+
 pub(crate) struct PhaseSample {
     pub(crate) prefill_ns: u64,
     pub(crate) first_sample_ns: u64,

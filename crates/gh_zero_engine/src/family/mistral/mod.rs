@@ -5,6 +5,7 @@
  * owner. It owns no concrete backend choice or request lifecycle.
  */
 
+pub(crate) mod benchmark;
 pub(crate) mod config;
 pub(crate) mod decode;
 pub(crate) mod detect;

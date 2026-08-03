@@ -13,6 +13,7 @@ edition = "2024"
 cpu = ["gh_zero_engine/cpu"]
 vulcan = ["gh_zero_engine/vulcan"]
 vulcan-hybrid = ["gh_zero_engine/vulcan-hybrid"]
+metal = ["gh_zero_engine/metal"]
 
 # Maximum-performance build profile, used by `support/install.sh --profile fast`.
 # Inherits `release` and adds fat LTO + a single codegen unit so the compiler can

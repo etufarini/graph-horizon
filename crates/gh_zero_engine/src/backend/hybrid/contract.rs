@@ -19,6 +19,7 @@ use crate::gguf::metadata::ModelMetadata;
 pub(crate) trait HybridDevice: Backend {
     type Device;
 
+    fn host_available() -> Result<u64>;
     fn acquire() -> Result<Option<Self::Device>>;
     fn budget(device: &Self::Device) -> Result<BudgetInput>;
     fn topology() -> MemoryTopology;

@@ -44,3 +44,14 @@ pub(crate) fn select(
         MemoryTopology::Unified => unified::select(weights, input),
     }
 }
+
+pub(crate) fn unified_gross(physical_memory: u64, recommended_working_set: u64) -> Option<u64> {
+    physical_memory
+        .checked_mul(9)?
+        .checked_div(10)
+        .map(|value| value.min(recommended_working_set))
+}
+
+pub(crate) fn unified_capacity(gross: u64, current_allocated: u64) -> u64 {
+    gross.saturating_sub(current_allocated)
+}

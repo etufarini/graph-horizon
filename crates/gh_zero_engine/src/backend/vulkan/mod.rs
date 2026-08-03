@@ -91,6 +91,10 @@ pub(crate) use mem::{buffers, weights};
 impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
     type Device = Device;
 
+    fn host_available() -> color_eyre::eyre::Result<u64> {
+        Ok(mem::budget::host_available())
+    }
+
     fn acquire() -> color_eyre::eyre::Result<Option<Self::Device>> {
         hybrid_device()
     }

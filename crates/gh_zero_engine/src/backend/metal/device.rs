@@ -24,6 +24,8 @@ unsafe impl Sync for Device {}
 
 impl Device {
     pub(crate) fn acquire() -> Result<Self> {
+        #[cfg(test)]
+        super::record_probe();
         let raw =
             MTLCreateSystemDefaultDevice().ok_or_else(|| eyre!("Metal backend is unavailable"))?;
         let name = raw.name().to_string();
@@ -45,6 +47,34 @@ impl Device {
             recommended_max,
             current_allocated,
         })
+    }
+
+    #[cfg(feature = "metal-hybrid")]
+    pub(crate) fn acquire_optional() -> Result<Option<Self>> {
+        #[cfg(test)]
+        super::record_probe();
+        let Some(raw) = MTLCreateSystemDefaultDevice() else {
+            return Ok(None);
+        };
+        let name = raw.name().to_string();
+        if name != "Apple M4"
+            || !raw.hasUnifiedMemory()
+            || !raw.supportsFamily(MTLGPUFamily::Apple9)
+        {
+            return Ok(None);
+        }
+        let recommended_max = raw.recommendedMaxWorkingSetSize();
+        let current_allocated = u64::try_from(raw.currentAllocatedSize())
+            .map_err(|_| eyre!("metal: buffer arithmetic overflow"))?;
+        let queue = raw
+            .newCommandQueue()
+            .ok_or_else(|| eyre!("metal: command queue creation failed"))?;
+        Ok(Some(Self {
+            raw,
+            queue,
+            recommended_max,
+            current_allocated,
+        }))
     }
 
     #[cfg(test)]

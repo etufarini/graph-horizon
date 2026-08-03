@@ -90,15 +90,16 @@ pub(crate) fn preflight(
     if !(1..=100).contains(&percent) {
         bail!("invalid Metal weight percentage");
     }
-    let gross = physical_memory
-        .checked_mul(9)
-        .and_then(|value| value.checked_div(10))
-        .map(|value| value.min(recommended_max))
+    let gross = crate::backend::hybrid::placement::unified_gross(physical_memory, recommended_max)
         .ok_or_else(arithmetic)?;
-    let available = gross
-        .checked_sub(reserve)
-        .and_then(|value| value.checked_sub(current_allocated))
-        .ok_or_else(|| insufficient(reserve.saturating_add(current_allocated), gross))?;
+    if reserve > gross || current_allocated > gross.saturating_sub(reserve) {
+        return Err(insufficient(
+            reserve.saturating_add(current_allocated),
+            gross,
+        ));
+    }
+    let available =
+        crate::backend::hybrid::placement::unified_capacity(gross - reserve, current_allocated);
     let weight_cap = ((plan.weights as u128 * percent as u128) / 100) as u64;
     if plan.weights > weight_cap {
         return Err(insufficient(plan.weights, weight_cap));

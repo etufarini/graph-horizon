@@ -30,12 +30,38 @@ pub(crate) struct MetalBackend {
     pub(crate) staging: MetalBuffer,
 }
 
+#[cfg(test)]
+static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(crate) fn reset_probe_count() {
+    PROBE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(crate) fn probe_count() -> usize {
+    PROBE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(test)]
+fn record_probe() {
+    PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[cfg(feature = "metal-hybrid")]
 impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
     type Device = Device;
 
+    fn host_available() -> color_eyre::eyre::Result<u64> {
+        objc2_foundation::NSProcessInfo::processInfo()
+            .physicalMemory()
+            .checked_mul(9)
+            .and_then(|value| value.checked_div(10))
+            .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))
+    }
+
     fn acquire() -> color_eyre::eyre::Result<Option<Self::Device>> {
-        Device::acquire().map(Some)
+        Device::acquire_optional()
     }
 
     fn budget(

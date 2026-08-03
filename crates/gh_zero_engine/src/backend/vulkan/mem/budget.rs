@@ -13,6 +13,36 @@ use ash::vk;
 use super::memory::Budget;
 use crate::backend::vulkan::device::Device;
 
+#[cfg(feature = "vulcan-hybrid")]
+pub(crate) fn host_available() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|text| parse_mem_available(&text))
+        .map(|available| ((available as u128 * 90) / 100) as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(any(test, feature = "vulcan-hybrid"))]
+fn parse_mem_available(text: &str) -> Option<u64> {
+    let mut found = None;
+    for line in text.lines() {
+        let (key, raw) = line.split_once(':')?;
+        if key != "MemAvailable" {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        let mut fields = raw.split_whitespace();
+        let kib = fields.next()?.parse::<u64>().ok()?;
+        if fields.next()? != "kB" || fields.next().is_some() {
+            return None;
+        }
+        found = kib.checked_mul(1024);
+    }
+    found
+}
+
 // VRAM bytes held back before filling weights. Override wins; otherwise use
 // `max(256 MiB, 5% of total VRAM)`.
 #[cfg(any(test, not(feature = "vulcan-hybrid")))]
@@ -158,6 +188,20 @@ pub(crate) fn pure_preflight(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mem_available_parser_is_strict_and_checked() {
+        assert_eq!(
+            parse_mem_available("MemAvailable: 1234 kB\n"),
+            Some(1_263_616)
+        );
+        assert_eq!(parse_mem_available("MemTotal: 1234 kB\n"), None);
+        assert_eq!(parse_mem_available("MemAvailable: 1 MB\n"), None);
+        assert_eq!(
+            parse_mem_available("MemAvailable: 1 kB\nMemAvailable: 2 kB\n"),
+            None
+        );
+    }
 
     #[test]
     fn budget_at_full_percent_is_historical_min() {

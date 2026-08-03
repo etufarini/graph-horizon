@@ -6,26 +6,26 @@
 
 use super::*;
 use crate::api::event::Event;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::api::message::{Message, Role};
 use crate::backend::Backend;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::cpu::CpuBackend;
 use crate::family::mistral::MistralConfig;
 use crate::family::mistral::MistralModel;
 use crate::family::mistral::graph::shape::{ShapeBackend, config};
 use crate::family::mistral::graph::{forward, prefill};
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::family::mistral::tokenizer::TekkenTokenizer;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::family::mistral::{MistralContract, template};
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::gguf::loader::GgufFile;
 use crate::kv_cache::scheme::KvQuant;
 use crate::kv_cache::{self, Kv};
 use color_eyre::eyre::bail;
 use std::cell::Cell;
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use std::process::Command;
 use std::rc::Rc;
 
@@ -271,7 +271,7 @@ fn generate_with_prefill<B: Backend, C: Cancel>(
     Ok(tokens)
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 fn teacher_forced_top2<B: Backend>(
     model: &MistralModel<B>,
     req: &Request,
@@ -444,7 +444,7 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
     }
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 #[test]
 #[ignore]
 fn real_greedy_parity() {
@@ -496,7 +496,7 @@ fn real_greedy_parity() {
     assert_eq!(batched, reference, "batched prefill");
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 #[test]
 #[ignore = "requires an approved Ministral model and externally supplied oracle IDs"]
 fn real_ministral_parity() {
@@ -548,7 +548,7 @@ fn real_ministral_parity() {
     );
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 fn completion_bytes(tokenizer: &TekkenTokenizer, tokens: &[u32]) -> Vec<u8> {
     tokens
         .iter()
@@ -556,7 +556,7 @@ fn completion_bytes(tokenizer: &TekkenTokenizer, tokens: &[u32]) -> Vec<u8> {
         .collect()
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 fn reference_completion(model: &str, prompt: &str, context: usize, tokens: usize) -> Vec<u8> {
     let binary = std::env::var("GH_ZERO_REFERENCE_CLI").expect("GH_ZERO_REFERENCE_CLI required");
     let output = Command::new("timeout")
@@ -600,7 +600,7 @@ fn reference_completion(model: &str, prompt: &str, context: usize, tokens: usize
     bytes
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 fn reference_ids(model: &str, text: &str, no_bos: bool) -> Vec<u32> {
     let binary =
         std::env::var("GH_ZERO_REFERENCE_TOKENIZE").expect("GH_ZERO_REFERENCE_TOKENIZE required");
@@ -624,7 +624,7 @@ fn reference_ids(model: &str, text: &str, no_bos: bool) -> Vec<u32> {
         .collect()
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod numeric {
     use crate::backend::Backend;
     use crate::backend::buffers::{Buffers, LayerWeights, Scratch, WeightSet};

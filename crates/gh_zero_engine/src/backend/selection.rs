@@ -8,6 +8,7 @@ use color_eyre::eyre::Result;
 
 #[cfg(any(feature = "cpu", feature = "vulcan"))]
 use super::Backend;
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use super::hybrid::HybridPlan;
 use super::hybrid::weights::runtime::RuntimeShape;
 use super::source::WeightSource;
@@ -130,18 +131,12 @@ pub(crate) fn configure(
     let _ = (cpu_threads, no_attn_simd);
 }
 
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn placement(backend: &SelectedBackend) -> Option<&HybridPlan> {
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
-    {
-        Some(&backend.plan)
-    }
-    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
-    {
-        let _ = backend;
-        None
-    }
+    Some(&backend.plan)
 }
 
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn placement_mode(mode: super::hybrid::HybridMode) -> &'static str {
     #[cfg(feature = "vulcan-hybrid")]
     {
@@ -151,13 +146,9 @@ pub(crate) fn placement_mode(mode: super::hybrid::HybridMode) -> &'static str {
     {
         mode.name_for("all-metal")
     }
-    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
-    {
-        mode.name()
-    }
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
 mod tests {
     use super::*;
     use crate::backend::hybrid::HybridMode;

@@ -77,25 +77,32 @@ impl Engine {
     }
 
     pub fn placement(&self) -> Option<PlacementReport> {
-        crate::backend::selection::placement(&self.model.backend).map(|plan| {
-            let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
-                weights: bytes.weights,
-                kv: bytes.kv,
-                scratch: bytes.scratch,
-                fixed: bytes.fixed,
-                staging: bytes.staging,
-                crossing: bytes.crossing,
-                reserve: bytes.reserve,
-                total: bytes.total,
-            };
-            PlacementReport {
-                mode: crate::backend::selection::placement_mode(plan.mode),
-                cpu_layers: plan.cpu_layers,
-                gpu_layers: plan.gpu_layers,
-                cpu: memory(plan.cpu),
-                gpu: memory(plan.gpu),
-            }
-        })
+        #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+        {
+            crate::backend::selection::placement(&self.model.backend).map(|plan| {
+                let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
+                    weights: bytes.weights,
+                    kv: bytes.kv,
+                    scratch: bytes.scratch,
+                    fixed: bytes.fixed,
+                    staging: bytes.staging,
+                    crossing: bytes.crossing,
+                    reserve: bytes.reserve,
+                    total: bytes.total,
+                };
+                PlacementReport {
+                    mode: crate::backend::selection::placement_mode(plan.mode),
+                    cpu_layers: plan.cpu_layers,
+                    gpu_layers: plan.gpu_layers,
+                    cpu: memory(plan.cpu),
+                    gpu: memory(plan.gpu),
+                }
+            })
+        }
+        #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+        {
+            None
+        }
     }
 
     pub fn generate(&self, request: Request, sink: &mut dyn EventSink) {

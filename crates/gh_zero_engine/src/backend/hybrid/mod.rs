@@ -12,9 +12,11 @@ pub(crate) mod crossing;
 #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod loader;
 pub(crate) mod placement;
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 mod plan;
 pub(crate) mod weights;
 
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) use plan::{BackendBytes, HybridMode, HybridPlan};
 
 #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]

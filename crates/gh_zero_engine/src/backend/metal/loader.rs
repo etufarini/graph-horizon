@@ -51,7 +51,7 @@ pub(crate) fn load(
         file,
         source,
         metadata,
-        &WeightSelection::full(shape.block_count),
+        &WeightSelection::full(metadata.block_count),
     )
 }
 

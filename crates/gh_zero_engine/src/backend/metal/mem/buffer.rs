@@ -36,6 +36,7 @@ pub(crate) struct MetalBuffer {
     offset: usize,
     len: usize,
     format: MetalFormat,
+    #[cfg(test)]
     owner: bool,
     #[cfg(test)]
     lifecycle: Arc<TestLifecycle>,
@@ -70,6 +71,7 @@ impl MetalBuffer {
             offset: 0,
             len,
             format,
+            #[cfg(test)]
             owner: true,
             #[cfg(test)]
             lifecycle: Arc::new(TestLifecycle {
@@ -90,12 +92,14 @@ impl MetalBuffer {
             offset: self.offset.checked_add(offset).ok_or_else(arithmetic)?,
             len,
             format: self.format,
+            #[cfg(test)]
             owner: false,
             #[cfg(test)]
             lifecycle: self.lifecycle.clone(),
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn alias(&self) -> Self {
         Self {
             raw: self.raw.clone(),
@@ -157,6 +161,7 @@ impl MetalBuffer {
         self.format
     }
 
+    #[cfg(test)]
     pub(crate) fn is_owner(&self) -> bool {
         self.owner
     }

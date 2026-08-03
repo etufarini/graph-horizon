@@ -22,11 +22,13 @@ pub(crate) struct MistralGraph;
 
 impl LayeredGraph for MistralGraph {
     type Config = super::MistralConfig;
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     type Batch<'a, B: Backend>
         = prefill::BatchBuffers<'a, B>
     where
         B: 'a;
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     const BATCH_ROWS: usize = prefill::BATCH_ROWS;
 
     fn shape(config: &Self::Config) -> RuntimeShape {
@@ -56,6 +58,7 @@ impl LayeredGraph for MistralGraph {
         forward::token(backend, config, kv, token, position)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn embedding<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
@@ -65,6 +68,7 @@ impl LayeredGraph for MistralGraph {
         forward::embedding(backend, encoder, config, token)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn range<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
@@ -76,6 +80,7 @@ impl LayeredGraph for MistralGraph {
         forward::range(backend, encoder, config, kv, layers, position)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn tail<B: Backend>(backend: &B, encoder: &B::Encoder, config: &Self::Config) {
         tail::record(backend, encoder, config);
     }
@@ -90,14 +95,17 @@ impl LayeredGraph for MistralGraph {
         prefill::prefill_with(backend, config, kv, prompt, before_batch)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>> {
         prefill::BatchBuffers::new(backend, config)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer {
         batch.all(prefill::X)
     }
 
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     fn record_batch<B: Backend>(
         backend: &B,
         config: &Self::Config,

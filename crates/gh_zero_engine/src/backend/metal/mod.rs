@@ -27,6 +27,9 @@ pub(crate) struct MetalBackend {
     pub(crate) pipelines: pipeline::PipelineRegistry,
     pub(crate) buffers: Buffers<MetalBuffer>,
     pub(crate) reduce: MetalBuffer,
+    // Kept alive for the backend lifetime so future transfers cannot outlive
+    // their shared staging allocation; no dispatch reads the handle directly.
+    #[allow(dead_code)]
     pub(crate) staging: MetalBuffer,
 }
 

@@ -11,9 +11,12 @@ use color_eyre::eyre::{Result, bail, eyre};
 use super::graph::MistralGraph;
 use super::{RuntimeModel, template};
 use crate::api::message::{Message, Role};
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::hybrid::HybridMode;
 use crate::backend::selection;
-use crate::runtime::contract::{LayeredGraph, RuntimeSession};
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+use crate::runtime::contract::LayeredGraph;
+use crate::runtime::contract::RuntimeSession;
 
 pub const USER_CONTENT: &str = "Quanto fa 17 × 19?";
 pub const CONTEXT: usize = 4096;
@@ -72,12 +75,15 @@ pub(crate) fn validate(
     }
 
     let crossings = crossing_count();
+    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
     let expected_crossings = match selection::placement(&model.backend).map(|plan| plan.mode) {
         Some(HybridMode::Mixed) => {
             prompt.len().div_ceil(MistralGraph::BATCH_ROWS) + TOKEN_COUNT - 1
         }
         _ => 0,
     };
+    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+    let expected_crossings = 0;
     if crossings != expected_crossings {
         bail!("parity crossing count mismatch");
     }

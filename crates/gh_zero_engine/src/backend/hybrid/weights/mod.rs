@@ -4,5 +4,6 @@
  * allocation, device probes, and family semantics stay outside this module.
  */
 
+#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod model;
 pub(crate) mod runtime;

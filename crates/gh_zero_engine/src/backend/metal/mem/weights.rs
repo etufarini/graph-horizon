@@ -16,15 +16,6 @@ use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::tensor_index::{GgmlType, TensorInfo};
 
-pub(crate) fn load(
-    device: &Device,
-    file: &GgufFile,
-    source: &dyn WeightSource,
-) -> Result<WeightSet<MetalBuffer>> {
-    let layers = source.groups().layers.len();
-    load_selected(device, file, source, &WeightSelection::full(layers))
-}
-
 pub(crate) fn load_selected(
     device: &Device,
     file: &GgufFile,
@@ -288,10 +279,10 @@ mod tests {
                 tensors: file.tensors(),
                 dedicated: false,
             };
-            let weights = load(&device, file, &source)?;
+            let full = WeightSelection::full(1);
+            let weights = load_selected(&device, file, &source, &full)?;
             assert!(weights.output.is_none());
             drop(weights);
-            let full = WeightSelection::full(1);
             for fail_at in 0..=formats.len() {
                 reset_test_counts();
                 assert_eq!(

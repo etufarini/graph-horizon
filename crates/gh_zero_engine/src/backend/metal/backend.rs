@@ -11,11 +11,11 @@ use super::kernels;
 use super::{MetalBackend, MetalBuffer, MetalEncoder, MetalFormat};
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(any(test, not(feature = "metal-hybrid")))]
+#[cfg(test)]
 use crate::backend::source::WeightSource;
-#[cfg(any(test, not(feature = "metal-hybrid")))]
+#[cfg(test)]
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "metal-hybrid")))]
+#[cfg(test)]
 use crate::gguf::metadata::ModelMetadata;
 
 // AGENTS deroga I: singolo `impl Backend for MetalBackend` di delegatori sottili.
@@ -23,7 +23,7 @@ impl Backend for MetalBackend {
     type Buffer = MetalBuffer;
     type Encoder = MetalEncoder;
 
-    #[cfg(any(test, not(feature = "metal-hybrid")))]
+    #[cfg(test)]
     fn load(
         meta: &ModelMetadata,
         source: &dyn WeightSource,

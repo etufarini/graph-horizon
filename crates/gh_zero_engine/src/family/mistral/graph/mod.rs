@@ -11,5 +11,106 @@ pub(crate) mod mlp;
 pub(crate) mod prefill;
 pub(crate) mod tail;
 
+use color_eyre::eyre::Result;
+
+use crate::backend::Backend;
+use crate::backend::hybrid::weights::runtime::RuntimeShape;
+use crate::kv_cache::Kv;
+use crate::runtime::contract::LayeredGraph;
+
+pub(crate) struct MistralGraph;
+
+impl LayeredGraph for MistralGraph {
+    type Config = super::MistralConfig;
+    type Batch<'a, B: Backend>
+        = prefill::BatchBuffers<'a, B>
+    where
+        B: 'a;
+
+    const BATCH_ROWS: usize = prefill::BATCH_ROWS;
+
+    fn shape(config: &Self::Config) -> RuntimeShape {
+        RuntimeShape {
+            block_count: config.block_count,
+            embedding: config.embedding_length,
+            q: config.q_width,
+            k: config.k_width,
+            v: config.v_width,
+            attention: config.attention_width,
+            feed_forward: config.feed_forward_length,
+            vocab: config.vocab_size,
+            kv_heads: config.kv_head_count,
+            key_length: config.key_length,
+            value_length: config.value_length,
+            prefill_rows: prefill::BATCH_ROWS,
+        }
+    }
+
+    fn token<B: Backend>(
+        backend: &B,
+        config: &Self::Config,
+        kv: &Kv<B::Buffer>,
+        token: u32,
+        position: usize,
+    ) -> Result<()> {
+        forward::token(backend, config, kv, token, position)
+    }
+
+    fn embedding<B: Backend>(
+        backend: &B,
+        encoder: &B::Encoder,
+        config: &Self::Config,
+        token: u32,
+    ) -> Result<()> {
+        forward::embedding(backend, encoder, config, token)
+    }
+
+    fn range<B: Backend>(
+        backend: &B,
+        encoder: &B::Encoder,
+        config: &Self::Config,
+        kv: &Kv<B::Buffer>,
+        layers: std::ops::Range<usize>,
+        position: usize,
+    ) -> Result<()> {
+        forward::range(backend, encoder, config, kv, layers, position)
+    }
+
+    fn tail<B: Backend>(backend: &B, encoder: &B::Encoder, config: &Self::Config) {
+        tail::record(backend, encoder, config);
+    }
+
+    fn prefill<B: Backend>(
+        backend: &B,
+        config: &Self::Config,
+        kv: &Kv<B::Buffer>,
+        prompt: &[u32],
+        before_batch: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
+        prefill::prefill_with(backend, config, kv, prompt, before_batch)
+    }
+
+    fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>> {
+        prefill::BatchBuffers::new(backend, config)
+    }
+
+    fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer {
+        batch.all(prefill::X)
+    }
+
+    fn record_batch<B: Backend>(
+        backend: &B,
+        config: &Self::Config,
+        kv: &Kv<B::Buffer>,
+        batch: &Self::Batch<'_, B>,
+        tokens: &[u32],
+        base: usize,
+        embedding: bool,
+        tail: bool,
+    ) -> Result<()> {
+        prefill::record_batch(backend, config, kv, batch, tokens, base, embedding, tail)
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod shape;

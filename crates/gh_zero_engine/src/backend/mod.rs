@@ -9,9 +9,9 @@
 pub(crate) mod buffers;
 pub(crate) mod contract;
 pub(crate) mod f16;
-#[cfg(any(feature = "vulcan-hybrid", test))]
 pub(crate) mod hybrid;
 pub(crate) mod rope;
+pub(crate) mod selection;
 pub(crate) mod source;
 
 pub(crate) use contract::Backend;

@@ -205,12 +205,12 @@ fn record_layer<B: Backend>(
 mod tests {
     #[test]
     fn batched_final_logits_match_sequential_for_both_kv_schemes() {
-        crate::family::mistral::run::numeric::
+        crate::family::mistral::generation::tests::numeric::
             batched_final_logits_match_sequential_for_both_kv_schemes();
     }
 
     #[test]
     fn quantized_profiles_drive_decode_and_short_prefill() {
-        crate::family::mistral::run::numeric::quantized_profiles_drive_decode_and_short_prefill();
+        crate::family::mistral::generation::tests::numeric::quantized_profiles_drive_decode_and_short_prefill();
     }
 }

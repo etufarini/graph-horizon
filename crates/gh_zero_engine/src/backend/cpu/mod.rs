@@ -20,9 +20,6 @@ mod pool;
 mod readback;
 mod weights;
 
-#[cfg(not(any(feature = "vulcan-hybrid", test)))]
-use buffer::CpuBuffer;
-#[cfg(any(feature = "vulcan-hybrid", test))]
 pub(crate) use buffer::CpuBuffer;
 #[cfg(test)]
 pub(crate) use buffer::CpuFormat;
@@ -40,7 +37,6 @@ pub(crate) struct CpuBackend {
     buffers: Buffers<CpuBuffer>,
 }
 
-#[cfg(any(feature = "vulcan-hybrid", test))]
 impl CpuBackend {
     pub(crate) fn load_selected(
         meta: &crate::gguf::metadata::ModelMetadata,

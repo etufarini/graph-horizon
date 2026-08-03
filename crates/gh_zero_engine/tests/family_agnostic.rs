@@ -63,6 +63,7 @@ fn source_structure() {
     const I: &[&str] = &[
         "src/backend/contract.rs",
         "src/backend/cpu/backend.rs",
+        "src/backend/hybrid/contract.rs",
         "src/backend/vulkan/backend.rs",
     ];
     const K: &[&str] = &[
@@ -83,8 +84,9 @@ fn source_structure() {
         "src/backend/vulkan/kernels/matmul.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
+        "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
-        "src/family/mistral/vulkan.rs",
+        "src/family/mistral/vulkan_tests.rs",
     ];
     let mut files = Vec::new();
     collect(&manifest().join("src"), &mut files);

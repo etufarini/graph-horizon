@@ -1,7 +1,7 @@
 /*
  * gh_zero_engine — fused Q5_K CPU matmul kernel
  * Fused dequant+MAC for CpuFormat::Q5_K, the last quantized format moved off the
- * generic materialize-then-dot path (the sibling of matmul_q4k/q6k/q8_0). Q5_K is the
+ * generic materialize-then-dot path (the sibling of matmul_q4k/q6k). Q5_K is the
  * Q4_K super-block (d, dmin, scales[12], qs[128]) plus a 5th bit per quant from
  * qh[32]: sub-block pair `g` (0..3) uses qh bit 2g for the even sub-block (low nibble)
  * and 2g+1 for the odd (high nibble). This kernel never materializes the f32 row — it

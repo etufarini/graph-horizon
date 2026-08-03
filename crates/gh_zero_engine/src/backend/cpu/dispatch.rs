@@ -3,7 +3,7 @@
  * The seam between the `Backend` trait and the matmul kernel module for the three
  * GEMM-family ops (`matmul`, `matmul_batched`, `logits`): the trait methods in `mod.rs`
  * delegate here, and these forward to `kernels::matmul`, which selects the per-CpuFormat
- * kernel (Q4_K/Q6_K/Q8_0/Q5_K fused, else the generic dequant+dot path). Every CpuFormat
+ * kernel (Q4_K/Q5_K/Q6_K fused, else the generic F16 path). Every CpuFormat
  * is covered there, so no weight ever reaches a kernel for the wrong format. Only the
  * u32→usize narrowing lives here; no numeric work. Moved 1:1 from the former `mod.rs`.
 */

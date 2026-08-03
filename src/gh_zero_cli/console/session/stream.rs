@@ -93,12 +93,10 @@ where
         {
             Ok(Some(chunk)) => {
                 let c = chunk?;
-                let mut changed = false;
-                if let Some(r) = runtime::response(&c) {
+                runtime::response(&c).is_some_and(|r| {
                     resp.push_str(r);
-                    changed = true;
-                }
-                changed
+                    true
+                })
             }
             Ok(None) => break,
             Err(_) => false,

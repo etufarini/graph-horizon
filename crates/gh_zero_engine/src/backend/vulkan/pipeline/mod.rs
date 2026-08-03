@@ -30,22 +30,19 @@ pub(crate) struct PipelineRegistry {
 }
 
 // Capability-gated variants are added separately during construction.
-const KERNELS: [Kernel; 28] = [
+const KERNELS: [Kernel; 25] = [
     Kernel::MatmulF16,
     Kernel::MatmulQ4KTiled,
     Kernel::MatmulQ5K,
     Kernel::MatmulQ6K,
-    Kernel::MatmulQ8,
     Kernel::Logits,
     Kernel::LogitsQ4K,
     Kernel::LogitsQ5K,
     Kernel::LogitsQ6K,
-    Kernel::LogitsQ8,
     Kernel::EmbedF16,
     Kernel::EmbedQ4K,
     Kernel::EmbedQ5K,
     Kernel::EmbedQ6K,
-    Kernel::EmbedQ8,
     Kernel::RmsNormX,
     Kernel::Rope,
     Kernel::Residual,

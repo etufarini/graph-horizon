@@ -30,9 +30,6 @@ pub(crate) use buffer::CpuFormat;
 pub(crate) use kernels::attention::set_no_simd;
 #[cfg(all(test, feature = "vulkan"))]
 pub(crate) use kernels::matmul::q4k::row_dot_q4k;
-#[cfg(all(test, feature = "vulkan"))]
-pub(crate) use kernels::matmul::q8_0::row_dot_q8_0;
-
 mod backend;
 
 // CPU execution is eager, so the encoder deliberately carries no state.

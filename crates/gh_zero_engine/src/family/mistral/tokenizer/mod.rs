@@ -2,9 +2,9 @@
  * gh_zero_engine — Tekken tokenizer metadata contract
  * Loads the GGUF byte-level BPE tokenizer metadata required by Ministral 3:
  * Tekken pre-tokenizer marker, unique vocabulary, merge ranks, token types and
- * structural control ids and the immutable private chat profile. Ordinary
- * `encode` treats all caller text as untrusted bytes and never emits structural
- * ids just because their spelling appears.
+ * structural control ids and the immutable Reasoning 2512 policy shared by
+ * 3B/8B/14B. Ordinary `encode` treats caller text as untrusted bytes and never
+ * emits structural ids merely because their spelling appears.
 */
 
 use std::collections::HashMap;
@@ -138,7 +138,7 @@ impl TekkenTokenizer {
         self.special.system_close
     }
     pub(crate) fn uses_reasoning_profile(&self) -> bool {
-        self.profile == profile::ChatProfile::Reasoning3B2512
+        self.profile == profile::ChatProfile::Reasoning2512
     }
     pub(crate) fn encode_reasoning_system(&self, prompt: &str) -> Vec<u32> {
         reasoning::encode(self, prompt)
@@ -226,11 +226,12 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn mini_reasoning_tokenizer() -> TekkenTokenizer {
+        mini_reasoning_tokenizer_for("ministral-3B-Reasoning-2512")
+    }
+
+    fn mini_reasoning_tokenizer_for(name: &str) -> TekkenTokenizer {
         let mut md = mini_md();
-        md.insert(
-            "general.name".into(),
-            GgufValue::String("ministral-3B-Reasoning-2512".into()),
-        );
+        md.insert("general.name".into(), GgufValue::String(name.into()));
         if let Some(GgufValue::Array(tokens)) = md.get_mut("tokenizer.ggml.tokens") {
             tokens.extend([
                 GgufValue::String("[THINK]".into()),
@@ -299,15 +300,45 @@ pub(crate) mod tests {
 
     #[test]
     fn reasoning_profile_requires_release_marker_ids() {
-        let mut md = mini_md();
+        for name in [
+            "ministral-3B-Reasoning-2512",
+            "ministral-8B-Reasoning-2512",
+            "ministral-14B-Reasoning-2512",
+        ] {
+            assert!(mini_reasoning_tokenizer_for(name).uses_reasoning_profile());
+            let mut md = mini_md();
+            md.insert("general.name".into(), GgufValue::String(name.into()));
+            assert_eq!(
+                TekkenTokenizer::from_metadata(&md)
+                    .err()
+                    .expect("missing Reasoning marker IDs must fail")
+                    .to_string(),
+                "E09 invalid Tekken tokenizer"
+            );
+        }
+    }
+
+    #[test]
+    fn profile_classification_precedes_tokenizer_validation() {
+        let mut md = HashMap::from([(
+            "general.name".into(),
+            GgufValue::String("ministral-7B-Reasoning-2512".into()),
+        )]);
+        assert_eq!(
+            TekkenTokenizer::from_metadata(&md)
+                .err()
+                .expect("unsupported Reasoning name must fail")
+                .to_string(),
+            "E05 unsupported reasoning model; supported reasoning models: Ministral 3 3B, 8B, and 14B Reasoning 2512"
+        );
         md.insert(
             "general.name".into(),
-            GgufValue::String("ministral-3B-Reasoning-2512".into()),
+            GgufValue::String("ordinary-instruct".into()),
         );
         assert_eq!(
             TekkenTokenizer::from_metadata(&md)
                 .err()
-                .expect("missing Reasoning marker IDs must fail")
+                .expect("malformed Instruct tokenizer must fail")
                 .to_string(),
             "E09 invalid Tekken tokenizer"
         );
@@ -319,6 +350,33 @@ pub(crate) mod tests {
         let ids = tok.encode("[INST]");
         assert!(!ids.contains(&tok.inst_open_id()));
         assert_eq!(ids, b"[INST]".iter().map(|b| *b as u32).collect::<Vec<_>>());
+
+        let reasoning = mini_reasoning_tokenizer();
+        let ids = reasoning.encode("[THINK]x[/THINK]");
+        assert!(!ids.contains(&262));
+        assert!(!ids.contains(&263));
+    }
+
+    #[test]
+    fn chat_template_metadata_is_not_executed() {
+        let baseline = mini_tokenizer().encode("hello");
+        let mut md = mini_md();
+        md.insert(
+            "tokenizer.chat_template".into(),
+            GgufValue::String("{{ raise_exception('must not execute') }}".into()),
+        );
+        assert_eq!(
+            TekkenTokenizer::from_metadata(&md).unwrap().encode("hello"),
+            baseline
+        );
+    }
+
+    #[test]
+    fn public_constructor_and_renderer_signatures_are_unchanged() {
+        let _: fn(&HashMap<String, GgufValue>) -> Result<TekkenTokenizer> =
+            TekkenTokenizer::from_metadata;
+        let _: fn(&[crate::api::message::Message], &TekkenTokenizer, usize) -> Result<Vec<u32>> =
+            crate::render_chat_prompt;
     }
 
     #[test]
@@ -444,16 +502,13 @@ pub(crate) mod tests {
 
     #[test]
     #[ignore]
-    fn pinned_differential_vectors_match_both_artifacts() {
+    fn pinned_differential_vectors_match_q4_artifact() {
         use crate::gguf::loader::GgufFile;
         use std::process::Command;
 
         let binary = std::env::var("GH_ZERO_REFERENCE_TOKENIZE")
             .expect("GH_ZERO_REFERENCE_TOKENIZE required");
-        let models = [
-            std::env::var("GH_ZERO_MODEL_Q8_0").expect("GH_ZERO_MODEL_Q8_0 required"),
-            std::env::var("GH_ZERO_MODEL_Q4_K_M").expect("GH_ZERO_MODEL_Q4_K_M required"),
-        ];
+        let model = std::env::var("GH_ZERO_MODEL_Q4_K_M").expect("GH_ZERO_MODEL_Q4_K_M required");
         let corpus = [
             ("ascii", "ASCII words 42"),
             ("contractions punctuation", "can't, won't... /"),
@@ -469,37 +524,35 @@ pub(crate) mod tests {
             ),
         ];
 
-        for model in &models {
-            let file = GgufFile::open(std::path::Path::new(model)).expect("open pinned GGUF");
-            let tokenizer =
-                TekkenTokenizer::from_metadata(file.metadata()).expect("load Tekken metadata");
-            for (name, text) in corpus {
-                let output = Command::new(&binary)
-                    .args([
-                        "--log-disable",
-                        "--ids",
-                        "--no-bos",
-                        "--no-parse-special",
-                        "--no-escape",
-                        "-m",
-                        model,
-                        "-p",
-                        text,
-                    ])
-                    .output()
-                    .expect("run pinned tokenizer");
-                assert!(output.status.success(), "{name}");
-                let expected = std::str::from_utf8(&output.stdout)
-                    .unwrap()
-                    .split_whitespace()
-                    .filter_map(|word| {
-                        word.trim_matches(|ch| ch == '[' || ch == ']' || ch == ',')
-                            .parse::<u32>()
-                            .ok()
-                    })
-                    .collect::<Vec<_>>();
-                assert_eq!(tokenizer.encode(text), expected, "{model}: {name}");
-            }
+        let file = GgufFile::open(std::path::Path::new(&model)).expect("open pinned GGUF");
+        let tokenizer =
+            TekkenTokenizer::from_metadata(file.metadata()).expect("load Tekken metadata");
+        for (name, text) in corpus {
+            let output = Command::new(&binary)
+                .args([
+                    "--log-disable",
+                    "--ids",
+                    "--no-bos",
+                    "--no-parse-special",
+                    "--no-escape",
+                    "-m",
+                    model.as_str(),
+                    "-p",
+                    text,
+                ])
+                .output()
+                .expect("run pinned tokenizer");
+            assert!(output.status.success(), "{name}");
+            let expected = std::str::from_utf8(&output.stdout)
+                .unwrap()
+                .split_whitespace()
+                .filter_map(|word| {
+                    word.trim_matches(|ch| ch == '[' || ch == ']' || ch == ',')
+                        .parse::<u32>()
+                        .ok()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(tokenizer.encode(text), expected, "{model}: {name}");
         }
     }
 }

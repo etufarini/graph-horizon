@@ -1,14 +1,15 @@
 /*
  * GH Zero CLI Modules - Console - Render - Conversation - Answer
- * Single responsibility: push prompt, assistant text, and loading spinner lines
- * for one turn. It depends on wrapping/style helpers and does not render tools,
- * confirmations, or a separately labelled internal channel.
+ * Pushes prompt, separately labelled Reasoning, final answer, and spinner lines
+ * for one turn. Parsing is delegated to the sibling module; runtime and history
+ * ownership remain elsewhere.
  */
 
 use ratatui::prelude::*;
 
 use super::super::SectionStyle;
 use super::super::wrap::{push_prefixed_lines, push_wrapped_lines};
+use super::reasoning::split_reasoning;
 
 // Adds one user prompt, preserving multiline input and inline completion on the last line.
 pub(super) fn push_prompt(
@@ -39,9 +40,12 @@ pub(super) fn push_answer(
     width: u16,
     response: &str,
     loading: bool,
+    streaming: bool,
     revision: u64,
 ) {
-    if loading {
+    let view = split_reasoning(response, streaming);
+    // Undecided marker bytes stay hidden behind the established loading signal.
+    if loading || view.pending {
         // Spinner frames keep the loading state visible while the HTTP stream opens.
         const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let frame = SPINNER[revision as usize % SPINNER.len()];
@@ -52,11 +56,30 @@ pub(super) fn push_answer(
             SectionStyle::Secondary,
             &format!("[{frame} generating]"),
         );
+        return;
     }
 
-    if !response.is_empty() {
+    if let Some(thinking) = view.thinking {
         lines.push(Line::default());
-        for line in response.split('\n') {
+        push_wrapped_lines(lines, width, SectionStyle::Secondary, "[THINK]");
+        if !thinking.is_empty() {
+            for line in thinking.split('\n') {
+                push_wrapped_lines(lines, width, SectionStyle::Secondary, line);
+            }
+        }
+        lines.push(Line::default());
+        if view.answer.is_empty() {
+            if !streaming {
+                push_wrapped_lines(lines, width, SectionStyle::Secondary, "[no response]");
+            }
+        } else {
+            for line in view.answer.split('\n') {
+                push_wrapped_lines(lines, width, SectionStyle::Response, line);
+            }
+        }
+    } else if !view.answer.is_empty() {
+        lines.push(Line::default());
+        for line in view.answer.split('\n') {
             push_wrapped_lines(lines, width, SectionStyle::Response, line);
         }
     }

@@ -1,6 +1,7 @@
 /*
  * gh_zero_engine — Ministral architecture detector
- * Gates untrusted GGUF architecture/capabilities/profile and returns E03-E05 without allocation or path disclosure.
+ * Gates untrusted GGUF architecture, forbidden capabilities, and the sole
+ * Q4_K_M profile without allocating resources or returning a dispatch value.
  */
 
 use std::collections::HashMap;
@@ -10,17 +11,7 @@ use color_eyre::eyre::{Result, bail, eyre};
 use crate::gguf::loader::GgufValue;
 use crate::gguf::tensor_index::TensorInfo;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(non_camel_case_types)]
-pub enum WeightProfile {
-    Q8_0,
-    Q4_K_M,
-}
-
-pub(crate) fn detect(
-    md: &HashMap<String, GgufValue>,
-    tensors: &[TensorInfo],
-) -> Result<WeightProfile> {
+pub(crate) fn detect(md: &HashMap<String, GgufValue>, tensors: &[TensorInfo]) -> Result<()> {
     let arch = md
         .get("general.architecture")
         .and_then(|v| v.as_str())
@@ -32,16 +23,15 @@ pub(crate) fn detect(
     profile(md)
 }
 
-fn profile(md: &HashMap<String, GgufValue>) -> Result<WeightProfile> {
+fn profile(md: &HashMap<String, GgufValue>) -> Result<()> {
     match md
         .get("general.file_type")
         .and_then(unsigned_value)
         .ok_or_else(|| eyre!("E06 missing or invalid GGUF metadata 'general.file_type'"))?
     {
-        7 => Ok(WeightProfile::Q8_0),
-        15 => Ok(WeightProfile::Q4_K_M),
+        15 => Ok(()),
         other => bail!(
-            "E04 unsupported GGUF weight profile '{}'; supported profiles: Q8_0, Q4_K_M",
+            "E04 unsupported GGUF weight profile '{}'; supported profile: Q4_K_M",
             file_type_name(other)
         ),
     }
@@ -61,6 +51,7 @@ fn file_type_name(value: u64) -> String {
     match value {
         0 => "F32".into(),
         1 => "F16".into(),
+        7 => "Q8_0".into(),
         14 => "Q6_K".into(),
         16 => "IQ2_XXS".into(),
         other => format!("unknown({other})"),
@@ -113,8 +104,7 @@ fn real_contract() {
         OutputTensor::Dedicated(_) => "dedicated",
     };
     println!(
-        "profile={:?} hidden={} q={} k={} v={} histogram={:?} output={output} vocab={} bos={} eos={}",
-        contract.profile,
+        "profile=Q4_K_M hidden={} q={} k={} v={} histogram={:?} output={output} vocab={} bos={} eos={}",
         contract.config.embedding_length,
         contract.config.q_width,
         contract.config.k_width,
@@ -144,19 +134,49 @@ mod tests {
     }
 
     #[test]
-    fn error_matrix_e04_accepts_only_two_public_profiles() {
+    fn error_matrix_e04_accepts_only_q4_k_m() {
+        assert!(detect(&md("mistral3", 15), &[]).is_ok());
+        for (file_type, name) in [
+            (7, "Q8_0"),
+            (0, "F32"),
+            (1, "F16"),
+            (14, "Q6_K"),
+            (99, "unknown(99)"),
+        ] {
+            let err = detect(&md("mistral3", file_type), &[])
+                .unwrap_err()
+                .to_string();
+            assert_eq!(
+                err,
+                format!("E04 unsupported GGUF weight profile '{name}'; supported profile: Q4_K_M")
+            );
+        }
+    }
+
+    #[test]
+    fn file_type_requires_an_unsigned_integer_and_accepts_all_unsigned_widths() {
+        for value in [
+            GgufValue::U8(15),
+            GgufValue::U16(15),
+            GgufValue::U32(15),
+            GgufValue::U64(15),
+        ] {
+            let mut metadata = md("mistral3", 15);
+            metadata.insert("general.file_type".into(), value);
+            assert!(detect(&metadata, &[]).is_ok());
+        }
+
+        let mut metadata = md("mistral3", 15);
+        metadata.remove("general.file_type");
         assert_eq!(
-            detect(&md("mistral3", 7), &[]).unwrap(),
-            WeightProfile::Q8_0
+            detect(&metadata, &[]).unwrap_err().to_string(),
+            "E06 missing or invalid GGUF metadata 'general.file_type'"
         );
+        metadata.insert("general.file_type".into(), GgufValue::String("15".into()));
         assert_eq!(
-            detect(&md("mistral3", 15), &[]).unwrap(),
-            WeightProfile::Q4_K_M
+            detect(&metadata, &[]).unwrap_err().to_string(),
+            "E06 missing or invalid GGUF metadata 'general.file_type'"
         );
-        let err = detect(&md("mistral3", 14), &[]).unwrap_err().to_string();
-        assert!(err.contains("E04 unsupported GGUF weight profile 'Q6_K'"));
-        let err = detect(&md("mistral3", 99), &[]).unwrap_err().to_string();
-        assert!(err.contains("E04 unsupported GGUF weight profile 'unknown(99)'"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 /*
  * gh_zero_engine — real Ministral Vulkan parity test
  * Owns family-specific real GGUF checks, including the shared exact-vector
- * Reasoning parity contract. It is compiled only for Vulkan tests and does not
+ * Ministral parity contract. It is compiled only for Vulkan tests and does not
  * alter runtime family selection.
  */
 
@@ -265,7 +265,6 @@ fn real_greedy_parity() {
     assert_eq!(prompt, reference_prompt);
     let reference_first = reference_first_id(&model, prompt_text, context);
 
-    let profile = contract.profile;
     let model = match MistralModel::<VulkanBackend>::load(&file, context) {
         Ok(model) => model,
         Err(err) => {
@@ -306,16 +305,15 @@ fn real_greedy_parity() {
         .expect("Vulkan greedy token");
     crate::kv_cache::free(&model.backend, kv);
     println!(
-        "profile={:?} kv={} prompt_ids={prompt:?} reference_first={reference_first} vulkan_first={got}",
-        profile,
+        "profile=Q4_K_M kv={} prompt_ids={prompt:?} reference_first={reference_first} vulkan_first={got}",
         scheme.name()
     );
     assert_eq!(got, reference_first);
 }
 
 #[test]
-#[ignore = "requires an approved Reasoning model, Vulkan, and oracle IDs"]
-fn real_reasoning_parity() {
+#[ignore = "requires an approved Ministral model, Vulkan, and oracle IDs"]
+fn real_ministral_parity() {
     let path = std::env::var("GH_ZERO_MODEL").expect("GH_ZERO_MODEL required");
     let context = std::env::var("GH_ZERO_CONTEXT")
         .expect("GH_ZERO_CONTEXT required")
@@ -328,16 +326,9 @@ fn real_reasoning_parity() {
         .expect("GH_ZERO_KV must be f16 or int8");
     let reference = parity::reference_vectors();
     let file = GgufFile::open(std::path::Path::new(&path)).expect("open approved GGUF");
-    let contract = MistralContract::from_gguf(&file).expect("Reasoning contract");
-    let prompt = template::render(
-        &[Message {
-            role: Role::User,
-            content: parity::USER_CONTENT.into(),
-        }],
-        &contract.tokenizer,
-        context,
-    )
-    .expect("Reasoning prompt");
+    let contract = MistralContract::from_gguf(&file).expect("Ministral contract");
+    let prompt = template::render(&parity::conversation(), &contract.tokenizer, context)
+        .expect("Ministral prompt");
     parity::assert_exact("prompt IDs", &prompt, &reference.prompt);
 
     let model = match MistralModel::<VulkanBackend>::load(&file, context) {
@@ -349,17 +340,17 @@ fn real_reasoning_parity() {
         Err(error) => panic!("Vulkan load failed: {error}"),
     };
     let actual = vulkan_completion(&model, &prompt, context, scheme);
+    assert_eq!(actual.len(), parity::TOKEN_COUNT);
     let top2 = vulkan_teacher_top2(&model, &prompt, context, scheme, &reference.completion);
     println!(
-        "profile={:?} release={} kv={} prompt_ids={prompt:?} reference_completion_ids={:?} vulkan_ids={actual:?} teacher_top2={top2:?}",
-        contract.profile,
+        "profile=Q4_K_M release={} kv={} prompt_ids={prompt:?} reference_completion_ids={:?} vulkan_ids={actual:?} teacher_top2={top2:?}",
         version::RELEASE,
         scheme.name(),
         reference.completion
     );
     parity::assert_oracle_top2(&top2, &reference.completion);
     println!(
-        "reasoning-parity: local_ids={} oracle_top2=pass",
+        "ministral-parity: local_ids={} oracle_top2=pass",
         parity::csv(&actual)
     );
 }

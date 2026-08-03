@@ -13,14 +13,13 @@ use color_eyre::eyre::{Result, eyre};
 use crate::backend::vulkan::device::Device;
 
 // Weight layout for matmul/dequant dispatch. F16 covers genuine F16 weights and F32
-// norms converted on upload; Q4K/Q6K/Q8 keep ggml block bytes.
+// norms converted on upload; Q4K/Q5K/Q6K keep ggml block bytes.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WeightFormat {
     F16,
     Q4K,
     Q5K,
     Q6K,
-    Q8,
 }
 
 // One GPU buffer plus the memory backing it. `host_visible` records whether it

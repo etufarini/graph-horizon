@@ -1,0 +1,8 @@
+# Trusted validation artifact catalog; the runtime engine never reads this file.
+# model_id	chat	q4_filename	bytes	sha256	q8_rejection_filename
+3b-instruct	instruct	Ministral-3-3B-Instruct-2512-Q4_K_M.gguf	2147023008	9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8	Ministral-3-3B-Instruct-2512-Q8_0.gguf
+3b-reasoning	reasoning	Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf	2147021472	7e9516cc01a039bb3e2d41227cdf388849bc1c942c4624c84567b1684cd9c0fc	Ministral-3-3B-Reasoning-2512-Q8_0.gguf
+8b-instruct	instruct	Ministral-3-8B-Instruct-2512-Q4_K_M.gguf	5198911904	33e7a72cf5e6e2cfc2f2847075acc013d68bba023e35310cef86b5cf8fdca761	Ministral-3-8B-Instruct-2512-Q8_0.gguf
+8b-reasoning	reasoning	Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf	5198910368	894aa3645ef8708a81dbe201c26105ce37c4c741252c89c5a78f81b49ac438c6	Ministral-3-8B-Reasoning-2512-Q8_0.gguf
+14b-instruct	instruct	Ministral-3-14B-Instruct-2512-Q4_K_M.gguf	8239593024	824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613	Ministral-3-14B-Instruct-2512-Q8_0.gguf
+14b-reasoning	reasoning	Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf	8239591488	fe08ca2158cd7438211ec6a4e5256d31bc980f016e3f5b635fe91fe6848d461c	Ministral-3-14B-Reasoning-2512-Q8_0.gguf

@@ -261,14 +261,10 @@ mod tests {
     }
 
     #[test]
-    fn representation_sizes_cover_q8_and_mixed_q4_q6_formats() {
+    fn representation_sizes_cover_mixed_q4_q6_formats() {
         assert_eq!(
             representation_bytes(&tensor(GgmlType::F32, &[3])).unwrap(),
             32
-        );
-        assert_eq!(
-            representation_bytes(&tensor(GgmlType::Q8_0, &[32])).unwrap(),
-            64
         );
         assert_eq!(
             representation_bytes(&tensor(GgmlType::Q4_K, &[256])).unwrap(),

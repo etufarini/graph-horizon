@@ -63,10 +63,8 @@ pub(crate) fn sample(logits: &mut [f32], p: &SamplingParams, recent: &[u32], rng
         let k = p.top_k as usize;
         cand.select_nth_unstable_by(k - 1, order);
         cand.truncate(k);
-        cand.sort_unstable_by(order);
-    } else {
-        cand.sort_unstable_by(order);
     }
+    cand.sort_unstable_by(order);
 
     // 4b–6) Shared tail: softmax → top-p → min-p → inverse-CDF draw.
     sample_from_candidates(cand, p, rng)

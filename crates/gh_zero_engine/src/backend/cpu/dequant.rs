@@ -1,8 +1,8 @@
 /*
  * gh_zero_engine — CPU weight dequantization
  * Scalar transcription of the on-the-fly dequantization the Vulkan shaders do
- * (matmul_q8_0/q4_k/q6_k.comp). Holds the ggml block layouts — Q8_0 (34 B / 32
- * values), Q4_K (144 B / 256 values, with get_scale_min_k4), Q5_K (176 B / 256
+ * for the retained Q4_K/Q5_K/Q6_K formats. Holds their ggml block layouts —
+ * Q4_K (144 B / 256 values, with get_scale_min_k4), Q5_K (176 B / 256
  * values, Q4_K layout plus a 5th bit per quant from qh[32]), Q6_K (210 B / 256
  * values) — and the F16 widening. Length validation lives HERE and only runs at
  * `load`: `dequant_row` returns `()` and assumes valid blocks, exactly like the
@@ -21,7 +21,6 @@ use super::buffer::{CpuFormat, f16_to_f32};
 pub(crate) fn block_len(format: CpuFormat) -> usize {
     match format {
         CpuFormat::F16 => 2,
-        CpuFormat::Q8_0 => 34,
         CpuFormat::Q4_K => 144,
         CpuFormat::Q5_K => 176,
         CpuFormat::Q6_K => 210,
@@ -32,7 +31,7 @@ pub(crate) fn block_len(format: CpuFormat) -> usize {
 // Validates a quantized weight's byte length at load: it must be a whole number
 // of blocks. This is the only place the block sizes are checked; downstream
 // kernels then assume valid blocks. GGUF data is untrusted, so this is an
-// explicit guard (the Vulkan path only guards Q8_0; Q4_K/Q6_K are new here).
+// explicit guard shared by every retained quantized CPU format.
 pub(crate) fn validate(format: CpuFormat, byte_len: usize) -> Result<()> {
     let bl = block_len(format);
     if !byte_len.is_multiple_of(bl) {
@@ -59,11 +58,10 @@ pub(crate) fn dequant_row(
                 *o = f16_at(bytes, base + i * 2);
             }
         }
-        CpuFormat::Q8_0 => dequant_row_q8_0(bytes, row, in_dim, out),
         CpuFormat::Q4_K => dequant_row_q4_k(bytes, row, in_dim, out),
         CpuFormat::Q5_K => dequant_row_q5_k(bytes, row, in_dim, out),
         CpuFormat::Q6_K => dequant_row_q6_k(bytes, row, in_dim, out),
-        // F32 is not a weight format; weights are only F16/Q8_0/Q4_K/Q6_K.
+        // F32 is not a weight format; weights are F16/Q4_K/Q5_K/Q6_K.
         CpuFormat::F32 => unreachable!("cpu: F32 is not a quantized weight format"),
     }
 }
@@ -71,20 +69,6 @@ pub(crate) fn dequant_row(
 // FP16 at byte address `b` (two little-endian bytes) widened to f32.
 fn f16_at(bytes: &[u8], b: usize) -> f32 {
     f16_to_f32(u16::from_le_bytes([bytes[b], bytes[b + 1]]))
-}
-
-// Q8_0: block = d(f16) | 32 int8 q; x_i = d * q_i. Mirror of matmul_q8_0.comp.
-fn dequant_row_q8_0(bytes: &[u8], row: usize, in_dim: usize, out: &mut [f32]) {
-    let nb = in_dim / 32;
-    let base = row * nb * 34;
-    for s in 0..nb {
-        let blk = base + s * 34;
-        let d = f16_at(bytes, blk);
-        for l in 0..32 {
-            let q = bytes[blk + 2 + l] as i8 as f32;
-            out[s * 32 + l] = d * q;
-        }
-    }
 }
 
 // 6-bit scale/min codes of sub-block `j` (0..7) from scales[12] at byte `sco`.
@@ -437,30 +421,12 @@ mod tests {
 
     #[test]
     fn validate_rejects_partial_blocks() {
-        assert!(validate(CpuFormat::Q8_0, 34 * 3).is_ok());
-        assert!(validate(CpuFormat::Q8_0, 34 * 3 + 1).is_err());
         assert!(validate(CpuFormat::Q4_K, 144).is_ok());
         assert!(validate(CpuFormat::Q4_K, 143).is_err());
         assert!(validate(CpuFormat::Q6_K, 210 * 2).is_ok());
         assert!(validate(CpuFormat::Q6_K, 209).is_err());
         assert!(validate(CpuFormat::Q5_K, 176).is_ok());
         assert!(validate(CpuFormat::Q5_K, 175).is_err());
-    }
-
-    #[test]
-    fn q8_0_single_block() {
-        // One Q8_0 block: scale d, then 32 int8 quants. x_i = d * q_i.
-        let d = 0.5f32;
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&f32_to_f16(d).to_le_bytes());
-        for i in 0..32i32 {
-            bytes.push((i - 16) as i8 as u8); // -16..15
-        }
-        let mut out = vec![0f32; 32];
-        dequant_row(CpuFormat::Q8_0, &bytes, 0, 32, &mut out);
-        for (i, &value) in out.iter().enumerate().take(32) {
-            assert_eq!(value, d * (i as i32 - 16) as f32);
-        }
     }
 
     #[test]
@@ -485,27 +451,6 @@ mod tests {
             (got - want).abs() <= tol,
             "golden mismatch: got {got}, want {want}"
         );
-    }
-
-    // Q8_0 golden: block = d(f16) | 32 int8 q; x_l = d * q_l. Independent
-    // reference: d = 2.0, q_l = l - 16, so x_l = 2*(l-16). Spot literals below.
-    #[test]
-    fn q8_0_golden_vector() {
-        let d = 2.0f32;
-        let mut bytes = Vec::new();
-        bytes.extend_from_slice(&f32_to_f16(d).to_le_bytes());
-        for l in 0..32i32 {
-            bytes.push((l - 16) as i8 as u8);
-        }
-        let mut out = vec![0f32; 32];
-        dequant_row(CpuFormat::Q8_0, &bytes, 0, 32, &mut out);
-        for (l, &value) in out.iter().enumerate().take(32) {
-            approx_eq(value, 2.0 * (l as f32 - 16.0));
-        }
-        // Hand-computed literal anchors.
-        approx_eq(out[0], -32.0);
-        approx_eq(out[16], 0.0);
-        approx_eq(out[31], 30.0);
     }
 
     // Q4_K golden: block = d(f16)|dmin(f16)|scales[12]|qs[128]; 8 sub-blocks of 32,

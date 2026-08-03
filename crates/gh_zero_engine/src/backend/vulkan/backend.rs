@@ -150,7 +150,7 @@ impl Backend for VulkanBackend {
     }
 
     // Embedding lookup into the FP32 residual stream. FP16 token_embd is a
-    // widening copy; Q4_K/Q6_K/Q8_0 are dequantized on the fly (Q6_K covers the
+    // widening copy; Q4_K/Q5_K/Q6_K are dequantized on the fly (Q6_K covers the
     // tied-embedding lm_head of the Q4_K_M/Q6_K causal models).
     fn embed(
         &self,

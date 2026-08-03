@@ -1,7 +1,8 @@
 /*
  * GH Zero CLI Modules - Console - Render - Conversation
  * Builds scrollable terminal lines from completed chat turns plus the active input or stream.
- * This folder owns only conversation-to-lines conversion; frame drawing and caching stay in render.
+ * This folder includes display-only Reasoning separation; raw history remains
+ * in turn/message fields, while frame drawing and caching stay in render.
  */
 
 use ratatui::prelude::*;
@@ -15,6 +16,7 @@ use suggestions::push_suggestions;
 
 mod answer;
 mod caret;
+mod reasoning;
 mod suggestions;
 
 pub(crate) use suggestions::SUGGESTION_THRESHOLD;
@@ -71,7 +73,7 @@ pub(crate) fn build_lines(
 
     for turn in content.history {
         push_prompt(&mut lines, width, &turn.prompt, None);
-        push_answer(&mut lines, width, &turn.response, false, revision);
+        push_answer(&mut lines, width, &turn.response, false, false, revision);
         lines.push(Line::default());
     }
 
@@ -87,7 +89,14 @@ pub(crate) fn build_lines(
         content.suggestions,
         content.suggestion_scroll,
     );
-    push_answer(&mut lines, width, content.resp, content.loading, revision);
+    push_answer(
+        &mut lines,
+        width,
+        content.resp,
+        content.loading,
+        content.caret.is_none(),
+        revision,
+    );
 
     trim_trailing_blank(&mut lines);
     lines
@@ -95,7 +104,7 @@ pub(crate) fn build_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::super::TokenStatus;
+    use super::super::{SectionStyle, TokenStatus, format_span};
     use super::*;
     use crate::gh_zero_cli::runtime::Throughput;
 
@@ -224,6 +233,128 @@ mod tests {
     }
 
     #[test]
+    fn separates_complete_thinking_and_answer() {
+        let content = output("[THINK]passo[/THINK]risposta");
+        let lines = build_lines(20, 1, &content);
+
+        assert_eq!(
+            texts(&lines),
+            vec!["> prompt", "", "[THINK]", "passo", "", "risposta"]
+        );
+        assert_line_style(&lines[2], SectionStyle::Secondary);
+        assert_line_style(&lines[3], SectionStyle::Secondary);
+        assert_line_style(&lines[5], SectionStyle::Response);
+    }
+
+    #[test]
+    fn streams_unclosed_thinking_without_placeholder() {
+        let content = output("[THINK]passo");
+
+        assert_eq!(
+            texts(&build_lines(20, 1, &content)),
+            vec!["> prompt", "", "[THINK]", "passo"]
+        );
+    }
+
+    #[test]
+    fn completed_unclosed_thinking_has_missing_response_label() {
+        let history = vec![ChatTurn::new(
+            "prompt".to_string(),
+            "[THINK]passo".to_string(),
+            Vec::new(),
+        )];
+        let content = input(&history, "next");
+
+        assert_eq!(
+            texts(&build_lines(20, 1, &content)),
+            vec![
+                "> prompt",
+                "",
+                "[THINK]",
+                "passo",
+                "",
+                "[no response]",
+                "",
+                "> next"
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_thinking_keeps_label_before_answer() {
+        let content = output("[THINK][/THINK]risposta");
+
+        assert_eq!(
+            texts(&build_lines(20, 1, &content)),
+            vec!["> prompt", "", "[THINK]", "", "risposta"]
+        );
+    }
+
+    #[test]
+    fn pending_prefix_uses_spinner_and_hides_raw_text() {
+        let content = output("[TH");
+        let visible = texts(&build_lines(20, 1, &content));
+
+        assert_eq!(visible, vec!["> prompt", "", "[⠙ generating]"]);
+        assert!(!visible.iter().any(|line| line.contains("[TH")));
+    }
+
+    #[test]
+    fn contradicted_prefix_is_an_ordinary_response() {
+        let content = output("[THX");
+
+        assert_eq!(
+            texts(&build_lines(20, 1, &content)),
+            vec!["> prompt", "", "[THX"]
+        );
+    }
+
+    #[test]
+    fn additional_markers_remain_literal() {
+        let content = output("[THINK]a[THINK]b[/THINK]c[/THINK]");
+
+        assert_eq!(
+            texts(&build_lines(40, 1, &content)),
+            vec!["> prompt", "", "[THINK]", "a[THINK]b", "", "c[/THINK]"]
+        );
+    }
+
+    #[test]
+    fn completed_and_streaming_views_have_equal_sections() {
+        let raw = "[THINK]passo[/THINK]risposta";
+        let mut completed = Vec::new();
+        let mut streaming = Vec::new();
+        push_answer(&mut completed, 20, raw, false, false, 1);
+        push_answer(&mut streaming, 20, raw, false, true, 1);
+
+        assert_eq!(texts(&completed), texts(&streaming));
+    }
+
+    #[test]
+    fn narrow_unicode_reasoning_wraps_without_loss() {
+        let mut lines = Vec::new();
+        push_answer(&mut lines, 4, "[THINK]中文[/THINK]答案", false, false, 1);
+
+        assert_eq!(texts(&lines), vec!["", "[THI", "NK]", "中文", "", "答案"]);
+    }
+
+    #[test]
+    fn section_and_content_owned_blank_lines_remain_distinct() {
+        let content = output("[THINK]\none\n\n[/THINK]\nanswer\n");
+        let lines = build_lines(20, 1, &content);
+
+        assert_eq!(
+            texts(&lines),
+            vec![
+                "> prompt", "", "[THINK]", "", "one", "", "", "", "", "answer", ""
+            ]
+        );
+        assert_eq!(lines[6].spans.len(), 1);
+        assert!(lines[7].spans.is_empty());
+        assert_eq!(lines[8].spans.len(), 1);
+    }
+
+    #[test]
     fn counts_only_committed_messages_not_display_or_input() {
         // Only stored messages count: display text and the in-progress prompt do
         // not affect the number until a completed turn enters history.
@@ -255,6 +386,44 @@ mod tests {
             .iter()
             .map(|span| span.content.as_ref())
             .collect::<String>()
+    }
+
+    fn texts(lines: &[Line<'_>]) -> Vec<String> {
+        lines.iter().map(line_text).collect()
+    }
+
+    fn assert_line_style(line: &Line<'_>, section: SectionStyle) {
+        let expected = format_span(section, String::new()).style;
+        assert!(line.spans.iter().all(|span| span.style == expected));
+    }
+
+    fn output(response: &str) -> RenderContent<'_> {
+        RenderContent::output(
+            &[],
+            "prompt",
+            response,
+            TokenStatus::Active,
+            0,
+            Throughput::default(),
+            0,
+            None,
+        )
+    }
+
+    fn input<'a>(history: &'a [ChatTurn], prompt: &'a str) -> RenderContent<'a> {
+        RenderContent::input(
+            history,
+            prompt,
+            "",
+            0,
+            &[],
+            0,
+            TokenStatus::Active,
+            0,
+            Throughput::default(),
+            0,
+            None,
+        )
     }
 
     // Returns the text of the single reverse-styled span — the caret cell — across all

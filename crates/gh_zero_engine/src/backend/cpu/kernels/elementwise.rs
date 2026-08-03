@@ -7,6 +7,8 @@
  * owns no dispatch or storage lifecycle.
 */
 
+// AGENTS deroga K: kernel elementwise denso, una sola operazione.
+
 use super::super::buffer::{CpuBuffer, f16_to_f32, f32_to_f16};
 use super::super::dequant;
 use super::super::parallel;
@@ -18,9 +20,8 @@ fn round_f16(v: f32) -> f32 {
     f16_to_f32(f32_to_f16(v))
 }
 
-// Dequantizes row `token` of token_embd (any of the 4 formats) into the FP32
-// residual stream `x`. Mirror of embed_{f16,q8_0,q4_k}.comp (extended to Q6_K via
-// dequant_row, which already handles all four formats).
+// Dequantizes row `token` of token_embd into the FP32 residual stream `x`.
+// The shared row decoder covers every retained CPU weight format.
 pub(crate) fn embed(x: &CpuBuffer, token_embd: &CpuBuffer, token: usize, embd: usize) {
     let mut row = vec![0f32; embd];
     // Slice the guard to the buffer's window so a sub-view reads only its bytes.

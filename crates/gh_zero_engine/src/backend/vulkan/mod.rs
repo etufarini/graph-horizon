@@ -172,13 +172,8 @@ mod format_coverage {
             .upload_bytes(&a, &activation_bytes)
             .expect("upload activation");
 
-        for format in [
-            WeightFormat::Q4K,
-            WeightFormat::Q5K,
-            WeightFormat::Q6K,
-            WeightFormat::Q8,
-        ] {
-            let bytes = quant_weight_bytes(format, in_dim, out_dim);
+        for format in [WeightFormat::Q4K, WeightFormat::Q5K, WeightFormat::Q6K] {
+            let bytes = quant_weight_bytes(format, out_dim);
             let mut w = backend.alloc_buffer(bytes.len() as u64).expect("weight");
             w.quant = format;
             backend.upload_bytes(&w, &bytes).expect("upload weight");
@@ -220,18 +215,13 @@ mod format_coverage {
         backend.free_buffer(a);
     }
 
-    fn quant_weight_bytes(format: WeightFormat, in_dim: usize, out_dim: usize) -> Vec<u8> {
+    fn quant_weight_bytes(format: WeightFormat, out_dim: usize) -> Vec<u8> {
         let mut out = Vec::new();
         for row in 0..out_dim {
             match format {
                 WeightFormat::Q4K => out.extend(q4_block(row)),
                 WeightFormat::Q5K => out.extend(q5_block(row)),
                 WeightFormat::Q6K => out.extend(q6_block(row)),
-                WeightFormat::Q8 => {
-                    for block in 0..in_dim / 32 {
-                        out.extend(q8_block(row + block));
-                    }
-                }
                 WeightFormat::F16 => unreachable!("quant smoke only covers quantized formats"),
             }
         }
@@ -278,15 +268,6 @@ mod format_coverage {
             *v = 1;
         }
         b[208..210].copy_from_slice(&f16le(0.01));
-        b
-    }
-
-    fn q8_block(seed: usize) -> Vec<u8> {
-        let mut b = vec![0u8; 34];
-        b[0..2].copy_from_slice(&f16le(0.02));
-        for (i, v) in b[2..34].iter_mut().enumerate() {
-            *v = (i as i8 - 16 + seed as i8).to_ne_bytes()[0];
-        }
         b
     }
 

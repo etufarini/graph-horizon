@@ -16,7 +16,7 @@ use crate::backend::vulkan::kernels;
 use crate::backend::vulkan::pipeline::{Kernel, dispatch};
 
 // Embedding lookup into the FP32 residual stream. FP16 token_embd is a widening copy;
-// Q4_K/Q5_K/Q6_K/Q8_0 are dequantized on the fly. The backend surface is broader
+// Q4_K/Q5_K/Q6_K are dequantized on the fly. The backend surface is broader
 // than the Ministral profile gate, so Q5_K remains reachable for format coverage.
 pub(in crate::backend::vulkan) fn embed(
     b: &VulkanBackend,
@@ -31,17 +31,14 @@ pub(in crate::backend::vulkan) fn embed(
         WeightFormat::Q4K => Kernel::EmbedQ4K,
         WeightFormat::Q5K => Kernel::EmbedQ5K,
         WeightFormat::Q6K => Kernel::EmbedQ6K,
-        WeightFormat::Q8 => Kernel::EmbedQ8,
     };
     let mut push = Vec::with_capacity(8);
     push.extend_from_slice(&token.to_le_bytes());
     push.extend_from_slice(&embd.to_le_bytes());
-    // EmbedF16 = one invocation/element; EmbedQ4K/Q6K = one/256-element super-block;
-    // EmbedQ8 = one/32-element block. The catch-all is the F16 geometry, so Q8 MUST be
-    // listed explicitly or it silently dispatches ~32x too many workgroups.
+    // EmbedF16 uses one invocation per element; every retained quantized format
+    // uses one invocation per 256-element super-block.
     let groups = match token_embd.quant {
         WeightFormat::Q4K | WeightFormat::Q5K | WeightFormat::Q6K => (embd / 256).div_ceil(64),
-        WeightFormat::Q8 => (embd / 32).div_ceil(64),
         _ => embd.div_ceil(64),
     };
     dispatch(

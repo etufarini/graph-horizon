@@ -1,6 +1,7 @@
 /*
  * gh_zero_engine — Ministral 3 family boundary
- * Validates one mistral3 GGUF contract, resolves the versioned implicit
+ * Applies the pure Q4-only detection gate, validates one mistral3 GGUF
+ * contract, resolves the versioned implicit
  * context, and constructs the compile-time-selected CPU, Vulkan, or immutable
  * hybrid backend. It owns no request lifecycle or graph operations.
  */
@@ -32,7 +33,6 @@ use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::TensorIndex;
 
 pub use config::MistralConfig;
-pub use detect::WeightProfile;
 pub(crate) use tensors::MistralTensors;
 pub use tokenizer::TekkenTokenizer;
 
@@ -40,15 +40,13 @@ pub use tokenizer::TekkenTokenizer;
 // backend fields: it is the last pure-data gate before future allocation code.
 pub(crate) struct MistralContract<'a> {
     pub(crate) config: MistralConfig,
-    #[cfg(test)]
-    pub(crate) profile: WeightProfile,
     pub(crate) tensors: MistralTensors<'a>,
     pub(crate) tokenizer: TekkenTokenizer,
 }
 
 impl<'a> MistralContract<'a> {
     pub(crate) fn from_gguf(file: &'a GgufFile) -> Result<Self> {
-        let profile = detect::detect(file.metadata(), file.tensors())?;
+        detect::detect(file.metadata(), file.tensors())?;
         let tokenizer = TekkenTokenizer::from_metadata(file.metadata())?;
         let config = MistralConfig::from_metadata(
             file.metadata(),
@@ -57,11 +55,9 @@ impl<'a> MistralContract<'a> {
             tokenizer.eos_id(),
         )?;
         let index = TensorIndex::new(file.tensors());
-        let tensors = MistralTensors::build(&config, profile, &index)?;
+        let tensors = MistralTensors::build(&config, &index)?;
         Ok(Self {
             config,
-            #[cfg(test)]
-            profile,
             tensors,
             tokenizer,
         })

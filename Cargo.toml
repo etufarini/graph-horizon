@@ -31,13 +31,13 @@ codegen-units = 1
 gh_zero_engine = { path = "crates/gh_zero_engine", default-features = false }
 color-eyre = "0.6.5"
 crossterm = "0.29.0"
-ratatui = "0.30.0"
+ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "gzip", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-width = "0.2"
-tokio = { version = "1.52.1", features = ["full"] }
-tokio-stream = "0.1"
+tokio = { version = "1.52.1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-stream = { version = "0.1", default-features = false }
 # Server mode (`--mode server`). Already present in Cargo.lock as
 # transitive deps of reqwest, so they add no new crate to compile; declared here
 # only to use them directly. `hyper` needs the server+http1 features and

@@ -1,3 +1,8 @@
+<!--
+  Questo documento possiede il contratto della libreria, dei backend e della
+  memoria; i risultati operativi appartengono ai documenti di validazione.
+-->
+
 # gh_zero_engine
 
 `gh_zero_engine` è il runtime di inferenza text-to-text per
@@ -27,30 +32,58 @@ CPU→GPU, una volta per passaggio; la KV di ogni layer resta sul suo backend. I
 report contiene modalità, split, conteggi layer e breakdown CPU/GPU di pesi, KV,
 scratch, fixed, staging, crossing e reserve.
 
+### Qualifica semantica Reasoning
+
+La qualifica semantica corrente è una policy separata e solo test: conserva i
+tre pass Instruct revisionati dal piano storico e invoca soltanto i tre profili
+Reasoning. Il runner usa il load `hybrid` per osservare il placement, ma la
+generazione qualificante è valida solo con Vulkan all-GPU; `mixed`, `cpu-only` o
+risorse assenti diventano `external-verification` e non attivano fallback.
+
+Il run Reasoning usa KV `f16`, `context=4096`, `max_tokens=4096`,
+`temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0` e
+`repeat_penalty=1`. Il corpus contiene solo i nove casi S01–S04 e S06–S10. Ogni
+caso viene tentato una volta; `context`, `max-tokens`, errori engine, marker
+Reasoning incompleti e miss semantici sono risultati terminali, non ragioni per
+retry, tuning, CPU fallback o oracle.
+
+La riga finale di un Reasoning può essere `qualified`, `not-qualified` o
+`external-verification`. Una matrice strutturalmente completa a sei righe è
+successo operativo del runner anche quando un modello non supera il gate
+semantico. Il runtime continua a emettere testo raw e non possiede questa policy
+di assessment.
+
+La matrice revisionata corrente è nel [registro di validazione](../../VALIDATION.md):
+i tre Reasoning sono `qualified` nel run Piano 07, mentre i tre Instruct sono
+evidenza preservata. Questo qualifica il percorso API Rust configurabile usato
+dall'harness, non il server HTTP greedy.
+
+`Engine::placement()` fornisce il placement finale e il suo breakdown di
+memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
+selezione finale resta un failure senza retry o fallback. Il comando e il
+protocollo operativo sono nella [guida degli script](../../support/README.md).
+
 ## Contratto Ministral
 
 Il riconoscimento di architettura, tensori e quantizzazione è capability-based
 e non autentica un file tramite nome, directory, byte totali o `general.name`.
-Quest'ultimo seleziona soltanto la policy chat: il valore esatto e
-case-sensitive `ministral-3B-Reasoning-2512` abilita il profilo privato
-Ministral 3 3B Reasoning 2512, mentre ogni altra variante contenente
-`Reasoning` viene rifiutata prima dell'allocazione backend. Sono supportati
-pubblicamente due profili GGUF:
+Quest'ultimo seleziona soltanto la policy chat. I valori esatti e case-sensitive
+`ministral-3B-Reasoning-2512`, `ministral-8B-Reasoning-2512` e
+`ministral-14B-Reasoning-2512` abilitano il profilo privato Reasoning; ogni altro
+nome contenente `Reasoning` viene rifiutato prima dell'allocazione backend. La
+configurazione Instruct resta dimension-generic per 3B, 8B e 14B.
 
-- `Q8_0`: matrici Q8_0 e ausiliari monodimensionali F32;
-- `Q4_K_M`: matrici Q4_K/Q6_K e ausiliari monodimensionali F32.
-
-La configurazione Instruct è dimension-generic. Le righe 3B, 8B e 14B sono
-fixture sintetiche realistiche, non whitelist. Il supporto Reasoning è invece
-limitato al 3B 2512 Q8_0/Q4_K_M; Reasoning 8B/14B non è supportato. Solo i due
-file Reasoning 3B alla revisione fissata nel piano sono verificati come
-artefatti reali. I valori fissati per Ministral 3 Instruct/Reasoning 2512
-appartengono al modulo privato
+Il solo profilo GGUF pubblico è `Q4_K_M`: matrici Q4_K/Q6_K e ausiliari
+monodimensionali F32. Il parser conserva `GgmlType::Q8_0` per identificare e
+diagnosticare un file Q8, ma il gate E04 lo rifiuta prima dell'allocazione. Le
+sei righe reali di validazione sono evidenza riproducibile, non una whitelist.
+I valori fissati per Ministral 3 Instruct/Reasoning 2512 appartengono al modulo
+privato
 [`family/mistral/version.rs`](src/family/mistral/version.rs), che possiede anche
 il System prompt Reasoning della release.
 
-Il backend mantiene attivazioni FP16, residuo/logits FP32 e pesi
-F16/Q4_K/Q5_K/Q6_K/Q8_0. Questa superficie interna non aggiunge profili
+Il backend mantiene attivazioni FP16, residuo/logits FP32 e formati numerici
+interni F16/Q4_K/Q5_K/Q6_K. Questa superficie interna non aggiunge profili
 Ministral pubblici.
 
 ## Facciata pubblica
@@ -62,7 +95,7 @@ La radice espone soltanto:
 - chat ed eventi: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
   `GenerationStats`, `EventSink`, `render_chat_prompt`;
 - ispezione Ministral/GGUF: `MistralConfig`, `TekkenTokenizer`,
-  `WeightProfile`, `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
+  `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
 - selezione KV: `KvQuant`;
 - `harness::throughput` con `BenchConfig`, `Stat`, `ThroughputReport` e `run`.
 
@@ -135,9 +168,10 @@ piano non provocano retry.
 
 ## Verifiche
 
-La suite sintetica copre dimensioni 3B/8B/14B, entrambi i profili pubblici,
-attivazioni FP16, residuo/logits FP32, pesi F16/Q4_K/Q5_K/Q6_K/Q8_0, KV
-f16/int8 e i tre placement hybrid.
+La suite sintetica copre dimensioni 3B/8B/14B, il gate pubblico Q4_K_M,
+attivazioni FP16, residuo/logits FP32, formati numerici interni, KV f16/int8 e i
+tre placement hybrid. Test separati verificano che Q8 resti soltanto
+diagnosticabile e venga rifiutato.
 
 Le prove reali sono ignorate per default e non cercano fallback locali. Le
 risorse obbligatorie sono esplicite:
@@ -145,8 +179,7 @@ risorse obbligatorie sono esplicite:
 | Variabile | Uso test-only |
 |---|---|
 | `GH_ZERO_MODEL` | singolo GGUF reale |
-| `GH_ZERO_MODEL_Q8_0` | artefatto Q8_0 per la prova tokenizer differenziale |
-| `GH_ZERO_MODEL_Q4_K_M` | artefatto Q4_K_M per la stessa prova |
+| `GH_ZERO_MODEL_Q4_K_M` | artefatto Q4_K_M per la prova tokenizer |
 | `GH_ZERO_REFERENCE_CLI` | eseguibile oracle per token greedy |
 | `GH_ZERO_REFERENCE_TOKENIZE` | eseguibile oracle per tokenizzazione |
 | `GH_ZERO_REFERENCE_PROMPT_IDS` | vettore prompt Reasoning fornito dallo script |
@@ -163,5 +196,6 @@ GH_ZERO_MODEL="/path/model.gguf" GH_ZERO_CONTEXT=4096 \
   real_greedy_parity -- --ignored --nocapture
 ```
 
-Vedi [la guida KV](../../docs/kv-quant-mistral-validation.md) e
-[il backend](../../docs/backend.md).
+Le interfacce complete della matrice 36-righe e dell'accettazione semantica sono
+descritte nella [guida degli script](../../support/README.md); i risultati
+revisionati appartengono al [registro di validazione](../../VALIDATION.md).

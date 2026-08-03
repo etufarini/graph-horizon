@@ -3,7 +3,7 @@
  * Defines the typed tensor descriptor (name, shape, ggml dtype, data offset)
  * and a name→tensor index over the tensor table of a GgufFile. The descriptor
  * also computes a tensor's byte length from its ggml block layout, used by the
- * loader to bounds-check slices.
+ * loader to bounds-check slices. Parseability does not imply backend support.
 */
 
 use std::collections::HashMap;
@@ -73,22 +73,13 @@ impl GgmlType {
         }
     }
 
-    // Single source of truth for the quantization formats the v0 engine can
-    // run: F32/F16 (unquantized — norms are F32, converted to FP16 on upload),
-    // the Q4_K_M mix (Q4_K + Q6_K), Q8_0 (embedders ship fully Q8_0) and Q5_K
-    // plus Q5_K retained for backend compatibility. Every other dtype is
-    // rejected up front by the family detect with the standard unsupported-model
-    // error, so the matmul dispatch (vulkan::kernels::matmul) and the weight
-    // upload only ever see these.
+    // Formats retained by generic weight loaders. The Ministral family narrows
+    // matrices to Q4_K/Q6_K before a backend sees them; Q8_0 remains parseable
+    // above solely so the profile gate can diagnose it precisely.
     pub fn supported_weight(&self) -> bool {
         matches!(
             self,
-            GgmlType::F32
-                | GgmlType::F16
-                | GgmlType::Q4_K
-                | GgmlType::Q5_K
-                | GgmlType::Q6_K
-                | GgmlType::Q8_0
+            GgmlType::F32 | GgmlType::F16 | GgmlType::Q4_K | GgmlType::Q5_K | GgmlType::Q6_K
         )
     }
 
@@ -177,8 +168,22 @@ mod tests {
     // Q5_K remains a supported backend dtype; Q4_0 stays rejected so
     // the gate keeps excluding the formats the engine cannot run.
     #[test]
-    fn q5_k_is_a_supported_weight() {
+    fn parser_retains_q8_without_marking_it_supported() {
         assert!(GgmlType::Q5_K.supported_weight());
         assert!(!GgmlType::Q4_0.supported_weight());
+        assert!(!GgmlType::Q8_0.supported_weight());
+        let q8 = GgmlType::from_u32(8);
+        assert!(q8 == GgmlType::Q8_0);
+        assert_eq!(q8.name(), "Q8_0");
+        assert_eq!(
+            TensorInfo {
+                name: "q8".into(),
+                dims: vec![32],
+                ggml_type: q8,
+                offset: 0,
+            }
+            .byte_len(),
+            Some(34)
+        );
     }
 }

@@ -36,7 +36,6 @@ pub(crate) use super::f16::{
 #[allow(non_camel_case_types)]
 pub(crate) enum CpuFormat {
     F16,
-    Q8_0,
     Q4_K,
     Q5_K,
     Q6_K,

@@ -97,7 +97,16 @@ fn row(
     control: Option<&ThroughputReport>,
     placement: Option<PlacementReport>,
 ) -> String {
-    let mode = placement.map_or(if args.weights_percent.is_some() { "mixed" } else { "pure" }, |value| value.mode);
+    // Terminal rows expose only the immutable requested tuple; placement and
+    // every other inference result become visible only after a successful run.
+    let successful = status == "pass";
+    let measured_placement = successful.then_some(placement).flatten();
+    let mode = measured_placement.map_or(
+        if args.weights_percent.is_some() { "mixed" } else { "pure" },
+        |value| value.mode,
+    );
+    let report = successful.then_some(report).flatten();
+    let control = successful.then_some(control).flatten();
     format!(
         concat!(
             "{{\"schema_version\":1,\"status\":{},\"reason\":{},\"revision\":{},",
@@ -113,7 +122,7 @@ fn row(
         ),
         json(status), json(reason), json(&args.revision), json(profile()), json(&args.model_id),
         args.artifact_bytes, json(&args.artifact_sha256), json(args.kv.name()), json(mode),
-        option(placement.map(|v| v.cpu_layers)), option(placement.map(|v| v.gpu_layers)),
+        option(measured_placement.map(|v| v.cpu_layers)), option(measured_placement.map(|v| v.gpu_layers)),
         option(args.weights_percent), args.context, json(fixture_name(args.fixture)),
         option(report.map(|v| v.fixture_digest.as_str())), json(&args.hardware_id), json(&args.driver_id),
         phases::WARMUP, phases::REPETITIONS, option(report.map(|v| v.prompt_tokens)),
@@ -123,8 +132,8 @@ fn row(
         option(report.map(|v| v.decode_p50_mean_ns)), option(report.map(|v| v.decode_p95_mean_ns)),
         option(report.map(|v| v.decode_tps_mean)), option(report.map(|v| v.decode_tps_stddev)),
         option(report.map(|v| v.decode_tps_cv)), option(control.map(|v| v.ttft_seconds.mean * 1_000.0)),
-        option(control.and_then(|v| v.tg.as_ref().map(|stat| stat.mean))), option(placement.map(|v| v.cpu.total)),
-        option(placement.map(|v| v.gpu.total)),
+        option(control.and_then(|v| v.tg.as_ref().map(|stat| stat.mean))),
+        option(measured_placement.map(|v| v.cpu.total)), option(measured_placement.map(|v| v.gpu.total)),
     )
 }
 
@@ -165,31 +174,23 @@ fn parse(mut input: impl Iterator<Item = String>) -> Result<Args, ()> {
     })
 }
 
+#[rustfmt::skip]
 fn decimal(value: &str) -> Result<u64, ()> {
-    if value.is_empty()
-        || (value.len() > 1 && value.starts_with('0'))
-        || !value.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return Err(());
-    }
+    if value.is_empty() || (value.len() > 1 && value.starts_with('0'))
+        || !value.bytes().all(|byte| byte.is_ascii_digit()) { return Err(()); }
     value.parse().map_err(|_| ())
 }
 
-fn id(value: &str) -> bool {
-    (1..=96).contains(&value.len())
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
-}
+#[rustfmt::skip]
+fn id(value: &str) -> bool { (1..=96).contains(&value.len()) && value.bytes()
+    .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte)) }
 
 fn hex(value: &str, len: usize) -> bool {
     value.len() == len && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
-
 fn json(value: &str) -> String {
     serde_json::to_string(value).expect("strings serialize")
 }
-
 fn option(value: Option<impl Serialize>) -> String {
     serde_json::to_string(&value).expect("metrics serialize")
 }
@@ -211,6 +212,7 @@ fn profile() -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gh_zero_engine::BackendMemory;
 
     fn valid() -> Vec<String> {
         let mut args = "model.gguf --context 4096 --kv f16 --fixture short --model-id 3b-instruct --variant instruct --artifact-bytes 1 --artifact-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --revision bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --hardware-id host --driver-id driver"
@@ -247,6 +249,69 @@ mod tests {
             let mut invalid = valid();
             invalid.extend(["--weights-percent".into(), "25".into()]);
             assert!(parse(invalid.into_iter()).is_err());
+        }
+    }
+
+    #[test]
+    fn non_pass_rows_hide_all_inference_derived_fields() {
+        let args = parse(valid().into_iter()).unwrap();
+        let placement = PlacementReport {
+            mode: "mixed",
+            cpu_layers: 1,
+            gpu_layers: 2,
+            cpu: BackendMemory {
+                weights: 3,
+                kv: 4,
+                scratch: 5,
+                total: 12,
+                ..BackendMemory::default()
+            },
+            gpu: BackendMemory {
+                weights: 6,
+                kv: 7,
+                scratch: 8,
+                total: 21,
+                ..BackendMemory::default()
+            },
+        };
+        for (status, reason) in [
+            ("fail", "placement mismatch"),
+            ("external verification", "device unavailable"),
+        ] {
+            let value: serde_json::Value =
+                serde_json::from_str(&row(&args, status, reason, None, None, Some(placement)))
+                    .unwrap();
+            assert_eq!(
+                value["placement_mode"],
+                if args.weights_percent.is_some() {
+                    "mixed"
+                } else {
+                    "pure"
+                }
+            );
+            for field in [
+                "cpu_layers",
+                "gpu_layers",
+                "fixture_digest",
+                "prompt_tokens",
+                "decode_steps",
+                "prefill_mean_ns",
+                "prefill_tps_mean",
+                "prefill_tps_stddev",
+                "prefill_tps_cv",
+                "first_sample_mean_ns",
+                "decode_p50_mean_ns",
+                "decode_p95_mean_ns",
+                "decode_tps_mean",
+                "decode_tps_stddev",
+                "decode_tps_cv",
+                "public_ttft_ms",
+                "public_decode_tps",
+                "cpu_memory_total",
+                "gpu_memory_total",
+            ] {
+                assert!(value[field].is_null(), "{field} must be null");
+            }
         }
     }
 }

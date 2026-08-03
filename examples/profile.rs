@@ -1,8 +1,8 @@
 /*
  * GH Zero runtime profile example
- * Reports the immutable public placement/memory fields and one family-neutral
- * chat timing sample. It does not trace kernels or retry another backend,
- * context, or KV scheme.
+ * Reports immutable placement/memory fields and one 32-token timing sample for
+ * an explicit tuple. It rejects incomplete metrics and never retries another
+ * backend, context, KV scheme, or placement.
  */
 
 use std::path::Path;
@@ -60,20 +60,24 @@ fn main() -> Result<()> {
         &engine,
         &BenchConfig {
             preset: format!("context={context},kv={}", kv.name()),
-            // One pinned-parity token measures TTFT without deliberately
-            // ending inside a later multi-token UTF-8 code point.
-            prompt: "Hello".into(),
-            gen_tokens: 1,
+            prompt: "Ciao".into(),
+            gen_tokens: 32,
             reps: 1,
             warmup: 0,
         },
     )?;
+    let ttft_ms = report.ttft_seconds.mean * 1000.0;
+    let prompt_tps = report.prompt_tps.mean;
+    let decode_tps = report
+        .tg
+        .ok_or_else(|| eyre!("profile produced fewer than two decoded tokens"))?
+        .mean;
+    if !ttft_ms.is_finite() || !prompt_tps.is_finite() || !decode_tps.is_finite() {
+        return Err(eyre!("profile produced a non-finite metric"));
+    }
     println!(
-        "prompt_tokens={} prompt_tps={:.2} ttft_ms={:.2} decoded_tokens={}",
-        report.n_prompt,
-        report.prompt_tps.mean,
-        report.ttft_seconds.mean * 1000.0,
-        report.decoded_tokens
+        "prompt_tokens={} decoded_tokens={} prompt_tps={:.2} ttft_ms={:.2} decode_tps={:.2}",
+        report.n_prompt, report.decoded_tokens, prompt_tps, ttft_ms, decode_tps
     );
     Ok(())
 }

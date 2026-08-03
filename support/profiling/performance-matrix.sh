@@ -138,7 +138,8 @@ for model in 3b-instruct 8b-instruct 14b-instruct; do
             else
                 binary=$cache/$profile/phases; weight_args=()
                 [[ $profile == *-hybrid ]] && weight_args=(--weights-percent 25)
-                "$binary" "$path" --context 4096 --kv "$kv" --fixture "$fixture" "${weight_args[@]}" \
+                # The + guard keeps an empty array truly argument-free under Bash 3.2 with set -u.
+                "$binary" "$path" --context 4096 --kv "$kv" --fixture "$fixture" "${weight_args[@]+"${weight_args[@]}"}" \
                     --model-id "$model" --variant instruct --artifact-bytes "$bytes" --artifact-sha256 "$sha" \
                     --revision "$revision" --hardware-id "$hardware" --driver-id "$driver" \
                     > "$run_dir/row" 2>/dev/null

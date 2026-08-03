@@ -27,7 +27,7 @@ pub(crate) fn load(
     reserve_mib: Option<u64>,
 ) -> Result<MetalBackend> {
     // The standalone zero/invalid dial must fail before even probing Metal.
-    let percent = budget::validate_percentage(weights_percent)?;
+    let percent = standalone_percentage(weights_percent)?;
     let plan = budget::MemoryPlan::new(source, shape, context, scheme)?;
     let device = Device::acquire()?;
     let physical_memory = NSProcessInfo::processInfo().physicalMemory();
@@ -56,4 +56,28 @@ pub(crate) fn load(
         reduce,
         staging,
     })
+}
+
+fn standalone_percentage(percent: Option<u8>) -> Result<u8> {
+    budget::validate_percentage(percent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn zero_percentage_stops_at_the_first_configuration_gate() {
+        assert_eq!(
+            standalone_percentage(Some(0)).unwrap_err().to_string(),
+            "invalid Metal weight percentage"
+        );
+    }
+
+    #[test]
+    fn published_backend_crosses_the_engine_worker_boundary() {
+        assert_send_sync::<MetalBackend>();
+    }
 }

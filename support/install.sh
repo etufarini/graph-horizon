@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 #
-# Builds the static Web UI and one explicitly selected backend, then installs
-# the resulting binary. This script validates values before execution, adds no
-# dependencies, and never changes model files or user configuration.
+# Builds the Web UI and one required explicit profile, then installs its binary.
+# Arguments own the build/profile/prefix tuple; subprocesses stay synchronous.
+# It installs no prerequisites and never retries another profile or toolchain.
 
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "${script_dir}/.." && pwd)"
-backend="hybrid"
+backend=""
 profile="release"
 prefix="${GH_ZERO_INSTALL_PREFIX:-${HOME}/.local}"
 
 usage() {
     printf '%s\n' \
-        "usage: install.sh [--backend cpu|vulkan|hybrid] [--profile release|fast] [--prefix PATH]"
+        "usage: install.sh --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid [--profile release|fast] [--prefix PATH]"
 }
 
 fail() {
@@ -49,8 +49,9 @@ while (($#)); do
     esac
 done
 
+[[ -n "${backend}" ]] || fail "--backend is required"
 case "${backend}" in
-    cpu|vulkan|hybrid) ;;
+    cpu|vulcan|vulcan-hybrid|metal|metal-hybrid) ;;
     *) fail "invalid backend: ${backend}" ;;
 esac
 case "${profile}" in
@@ -58,6 +59,15 @@ case "${profile}" in
     *) fail "invalid build profile: ${profile}" ;;
 esac
 [[ -n "${prefix}" && "${prefix}" != "/" ]] || fail "invalid install prefix"
+case "${backend}" in
+    metal|metal-hybrid)
+        [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] \
+            || fail "Metal requires macOS on arm64"
+        command -v xcrun >/dev/null 2>&1 || fail "Metal requires xcrun"
+        xcrun -f metal >/dev/null 2>&1 || fail "Metal compiler is unavailable"
+        xcrun -f metallib >/dev/null 2>&1 || fail "Metal library tool is unavailable"
+        ;;
+esac
 command -v cargo >/dev/null 2>&1 || fail "cargo is required"
 command -v npm >/dev/null 2>&1 || fail "npm is required"
 

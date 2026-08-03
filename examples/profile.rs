@@ -24,7 +24,16 @@ fn main() -> Result<()> {
         .next()
         .and_then(|value| KvQuant::parse(&value))
         .ok_or_else(|| eyre!("KV must be f16 or int8"))?;
-    if context == 0 || args.next().is_some() {
+    let weights_percent = match (args.next(), args.next()) {
+        (None, None) => None,
+        (Some(flag), Some(value)) if flag == "--weights-percent" => Some(
+            value
+                .parse::<u8>()
+                .map_err(|_| eyre!("weight percentage must be in 0..100"))?,
+        ),
+        _ => return Err(eyre!("invalid profile arguments")),
+    };
+    if context == 0 || weights_percent.is_some_and(|value| value > 100) || args.next().is_some() {
         return Err(eyre!("invalid profile arguments"));
     }
 
@@ -32,6 +41,7 @@ fn main() -> Result<()> {
         Path::new(&model),
         EngineConfig {
             context_tokens: Some(context),
+            vram_weights_percent: weights_percent,
             kv_quant: kv,
             ..EngineConfig::default()
         },

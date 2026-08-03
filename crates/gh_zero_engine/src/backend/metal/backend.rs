@@ -4,7 +4,7 @@
  * readback, and operation dispatch. Algorithms and loading remain outside.
  */
 
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::Result;
 
 use super::exec::{dispatch, readback};
 use super::pipeline::Kernel;
@@ -21,12 +21,36 @@ impl Backend for MetalBackend {
     type Encoder = MetalEncoder;
 
     fn load(
-        _meta: &ModelMetadata,
-        _source: &dyn WeightSource,
-        _file: &GgufFile,
-        _context: usize,
+        meta: &ModelMetadata,
+        source: &dyn WeightSource,
+        file: &GgufFile,
+        context: usize,
     ) -> Result<Self> {
-        bail!("metal: model allocation failed")
+        let q = meta.head_count * meta.head_dim;
+        let kv = meta.head_count_kv * meta.head_dim;
+        super::loader::load(
+            file,
+            source,
+            meta,
+            crate::backend::hybrid::weights::runtime::RuntimeShape {
+                block_count: meta.block_count,
+                embedding: meta.embedding_length,
+                q,
+                k: kv,
+                v: kv,
+                attention: q,
+                feed_forward: meta.feed_forward_length,
+                vocab: meta.vocab_size,
+                kv_heads: meta.head_count_kv,
+                key_length: meta.head_dim,
+                value_length: meta.head_dim,
+                prefill_rows: 1,
+            },
+            context,
+            crate::kv_cache::scheme::KvQuant::F16,
+            None,
+            None,
+        )
     }
 
     fn buffers(&self) -> &Buffers<MetalBuffer> {

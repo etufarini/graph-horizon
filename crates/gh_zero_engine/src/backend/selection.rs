@@ -6,7 +6,7 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "cpu", feature = "vulcan", feature = "metal"))]
+#[cfg(any(feature = "cpu", feature = "vulcan"))]
 use super::Backend;
 use super::hybrid::HybridPlan;
 use super::hybrid::weights::runtime::RuntimeShape;
@@ -49,10 +49,23 @@ pub(crate) fn load(
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) -> Result<SelectedBackend> {
-    #[cfg(any(feature = "cpu", feature = "vulcan", feature = "metal"))]
+    #[cfg(any(feature = "cpu", feature = "vulcan"))]
     {
         let _ = (shape, scheme, weights_percent, reserve_mib);
         SelectedBackend::load(metadata, source, file, context)
+    }
+    #[cfg(feature = "metal")]
+    {
+        super::metal::load(
+            file,
+            source,
+            metadata,
+            shape,
+            context,
+            scheme,
+            weights_percent,
+            reserve_mib,
+        )
     }
     #[cfg(feature = "vulcan-hybrid")]
     {

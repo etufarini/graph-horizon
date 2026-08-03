@@ -14,6 +14,11 @@ use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+#[cfg(test)]
+thread_local! {
+    static TEST_COUNTS: std::cell::Cell<(usize, usize)> = const { std::cell::Cell::new((0, 0)) };
+}
+
 use super::super::Device;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -36,6 +41,13 @@ pub(crate) struct MetalBuffer {
     lifecycle: Arc<TestLifecycle>,
 }
 
+// SAFETY: MTLBuffer resources may cross threads; this wrapper mutates only the
+// Metal allocation contents, whose engine-level request lifecycle is serialized.
+unsafe impl Send for MetalBuffer {}
+// SAFETY: immutable handles and checked shared-storage windows are thread-safe;
+// graph execution owns the ordering of writes and completed readback.
+unsafe impl Sync for MetalBuffer {}
+
 #[cfg(test)]
 struct TestLifecycle {
     owner_drops: AtomicUsize,
@@ -48,6 +60,11 @@ impl MetalBuffer {
             .raw
             .newBufferWithLength_options(len.max(1), MTLResourceOptions::StorageModeShared)
             .ok_or_else(|| eyre!("metal: model allocation failed"))?;
+        #[cfg(test)]
+        TEST_COUNTS.with(|counts| {
+            let (allocations, drops) = counts.get();
+            counts.set((allocations + 1, drops));
+        });
         Ok(Self {
             raw,
             offset: 0,
@@ -150,8 +167,22 @@ impl Drop for MetalBuffer {
     fn drop(&mut self) {
         if self.owner {
             self.lifecycle.owner_drops.fetch_add(1, Ordering::Relaxed);
+            TEST_COUNTS.with(|counts| {
+                let (allocations, drops) = counts.get();
+                counts.set((allocations, drops + 1));
+            });
         }
     }
+}
+
+#[cfg(test)]
+pub(crate) fn reset_test_counts() {
+    TEST_COUNTS.with(|counts| counts.set((0, 0)));
+}
+
+#[cfg(test)]
+pub(crate) fn test_counts() -> (usize, usize) {
+    TEST_COUNTS.with(std::cell::Cell::get)
 }
 
 fn arithmetic() -> color_eyre::Report {

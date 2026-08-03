@@ -82,6 +82,12 @@ pub(crate) struct PipelineRegistry {
     values: Vec<Pipeline>,
 }
 
+// SAFETY: compiled pipeline states are immutable Metal resources and the
+// registry never mutates after transactional construction.
+unsafe impl Send for PipelineRegistry {}
+// SAFETY: all shared access is indexed immutable pipeline lookup.
+unsafe impl Sync for PipelineRegistry {}
+
 impl PipelineRegistry {
     pub(crate) fn load(device: &Device) -> Result<Self> {
         Self::load_inner(

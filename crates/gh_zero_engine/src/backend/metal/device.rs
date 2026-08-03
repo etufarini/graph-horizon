@@ -16,6 +16,12 @@ pub(crate) struct Device {
     pub(crate) current_allocated: u64,
 }
 
+// SAFETY: Metal devices and command queues are thread-safe resource factories;
+// mutable command encoding is confined to a fresh per-call MetalEncoder.
+unsafe impl Send for Device {}
+// SAFETY: shared access exposes only thread-safe device/queue creation methods.
+unsafe impl Sync for Device {}
+
 impl Device {
     pub(crate) fn acquire() -> Result<Self> {
         let raw =

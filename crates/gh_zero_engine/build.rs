@@ -6,20 +6,19 @@
  * `shaderc` build-dependency: no system tool required). The output stays FLAT,
  * keyed by stem (`OUT_DIR/{stem}.spv`), regardless of the source folder depth,
  * so the crate's `include_bytes!` paths never change. No shader is ever compiled
- * at runtime. This runs ONLY when the `vulkan` feature is active; otherwise (the
- * `cpu` backend) it exits quietly.
+ * at runtime. This runs only for profiles containing Vulkan; CPU exits quietly.
  *
  * A missing source directory or a GLSL compilation error fails the build with a
  * clear message instead of producing a silently broken artifact.
 */
 
 // No-op for the `cpu` backend (no build step). Build scripts are
-// compiled with the package's active feature cfgs, so when `vulkan` is off `main`
-// is empty and nothing references the (then absent) `shaderc` build-dependency.
-#[cfg(not(feature = "vulkan"))]
+// compiled with the package's active feature cfgs, so when Vulkan is absent
+// `main` is empty and nothing references the optional shaderc dependency.
+#[cfg(not(any(feature = "vulcan", feature = "vulcan-hybrid")))]
 fn main() {}
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
 fn main() {
     use std::path::Path;
 
@@ -80,7 +79,7 @@ fn main() {
 // unreadable directory contributes nothing (preserves the quiet-success path);
 // empty subfolders are simply skipped. Output is flat per stem, so callers must
 // keep shader stems unique across the whole subtree.
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
 fn collect_comp(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,

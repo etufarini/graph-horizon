@@ -14,18 +14,22 @@ pub(crate) mod source;
 
 pub(crate) use contract::Backend;
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
 pub(crate) mod vulkan;
 
-#[cfg(feature = "cpu")]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
 pub(crate) mod cpu;
 
-#[cfg(not(any(feature = "vulkan", feature = "cpu")))]
+#[cfg(not(any(feature = "cpu", feature = "vulcan", feature = "vulcan-hybrid")))]
 compile_error!(
-    "no backend selected: build with exactly one of --features vulkan or --features cpu"
+    "no backend selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"
 );
 
-#[cfg(all(feature = "vulkan", feature = "cpu", not(feature = "hybrid")))]
+#[cfg(any(
+    all(feature = "cpu", feature = "vulcan"),
+    all(feature = "cpu", feature = "vulcan-hybrid"),
+    all(feature = "vulcan", feature = "vulcan-hybrid")
+))]
 compile_error!(
-    "vulkan and cpu backends are mutually exclusive: enable exactly one, or use --features hybrid to compile both for the split runtime"
+    "multiple backend profiles selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"
 );

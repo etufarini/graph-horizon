@@ -4,14 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-# Mutually-exclusive backends; exactly one must be enabled (enforced by
-# backend/mod.rs). The crate has no default so consumers choose one. The root
-# binary defaults to `hybrid`; `cpu` remains the portable reference.
-vulkan = ["dep:ash", "dep:shaderc"]
+# Independent public profiles; backend/mod.rs enforces that exactly one is
+# selected. Hybrid profiles gate their concrete dependencies directly.
 cpu = []
-# Enables both backends in the same build (pulls in `ash`/`shaderc` like
-# `vulkan`). The split runtime orchestrates the two concrete backends.
-hybrid = ["vulkan", "cpu"]
+vulcan = ["dep:ash", "dep:shaderc"]
+vulcan-hybrid = ["dep:ash", "dep:shaderc"]
 
 [dependencies]
 # Optional GPU bindings, gated by the matching feature.
@@ -20,8 +17,8 @@ color-eyre = "0.6.5"
 memmap2 = "0.9"
 
 # build-time only: compiles the GLSL .comp compute shaders to SPIR-V via
-# libshaderc (bundled). Not a runtime dependency; only used by the `vulkan`
-# feature (the `cpu` build must not require it).
+# libshaderc (bundled). Not a runtime dependency; only used by the `vulcan`
+# profiles (the `cpu` build must not require it).
 #
 # `build-from-source` is REQUIRED, not an optimization: without it shaderc-sys
 # prefers a system libshaderc when one is present, and on Debian/Ubuntu the

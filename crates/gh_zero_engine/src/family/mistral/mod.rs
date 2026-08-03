@@ -10,7 +10,7 @@ pub(crate) mod config;
 pub(crate) mod decode;
 pub(crate) mod detect;
 pub(crate) mod graph;
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) mod hybrid;
 #[cfg(test)]
 mod parity;
@@ -19,16 +19,16 @@ pub(crate) mod template;
 pub(crate) mod tensors;
 pub(crate) mod tokenizer;
 mod version;
-#[cfg(all(test, feature = "vulkan"))]
+#[cfg(all(test, any(feature = "vulcan", feature = "vulcan-hybrid")))]
 mod vulkan;
 
 use color_eyre::eyre::Result;
 
 use crate::api::engine::EngineConfig;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(feature = "vulcan-hybrid")))]
 use crate::backend::Backend;
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(feature = "vulcan-hybrid")))]
 use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::TensorIndex;
 
@@ -90,11 +90,11 @@ pub(crate) struct RuntimeModel {
     pub(crate) tokenizer: TekkenTokenizer,
     pub(crate) context: usize,
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
-    #[cfg(all(feature = "cpu", not(feature = "hybrid")))]
+    #[cfg(all(feature = "cpu", not(feature = "vulcan-hybrid")))]
     pub(crate) backend: crate::backend::cpu::CpuBackend,
-    #[cfg(all(feature = "vulkan", not(feature = "cpu")))]
+    #[cfg(feature = "vulcan")]
     pub(crate) backend: crate::backend::vulkan::VulkanBackend,
-    #[cfg(feature = "hybrid")]
+    #[cfg(feature = "vulcan-hybrid")]
     pub(crate) backend: hybrid::LoadedHybrid,
 }
 
@@ -102,12 +102,12 @@ impl RuntimeModel {
     pub(crate) fn load(file: &GgufFile, settings: &EngineConfig) -> Result<Self> {
         let contract = MistralContract::from_gguf(file)?;
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
-        #[cfg(all(feature = "cpu", not(feature = "hybrid")))]
+        #[cfg(all(feature = "cpu", not(feature = "vulcan-hybrid")))]
         let backend = {
             let metadata = ModelMetadata::from_gguf(file)?;
             crate::backend::cpu::CpuBackend::load(&metadata, &contract.tensors, file, context)?
         };
-        #[cfg(all(feature = "vulkan", not(feature = "cpu")))]
+        #[cfg(feature = "vulcan")]
         let backend = {
             let metadata = ModelMetadata::from_gguf(file)?;
             crate::backend::vulkan::VulkanBackend::load(
@@ -117,7 +117,7 @@ impl RuntimeModel {
                 context,
             )?
         };
-        #[cfg(feature = "hybrid")]
+        #[cfg(feature = "vulcan-hybrid")]
         let backend = hybrid::loader::load(
             file,
             &contract,

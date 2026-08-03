@@ -13,9 +13,9 @@ use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::kernels::reduce;
 use crate::backend::vulkan::loader;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(feature = "vulcan-hybrid")))]
 use crate::backend::vulkan::mem::budget::device_budget;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(feature = "vulcan-hybrid")))]
 use crate::backend::vulkan::mem::memory::plan;
 use crate::backend::vulkan::pipeline::PipelineRegistry;
 use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
@@ -25,7 +25,7 @@ use crate::gguf::metadata::ModelMetadata;
 // Shared full-backend bootstrap. Partial hybrid loads use `load_selected`,
 // which bypasses this all-weight memory plan after immutable placement.
 impl VulkanBackend {
-    #[cfg(any(test, not(feature = "hybrid")))]
+    #[cfg(any(test, not(feature = "vulcan-hybrid")))]
     pub(in crate::backend::vulkan) fn load_inner(
         dev: Device,
         meta: &ModelMetadata,
@@ -47,7 +47,7 @@ impl VulkanBackend {
         Self::finish(dev, reg, buf, logits_host)
     }
 
-    #[cfg(feature = "hybrid")]
+    #[cfg(feature = "vulcan-hybrid")]
     pub(crate) fn load_selected(
         dev: Device,
         meta: &ModelMetadata,
@@ -119,19 +119,19 @@ impl VulkanBackend {
     }
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 fn placement_budget(dev: &Device) -> crate::backend::vulkan::mem::memory::Budget {
     let mut budget = device_budget(dev);
     budget.vram = selected_vram_budget(budget.vram, dev.free_vram());
     budget
 }
 
-#[cfg(all(feature = "hybrid", test))]
+#[cfg(all(feature = "vulcan-hybrid", test))]
 fn placement_budget(dev: &Device) -> crate::backend::vulkan::mem::memory::Budget {
     device_budget(dev)
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 fn selected_vram_budget(total: u64, current: Option<u64>) -> u64 {
     current.unwrap_or(total)
 }
@@ -273,7 +273,7 @@ impl Drop for VulkanBackend {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "hybrid"))]
+    #[cfg(not(feature = "vulcan-hybrid"))]
     #[test]
     fn pure_vulkan_prefers_current_memory_budget_when_available() {
         assert_eq!(super::selected_vram_budget(1000, Some(400)), 400);

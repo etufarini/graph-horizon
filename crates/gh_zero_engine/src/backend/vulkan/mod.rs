@@ -20,7 +20,7 @@ pub(crate) mod pipeline;
 
 use crate::backend::buffers::Buffers;
 use buffers::GpuBuffer;
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 use init::device::Device;
 use pipeline::PipelineRegistry;
 
@@ -45,7 +45,7 @@ impl VulkanBackend {
 
     // The hybrid residual boundary and Vulkan tests share the loader's bounded
     // staging upload primitive.
-    #[cfg(any(test, feature = "hybrid"))]
+    #[cfg(any(test, feature = "vulcan-hybrid"))]
     pub(crate) fn upload_bytes(&self, buf: &GpuBuffer, data: &[u8]) -> color_eyre::Result<()> {
         buf.upload(&self.dev, data)
     }
@@ -75,15 +75,15 @@ fn record_submit() {
 }
 
 pub(crate) use init::device;
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) use init::device::Device;
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) use init::hybrid_device;
-#[cfg(all(test, feature = "hybrid"))]
+#[cfg(all(test, feature = "vulcan-hybrid"))]
 pub(crate) use init::{probe_count, reset_probe_count};
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) use mem::budget::vram_for_auto;
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 pub(crate) use mem::budget::{set_reserve_mib, set_weights_percent};
 pub(crate) use mem::{buffers, weights};
 

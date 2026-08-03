@@ -7,14 +7,14 @@
 use color_eyre::eyre::Result;
 
 use super::decode::TextDecoder;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(feature = "vulcan-hybrid")))]
 use super::graph::{forward, prefill};
 use super::{MistralConfig, RuntimeModel, template};
 use crate::api::event::{GenerationStats, Terminal};
 use crate::api::request::{EventSink, Request};
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 use crate::backend::Backend;
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 use crate::kv_cache::{self, Kv};
 use crate::sampling::{self, Rng};
 
@@ -26,14 +26,14 @@ trait Session {
     fn topk(&self, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>>;
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 struct BackendSession<'a, B: Backend> {
     backend: &'a B,
     config: &'a MistralConfig,
     kv: Option<Kv<B::Buffer>>,
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 impl<'a, B: Backend> BackendSession<'a, B> {
     fn new(model: &'a RuntimeModel, backend: &'a B) -> Result<Self> {
         let cfg = &model.config;
@@ -58,7 +58,7 @@ impl<'a, B: Backend> BackendSession<'a, B> {
     }
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 impl<B: Backend> Session for BackendSession<'_, B> {
     fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         prefill::prefill_with(self.backend, self.config, self.kv(), prompt, before)
@@ -84,7 +84,7 @@ impl<B: Backend> Session for BackendSession<'_, B> {
     }
 }
 
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulcan-hybrid"))]
 impl<B: Backend> Drop for BackendSession<'_, B> {
     fn drop(&mut self) {
         if let Some(kv) = self.kv.take() {
@@ -93,13 +93,13 @@ impl<B: Backend> Drop for BackendSession<'_, B> {
     }
 }
 
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 struct HybridSession<'a> {
     config: &'a MistralConfig,
     kv: super::hybrid::forward::RequestKv<'a>,
 }
 
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 impl Session for HybridSession<'_> {
     fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()> {
         super::hybrid::prefill::run(&self.kv, self.config, prompt, before)
@@ -137,9 +137,9 @@ fn execute(
     terminal: &mut Terminal<'_>,
 ) -> Result<Option<GenerationStats>> {
     let prompt = template::render(&request.messages, &model.tokenizer, model.context)?;
-    #[cfg(not(feature = "hybrid"))]
+    #[cfg(not(feature = "vulcan-hybrid"))]
     let session = BackendSession::new(model, &model.backend)?;
-    #[cfg(feature = "hybrid")]
+    #[cfg(feature = "vulcan-hybrid")]
     let session = HybridSession {
         config: &model.config,
         kv: super::hybrid::forward::RequestKv::new(
@@ -220,24 +220,24 @@ fn drive(
 mod tests {
     use super::*;
     use crate::api::event::Event;
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use crate::api::message::{Message, Role};
     use crate::backend::Backend;
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use crate::backend::cpu::CpuBackend;
     use crate::family::mistral::MistralModel;
     use crate::family::mistral::graph::shape::{ShapeBackend, config};
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use crate::family::mistral::tokenizer::TekkenTokenizer;
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use crate::family::mistral::{MistralContract, template};
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use crate::gguf::loader::GgufFile;
     use crate::kv_cache::scheme::KvQuant;
     use crate::kv_cache::{self, Kv};
     use color_eyre::eyre::bail;
     use std::cell::Cell;
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     use std::process::Command;
     use std::rc::Rc;
 
@@ -488,7 +488,7 @@ mod tests {
         Ok(tokens)
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     fn teacher_forced_top2<B: Backend>(
         model: &MistralModel<B>,
         req: &Request,
@@ -662,7 +662,7 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     #[test]
     #[ignore]
     fn real_greedy_parity() {
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(batched, reference, "batched prefill");
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     #[test]
     #[ignore = "requires an approved Ministral model and externally supplied oracle IDs"]
     fn real_ministral_parity() {
@@ -766,7 +766,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     fn completion_bytes(tokenizer: &TekkenTokenizer, tokens: &[u32]) -> Vec<u8> {
         tokens
             .iter()
@@ -774,7 +774,7 @@ mod tests {
             .collect()
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     fn reference_completion(model: &str, prompt: &str, context: usize, tokens: usize) -> Vec<u8> {
         let binary =
             std::env::var("GH_ZERO_REFERENCE_CLI").expect("GH_ZERO_REFERENCE_CLI required");
@@ -819,7 +819,7 @@ mod tests {
         bytes
     }
 
-    #[cfg(feature = "cpu")]
+    #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
     fn reference_ids(model: &str, text: &str, no_bos: bool) -> Vec<u32> {
         let binary = std::env::var("GH_ZERO_REFERENCE_TOKENIZE")
             .expect("GH_ZERO_REFERENCE_TOKENIZE required");
@@ -845,7 +845,7 @@ mod tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "cpu")]
+#[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
 pub(crate) mod numeric {
     use crate::backend::Backend;
     use crate::backend::buffers::{Buffers, LayerWeights, Scratch, WeightSet};

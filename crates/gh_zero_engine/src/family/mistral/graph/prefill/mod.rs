@@ -7,9 +7,9 @@
 mod buffers;
 mod encode;
 
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) use buffers::{BATCH_ROWS, BatchBuffers, X};
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 pub(crate) use encode::record_batch;
 
 pub(crate) fn prefill_with<B, F>(

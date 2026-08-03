@@ -14,8 +14,8 @@ use super::loader::GgufFile;
 #[derive(Clone)]
 pub(crate) struct ModelMetadata {
     #[cfg(any(
-        all(test, feature = "vulkan"),
-        all(feature = "vulkan", not(feature = "hybrid"))
+        all(test, any(feature = "vulcan", feature = "vulcan-hybrid")),
+        feature = "vulcan"
     ))]
     pub block_count: usize,
     pub embedding_length: usize,
@@ -69,16 +69,16 @@ impl ModelMetadata {
         let vocab_size = tokens.map(|a| a.len()).unwrap_or(0);
 
         #[cfg(any(
-            all(test, feature = "vulkan"),
-            all(feature = "vulkan", not(feature = "hybrid"))
+            all(test, any(feature = "vulcan", feature = "vulcan-hybrid")),
+            feature = "vulcan"
         ))]
         let block_count = req_u("block_count")? as usize;
         let feed_forward_length = req_u("feed_forward_length")? as usize;
 
         Ok(ModelMetadata {
             #[cfg(any(
-                all(test, feature = "vulkan"),
-                all(feature = "vulkan", not(feature = "hybrid"))
+                all(test, any(feature = "vulcan", feature = "vulcan-hybrid")),
+                feature = "vulcan"
             ))]
             block_count,
             embedding_length,

@@ -71,7 +71,7 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
         Ok(Self { backend, items })
     }
 
-    #[cfg(feature = "hybrid")]
+    #[cfg(feature = "vulcan-hybrid")]
     pub(crate) fn all(&self, index: usize) -> &B::Buffer {
         &self.items[index]
     }

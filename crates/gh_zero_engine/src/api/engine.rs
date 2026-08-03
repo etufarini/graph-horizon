@@ -62,12 +62,12 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(model_path: &Path, config: EngineConfig) -> Result<Self> {
-        #[cfg(feature = "cpu")]
+        #[cfg(any(feature = "cpu", feature = "vulcan-hybrid"))]
         {
             crate::backend::cpu::parallel::set_threads(config.cpu_threads);
             crate::backend::cpu::set_no_simd(config.no_attn_simd);
         }
-        #[cfg(all(feature = "vulkan", not(feature = "hybrid")))]
+        #[cfg(feature = "vulcan")]
         {
             crate::backend::vulkan::set_weights_percent(config.vram_weights_percent);
             crate::backend::vulkan::set_reserve_mib(config.vram_reserve_mib);
@@ -82,7 +82,7 @@ impl Engine {
     }
 
     pub fn placement(&self) -> Option<PlacementReport> {
-        #[cfg(feature = "hybrid")]
+        #[cfg(feature = "vulcan-hybrid")]
         {
             let plan = &self.model.backend.plan;
             let memory = |bytes: crate::family::mistral::hybrid::BackendBytes| BackendMemory {
@@ -103,7 +103,7 @@ impl Engine {
                 gpu: memory(plan.gpu),
             })
         }
-        #[cfg(not(feature = "hybrid"))]
+        #[cfg(not(feature = "vulcan-hybrid"))]
         {
             None
         }

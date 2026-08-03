@@ -140,13 +140,13 @@ if [[ -n "$weights_percent" ]]; then
     environment+=(GH_ZERO_VRAM_WEIGHTS_PERCENT="$weights_percent" GH_ZERO_EXPECTED_MODE="$expected_mode")
 fi
 set +e
-(cd "$project_dir" && env "${environment[@]}" cargo test --locked -p gh_zero_engine \
+(cd "$project_dir" && env "${environment[@]}" cargo test --locked --release -p gh_zero_engine \
     --no-default-features --features "$backend" --test family_agnostic \
     real_selected_runtime_parity_and_lifecycle -- --ignored --nocapture --exact) \
     >"$temporary_dir/test.log" 2>&1
 test_status=$?
 set -e
-if grep -Eq 'external verification: (Vulkan|Metal) backend unavailable' "$temporary_dir/test.log"; then external "$backend backend unavailable"; fi
+if grep -Eq '(external verification: )?(Vulkan|Metal) backend (is )?unavailable' "$temporary_dir/test.log"; then external "$backend backend unavailable"; fi
 if ((test_status != 0)); then
     if grep -Eq '(Vulkan|Metal) memory is insufficient|context 4096 does not fit|model does not fit available RAM and VRAM|mixed placement required' "$temporary_dir/test.log"; then
         external "insufficient memory for $backend row"

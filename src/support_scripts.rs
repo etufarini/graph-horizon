@@ -795,6 +795,10 @@ if [[ "${GH_ZERO_MEMORY_FAILURE:-}" == 1 ]]; then
     printf 'Vulkan memory is insufficient: required 2 bytes, available 1 bytes\n' >&2
     exit 1
 fi
+if [[ "${GH_ZERO_DEVICE_FAILURE:-}" == 1 ]]; then
+    printf 'load selected runtime: Vulkan backend is unavailable\n' >&2
+    exit 1
+fi
 printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45 oracle_top2=pass\n'
 "#,
     )
@@ -925,6 +929,24 @@ while :; do /bin/sleep 0.05; done
         String::from_utf8(revision.stdout).unwrap().trim(),
         "external verification: unsupported llama.cpp revision"
     );
+
+    let device = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &free_port()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_DEVICE_FAILURE", "1")
+        .output()
+        .unwrap();
+    assert!(device.status.success());
+    assert_eq!(
+        String::from_utf8(device.stdout).unwrap().trim(),
+        "external verification: vulcan-hybrid backend unavailable"
+    );
+    assert!(!temp.exists());
 
     let server_calls = fs::read_to_string(&server_log).unwrap().lines().count();
     let cargo_calls = fs::read_to_string(&cargo_log).unwrap().lines().count();
@@ -1070,6 +1092,7 @@ while :; do /bin/sleep 0.05; done
         "--no-kv-offload",
         "--no-warmup",
         "--ignore-eos",
+        "cargo test --locked --release",
         "--exact",
     ] {
         assert!(source.contains(fixed), "missing fixed contract: {fixed}");

@@ -89,7 +89,7 @@ impl Engine {
                 total: bytes.total,
             };
             PlacementReport {
-                mode: plan.mode.name(),
+                mode: crate::backend::selection::placement_mode(plan.mode),
                 cpu_layers: plan.cpu_layers,
                 gpu_layers: plan.gpu_layers,
                 cpu: memory(plan.cpu),

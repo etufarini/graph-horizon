@@ -116,7 +116,11 @@ mod tests {
         }
 
         fn fixed_bytes(_: &RuntimeShape) -> Result<DeviceFixedBytes> {
-            Ok(DeviceFixedBytes { host: 0, device: 0 })
+            Ok(DeviceFixedBytes {
+                host: 0,
+                device: 0,
+                staging: 0,
+            })
         }
 
         fn load_selected(

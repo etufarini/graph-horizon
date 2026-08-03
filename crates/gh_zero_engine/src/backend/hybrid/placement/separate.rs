@@ -23,6 +23,7 @@ pub(crate) struct PlacementInput {
     pub(crate) gpu_host_fixed: u64,
     pub(crate) gpu_scratch: u64,
     pub(crate) gpu_fixed: u64,
+    pub(crate) gpu_staging: u64,
     pub(crate) gpu_reserve: u64,
     pub(crate) crossing: u64,
 }
@@ -111,7 +112,7 @@ fn candidate(weights: &WeightBytes, input: PlacementInput, split: usize) -> Resu
         0,
         if has_gpu { input.gpu_scratch } else { 0 },
         if has_gpu { input.gpu_fixed } else { 0 },
-        0,
+        if has_gpu { input.gpu_staging } else { 0 },
         if mixed { input.crossing } else { 0 },
         if has_gpu { input.gpu_reserve } else { 0 },
     )?;
@@ -212,6 +213,7 @@ mod tests {
             gpu_host_fixed: 0,
             gpu_scratch: 3,
             gpu_fixed: 4,
+            gpu_staging: 0,
             gpu_reserve: 1,
             crossing: 8,
         }

@@ -29,6 +29,7 @@ pub(crate) struct RuntimeShape {
 pub(crate) struct DeviceFixedBytes {
     pub(crate) host: u64,
     pub(crate) device: u64,
+    pub(crate) staging: u64,
 }
 
 pub(crate) struct RuntimeBytes {

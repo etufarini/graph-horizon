@@ -185,6 +185,7 @@ pub(crate) fn select_plan<G: HybridDevice>(
             gpu_host_fixed: fixed.host,
             gpu_scratch: runtime.scratch,
             gpu_fixed: fixed.device,
+            gpu_staging: fixed.staging,
             gpu_reserve: reserve,
             crossing: runtime.crossing,
         },

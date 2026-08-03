@@ -99,7 +99,7 @@ fn candidate(
         } else {
             0
         },
-        0,
+        if split < blocks { input.gpu_staging } else { 0 },
         crossing,
         if split < blocks { input.gpu_reserve } else { 0 },
     )?;
@@ -189,6 +189,7 @@ mod tests {
             gpu_host_fixed: 0,
             gpu_scratch: 20,
             gpu_fixed: 4,
+            gpu_staging: 3,
             gpu_reserve: 1,
             crossing: 8,
         }
@@ -221,6 +222,7 @@ mod tests {
         let total = plan.cpu.total.checked_add(plan.gpu.total).unwrap();
         assert_eq!(select(&weights(), input(total, u64::MAX)).unwrap(), plan);
         assert_eq!(plan.gpu.reserve, 1);
+        assert_eq!(plan.gpu.staging, 3);
         assert_eq!(plan.cpu.reserve, 0);
     }
 

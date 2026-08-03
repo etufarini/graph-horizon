@@ -141,3 +141,34 @@ pub(crate) fn placement(backend: &SelectedBackend) -> Option<&HybridPlan> {
         None
     }
 }
+
+pub(crate) fn placement_mode(mode: super::hybrid::HybridMode) -> &'static str {
+    #[cfg(feature = "vulcan-hybrid")]
+    {
+        mode.name_for("all-gpu")
+    }
+    #[cfg(feature = "metal-hybrid")]
+    {
+        mode.name_for("all-metal")
+    }
+    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+    {
+        mode.name()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::hybrid::HybridMode;
+
+    #[test]
+    fn selected_hybrid_uses_its_public_homogeneous_label() {
+        #[cfg(feature = "vulcan-hybrid")]
+        assert_eq!(placement_mode(HybridMode::AllGpu), "all-gpu");
+        #[cfg(feature = "metal-hybrid")]
+        assert_eq!(placement_mode(HybridMode::AllGpu), "all-metal");
+        assert_eq!(placement_mode(HybridMode::Mixed), "mixed");
+        assert_eq!(placement_mode(HybridMode::CpuOnly), "cpu-only");
+    }
+}

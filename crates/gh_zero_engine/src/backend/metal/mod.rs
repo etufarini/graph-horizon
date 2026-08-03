@@ -91,9 +91,13 @@ impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
     ) -> color_eyre::eyre::Result<crate::backend::hybrid::weights::runtime::DeviceFixedBytes> {
         let device = (shape.vocab as u64)
             .checked_mul(4)
-            .and_then(|bytes| bytes.checked_add(32 * 1024))
+            .and_then(|bytes| bytes.checked_add(16 * 1024))
             .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
-        Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes { host: 0, device })
+        Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
+            host: 0,
+            device,
+            staging: 16 * 1024,
+        })
     }
 
     fn load_selected(

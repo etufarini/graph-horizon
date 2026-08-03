@@ -136,6 +136,7 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
                 .checked_add(reduce)
                 .and_then(|bytes| bytes.checked_add(mmvq))
                 .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?,
+            staging: 0,
         })
     }
 

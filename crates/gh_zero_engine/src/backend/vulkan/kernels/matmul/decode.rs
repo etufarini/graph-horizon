@@ -1,42 +1,16 @@
 /*
- * gh_zero_engine — matmul kernel dispatch
- * Records the matmul (FP16 activations × weights) and the final FP32 logits
- * projection. Batch 1: y = W · a with W in ggml row-major [out, in]. The weight
- * dtype is read off the buffer's WeightFormat and selects the kernel: FP16
- * or a quantized path (Q4_K/Q5_K/Q6_K) that dequantizes the ggml blocks on the
- * fly. The call interface is identical across formats so the graph never changes.
-*/
-
-// AGENTS deroga K: kernel/dispatch matmul GPU (selezione coopmat/mmvq/per-formato della stessa operazione GEMM).
-
-// Dispatch wrappers mirror the kernels' (buffers, dims, strides) interface, so
-// wide argument lists are intrinsic and expected.
-#![allow(clippy::too_many_arguments)]
-
-use std::sync::Once;
+ * gh_zero_engine — Vulkan decode matmul dispatch
+ * Selects the retained per-format FP16-output GEMV and records one projection.
+ * It owns no environment settings, batched policy, pipeline, or buffer lifetime.
+ */
 
 use ash::vk;
 
+use super::{project, trace};
 use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
 use crate::backend::vulkan::device::Device;
-use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
+use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry};
 
-// Load-path diagnostics are opt-in because stderr would corrupt the interactive
-// terminal. This setting lives here because matmul is its only consumer.
-fn load_trace() -> bool {
-    use std::sync::OnceLock;
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("GH_ZERO_LOAD_TRACE").ok().as_deref(),
-            Some("1") | Some("true") | Some("yes")
-        )
-    })
-}
-
-// y[out_dim] = W[out_dim, in_dim] · a[in_dim], result FP16. One invocation per
-// output row; the kernel is chosen by the weight format (gated at load time, so
-// the match is total over the supported formats).
 pub(crate) fn matmul(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -47,186 +21,15 @@ pub(crate) fn matmul(
     in_dim: u32,
     out_dim: u32,
 ) {
-    // Runtime path selection (2.3): Q4_K — the benchmark weight format — uses the
-    // tiled kernel (shared-memory activation staging, 4-lane row split); the other
-    // formats keep the proven per-format GEMV as fallback until the tiled path
-    // covers them. The chosen path is logged once. coopmat is not present on
-    // the dev GPU (RDNA2), so the selection here is always tiled-subgroup.
     let kernel = match w.quant {
         WeightFormat::F16 => Kernel::MatmulF16,
         WeightFormat::Q4K => Kernel::MatmulQ4KTiled,
         WeightFormat::Q6K => Kernel::MatmulQ6K,
         WeightFormat::Q5K => Kernel::MatmulQ5K,
     };
-    log_path_once(kernel);
+    trace::log_path_once(kernel);
     project(dev, reg, cmd, kernel, out, a, w, in_dim, out_dim);
 }
-
-// Logs the matmul path once at the first dispatch (the selection is deterministic
-// per build/device), so the run declares which kernel it uses without per-call noise.
-pub(crate) fn log_path_once(kernel: Kernel) {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        if !load_trace() {
-            return;
-        }
-        let path = match kernel {
-            Kernel::MatmulQ4KTiled => "Q4_K tiled-subgroup",
-            Kernel::MatmulQ4KMmvqF16Out => "Q4_K mmvq (int8/dp4a)",
-            _ => "per-format GEMV",
-        };
-        eprintln!("matmul: path={path}");
-    });
-}
-
-// Logs the batched (prefill) Q4_K path once: coopmat tensor-core vs the f16-out batched
-// fallback. Same load-trace gating as `log_path_once`; lets a run declare whether the
-// prefill engaged coopmat without per-dispatch noise.
-fn log_batched_path_once(coopmat: bool) {
-    static ONCE: Once = Once::new();
-    ONCE.call_once(|| {
-        if !load_trace() {
-            return;
-        }
-        let path = if coopmat {
-            "Q4_K coopmat (f16-out)"
-        } else {
-            "Q4_K batched f16-out"
-        };
-        eprintln!("matmul_batched: path={path}");
-    });
-}
-
-// Whether the dense prefill may use the coopmat tensor-core GEMM. OFF by default:
-// measured on a large Q4_K_M dense prompt, the coopmat prefill was slower than the
-// f16-out batched GEMM on a PCIe-streaming-bound configuration. The single-subgroup
-// 16x16x16 kernel also had lower occupancy than the 256-thread tiled batched kernel.
-// `GH_ZERO_PREFILL_COOPMAT=1` enables it (read once) for re-measurement on a
-// compute-bound config or after the kernel is tuned for occupancy. The verified-correct
-// kernel stays available; the default keeps the faster path.
-fn prefill_coopmat_enabled() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
-        matches!(
-            std::env::var("GH_ZERO_PREFILL_COOPMAT").ok().as_deref(),
-            Some("1") | Some("true") | Some("yes")
-        )
-    })
-}
-
-// Batched FP16-in/FP16-out Q4_K GEMM: Y[n][out_dim] = W · A[n][in_dim] in ONE
-// dispatch, reading each Q4_K weight row once for the whole token batch (the
-// prefill path; the per-token `matmul_batched` re-read every weight n times). The
-// output layout (token-major [n][out_dim] FP16) matches the per-token path, so it
-// is a drop-in. 2D grid over (out_dim/64 row-tiles, n/64 col-tiles).
-pub(crate) fn matmul_batched_q4k(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    out: &GpuBuffer,
-    a: &GpuBuffer,
-    w: &GpuBuffer,
-    in_dim: u32,
-    out_dim: u32,
-    n: u32,
-) {
-    // Coopmat tensor-core path: the dense prefill GEMM on the tensor cores when the
-    // device exposes the kernel's 16×16×16 f16→f32 shape. A is ALREADY f16 here (this path is
-    // f16-in/f16-out), so the f16-out coopmat kernel is a direct drop-in — no staging; W is
-    // dequantized in-shader. The fallback (MatmulQ4KBatchF16Out) is itself an f16 path and
-    // accepted dense weights are O(1) within f16 range, so the synthetic-weight NaN that forced
-    // no extra numeric gate is required. Edge tiles are zero-padded in the shader; falls back
-    // when caps/shape/format/in_dim don't qualify.
-    // Ablation (misurato): sulla Radeon 760M (RADV espone coopmat 16×16×16) questo path
-    // è ~+30% sul prefill vs il fallback batched f16-out, con logit bit-identici.
-    // Il default resta batched f16-out; l'opzione serve per rimisurare.
-    let caps = dev.coopmat;
-    if prefill_coopmat_enabled()
-        && w.quant == WeightFormat::Q4K
-        && caps.available
-        && caps.m == 16
-        && caps.n == 16
-        && caps.k == 16
-        && in_dim.is_multiple_of(256)
-    {
-        log_batched_path_once(true);
-        super::coopmat::dispatch_coopmat(dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps);
-        return;
-    }
-    log_batched_path_once(false);
-    let mut push = Vec::with_capacity(12);
-    push.extend_from_slice(&in_dim.to_le_bytes());
-    push.extend_from_slice(&out_dim.to_le_bytes());
-    push.extend_from_slice(&n.to_le_bytes());
-    dispatch_2d(
-        dev,
-        reg,
-        cmd,
-        Kernel::MatmulQ4KBatchF16Out,
-        &[
-            (a.buffer, a.offset, a.size),
-            (w.buffer, w.offset, w.size),
-            (out.buffer, out.offset, out.size),
-        ],
-        &push,
-        out_dim.div_ceil(64),
-        n.div_ceil(64),
-    );
-}
-
-// Same as matmul but the output is FP32 (the vocab-sized logits). The lm_head
-// (output.weight) may be FP16 or quantized; the format selects the kernel.
-pub(crate) fn logits(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    out: &GpuBuffer,
-    x: &GpuBuffer,
-    w: &GpuBuffer,
-    in_dim: u32,
-    out_dim: u32,
-) {
-    let kernel = match w.quant {
-        WeightFormat::F16 => Kernel::Logits,
-        WeightFormat::Q4K => Kernel::LogitsQ4K,
-        WeightFormat::Q6K => Kernel::LogitsQ6K,
-        WeightFormat::Q5K => Kernel::LogitsQ5K,
-    };
-    project(dev, reg, cmd, kernel, out, x, w, in_dim, out_dim);
-}
-
-// Shared dispatch for the matmul/logits kernels: same bindings (a, w, out) and
-// push constants (in_dim, out_dim), one workgroup of 64 rows per group.
-fn project(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    kernel: Kernel,
-    out: &GpuBuffer,
-    a: &GpuBuffer,
-    w: &GpuBuffer,
-    in_dim: u32,
-    out_dim: u32,
-) {
-    let mut push = Vec::with_capacity(8);
-    push.extend_from_slice(&in_dim.to_le_bytes());
-    push.extend_from_slice(&out_dim.to_le_bytes());
-    dispatch(
-        dev,
-        reg,
-        cmd,
-        kernel,
-        &[
-            (a.buffer, a.offset, a.size),
-            (w.buffer, w.offset, w.size),
-            (out.buffer, out.offset, out.size),
-        ],
-        &push,
-        out_dim.div_ceil(64),
-    );
-}
-
 // The parity test needs the CPU Q4_K oracle (`compute::matmul`, cpu-gated) and the
 // Vulkan device, so it only compiles when both backends are present (the hybrid
 // build); a vulkan-only test build skips it.

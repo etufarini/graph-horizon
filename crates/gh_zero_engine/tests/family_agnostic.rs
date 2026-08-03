@@ -81,7 +81,6 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q6k.rs",
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
         "src/backend/vulkan/kernels/attention.rs",
-        "src/backend/vulkan/kernels/matmul.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
         "src/family/mistral/generation/tests.rs",

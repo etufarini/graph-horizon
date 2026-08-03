@@ -146,15 +146,8 @@ mod tests {
     // A WeightSource over an owned tensor list for checked accounting tests.
     struct Vecs(Vec<TensorInfo>);
     impl WeightSource for Vecs {
-        fn tensors(&self) -> Vec<&TensorInfo> {
-            self.0.iter().collect()
-        }
-
-        fn layout(&self) -> crate::backend::source::WeightLayout {
-            crate::backend::source::WeightLayout {
-                has_output: false,
-                layer_count: 0,
-            }
+        fn groups(&self) -> crate::backend::source::WeightGroups<'_> {
+            crate::backend::source::WeightGroups::new(&self.0[0], &self.0[1], None, Vec::new())
         }
     }
 

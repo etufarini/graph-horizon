@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 use gh_zero_engine::{BackendMemory, PlacementReport};
 use gh_zero_engine::{Engine, EngineConfig};
 
@@ -346,7 +346,7 @@ fn assert_local_markdown_links(root: &Path) {
     }
 }
 
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulcan-hybrid")]
 #[test]
 fn hybrid_placement_contract() {
     let source = fs::read_to_string(manifest().join("src/family/mistral/hybrid/placement.rs"))

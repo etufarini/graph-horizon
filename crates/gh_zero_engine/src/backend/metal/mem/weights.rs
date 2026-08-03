@@ -12,7 +12,7 @@ use super::buffer::{MetalBuffer, MetalFormat};
 use crate::backend::buffers::{LayerWeights, WeightSet};
 use crate::backend::f16::f32_to_f16_bytes;
 use crate::backend::metal::Device;
-use crate::backend::source::{OutputWeight, WeightSource};
+use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::tensor_index::{GgmlType, TensorInfo};
 
@@ -21,49 +21,57 @@ pub(crate) fn load(
     file: &GgufFile,
     source: &dyn WeightSource,
 ) -> Result<WeightSet<MetalBuffer>> {
-    load_inner(
-        device,
-        file,
-        source,
-        #[cfg(test)]
-        None,
-    )
+    let layers = source.groups().layers.len();
+    load_selected(device, file, source, &WeightSelection::full(layers))
+}
+
+pub(crate) fn load_selected(
+    device: &Device,
+    file: &GgufFile,
+    source: &dyn WeightSource,
+    selection: &WeightSelection,
+) -> Result<WeightSet<MetalBuffer>> {
+    load_inner(device, file, source, selection, None)
 }
 
 fn load_inner(
     device: &Device,
     file: &GgufFile,
     source: &dyn WeightSource,
-    #[cfg(test)] fail_at: Option<usize>,
+    selection: &WeightSelection,
+    fail_at: Option<usize>,
 ) -> Result<WeightSet<MetalBuffer>> {
     let groups = source.groups();
-    if groups.layers.iter().any(|group| group.len() != 9) {
+    if selection.layers.start > selection.layers.end
+        || selection.layers.end > groups.layers.len()
+        || groups.layers[selection.layers.clone()]
+            .iter()
+            .any(|group| group.len() != 9)
+    {
         bail!("metal: model allocation failed");
     }
-    let dedicated = matches!(groups.tail.output, OutputWeight::Dedicated(_));
-    let mut tensors = vec![groups.embedding, groups.tail.norm];
-    if let OutputWeight::Dedicated(output) = groups.tail.output {
-        tensors.push(output);
-    }
-    tensors.extend(groups.layers.iter().flatten().copied());
-    let mut loaded = Vec::with_capacity(tensors.len());
-    for (_index, tensor) in tensors.into_iter().enumerate() {
-        #[cfg(test)]
-        if fail_at == Some(_index) {
-            bail!("metal: weight upload failed");
+    let mut index = 0;
+    let tied = groups.tail.output.is_tied();
+    let token_embd = (selection.embedding || (selection.tail && tied))
+        .then(|| load_step(device, file, groups.embedding, &mut index, fail_at))
+        .transpose()?;
+    let output_norm = selection
+        .tail
+        .then(|| load_step(device, file, groups.tail.norm, &mut index, fail_at))
+        .transpose()?;
+    let output = match groups.tail.output {
+        OutputWeight::Dedicated(tensor) if selection.tail => {
+            Some(load_step(device, file, tensor, &mut index, fail_at)?)
         }
-        loaded.push(load_tensor(device, file, tensor)?);
-    }
-    #[cfg(test)]
-    if fail_at == Some(loaded.len()) {
-        bail!("metal: weight upload failed");
-    }
-    let mut loaded = loaded.into_iter();
-    let token_embd = loaded.next();
-    let output_norm = loaded.next();
-    let output = dedicated.then(|| loaded.next().expect("dedicated output"));
-    let mut layers = Vec::with_capacity(groups.layers.len());
-    for _ in &groups.layers {
+        _ => None,
+    };
+    let mut layers = Vec::with_capacity(selection.layers.len());
+    for group in &groups.layers[selection.layers.clone()] {
+        let mut loaded = Vec::with_capacity(9);
+        for tensor in group {
+            loaded.push(load_step(device, file, tensor, &mut index, fail_at)?);
+        }
+        let mut loaded = loaded.into_iter();
         layers.push(LayerWeights {
             attn_norm: loaded.next().expect("validated layer"),
             attn_q: loaded.next().expect("validated layer"),
@@ -76,12 +84,29 @@ fn load_inner(
             ffn_down: loaded.next().expect("validated layer"),
         });
     }
+    if fail_at == Some(index) {
+        bail!("metal: weight upload failed");
+    }
     Ok(WeightSet {
         token_embd,
         output_norm,
         output,
         layers,
     })
+}
+
+fn load_step(
+    device: &Device,
+    file: &GgufFile,
+    tensor: &TensorInfo,
+    index: &mut usize,
+    fail_at: Option<usize>,
+) -> Result<MetalBuffer> {
+    if fail_at == Some(*index) {
+        bail!("metal: weight upload failed");
+    }
+    *index += 1;
+    load_tensor(device, file, tensor)
 }
 
 fn load_tensor(device: &Device, file: &GgufFile, tensor: &TensorInfo) -> Result<MetalBuffer> {
@@ -266,10 +291,11 @@ mod tests {
             let weights = load(&device, file, &source)?;
             assert!(weights.output.is_none());
             drop(weights);
+            let full = WeightSelection::full(1);
             for fail_at in 0..=formats.len() {
                 reset_test_counts();
                 assert_eq!(
-                    load_inner(&device, file, &source, Some(fail_at))
+                    load_inner(&device, file, &source, &full, Some(fail_at))
                         .err()
                         .expect("injected upload failure")
                         .to_string(),
@@ -278,6 +304,67 @@ mod tests {
                 let (allocations, drops) = test_counts();
                 assert_eq!(allocations, drops, "leak at failpoint {fail_at}");
             }
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn selected_inventories_match_prefix_and_tail_roles() -> Result<()> {
+        let device = Device::acquire()?;
+        with_file(&[GgmlType::F16; 11], |file| -> Result<()> {
+            let source = Source {
+                tensors: file.tensors(),
+                dedicated: false,
+            };
+            let prefix = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 0..1,
+                    embedding: true,
+                    tail: false,
+                },
+            )?;
+            assert!(prefix.token_embd.is_some());
+            assert!(prefix.output_norm.is_none());
+            assert!(prefix.output.is_none());
+            assert_eq!(prefix.layers.len(), 1);
+
+            let tail = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 0..1,
+                    embedding: false,
+                    tail: true,
+                },
+            )?;
+            assert!(tail.token_embd.is_some(), "tied tail owns its own matrix");
+            assert!(tail.output_norm.is_some());
+            assert!(tail.output.is_none());
+            assert_eq!(tail.layers.len(), 1);
+            Ok(())
+        })?;
+        with_file(&[GgmlType::F16; 12], |file| -> Result<()> {
+            let source = Source {
+                tensors: file.tensors(),
+                dedicated: true,
+            };
+            let tail = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 0..1,
+                    embedding: false,
+                    tail: true,
+                },
+            )?;
+            assert!(tail.token_embd.is_none());
+            assert!(tail.output_norm.is_some());
+            assert!(tail.output.is_some());
             Ok(())
         })
     }

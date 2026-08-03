@@ -16,10 +16,20 @@ pub(crate) fn allocate(
     meta: &ModelMetadata,
     weights: WeightSet<MetalBuffer>,
 ) -> Result<(Buffers<MetalBuffer>, MetalBuffer, MetalBuffer)> {
+    allocate_inner(device, meta, weights, None)
+}
+
+fn allocate_inner(
+    device: &Device,
+    meta: &ModelMetadata,
+    weights: WeightSet<MetalBuffer>,
+    fail_at: Option<usize>,
+) -> Result<(Buffers<MetalBuffer>, MetalBuffer, MetalBuffer)> {
     let sizes = scratch_sizes(meta)?;
     let mut values = Vec::with_capacity(sizes.len());
+    let mut index = 0;
     for (bytes, format) in sizes {
-        values.push(MetalBuffer::allocate(device, bytes, format)?);
+        values.push(allocate_step(device, bytes, format, &mut index, fail_at)?);
     }
     let mut values = values.into_iter();
     let scratch = Scratch {
@@ -35,9 +45,18 @@ pub(crate) fn allocate(
         act: values.next().unwrap(),
         ffn_out: values.next().unwrap(),
     };
-    let logits = MetalBuffer::allocate(device, bytes(meta.vocab_size, 4)?, MetalFormat::F32)?;
-    let reduce = MetalBuffer::allocate(device, 16 * 1024, MetalFormat::Raw)?;
-    let staging = MetalBuffer::allocate(device, 16 * 1024, MetalFormat::Raw)?;
+    let logits = allocate_step(
+        device,
+        bytes(meta.vocab_size, 4)?,
+        MetalFormat::F32,
+        &mut index,
+        fail_at,
+    )?;
+    let reduce = allocate_step(device, 16 * 1024, MetalFormat::Raw, &mut index, fail_at)?;
+    let staging = allocate_step(device, 16 * 1024, MetalFormat::Raw, &mut index, fail_at)?;
+    if fail_at == Some(index) {
+        return Err(eyre!("metal: model allocation failed"));
+    }
     Ok((
         Buffers {
             weights,
@@ -47,6 +66,20 @@ pub(crate) fn allocate(
         reduce,
         staging,
     ))
+}
+
+fn allocate_step(
+    device: &Device,
+    bytes: u64,
+    format: MetalFormat,
+    index: &mut usize,
+    fail_at: Option<usize>,
+) -> Result<MetalBuffer> {
+    if fail_at == Some(*index) {
+        return Err(eyre!("metal: model allocation failed"));
+    }
+    *index += 1;
+    MetalBuffer::allocate(device, bytes, format)
 }
 
 fn scratch_sizes(meta: &ModelMetadata) -> Result<[(u64, MetalFormat); 11]> {
@@ -87,4 +120,43 @@ fn bytes(items: usize, width: usize) -> Result<u64> {
 
 fn arithmetic() -> color_eyre::Report {
     eyre!("metal: buffer arithmetic overflow")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::metal::mem::buffer::{reset_test_counts, test_counts};
+
+    fn empty_weights() -> WeightSet<MetalBuffer> {
+        WeightSet {
+            token_embd: None,
+            output_norm: None,
+            output: None,
+            layers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn every_runtime_allocation_failure_releases_prior_buffers() -> Result<()> {
+        let device = Device::acquire()?;
+        let meta = ModelMetadata {
+            block_count: 0,
+            embedding_length: 8,
+            head_count: 2,
+            head_count_kv: 1,
+            head_dim: 4,
+            feed_forward_length: 16,
+            vocab_size: 32,
+        };
+        for fail_at in 0..=14 {
+            reset_test_counts();
+            let error = allocate_inner(&device, &meta, empty_weights(), Some(fail_at))
+                .err()
+                .expect("injected buffer allocation failure");
+            assert_eq!(error.to_string(), "metal: model allocation failed");
+            let (allocations, drops) = test_counts();
+            assert_eq!(allocations, drops, "leak at failpoint {fail_at}");
+        }
+        Ok(())
+    }
 }

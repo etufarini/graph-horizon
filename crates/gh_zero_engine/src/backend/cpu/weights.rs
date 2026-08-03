@@ -65,20 +65,32 @@ fn load_weights(
     ws: &dyn WeightSource,
     selection: &WeightSelection,
 ) -> Result<WeightSet<CpuBuffer>> {
+    load_weights_inner(gguf, ws, selection, None)
+}
+
+fn load_weights_inner(
+    gguf: &GgufFile,
+    ws: &dyn WeightSource,
+    selection: &WeightSelection,
+    fail_at: Option<usize>,
+) -> Result<WeightSet<CpuBuffer>> {
     let groups = ws.groups();
     if selection.layers.start > selection.layers.end || selection.layers.end > groups.layers.len() {
         bail!("cpu: invalid weight layout");
     }
+    let mut index = 0;
     let tied = groups.tail.output.is_tied();
     let token_embd = (selection.embedding || (selection.tail && tied))
-        .then(|| load_tensor(gguf, groups.embedding))
+        .then(|| load_step(gguf, groups.embedding, &mut index, fail_at))
         .transpose()?;
     let output_norm = selection
         .tail
-        .then(|| load_tensor(gguf, groups.tail.norm))
+        .then(|| load_step(gguf, groups.tail.norm, &mut index, fail_at))
         .transpose()?;
     let output = match groups.tail.output {
-        OutputWeight::Dedicated(tensor) if selection.tail => Some(load_tensor(gguf, tensor)?),
+        OutputWeight::Dedicated(tensor) if selection.tail => {
+            Some(load_step(gguf, tensor, &mut index, fail_at)?)
+        }
         _ => None,
     };
     let mut layers = Vec::with_capacity(selection.layers.len());
@@ -98,16 +110,19 @@ fn load_weights(
             bail!("cpu: invalid weight layout");
         };
         layers.push(LayerWeights {
-            attn_norm: load_tensor(gguf, attn_norm)?,
-            attn_q: load_tensor(gguf, attn_q)?,
-            attn_k: load_tensor(gguf, attn_k)?,
-            attn_v: load_tensor(gguf, attn_v)?,
-            attn_output: load_tensor(gguf, attn_output)?,
-            ffn_norm: load_tensor(gguf, ffn_norm)?,
-            ffn_gate: load_tensor(gguf, ffn_gate)?,
-            ffn_up: load_tensor(gguf, ffn_up)?,
-            ffn_down: load_tensor(gguf, ffn_down)?,
+            attn_norm: load_step(gguf, attn_norm, &mut index, fail_at)?,
+            attn_q: load_step(gguf, attn_q, &mut index, fail_at)?,
+            attn_k: load_step(gguf, attn_k, &mut index, fail_at)?,
+            attn_v: load_step(gguf, attn_v, &mut index, fail_at)?,
+            attn_output: load_step(gguf, attn_output, &mut index, fail_at)?,
+            ffn_norm: load_step(gguf, ffn_norm, &mut index, fail_at)?,
+            ffn_gate: load_step(gguf, ffn_gate, &mut index, fail_at)?,
+            ffn_up: load_step(gguf, ffn_up, &mut index, fail_at)?,
+            ffn_down: load_step(gguf, ffn_down, &mut index, fail_at)?,
         });
+    }
+    if fail_at == Some(index) {
+        bail!("cpu: weight load failed");
     }
     Ok(WeightSet {
         token_embd,
@@ -115,6 +130,19 @@ fn load_weights(
         output,
         layers,
     })
+}
+
+fn load_step(
+    gguf: &GgufFile,
+    tensor: &crate::gguf::tensor_index::TensorInfo,
+    index: &mut usize,
+    fail_at: Option<usize>,
+) -> Result<CpuBuffer> {
+    if fail_at == Some(*index) {
+        bail!("cpu: weight load failed");
+    }
+    *index += 1;
+    load_tensor(gguf, tensor)
 }
 
 // Copies one tensor into a CpuBuffer in its original format. F32 norms become
@@ -173,9 +201,12 @@ fn alloc_scratch(meta: &ModelMetadata) -> Scratch<CpuBuffer> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::source::WeightGroups;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
     const GGUF_MAGIC: &[u8; 4] = b"GGUF";
     const ALIGNMENT: usize = 32;
+    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
 
     fn push_str(buf: &mut Vec<u8>, s: &str) {
         buf.extend_from_slice(&(s.len() as u64).to_le_bytes());
@@ -255,15 +286,28 @@ mod tests {
         std::env::temp_dir().join(format!(
             "gh_zero_cpu_weights_{}_{}.gguf",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("clock before epoch")
-                .as_nanos()
+            NEXT_FILE.fetch_add(1, Ordering::Relaxed)
         ))
     }
 
     fn assert_format(buf: &CpuBuffer, expected: CpuFormat) {
         assert!(buf.format == expected);
+    }
+
+    struct Source<'a>(&'a [crate::gguf::tensor_index::TensorInfo]);
+
+    impl WeightSource for Source<'_> {
+        fn groups(&self) -> WeightGroups<'_> {
+            WeightGroups::new(
+                &self.0[0],
+                &self.0[1],
+                None,
+                self.0[2..]
+                    .chunks(9)
+                    .map(|group| group.iter().collect())
+                    .collect(),
+            )
+        }
     }
 
     #[test]
@@ -286,6 +330,41 @@ mod tests {
             for (info, (_, expected)) in file.tensors().iter().zip(formats) {
                 let buf = load_tensor(&file, info).expect("load tensor");
                 assert_format(&buf, expected);
+            }
+        });
+    }
+
+    #[test]
+    fn selected_inventory_and_every_load_failpoint_are_transactional() {
+        let tensors = (0..11)
+            .map(|index| {
+                (
+                    format!("w{index}"),
+                    GgmlType::F16,
+                    tensor_bytes(GgmlType::F16),
+                )
+            })
+            .collect::<Vec<_>>();
+        let gguf = build_gguf(&tensors);
+        with_temp_gguf(&gguf, |file| {
+            let source = Source(file.tensors());
+            let selection = WeightSelection {
+                layers: 0..1,
+                embedding: true,
+                tail: false,
+            };
+            let weights = load_weights(&file, &source, &selection).unwrap();
+            assert!(weights.token_embd.is_some());
+            assert!(weights.output_norm.is_none());
+            assert_eq!(weights.layers.len(), 1);
+            for fail_at in 0..=10 {
+                assert_eq!(
+                    load_weights_inner(&file, &source, &selection, Some(fail_at))
+                        .err()
+                        .expect("injected CPU load failure")
+                        .to_string(),
+                    "cpu: weight load failed"
+                );
             }
         });
     }

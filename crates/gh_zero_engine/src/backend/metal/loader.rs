@@ -10,7 +10,7 @@ use objc2_foundation::NSProcessInfo;
 use super::mem::{budget, buffers, weights};
 use super::{Device, MetalBackend};
 use crate::backend::hybrid::weights::runtime::RuntimeShape;
-use crate::backend::source::WeightSource;
+use crate::backend::source::{WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 use crate::kv_cache::scheme::KvQuant;
@@ -46,8 +46,24 @@ pub(crate) fn load(
         &plan,
         context,
     )?;
+    load_selected(
+        device,
+        file,
+        source,
+        metadata,
+        &WeightSelection::full(shape.block_count),
+    )
+}
+
+pub(crate) fn load_selected(
+    device: Device,
+    file: &GgufFile,
+    source: &dyn WeightSource,
+    metadata: &ModelMetadata,
+    selection: &WeightSelection,
+) -> Result<MetalBackend> {
     let pipelines = super::pipeline::PipelineRegistry::load(&device)?;
-    let weights = weights::load(&device, file, source)?;
+    let weights = weights::load_selected(&device, file, source, selection)?;
     let (buffers, reduce, staging) = buffers::allocate(&device, metadata, weights)?;
     Ok(MetalBackend {
         device,

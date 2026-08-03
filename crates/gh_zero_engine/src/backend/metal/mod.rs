@@ -97,13 +97,13 @@ impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
     }
 
     fn load_selected(
-        _device: Self::Device,
-        _meta: &crate::gguf::metadata::ModelMetadata,
-        _source: &dyn crate::backend::source::WeightSource,
-        _gguf: &crate::gguf::loader::GgufFile,
-        _selection: &crate::backend::source::WeightSelection,
+        device: Self::Device,
+        meta: &crate::gguf::metadata::ModelMetadata,
+        source: &dyn crate::backend::source::WeightSource,
+        gguf: &crate::gguf::loader::GgufFile,
+        selection: &crate::backend::source::WeightSelection,
     ) -> color_eyre::eyre::Result<Self> {
-        color_eyre::eyre::bail!("metal hybrid selected loading is unavailable")
+        loader::load_selected(device, gguf, source, meta, selection)
     }
 
     fn buffer_bytes(buffer: &Self::Buffer) -> u64 {

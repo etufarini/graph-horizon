@@ -56,6 +56,8 @@ pub(crate) struct ShapeBackend {
     allocations: Cell<usize>,
     fail_allocation: Cell<Option<usize>>,
     fail_embed: Cell<bool>,
+    alignment: Cell<u64>,
+    allocation_bytes: RefCell<Vec<u64>>,
 }
 
 pub(crate) struct ShapeEncoder;
@@ -129,6 +131,8 @@ impl ShapeBackend {
             allocations: Cell::new(0),
             fail_allocation: Cell::new(None),
             fail_embed: Cell::new(false),
+            alignment: Cell::new(1),
+            allocation_bytes: RefCell::new(Vec::new()),
         }
     }
 
@@ -150,6 +154,14 @@ impl ShapeBackend {
 
     pub(crate) fn live_allocations(&self) -> usize {
         self.live.get()
+    }
+
+    pub(crate) fn set_alignment(&self, alignment: u64) {
+        self.alignment.set(alignment);
+    }
+
+    pub(crate) fn allocation_bytes(&self) -> Vec<u64> {
+        self.allocation_bytes.borrow().clone()
     }
 }
 
@@ -176,6 +188,7 @@ impl Backend for ShapeBackend {
         if self.fail_allocation.get() == Some(allocation) {
             bail!("shape backend: injected allocation failure");
         }
+        self.allocation_bytes.borrow_mut().push(bytes);
         self.live.set(self.live.get() + 1);
         Ok(ShapeBuffer::plain("kv", bytes))
     }
@@ -190,7 +203,7 @@ impl Backend for ShapeBackend {
     }
 
     fn min_buffer_offset_alignment(&self) -> u64 {
-        1
+        self.alignment.get()
     }
 
     fn kv_write(

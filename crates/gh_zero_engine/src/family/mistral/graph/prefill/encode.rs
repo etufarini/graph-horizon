@@ -7,6 +7,7 @@
 use color_eyre::eyre::{Result, bail};
 
 use super::buffers::*;
+use super::effective_capacity;
 use crate::backend::Backend;
 use crate::backend::buffers::LayerWeights;
 use crate::backend::rope::RopeRole;
@@ -24,7 +25,7 @@ pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
     if prompt.is_empty() {
         bail!("mistral graph: empty prompt");
     }
-    let buffers = BatchBuffers::new(backend, cfg)?;
+    let buffers = BatchBuffers::new(backend, cfg, effective_capacity(prompt.len())?)?;
     for (batch_index, tokens) in prompt.chunks(BATCH_ROWS).enumerate() {
         before_batch()?;
         let base = batch_index * BATCH_ROWS;
@@ -53,7 +54,7 @@ pub(crate) fn record_batch<B: Backend>(
             }
             backend.embed(
                 &enc,
-                &batch.row(X, row, cfg.embedding_length, 4),
+                &batch.row(X, row, cfg.embedding_length, 4)?,
                 backend
                     .buffers()
                     .weights
@@ -83,8 +84,8 @@ pub(crate) fn record_batch<B: Backend>(
             backend,
             &enc,
             cfg,
-            &batch.row(X, rows - 1, cfg.embedding_length, 4),
-            &batch.row(NORMED, rows - 1, cfg.embedding_length, 2),
+            &batch.row(X, rows - 1, cfg.embedding_length, 4)?,
+            &batch.row(NORMED, rows - 1, cfg.embedding_length, 2)?,
         );
     }
     backend.submit(enc)
@@ -104,7 +105,7 @@ fn record_layer<B: Backend>(
 ) -> Result<()> {
     let hidden = cfg.embedding_length as u32;
     let row_count = rows as u32;
-    let scratch = batch.scratch(cfg, rows);
+    let scratch = batch.scratch(cfg, rows)?;
     backend.rmsnorm_x(
         enc,
         &scratch.normed,
@@ -149,7 +150,7 @@ fn record_layer<B: Backend>(
         backend.no_barrier();
         backend.rope_yarn(
             enc,
-            &batch.row(Q, row, cfg.q_width, 2),
+            &batch.row(Q, row, cfg.q_width, 2)?,
             cfg.head_count as u32,
             cfg.key_length as u32,
             (base + row) as u32,
@@ -158,7 +159,7 @@ fn record_layer<B: Backend>(
         )?;
         backend.rope_yarn(
             enc,
-            &batch.row(K, row, cfg.k_width, 2),
+            &batch.row(K, row, cfg.k_width, 2)?,
             cfg.kv_head_count as u32,
             cfg.key_length as u32,
             (base + row) as u32,

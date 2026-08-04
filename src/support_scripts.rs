@@ -725,6 +725,18 @@ printf '%s  %s\n' "$digest" "$model"
         fs::read_to_string(repository().join("support/profiling/validate-kv.sh")).unwrap();
     assert!(!kv_source.contains("--model-q8"));
     assert!(!kv_source.contains("--model-q4"));
+    let matrix_source =
+        fs::read_to_string(repository().join("support/profiling/performance-matrix.sh")).unwrap();
+    assert!(matrix_source.contains("profiles=(cpu metal metal-hybrid)"));
+    assert!(matrix_source.contains("model=3b-instruct"));
+    assert!(matrix_source.contains("for kv in f16 int8"));
+    assert!(matrix_source.contains("for fixture in short long"));
+    assert!(matrix_source.contains("\"schema_version\":2"));
+    assert!(matrix_source.contains("\"repetitions\":3"));
+    assert!(matrix_source.contains("\"total\":12"));
+    for stale in ["2048", "repetitions\":7", "total\":30"] {
+        assert!(!matrix_source.contains(stale));
+    }
 
     let copied_root = fixture.join("malformed catalog");
     fs::create_dir_all(copied_root.join("support/profiling")).unwrap();

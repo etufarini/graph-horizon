@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GH Zero isolated performance matrix runner.
+# GH Zero 3B local performance matrix runner.
 # Owns strict tuple order, artifact authentication, immutable per-revision
 # executables, bounded child output, and terminal JSONL normalization. Inputs are
 # untrusted; model inference and A/B decisions remain in their dedicated tools.
@@ -44,7 +44,7 @@ else
     mkdir "$cache" || usage_error
 fi
 
-profiles=(cpu vulkan vulkan-hybrid metal metal-hybrid)
+profiles=(cpu metal metal-hybrid)
 prepare() {
     local profile=$1 state=pass binary size hash platform
     platform=$(uname -s 2>/dev/null || true)
@@ -70,7 +70,7 @@ if [[ $reuse -eq 0 ]]; then
     for profile in "${profiles[@]}"; do prepare "$profile"; done
     mv "$run_dir/manifest" "$manifest" || usage_error
 else
-    [[ $(wc -l < "$manifest") -eq 6 && $(sed -n '1p' "$manifest") == $'revision\t'"$revision" ]] || usage_error
+    [[ $(wc -l < "$manifest") -eq 4 && $(sed -n '1p' "$manifest") == $'revision\t'"$revision" ]] || usage_error
     for profile in "${profiles[@]}"; do
         entry=$(awk -F '\t' -v p="$profile" '$1==p {print $2 "\t" $3 "\t" $4}' "$manifest")
         IFS=$'\t' read -r state size hash <<< "$entry"
@@ -100,56 +100,52 @@ terminal() {
     local status=$1 reason=$2 profile=$3 model=$4 bytes=$5 sha=$6 kv=$7 fixture=$8
     local mode=pure percent=null
     [[ $profile == *-hybrid ]] && { mode=mixed; percent=25; }
-    printf '{"schema_version":1,"status":"%s","reason":"%s","revision":"%s","backend_profile":"%s","family":"mistral3","model_id":"%s","variant":"instruct","artifact_bytes":%s,"artifact_sha256":"%s","kv":"%s","placement_mode":"%s","cpu_layers":null,"gpu_layers":null,"weights_percent":%s,"context":4096,"fixture":"%s","fixture_digest":null,"hardware_id":"%s","driver_id":"%s","warmup":1,"repetitions":7,"prompt_tokens":null,"decode_steps":null,"prefill_mean_ns":null,"prefill_tps_mean":null,"prefill_tps_stddev":null,"prefill_tps_cv":null,"first_sample_mean_ns":null,"decode_p50_mean_ns":null,"decode_p95_mean_ns":null,"decode_tps_mean":null,"decode_tps_stddev":null,"decode_tps_cv":null,"public_ttft_ms":null,"public_decode_tps":null,"cpu_memory_total":null,"gpu_memory_total":null}' "$status" "$reason" "$revision" "$profile" "$model" "$bytes" "$sha" "$kv" "$mode" "$percent" "$fixture" "$hardware" "$driver"
+    printf '{"schema_version":2,"status":"%s","reason":"%s","revision":"%s","backend_profile":"%s","family":"mistral3","model_id":"%s","variant":"instruct","artifact_bytes":%s,"artifact_sha256":"%s","kv":"%s","placement_mode":"%s","cpu_layers":null,"gpu_layers":null,"weights_percent":%s,"context":4096,"fixture":"%s","fixture_digest":null,"hardware_id":"%s","driver_id":"%s","warmup":1,"repetitions":3,"prompt_tokens":null,"decode_steps":null,"prefill_mean_ns":null,"prefill_tps_mean":null,"prefill_tps_stddev":null,"prefill_tps_cv":null,"first_sample_mean_ns":null,"decode_p50_mean_ns":null,"decode_p95_mean_ns":null,"decode_tps_mean":null,"decode_tps_stddev":null,"decode_tps_cv":null,"public_ttft_ms":null,"public_decode_tps":null,"cpu_memory_total":null,"gpu_memory_total":null}' "$status" "$reason" "$revision" "$profile" "$model" "$bytes" "$sha" "$kv" "$mode" "$percent" "$fixture" "$hardware" "$driver"
 }
 
 pass=0; fail=0; external=0; total=0
 write_row() {
     local row=$1
-    [[ ${#row} -le 32768 && $row == '{"schema_version":1,'* ]] || usage_error
+    [[ ${#row} -le 32768 && $row == '{"schema_version":2,'* ]] || usage_error
     case "$row" in *'"status":"pass"'*) ((pass += 1)) ;;
         *'"status":"fail"'*) ((fail += 1)) ;;
         *'"status":"external verification"'*) ((external += 1)) ;; *) usage_error ;; esac
     ((total += 1)); printf '%s\n' "$row"
 }
 
-for model in 3b-instruct 8b-instruct 14b-instruct; do
-    meta=$(catalog "$model") || usage_error
-    IFS=$'\t' read -r file bytes sha chat <<< "$meta"
-    [[ $chat == instruct && -n $file && $file != */* && -n $bytes && $bytes != *[!0-9]*
-        && ${#sha} -eq 64 && $sha != *[!0-9a-f]* ]] || usage_error
-    path=$models/$file; artifact=pass
-    if [[ ! -e "$path" ]]; then artifact='artifact unavailable'
-    elif [[ ! -f "$path" || ! artifact_hash_tool_available ]]; then artifact='tool unavailable'
-    elif [[ $(artifact_size "$path") != "$bytes" || $(artifact_sha256 "$path") != "$sha" ]]; then artifact='artifact mismatch'
-    fi
-    for profile in "${profiles[@]}"; do
-        state=$(<"$run_dir/$profile.status")
-        if [[ $model == 3b-instruct ]]; then kvs=(f16 int8); fixtures=(short long)
-        else kvs=(f16); fixtures=(long)
+model=3b-instruct
+meta=$(catalog "$model") || usage_error
+IFS=$'\t' read -r file bytes sha chat <<< "$meta"
+[[ $chat == instruct && -n $file && $file != */* && -n $bytes && $bytes != *[!0-9]*
+    && ${#sha} -eq 64 && $sha != *[!0-9a-f]* ]] || usage_error
+path=$models/$file; artifact=pass
+if [[ ! -e "$path" ]]; then artifact='artifact unavailable'
+elif [[ ! -f "$path" || ! artifact_hash_tool_available ]]; then artifact='tool unavailable'
+elif [[ $(artifact_size "$path") != "$bytes" || $(artifact_sha256 "$path") != "$sha" ]]; then artifact='artifact mismatch'
+fi
+for profile in "${profiles[@]}"; do
+    state=$(<"$run_dir/$profile.status")
+    for kv in f16 int8; do for fixture in short long; do
+        if [[ $artifact != pass ]]; then
+            if [[ $artifact == 'artifact mismatch' ]]; then row=$(terminal fail "$artifact" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
+            else row=$(terminal 'external verification' "$artifact" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture"); fi
+        elif [[ $state != pass ]]; then
+            if [[ $state == fail ]]; then row=$(terminal fail 'execution failed' "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
+            else row=$(terminal 'external verification' "$state" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture"); fi
+        else
+            binary=$cache/$profile/phases; weight_args=()
+            [[ $profile == *-hybrid ]] && weight_args=(--weights-percent 25)
+            # The + guard keeps an empty array truly argument-free under Bash 3.2 with set -u.
+            "$binary" "$path" --context 4096 --kv "$kv" --fixture "$fixture" "${weight_args[@]+"${weight_args[@]}"}" \
+                --model-id "$model" --variant instruct --artifact-bytes "$bytes" --artifact-sha256 "$sha" \
+                --revision "$revision" --hardware-id "$hardware" --driver-id "$driver" \
+                > "$run_dir/row" 2>/dev/null
+            child=$?
+            if [[ $child -ne 0 || $(wc -l < "$run_dir/row") -ne 1 ]]; then row=$(terminal fail 'execution failed' "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
+            else row=$(<"$run_dir/row"); fi
         fi
-        for kv in "${kvs[@]}"; do for fixture in "${fixtures[@]}"; do
-            if [[ $artifact != pass ]]; then
-                if [[ $artifact == 'artifact mismatch' ]]; then row=$(terminal fail "$artifact" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
-                else row=$(terminal 'external verification' "$artifact" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture"); fi
-            elif [[ $state != pass ]]; then
-                if [[ $state == fail ]]; then row=$(terminal fail 'execution failed' "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
-                else row=$(terminal 'external verification' "$state" "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture"); fi
-            else
-                binary=$cache/$profile/phases; weight_args=()
-                [[ $profile == *-hybrid ]] && weight_args=(--weights-percent 25)
-                # The + guard keeps an empty array truly argument-free under Bash 3.2 with set -u.
-                "$binary" "$path" --context 4096 --kv "$kv" --fixture "$fixture" "${weight_args[@]+"${weight_args[@]}"}" \
-                    --model-id "$model" --variant instruct --artifact-bytes "$bytes" --artifact-sha256 "$sha" \
-                    --revision "$revision" --hardware-id "$hardware" --driver-id "$driver" \
-                    > "$run_dir/row" 2>/dev/null
-                child=$?
-                if [[ $child -ne 0 || $(wc -l < "$run_dir/row") -ne 1 ]]; then row=$(terminal fail 'execution failed' "$profile" "$model" "$bytes" "$sha" "$kv" "$fixture")
-                else row=$(<"$run_dir/row"); fi
-            fi
-            write_row "$row"
-        done; done
-    done
+        write_row "$row"
+    done; done
 done
-[[ $total -eq 30 ]] || usage_error
-printf '{"schema_version":1,"summary":true,"total":30,"pass":%d,"fail":%d,"external_verification":%d,"revision":"%s"}\n' "$pass" "$fail" "$external" "$revision"
+[[ $total -eq 12 ]] || usage_error
+printf '{"schema_version":2,"summary":true,"total":12,"pass":%d,"fail":%d,"external_verification":%d,"revision":"%s"}\n' "$pass" "$fail" "$external" "$revision"

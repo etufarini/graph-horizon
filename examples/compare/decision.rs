@@ -60,11 +60,10 @@ struct Regression {
 
 pub(crate) fn evaluate<'a>(baseline: &'a Evidence, candidate: &'a Evidence, target: &'a str, attempt: u8) -> Decision<'a> {
     let comparable = baseline.rows.iter().zip(&candidate.rows).enumerate().filter(|(_, (a, b))| a.status == "pass" && b.status == "pass").collect::<Vec<_>>();
-    let primary = comparable.iter().filter(|(index, _)| *index < 20).collect::<Vec<_>>();
-    let prefill = geomean(primary.iter().map(|(_, (a, b))| ratio(b.prefill_tps, a.prefill_tps)));
-    let decode = geomean(primary.iter().map(|(_, (a, b))| ratio(b.decode_tps, a.decode_tps)));
-    let measured_cpu = primary.iter().any(|(_, (_, row))| row.requested.profile == "cpu");
-    let measured_pure_device = primary.iter().any(|(_, (_, row))| matches!(row.requested.profile.as_str(), "vulkan" | "metal"));
+    let prefill = geomean(comparable.iter().map(|(_, (a, b))| ratio(b.prefill_tps, a.prefill_tps)));
+    let decode = geomean(comparable.iter().map(|(_, (a, b))| ratio(b.decode_tps, a.decode_tps)));
+    let measured_cpu = comparable.iter().any(|(_, (_, row))| row.requested.profile == "cpu");
+    let measured_pure_device = comparable.iter().any(|(_, (_, row))| row.requested.profile == "metal");
     let unstable = baseline.rows.iter().chain(&candidate.rows).filter(|row| row.status == "pass").any(|row| row.prefill_cv.is_some_and(|v| v > 0.05) || row.decode_cv.is_some_and(|v| v > 0.05));
     let regression = capacity_regression(baseline, candidate).or_else(|| first_regression(baseline, candidate));
     let target_met = match target {
@@ -88,7 +87,7 @@ pub(crate) fn evaluate<'a>(baseline: &'a Evidence, candidate: &'a Evidence, targ
         ("keep", "target met")
     };
     Decision {
-        schema_version: 1,
+        schema_version: 2,
         decision,
         reason,
         target,
@@ -101,8 +100,8 @@ pub(crate) fn evaluate<'a>(baseline: &'a Evidence, candidate: &'a Evidence, targ
         candidate_pass: candidate.counts.pass,
         candidate_fail: candidate.counts.fail,
         candidate_external_verification: candidate.counts.external,
-        comparable_primary_rows: primary.len(),
-        comparable_scale_rows: comparable.len() - primary.len(),
+        comparable_primary_rows: comparable.len(),
+        comparable_scale_rows: 0,
         measured_cpu,
         measured_pure_device,
         prefill_geomean_ratio: prefill,
@@ -172,6 +171,7 @@ mod tests {
         let keep = sample_evidence(CANDIDATE, 1.05);
         let result = evaluate(&baseline, &keep, "both", 1);
         assert_eq!((result.decision, result.reason, result.exit_code()), ("keep", "target met", 0));
+        assert_eq!((result.schema_version, result.comparable_primary_rows, result.comparable_scale_rows), (2, 12, 0));
         let miss = sample_evidence(CANDIDATE, 1.04);
         let result = evaluate(&baseline, &miss, "both", 1);
         assert_eq!((result.decision, result.reason, result.exit_code()), ("revert", "target missed", 1));
@@ -184,6 +184,11 @@ mod tests {
         row.rows[4].decode_tps = Some(97.0);
         let result = evaluate(&baseline, &row, "decode", 1);
         assert_eq!((result.reason, result.regression_row, result.regression_metric), ("row regression", Some(5), Some("decode_tps")));
+
+        let mut latency = sample_evidence(CANDIDATE, 1.05);
+        latency.rows[4].prefill_ns = Some(103.0);
+        let result = evaluate(&baseline, &latency, "prefill", 1);
+        assert_eq!((result.reason, result.regression_row, result.regression_metric), ("row regression", Some(5), Some("prefill_latency")));
 
         let mut capacity = sample_evidence(CANDIDATE, 1.05);
         capacity.rows[9].status = "external verification".into();
@@ -206,20 +211,22 @@ mod tests {
     }
 
     #[test]
-    fn missing_pure_device_coverage_is_external() {
-        let mut baseline = sample_evidence(BASE, 1.0);
-        let mut candidate = sample_evidence(CANDIDATE, 1.05);
-        for index in 4..8 {
-            baseline.rows[index].status = "external verification".into();
-            baseline.rows[index].reason = "device unavailable".into();
-            candidate.rows[index].status = "external verification".into();
-            candidate.rows[index].reason = "device unavailable".into();
+    fn missing_cpu_or_metal_coverage_is_external() {
+        for unavailable in [0..4, 4..8] {
+            let mut baseline = sample_evidence(BASE, 1.0);
+            let mut candidate = sample_evidence(CANDIDATE, 1.05);
+            for index in unavailable {
+                baseline.rows[index].status = "external verification".into();
+                baseline.rows[index].reason = "device unavailable".into();
+                candidate.rows[index].status = "external verification".into();
+                candidate.rows[index].reason = "device unavailable".into();
+            }
+            baseline.counts.pass = 8; baseline.counts.external = 4;
+            candidate.counts.pass = 8; candidate.counts.external = 4;
+            let result = evaluate(&baseline, &candidate, "both", 1);
+            assert_eq!((result.decision, result.reason, result.exit_code()),
+                ("external verification", "insufficient measured hardware", 4));
         }
-        baseline.counts.pass = 8; baseline.counts.external = 4;
-        candidate.counts.pass = 8; candidate.counts.external = 4;
-        let result = evaluate(&baseline, &candidate, "both", 1);
-        assert_eq!((result.decision, result.reason, result.exit_code()),
-            ("external verification", "insufficient measured hardware", 4));
     }
 }
 }

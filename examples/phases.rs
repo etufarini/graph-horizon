@@ -109,7 +109,7 @@ fn row(
     let control = successful.then_some(control).flatten();
     format!(
         concat!(
-            "{{\"schema_version\":1,\"status\":{},\"reason\":{},\"revision\":{},",
+            "{{\"schema_version\":2,\"status\":{},\"reason\":{},\"revision\":{},",
             "\"backend_profile\":{},\"family\":\"mistral3\",\"model_id\":{},\"variant\":\"instruct\",",
             "\"artifact_bytes\":{},\"artifact_sha256\":{},\"kv\":{},\"placement_mode\":{},",
             "\"cpu_layers\":{},\"gpu_layers\":{},\"weights_percent\":{},\"context\":{},",
@@ -243,8 +243,10 @@ mod tests {
     fn pure_profile_rejects_hybrid_percentage_and_json_order_is_fixed() {
         let args = parse(valid().into_iter()).unwrap();
         let json = row(&args, "fail", "execution failed", None, None, None);
-        assert!(json.starts_with("{\"schema_version\":1,\"status\":\"fail\",\"reason\":"));
-        assert!(serde_json::from_str::<serde_json::Value>(&json).is_ok());
+        assert!(json.starts_with("{\"schema_version\":2,\"status\":\"fail\",\"reason\":"));
+        let value = serde_json::from_str::<serde_json::Value>(&json).unwrap();
+        assert_eq!(value["warmup"], 1);
+        assert_eq!(value["repetitions"], 3);
         if !cfg!(any(feature = "vulkan-hybrid", feature = "metal-hybrid")) {
             let mut invalid = valid();
             invalid.extend(["--weights-percent".into(), "25".into()]);

@@ -79,10 +79,7 @@ impl RuntimeBytes {
         );
         Ok(Self {
             scratch: row
-                .checked_mul(
-                    1u64.checked_add(shape.prefill_rows as u64)
-                        .ok_or_else(overflow)?,
-                )
+                .checked_mul(1 + shape.prefill_rows as u64)
                 .ok_or_else(overflow)?,
             logits: bytes(shape.vocab, 4)?,
             kv_per_layer: key.checked_add(value).ok_or_else(overflow)?,
@@ -112,40 +109,4 @@ fn bytes(items: usize, item_bytes: usize) -> Result<u64> {
 #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 fn overflow() -> color_eyre::Report {
     eyre!("hybrid placement arithmetic overflow")
-}
-
-#[cfg(all(test, any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
-mod tests {
-    use super::*;
-
-    fn shape(prefill_rows: usize) -> RuntimeShape {
-        RuntimeShape {
-            block_count: 1,
-            embedding: 8,
-            q: 8,
-            k: 4,
-            v: 4,
-            attention: 4,
-            feed_forward: 16,
-            vocab: 32,
-            kv_heads: 1,
-            key_length: 4,
-            value_length: 4,
-            prefill_rows,
-        }
-    }
-
-    #[test]
-    fn planned_scratch_and_crossing_include_all_thirty_two_rows() {
-        let one = RuntimeBytes::new(shape(1), 64, KvQuant::F16).unwrap();
-        let max = RuntimeBytes::new(shape(32), 64, KvQuant::F16).unwrap();
-        let row = (max.scratch - one.scratch) / 31;
-        assert_eq!(max.scratch, row * 33);
-        assert_eq!(max.crossing, 8 * 4 * 32);
-    }
-
-    #[test]
-    fn oversized_prefill_plan_fails_checked_arithmetic() {
-        assert!(RuntimeBytes::new(shape(usize::MAX), 64, KvQuant::F16).is_err());
-    }
 }

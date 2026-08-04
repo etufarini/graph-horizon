@@ -374,8 +374,7 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
         (Boundary::BeforeDecode, 1, request(3)),
     ] {
         if boundary == Boundary::BeforePrefill {
-            req.prompt = vec![1; 33];
-            req.context = 34;
+            req.prompt = vec![1, 2, 3, 4, 5];
         }
         let model = model();
         let cancel = CancelCall {
@@ -402,7 +401,7 @@ pub(crate) mod numeric {
     fn cfg() -> MistralConfig {
         MistralConfig {
             block_count: 1,
-            context_length: 64,
+            context_length: 16,
             embedding_length: 8,
             feed_forward_length: 8,
             head_count: 2,
@@ -575,8 +574,7 @@ pub(crate) mod numeric {
             (KvQuant::Int8, false),
             (KvQuant::Int8, true),
         ] {
-            let long = vec![3; 33];
-            for prompt in [&[3u32][..], &[1, 3, 4, 5, 6][..], long.as_slice()] {
+            for prompt in [&[3u32][..], &[1, 3, 4, 5, 6][..]] {
                 let sequential = logits(&cfg, scheme, prompt, false, dedicated, Profile::Dense);
                 let batched = logits(&cfg, scheme, prompt, true, dedicated, Profile::Dense);
                 let max = sequential

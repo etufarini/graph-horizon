@@ -1,27 +1,17 @@
 /*
  * gh_zero_engine — Ministral prefill coordinator
  * This module exposes bounded causal prompt prefill. Buffer ownership and
- * checked row views stay in `buffers`; chunk and layer recording stay split in
- * `batch` and `layer`. Backend selection, KV ownership, and sampling are excluded.
+ * checked row views stay in `buffers`; graph recording stays in `encode`.
  */
 
-mod batch;
 mod buffers;
-mod layer;
+mod encode;
 
-pub(crate) const MAX_PREFILL_ROWS: usize = 32;
-
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-pub(crate) use batch::record_batch;
+pub(crate) use buffers::BATCH_ROWS;
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) use buffers::{BatchBuffers, X};
-
-pub(crate) fn effective_capacity(prompt_tokens: usize) -> color_eyre::eyre::Result<usize> {
-    if prompt_tokens == 0 {
-        color_eyre::eyre::bail!("mistral graph: empty prompt");
-    }
-    Ok(prompt_tokens.min(MAX_PREFILL_ROWS))
-}
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+pub(crate) use encode::record_batch;
 
 pub(crate) fn prefill_with<B, F>(
     backend: &B,
@@ -34,5 +24,5 @@ where
     B: crate::backend::Backend,
     F: FnMut() -> color_eyre::eyre::Result<()>,
 {
-    batch::prefill(backend, cfg, kv, prompt, before_batch)
+    encode::prefill(backend, cfg, kv, prompt, before_batch)
 }

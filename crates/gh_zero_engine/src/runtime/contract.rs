@@ -58,11 +58,7 @@ pub(crate) trait LayeredGraph: Sized {
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()>;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    fn batch<'a, B: Backend>(
-        backend: &'a B,
-        config: &Self::Config,
-        capacity: usize,
-    ) -> Result<Self::Batch<'a, B>>;
+    fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>>;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

@@ -164,7 +164,7 @@ mod tests {
         where
             B: 'a;
 
-        const BATCH_ROWS: usize = 32;
+        const BATCH_ROWS: usize = 2;
 
         fn shape(_: &Self::Config) -> RuntimeShape {
             shape()
@@ -233,14 +233,10 @@ mod tests {
             Ok(())
         }
 
-        fn batch<'a, B: Backend>(
-            backend: &'a B,
-            _: &Self::Config,
-            capacity: usize,
-        ) -> Result<Batch<'a, B>> {
+        fn batch<'a, B: Backend>(backend: &'a B, _: &Self::Config) -> Result<Batch<'a, B>> {
             Ok(Batch {
                 backend,
-                x: Some(backend.alloc_buffer((capacity * 8) as u64)?),
+                x: Some(backend.alloc_buffer(16)?),
             })
         }
 
@@ -299,7 +295,7 @@ mod tests {
             kv_heads: 1,
             key_length: 1,
             value_length: 1,
-            prefill_rows: 32,
+            prefill_rows: 2,
         }
     }
 
@@ -367,25 +363,7 @@ mod tests {
 
         crate::backend::hybrid::crossing::reset_count();
         session.prefill(&[0, 1, 0], &mut || Ok(()))?;
-        assert_eq!(crate::backend::hybrid::crossing::count(), 1);
-        Ok(())
-    }
-
-    #[test]
-    fn mixed_prefill_crosses_once_per_dynamic_chunk() -> Result<()> {
-        for (rows, expected) in [(16, 1), (33, 2), (2048, 64)] {
-            reset();
-            let runtime = mixed(8);
-            let session = PartitionedSession::<CpuBackend, Graph>::new(
-                &runtime,
-                &(),
-                shape(),
-                4096,
-                KvQuant::F16,
-            )?;
-            session.prefill(&vec![0; rows], &mut || Ok(()))?;
-            assert_eq!(crate::backend::hybrid::crossing::count(), expected);
-        }
+        assert_eq!(crate::backend::hybrid::crossing::count(), 2);
         Ok(())
     }
 
@@ -406,13 +384,11 @@ mod tests {
                 &runtime,
                 &(),
                 shape(),
-                4096,
+                8,
                 KvQuant::F16,
             )?;
             session.token(0, 0)?;
-            for rows in [16, 33, 2048] {
-                session.prefill(&vec![0; rows], &mut || Ok(()))?;
-            }
+            session.prefill(&[0], &mut || Ok(()))?;
         }
         assert_eq!(crate::backend::hybrid::crossing::count(), 0);
         Ok(())

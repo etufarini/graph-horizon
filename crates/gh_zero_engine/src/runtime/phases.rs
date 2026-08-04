@@ -134,11 +134,7 @@ mod tests {
         }
 
         #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-        fn batch<'a, B: Backend>(
-            _: &'a B,
-            _: &Self::Config,
-            _: usize,
-        ) -> Result<Self::Batch<'a, B>> {
+        fn batch<'a, B: Backend>(_: &'a B, _: &Self::Config) -> Result<Self::Batch<'a, B>> {
             unreachable!("the timing test owns no graph")
         }
 

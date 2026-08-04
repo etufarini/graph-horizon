@@ -106,7 +106,7 @@ setting for the current web composer.
 ## Build And Environment
 
 ```sh
-support/install.sh --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid \
+support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
   --profile release|fast --prefix /path/to/prefix
 ```
 

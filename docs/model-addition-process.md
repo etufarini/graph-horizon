@@ -147,7 +147,14 @@ For every public KV scheme:
 
 ## Performance Pass
 
-Run performance measurement only after correctness gates pass. The current
+Run performance measurement only after correctness gates pass. During
+implementation and profiling, use the smallest supported model that exercises
+the affected path. Validate the other supported models once after the candidate
+is complete; do not use them for iterative tuning.
+
+Move a larger model earlier only when model size, capacity, layout, or memory
+pressure is itself part of the change. Larger-model performance runs are
+required only by an explicit approved acceptance criterion. The current
 model-neutral harness requires an explicit model, context and KV scheme:
 
 ```sh
@@ -155,7 +162,7 @@ cargo run --no-default-features --features cpu --example bench -- \
   /path/to/model.gguf --context 4096 --kv f16
 ```
 
-Repeat with `vulcan`, `vulcan-hybrid`, `metal`, or `metal-hybrid` only when
+Repeat with `vulkan`, `vulkan-hybrid`, `metal`, or `metal-hybrid` only when
 those rows are claimed. Record context,
 KV, build profile, hardware, prompt, generation length, warmup and repetitions.
 An allocation failure is capacity evidence, not a correctness result.

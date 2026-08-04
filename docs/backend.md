@@ -43,8 +43,8 @@ The backend is selected at build time, not with a runtime flag:
 | Feature | Execution | Main Policy |
 |---|---|---|
 | `cpu` | Multi-core CPU | Portable path and numeric reference |
-| `vulcan` | Vulkan GPU | Entire model on the GPU or an error |
-| `vulcan-hybrid` | CPU and Vulkan | All GPU, layer split, or all CPU |
+| `vulkan` | Vulkan GPU | Entire model on the GPU or an error |
+| `vulkan-hybrid` | CPU and Vulkan | All GPU, layer split, or all CPU |
 | `metal` | Apple Metal | Entire model on Metal or an error |
 | `metal-hybrid` | CPU and Metal | All Metal, layer split, or all CPU |
 
@@ -53,8 +53,8 @@ The library crate has no default feature, and neither does the root binary.
 
 ```sh
 support/install.sh --backend cpu
-support/install.sh --backend vulcan
-support/install.sh --backend vulcan-hybrid
+support/install.sh --backend vulkan
+support/install.sh --backend vulkan-hybrid
 support/install.sh --backend metal
 support/install.sh --backend metal-hybrid
 ```
@@ -63,8 +63,8 @@ For reproducible Cargo builds:
 
 ```sh
 cargo check --workspace --no-default-features --features cpu
-cargo check --workspace --no-default-features --features vulcan
-cargo check --workspace --no-default-features --features vulcan-hybrid
+cargo check --workspace --no-default-features --features vulkan
+cargo check --workspace --no-default-features --features vulkan-hybrid
 cargo check --workspace --no-default-features --features metal
 cargo check --workspace --no-default-features --features metal-hybrid
 ```

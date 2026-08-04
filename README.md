@@ -20,7 +20,7 @@ text messages only, without tool calling or a separate reasoning channel.
 
 - Git, Rust/Cargo, and Node.js/npm;
 - platform build dependencies;
-- a Vulkan loader and driver for `vulcan` and `vulcan-hybrid`;
+- a Vulkan loader and driver for `vulkan` and `vulkan-hybrid`;
 - macOS arm64 plus Xcode command-line `metal` and `metallib` tools for Metal;
 - a compatible GGUF model already present on the computer.
 
@@ -49,7 +49,7 @@ To make the `PATH` change permanent, add the `export` line to `~/.profile`,
 
 ```text
 ./support/install.sh \
-  --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
   [--profile release|fast] \
   [--prefix PATH]
 ```
@@ -136,7 +136,7 @@ The official/reference maximum for Ministral 3 Instruct 2512 is 262,144 tokens.
 The repository source of truth is the private
 [Ministral version contract](crates/gh_zero_engine/src/family/mistral/version.rs).
 
-The five profiles are `cpu`, `vulcan`, `vulcan-hybrid`, `metal`, and
+The five profiles are `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, and
 `metal-hybrid`. Selection is compile-time and there is no runtime backend
 switch or fallback. Separate-memory Vulkan planning uses Linux `MemAvailable`
 and a VRAM budget: its automatic mixed policy selects the maximum possible

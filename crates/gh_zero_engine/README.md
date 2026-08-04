@@ -17,16 +17,16 @@ uno dei cinque profili.
 
 ```sh
 cargo check -p gh_zero_engine --no-default-features --features cpu
-cargo check -p gh_zero_engine --no-default-features --features vulcan
-cargo check -p gh_zero_engine --no-default-features --features vulcan-hybrid
+cargo check -p gh_zero_engine --no-default-features --features vulkan
+cargo check -p gh_zero_engine --no-default-features --features vulkan-hybrid
 cargo check -p gh_zero_engine --no-default-features --features metal
 cargo check -p gh_zero_engine --no-default-features --features metal-hybrid
 ```
 
 - `cpu`: percorso completo e riferimento numerico portabile.
-- `vulcan`: modello interamente GPU; memoria insufficiente o device non
+- `vulkan`: modello interamente GPU; memoria insufficiente o device non
   disponibile sono errori senza fallback.
-- `vulcan-hybrid`: CPU più Vulkan con piano immutabile all-GPU, mixed o CPU-only.
+- `vulkan-hybrid`: CPU più Vulkan con piano immutabile all-GPU, mixed o CPU-only.
 - `metal`: modello interamente Metal su macOS arm64, senza fallback CPU.
 - `metal-hybrid`: CPU più Metal con capacità unificata e modalità all-Metal,
   mixed o CPU-only.
@@ -40,7 +40,7 @@ scratch, fixed, staging, crossing e reserve.
 
 La qualifica semantica corrente è una policy separata e solo test: conserva i
 tre pass Instruct revisionati dal piano storico e invoca soltanto i tre profili
-Reasoning. Il runner usa il load `vulcan-hybrid` per osservare il placement, ma la
+Reasoning. Il runner usa il load `vulkan-hybrid` per osservare il placement, ma la
 generazione qualificante è valida solo con Vulkan all-GPU; `mixed`, `cpu-only` o
 risorse assenti diventano `external-verification` e non attivano fallback.
 

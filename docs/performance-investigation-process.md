@@ -58,13 +58,48 @@ Use the smallest retained tool that answers the question:
 | Tool | Purpose |
 |---|---|
 | `examples/bench.rs` | End-to-end prompt throughput, TTFT, and public-stream decode throughput |
+| `examples/phases.rs` | Schema-2 isolated prefill, first-sample, and decode evidence |
+| `examples/compare/` | Strict evidence validation and keep/revert decisions |
+| `support/profiling/performance-matrix.sh` | Immutable 12-row local matrix and terminal summary |
 | `support/profiling/profile.sh` | Immutable placement/memory report and one timing sample |
 | `support/profiling/validate-kv.sh` | Same model/backend/context across both public KV schemes |
 | `support/testing/parity-check.sh` | Pinned external-oracle parity for an approved catalog row |
 | Backend tests and opt-in diagnostics | Narrow kernel, allocation, dispatch, or transfer questions |
 
-There is no retained `validate` or `regression` example. Benchmark tools report
-measurements; validation gates decide pass or fail.
+Benchmark tools report measurements; the comparator validates the complete
+evidence before applying an approved decision policy.
+
+## Reduced Local Matrix
+
+The iterative performance matrix uses the authenticated `3b-instruct` artifact
+only. It contains exactly 12 rows:
+
+- profiles `cpu`, `metal`, and `metal-hybrid`, in that order;
+- KV `f16` then `int8` within each profile;
+- a 16-token short fixture then a 512-token long fixture within each KV;
+- context 4096, greedy sampling, one warm-up, and three measured repetitions;
+- one separate first sample followed by 31 measured decode steps;
+- `weights_percent=25` and placement `mixed` for `metal-hybrid`.
+
+The runner emits JSONL schema version 2: 12 terminal rows followed by one
+summary, for exactly 13 lines. Every row is `pass`, `fail`, or
+`external verification`; unavailable resources are never replaced with another
+tuple. Validate the file before comparison:
+
+```sh
+support/profiling/performance-matrix.sh \
+  --models-dir /path/to/models --hardware-id HOST --driver-id DRIVER \
+  --binary-cache target/performance/candidate-bin \
+  > target/performance/candidate.jsonl
+
+cargo run --quiet --locked --no-default-features --features cpu \
+  --example compare -- --validate target/performance/candidate.jsonl
+```
+
+Baseline and candidate use separate immutable executable caches. Their tuples
+must match in every field except revision and measurements. A coefficient of
+variation above 5% requests at most one complete A/B rerun; individual rows are
+not selectively repeated.
 
 ## A/B Method
 
@@ -80,11 +115,9 @@ Run comparisons with one intentional variable changed:
 If two variables change, split the experiment. Record variance rather than
 treating one favorable sample as a result.
 
-For the current Metal comparison, freeze the complete tuple: authenticated
-`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, context 4096, KV f16, prompt
-`Quanto fa 17 × 19?`, 32 requested tokens, one warmup, and three repetitions.
-The standalone row uses `metal`; the partitioned row uses `metal-hybrid` at 25%
-and must report `mixed`. Changing any tuple field creates a different experiment.
+For the reduced matrix, freeze the complete schema-2 tuple described above.
+Changing a profile, KV scheme, fixture, artifact, placement, sample count,
+hardware identifier, or driver identifier creates a different experiment.
 
 ## Context Regimes
 
@@ -125,6 +158,13 @@ Select the gate before reading performance results:
 The [oracle validation process](oracle-validation-process.md) defines evidence
 and terminal states. A performance path that misses its correctness gate is
 removed or remains disabled; its speed is not an acceptance argument.
+
+After the 3B performance matrix reaches a summary with zero fail rows, run the
+catalog correctness matrix once for the remaining supported models. Do not run
+separate 8B or 14B performance matrices unless an approved acceptance criterion
+explicitly requires larger-model performance. Size-, capacity-, layout-, or
+memory-dependent changes still require the smallest model that exercises that
+property, even when it is larger than 3B.
 
 ## Keep Or Revert
 

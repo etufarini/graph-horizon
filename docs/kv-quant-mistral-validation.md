@@ -19,7 +19,7 @@ vale soltanto per l'artefatto autenticato e per la configurazione registrata.
 
 - modello Ministral Q4_K_M leggibile e autenticato tramite dimensione e SHA-256;
 - revisione Git e profilo Cargo registrati;
-- uno dei profili `cpu`, `vulcan`, `vulcan-hybrid`, `metal`,
+- uno dei profili `cpu`, `vulkan`, `vulkan-hybrid`, `metal`,
   `metal-hybrid` compilabile;
 - contesto `4096` disponibile senza cambiare placement;
 - hardware e driver richiesti dal backend scelto;
@@ -42,8 +42,8 @@ La matrice di profilo richiesta rende esplicite entrambe le righe KV:
 | Profilo | KV richieste |
 |---|---|
 | `cpu` | f16, int8 |
-| `vulcan` | f16, int8 |
-| `vulcan-hybrid` | f16, int8 |
+| `vulkan` | f16, int8 |
+| `vulkan-hybrid` | f16, int8 |
 | `metal` | f16, int8 |
 | `metal-hybrid` | f16, int8 |
 

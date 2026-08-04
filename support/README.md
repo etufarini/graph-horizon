@@ -13,6 +13,7 @@ diversi.
 |---|---|
 | `install.sh` | build Web UI e uno dei cinque profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
+| `profiling/performance-matrix.sh` | matrice prestazionale locale 3B a 12 righe |
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
@@ -49,7 +50,7 @@ support/install.sh --backend cpu --profile fast --prefix "$PWD/.local"
 ```
 
 `release|fast` sono profili di compilazione Cargo. `--backend` è obbligatorio e
-accetta `cpu`, `vulcan`, `vulcan-hybrid`, `metal`, `metal-hybrid`; non esiste un
+accetta `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`; non esiste un
 default né un profilo runtime.
 
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
@@ -73,11 +74,29 @@ support/testing/parity-check.sh \
   --reference-server "/path/llama-server"
 ```
 
+La matrice prestazionale locale usa solo il 3B Instruct autenticato e produce
+12 righe schema 2 più un summary terminale:
+
+```sh
+support/profiling/performance-matrix.sh \
+  --models-dir "/path/to/models" --hardware-id HOST --driver-id DRIVER \
+  --binary-cache target/performance/matrix-bin \
+  > target/performance/matrix.jsonl
+
+cargo run --quiet --locked --no-default-features --features cpu \
+  --example compare -- --validate target/performance/matrix.jsonl
+```
+
+Le tuple coprono `cpu`, `metal` e `metal-hybrid`, KV f16/int8 e fixture da
+16/512 token, con un warm-up e tre ripetizioni. Il profilo hybrid usa 25% e
+placement `mixed`; modelli più grandi appartengono alla matrice finale di
+correttezza, non al tuning prestazionale locale.
+
 L'interfaccia completa è:
 
 ```text
 parity-check.sh --models-dir DIR --model-id ID \
-  --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid --kv f16|int8 \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --kv f16|int8 \
   --reference-server PATH [--reference-port PORT] \
   [--weights-percent 0..100 --expect-mode all-gpu|all-metal|mixed|cpu-only]
 ```
@@ -102,7 +121,7 @@ catalogo, poi invocate con il test ignorato `real_semantic_acceptance`.
 
 La configurazione Reasoning accettata è esatta: `context=4096`,
 `max_tokens=4096`, `temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0`,
-`repeat_penalty=1`, KV `f16`, feature Cargo `vulcan-hybrid`, backend finale Vulkan
+`repeat_penalty=1`, KV `f16`, feature Cargo `vulkan-hybrid`, backend finale Vulkan
 all-GPU. I soli casi reali sono S01–S04 e S06–S10, in quest'ordine. Non esiste
 retry, CPU fallback, oracle, tuning o inferenza Instruct.
 

@@ -20,8 +20,8 @@ The current build exposes five mutually exclusive features:
 | Feature | Role |
 |---|---|
 | `cpu` | Compiles `CpuBackend`, the portable numeric reference |
-| `vulcan` | Compiles `VulkanBackend`, with all-GPU-or-error placement |
-| `vulcan-hybrid` | Compiles CPU and Vulkan for an immutable split plan |
+| `vulkan` | Compiles `VulkanBackend`, with all-GPU-or-error placement |
+| `vulkan-hybrid` | Compiles CPU and Vulkan for an immutable split plan |
 | `metal` | Compiles `MetalBackend`, with all-Metal-or-error placement |
 | `metal-hybrid` | Compiles CPU and Metal for a unified-memory split plan |
 
@@ -153,8 +153,8 @@ Existing build rows must remain green:
 
 ```sh
 cargo check --workspace --no-default-features --features cpu
-cargo check --workspace --no-default-features --features vulcan
-cargo check --workspace --no-default-features --features vulcan-hybrid
+cargo check --workspace --no-default-features --features vulkan
+cargo check --workspace --no-default-features --features vulkan-hybrid
 cargo check --workspace --no-default-features --features metal
 cargo check --workspace --no-default-features --features metal-hybrid
 ```

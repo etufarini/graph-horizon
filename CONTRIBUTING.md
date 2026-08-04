@@ -9,8 +9,8 @@ Follow [AGENTS.md](AGENTS.md): keep changes small, state invariants and risks,
 and add no dependency or abstraction without a concrete need.
 
 Before changing code, identify the invariant, smallest viable change, and main
-risk. Every build selects exactly one profile—`cpu`, `vulcan`,
-`vulcan-hybrid`, `metal`, or `metal-hybrid`—with defaults disabled:
+risk. Every build selects exactly one profile—`cpu`, `vulkan`,
+`vulkan-hybrid`, `metal`, or `metal-hybrid`—with defaults disabled:
 
 ```sh
 cargo fmt --all -- --check

@@ -75,8 +75,8 @@ Backend selection is static and explicit:
 
 ```sh
 cargo build --locked --no-default-features --features cpu
-cargo build --locked --no-default-features --features vulcan
-cargo build --locked --no-default-features --features vulcan-hybrid
+cargo build --locked --no-default-features --features vulkan
+cargo build --locked --no-default-features --features vulkan-hybrid
 cargo build --locked --no-default-features --features metal
 cargo build --locked --no-default-features --features metal-hybrid
 xcrun -f metal

@@ -16,7 +16,7 @@ const SHORT: [u32; 16] = [
     1, 17, 18, 3, 6605, 4842, 3456, 1032, 1049, 1055, 10039, 1032, 1049, 1057, 1063, 4,
 ];
 const LONG_TOKEN: u32 = 1032;
-const LONG_LEN: usize = 2048;
+const LONG_LEN: usize = 512;
 
 pub(crate) fn measure(
     model: &RuntimeModel,
@@ -139,6 +139,8 @@ mod tests {
 
     #[test]
     fn harness_phases_fixtures_are_exact_and_digest_their_little_endian_ids() {
+        assert_eq!(SHORT.len(), 16);
+        assert_eq!(LONG_LEN, 512);
         assert_eq!(tokens(PhaseFixture::Short), SHORT);
         assert_eq!(tokens(PhaseFixture::Long), vec![LONG_TOKEN; LONG_LEN]);
         assert_eq!(
@@ -147,7 +149,7 @@ mod tests {
         );
         assert_eq!(
             digest(&tokens(PhaseFixture::Long)),
-            "59fba60e805b49abebc6c10a0afc97346970042a2b5058bffb79e2c04b3a7a6f"
+            "d45d4aeef88e8dbbd085d928fe121b282965a9a363b280cc07449e4b561f5bac"
         );
         assert_eq!(
             digest(&[]),

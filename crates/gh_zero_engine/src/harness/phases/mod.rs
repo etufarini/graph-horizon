@@ -16,7 +16,7 @@ use crate::runtime::phases::{DECODE_STEPS, PhaseSample};
 use stats::{mean_std_cv, mean_u64, nearest_rank, rate};
 
 pub const WARMUP: usize = 1;
-pub const REPETITIONS: usize = 7;
+pub const REPETITIONS: usize = 3;
 
 pub struct PhaseConfig {
     pub fixture: PhaseFixture,
@@ -136,7 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn seven_valid_samples_are_aggregated_without_losing_cv_inputs() {
+    fn three_valid_samples_are_aggregated_without_losing_cv_inputs() {
+        assert_eq!(WARMUP, 1);
+        assert_eq!(REPETITIONS, 3);
         let samples = (1..=REPETITIONS).map(|_| sample(1_000)).collect::<Vec<_>>();
         let report = aggregate(PhaseFixture::Short, "digest".into(), &samples).unwrap();
         assert_eq!(report.prompt_tokens, 16);

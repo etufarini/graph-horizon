@@ -44,7 +44,7 @@ else
     mkdir "$cache" || usage_error
 fi
 
-profiles=(cpu vulcan vulcan-hybrid metal metal-hybrid)
+profiles=(cpu vulkan vulkan-hybrid metal metal-hybrid)
 prepare() {
     local profile=$1 state=pass binary size hash platform
     platform=$(uname -s 2>/dev/null || true)

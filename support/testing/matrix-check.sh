@@ -92,10 +92,10 @@ run_parity() {
 }
 
 for id in "${model_ids[@]}"; do
-    for backend in cpu vulcan vulcan-hybrid metal metal-hybrid; do
+    for backend in cpu vulkan vulkan-hybrid metal metal-hybrid; do
         for kv in f16 int8; do
             case "$backend" in
-                vulcan-hybrid|metal-hybrid) run_parity "$id" "$backend" "$kv" 25 mixed ;;
+                vulkan-hybrid|metal-hybrid) run_parity "$id" "$backend" "$kv" 25 mixed ;;
                 *) run_parity "$id" "$backend" "$kv" ;;
             esac
         done

@@ -53,7 +53,7 @@ fn execute(args: &Args) -> String {
         }
     };
     let placement = engine.placement();
-    if cfg!(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))
+    if cfg!(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))
         && !placement.is_some_and(|value| {
             value.mode == "mixed" && value.cpu_layers > 0 && value.gpu_layers > 0
         })
@@ -165,7 +165,7 @@ fn parse(mut input: impl Iterator<Item = String>) -> Result<Args, ()> {
     if values.len() != expected || context != 4096 || artifact_bytes == 0
         || !id(&model_id) || !id(&hardware_id) || !id(&driver_id)
         || !hex(&artifact_sha256, 64) || !hex(&revision, 40)
-        || cfg!(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))
+        || cfg!(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))
             != (weights_percent == Some(25))
     { return Err(()); }
     Ok(Args {
@@ -204,8 +204,8 @@ fn fixture_name(value: PhaseFixture) -> &'static str {
 
 #[rustfmt::skip]
 fn profile() -> &'static str {
-    if cfg!(feature = "cpu") { "cpu" } else if cfg!(feature = "vulcan") { "vulcan" }
-    else if cfg!(feature = "vulcan-hybrid") { "vulcan-hybrid" }
+    if cfg!(feature = "cpu") { "cpu" } else if cfg!(feature = "vulkan") { "vulkan" }
+    else if cfg!(feature = "vulkan-hybrid") { "vulkan-hybrid" }
     else if cfg!(feature = "metal") { "metal" } else { "metal-hybrid" }
 }
 
@@ -217,7 +217,7 @@ mod tests {
     fn valid() -> Vec<String> {
         let mut args = "model.gguf --context 4096 --kv f16 --fixture short --model-id 3b-instruct --variant instruct --artifact-bytes 1 --artifact-sha256 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --revision bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --hardware-id host --driver-id driver"
             .split_whitespace().map(str::to_owned).collect::<Vec<_>>();
-        if cfg!(any(feature = "vulcan-hybrid", feature = "metal-hybrid")) {
+        if cfg!(any(feature = "vulkan-hybrid", feature = "metal-hybrid")) {
             args.extend(["--weights-percent".into(), "25".into()]);
         }
         args
@@ -245,7 +245,7 @@ mod tests {
         let json = row(&args, "fail", "execution failed", None, None, None);
         assert!(json.starts_with("{\"schema_version\":1,\"status\":\"fail\",\"reason\":"));
         assert!(serde_json::from_str::<serde_json::Value>(&json).is_ok());
-        if !cfg!(any(feature = "vulcan-hybrid", feature = "metal-hybrid")) {
+        if !cfg!(any(feature = "vulkan-hybrid", feature = "metal-hybrid")) {
             let mut invalid = valid();
             invalid.extend(["--weights-percent".into(), "25".into()]);
             assert!(parse(invalid.into_iter()).is_err());

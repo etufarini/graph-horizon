@@ -245,9 +245,11 @@ fn support_scripts_reject_invalid_values_before_execution() {
     let model = fixture.join("model with spaces.gguf");
     fs::write(&model, b"unchanged model bytes").unwrap();
     let model = model.to_str().unwrap();
+    let legacy_vulkan = concat!("vul", "can");
 
     for (relative, args) in [
         ("support/install.sh", vec!["--backend", "invalid"]),
+        ("support/install.sh", vec!["--backend", legacy_vulkan]),
         ("support/install.sh", vec![]),
         (
             "support/profiling/profile.sh",
@@ -266,8 +268,40 @@ fn support_scripts_reject_invalid_values_before_execution() {
             "support/profiling/validate-kv.sh",
             vec!["--backend", "invalid", "--context", "1"],
         ),
+        (
+            "support/profiling/validate-kv.sh",
+            vec!["--backend", legacy_vulkan, "--context", "1"],
+        ),
+        (
+            "support/profiling/profile.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                legacy_vulkan,
+                "--context",
+                "1",
+                "--kv",
+                "f16",
+            ],
+        ),
         ("support/profiling/validate-weights.sh", vec!["--unknown"]),
         ("support/testing/semantic-check.sh", vec!["--unknown"]),
+        (
+            "support/testing/parity-check.sh",
+            vec![
+                "--models-dir",
+                model,
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                legacy_vulkan,
+                "--kv",
+                "f16",
+                "--reference-server",
+                model,
+            ],
+        ),
         (
             "support/testing/run-ghzero-engine.sh",
             vec![
@@ -279,6 +313,19 @@ fn support_scripts_reject_invalid_values_before_execution() {
                 "1",
                 "--kv",
                 "invalid",
+            ],
+        ),
+        (
+            "support/testing/run-ghzero-engine.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                legacy_vulkan,
+                "--context",
+                "1",
+                "--kv",
+                "f16",
             ],
         ),
     ] {
@@ -390,7 +437,7 @@ fn installer_requires_profile_and_preflights_metal() {
     assert!(!mutation.exists());
 
     let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
-    assert!(source.contains("cpu|vulcan|vulcan-hybrid|metal|metal-hybrid"));
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid"));
     assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
     assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
@@ -841,7 +888,7 @@ while :; do /bin/sleep 0.05; done
         "--model-id",
         "3b-instruct",
         "--backend",
-        "vulcan-hybrid",
+        "vulkan-hybrid",
         "--kv",
         "int8",
         "--reference-server",
@@ -872,7 +919,7 @@ while :; do /bin/sleep 0.05; done
     let stdout = String::from_utf8(pass.stdout).unwrap();
     assert_eq!(stdout.lines().count(), 1);
     assert!(
-        stdout.starts_with("pass: model_id=3b-instruct backend=vulcan-hybrid kv=int8"),
+        stdout.starts_with("pass: model_id=3b-instruct backend=vulkan-hybrid kv=int8"),
         "unexpected parity output: {stdout:?}; stderr={:?}",
         String::from_utf8_lossy(&pass.stderr)
     );
@@ -885,7 +932,7 @@ while :; do /bin/sleep 0.05; done
     assert!(!temp.exists());
     let cargo_call = fs::read_to_string(&cargo_log).unwrap();
     assert!(cargo_call.contains(
-        "--features vulcan-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+        "--features vulkan-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
     ));
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
@@ -983,7 +1030,7 @@ while :; do /bin/sleep 0.05; done
     assert!(device.status.success());
     assert_eq!(
         String::from_utf8(device.stdout).unwrap().trim(),
-        "external verification: vulcan-hybrid backend unavailable"
+        "external verification: vulkan-hybrid backend unavailable"
     );
     assert!(!temp.exists());
 
@@ -1027,7 +1074,7 @@ while :; do /bin/sleep 0.05; done
     assert!(memory.status.success());
     assert_eq!(
         String::from_utf8(memory.stdout).unwrap().trim(),
-        "external verification: insufficient memory for vulcan-hybrid row"
+        "external verification: insufficient memory for vulkan-hybrid row"
     );
     assert!(!temp.exists());
 
@@ -1277,11 +1324,11 @@ exit 1
     let expected = rows
         .iter()
         .flat_map(|row| {
-            ["cpu", "vulcan", "vulcan-hybrid", "metal", "metal-hybrid"]
+            ["cpu", "vulkan", "vulkan-hybrid", "metal", "metal-hybrid"]
                 .into_iter()
                 .flat_map(move |backend| {
                     ["f16", "int8"].into_iter().map(move |kv| match backend {
-                        "vulcan-hybrid" | "metal-hybrid" => {
+                        "vulkan-hybrid" | "metal-hybrid" => {
                             format!("{}:{backend}:{kv}:25:mixed", row.id)
                         }
                         _ => format!("{}:{backend}:{kv}::", row.id),
@@ -1379,7 +1426,7 @@ exit 1
     let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
     assert!(!source.contains("&\n"));
     assert!(!source.contains("eval "));
-    assert!(source.contains("for backend in cpu vulcan vulcan-hybrid metal metal-hybrid"));
+    assert!(source.contains("for backend in cpu vulkan vulkan-hybrid metal metal-hybrid"));
     assert!(source.contains("for kv in f16 int8"));
     assert!(source.contains("all-metal:100 cpu-only:0"));
     assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
@@ -1552,7 +1599,7 @@ printf 'internal /secret/path must not escape\n' >&2
         assert_eq!(fields[0], row.id);
         assert_eq!(fields[1], models.join(row.q4_file).to_str().unwrap());
         assert!(fields[2].contains(
-            "--no-default-features --features vulcan-hybrid --test semantic real_semantic_acceptance"
+            "--no-default-features --features vulkan-hybrid --test semantic real_semantic_acceptance"
         ));
         assert!(fields[2].contains("--ignored --nocapture --exact"));
     }
@@ -1674,20 +1721,14 @@ printf 'internal /secret/path must not escape\n' >&2
     );
     let source =
         fs::read_to_string(repository().join("support/testing/semantic-check.sh")).unwrap();
-    for forbidden in [
-        "curl ",
-        "wget ",
-        "eval ",
-        "--features vulkan",
-        "--features cpu",
-        "pass=6",
-    ] {
+    for forbidden in ["curl ", "wget ", "eval ", "--features cpu", "pass=6"] {
         assert!(
             !source.contains(forbidden),
             "semantic runner contains {forbidden}"
         );
     }
-    assert_eq!(source.matches("--features vulcan-hybrid").count(), 1);
+    assert!(!source.contains("--features vulkan --test"));
+    assert_eq!(source.matches("--features vulkan-hybrid").count(), 1);
     assert!(source.lines().count() <= 160);
     for row in &rows {
         assert_eq!(

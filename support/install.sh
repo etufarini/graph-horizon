@@ -14,7 +14,7 @@ prefix="${GH_ZERO_INSTALL_PREFIX:-${HOME}/.local}"
 
 usage() {
     printf '%s\n' \
-        "usage: install.sh --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid [--profile release|fast] [--prefix PATH]"
+        "usage: install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid [--profile release|fast] [--prefix PATH]"
 }
 
 fail() {
@@ -51,7 +51,7 @@ done
 
 [[ -n "${backend}" ]] || fail "--backend is required"
 case "${backend}" in
-    cpu|vulcan|vulcan-hybrid|metal|metal-hybrid) ;;
+    cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;;
     *) fail "invalid backend: ${backend}" ;;
 esac
 case "${profile}" in

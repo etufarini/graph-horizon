@@ -28,7 +28,7 @@ const DERIVED_KEYS: [&str; 19] = [
     "decode_p95_mean_ns", "decode_tps_mean", "decode_tps_stddev", "decode_tps_cv", "public_ttft_ms",
     "public_decode_tps", "cpu_memory_total", "gpu_memory_total",
 ];
-const PROFILES: [&str; 5] = ["cpu", "vulcan", "vulcan-hybrid", "metal", "metal-hybrid"];
+const PROFILES: [&str; 5] = ["cpu", "vulkan", "vulkan-hybrid", "metal", "metal-hybrid"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Requested {

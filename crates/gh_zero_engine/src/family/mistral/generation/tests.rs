@@ -388,7 +388,7 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
     }
 }
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod numeric {
     use crate::backend::Backend;
     use crate::backend::buffers::{Buffers, LayerWeights, Scratch, WeightSet};

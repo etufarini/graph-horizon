@@ -64,7 +64,7 @@ pub(crate) fn evaluate<'a>(baseline: &'a Evidence, candidate: &'a Evidence, targ
     let prefill = geomean(primary.iter().map(|(_, (a, b))| ratio(b.prefill_tps, a.prefill_tps)));
     let decode = geomean(primary.iter().map(|(_, (a, b))| ratio(b.decode_tps, a.decode_tps)));
     let measured_cpu = primary.iter().any(|(_, (_, row))| row.requested.profile == "cpu");
-    let measured_pure_device = primary.iter().any(|(_, (_, row))| matches!(row.requested.profile.as_str(), "vulcan" | "metal"));
+    let measured_pure_device = primary.iter().any(|(_, (_, row))| matches!(row.requested.profile.as_str(), "vulkan" | "metal"));
     let unstable = baseline.rows.iter().chain(&candidate.rows).filter(|row| row.status == "pass").any(|row| row.prefill_cv.is_some_and(|v| v > 0.05) || row.decode_cv.is_some_and(|v| v > 0.05));
     let regression = capacity_regression(baseline, candidate).or_else(|| first_regression(baseline, candidate));
     let target_met = match target {

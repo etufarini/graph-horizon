@@ -20,7 +20,7 @@ catalog_error() { printf 'parity-check: catalog error: %s\n' "$*" >&2; exit 2; }
 external() { printf 'external verification: %s\n' "$*"; exit 0; }
 real_failure() { printf 'parity-check: %s\n' "$*" >&2; exit 1; }
 usage() {
-    echo "usage: parity-check.sh --models-dir DIR --model-id ID --backend cpu|vulcan|vulcan-hybrid|metal|metal-hybrid --kv f16|int8 --reference-server PATH [--reference-port PORT] [--weights-percent 0..100 --expect-mode all-gpu|mixed|cpu-only]"
+    echo "usage: parity-check.sh --models-dir DIR --model-id ID --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --kv f16|int8 --reference-server PATH [--reference-port PORT] [--weights-percent 0..100 --expect-mode all-gpu|mixed|cpu-only]"
 }
 
 while (($#)); do
@@ -40,12 +40,12 @@ done
 
 [[ -n "$models_dir" && -n "$model_id" && -n "$backend" && -n "$kv" && -n "$reference_server" ]] \
     || usage_error "required argument is missing"
-case "$backend" in cpu|vulcan|vulcan-hybrid|metal|metal-hybrid) ;; *) usage_error "invalid backend" ;; esac
+case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) usage_error "invalid backend" ;; esac
 case "$kv" in f16|int8) ;; *) usage_error "invalid KV scheme" ;; esac
 [[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) \
     || usage_error "invalid reference port"
 case "$backend" in
-    vulcan-hybrid|metal-hybrid)
+    vulkan-hybrid|metal-hybrid)
         [[ "$weights_percent" =~ ^[0-9]+$ ]] && ((weights_percent <= 100)) \
             || usage_error "hybrid backend requires --weights-percent 0..100"
         case "$expected_mode" in all-gpu|all-metal|mixed|cpu-only) ;; *) usage_error "hybrid backend requires --expect-mode" ;; esac

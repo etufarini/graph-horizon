@@ -10,9 +10,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use gh_zero_engine::BackendMemory;
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 use gh_zero_engine::PlacementReport;
 use gh_zero_engine::{Engine, EngineConfig, Event, EventSink, KvQuant, Message, Request, Role};
 
@@ -349,7 +349,7 @@ fn assert_local_markdown_links(root: &Path) {
     }
 }
 
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 #[test]
 fn hybrid_placement_contract() {
     let source = fs::read_to_string(manifest().join("src/backend/hybrid/placement/separate.rs"))
@@ -445,7 +445,7 @@ fn required_usize(name: &str) -> usize {
 }
 
 fn assert_placement(engine: &Engine, percentage: Option<u8>) {
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     {
         let expected = std::env::var("GH_ZERO_EXPECTED_MODE")
             .expect("GH_ZERO_EXPECTED_MODE required for hybrid profiles");
@@ -471,7 +471,7 @@ fn assert_placement(engine: &Engine, percentage: Option<u8>) {
             );
         }
     }
-    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+    #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
     {
         assert!(percentage.is_none());
         assert!(engine.placement().is_none());

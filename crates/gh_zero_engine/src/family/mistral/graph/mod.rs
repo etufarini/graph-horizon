@@ -96,8 +96,12 @@ impl LayeredGraph for MistralGraph {
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>> {
-        prefill::BatchBuffers::new(backend, config, prefill::MAX_PREFILL_ROWS)
+    fn batch<'a, B: Backend>(
+        backend: &'a B,
+        config: &Self::Config,
+        capacity: usize,
+    ) -> Result<Self::Batch<'a, B>> {
+        prefill::BatchBuffers::new(backend, config, capacity)
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

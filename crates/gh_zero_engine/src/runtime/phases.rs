@@ -73,9 +73,19 @@ mod tests {
     use crate::runtime::contract::LayeredGraph;
 
     struct TestGraph;
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    struct TestBatch<'a, B: Backend>(std::marker::PhantomData<&'a B>);
 
     impl LayeredGraph for TestGraph {
         type Config = ();
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        type Batch<'a, B: Backend>
+            = TestBatch<'a, B>
+        where
+            B: 'a;
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        const BATCH_ROWS: usize = 1;
 
         fn shape(_: &Self::Config) -> RuntimeShape {
             unreachable!("the timing test owns no graph")
@@ -91,12 +101,62 @@ mod tests {
             unreachable!("the timing test owns no graph")
         }
 
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn embedding<B: Backend>(_: &B, _: &B::Encoder, _: &Self::Config, _: u32) -> Result<()> {
+            unreachable!("the timing test owns no graph")
+        }
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn range<B: Backend>(
+            _: &B,
+            _: &B::Encoder,
+            _: &Self::Config,
+            _: &Kv<B::Buffer>,
+            _: std::ops::Range<usize>,
+            _: usize,
+        ) -> Result<()> {
+            unreachable!("the timing test owns no graph")
+        }
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn tail<B: Backend>(_: &B, _: &B::Encoder, _: &Self::Config) {
+            unreachable!("the timing test owns no graph")
+        }
+
         fn prefill<B: Backend>(
             _: &B,
             _: &Self::Config,
             _: &Kv<B::Buffer>,
             _: &[u32],
             _: &mut dyn FnMut() -> Result<()>,
+        ) -> Result<()> {
+            unreachable!("the timing test owns no graph")
+        }
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn batch<'a, B: Backend>(
+            _: &'a B,
+            _: &Self::Config,
+            _: usize,
+        ) -> Result<Self::Batch<'a, B>> {
+            unreachable!("the timing test owns no graph")
+        }
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn batch_residual<'a, B: Backend>(_: &'a Self::Batch<'_, B>) -> &'a B::Buffer {
+            unreachable!("the timing test owns no graph")
+        }
+
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        fn record_batch<B: Backend>(
+            _: &B,
+            _: &Self::Config,
+            _: &Kv<B::Buffer>,
+            _: &Self::Batch<'_, B>,
+            _: &[u32],
+            _: usize,
+            _: bool,
+            _: bool,
         ) -> Result<()> {
             unreachable!("the timing test owns no graph")
         }

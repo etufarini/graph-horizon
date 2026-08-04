@@ -33,12 +33,18 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             if prompt.is_empty() {
                 bail!("runtime: empty prompt");
             }
-            let cpu_batch = G::batch(cpu, session.config)?;
-            let gpu_batch = G::batch(gpu, session.config)?;
-            for (batch_index, tokens) in prompt.chunks(G::BATCH_ROWS).enumerate() {
+            let capacity = prompt.len().min(G::BATCH_ROWS);
+            if capacity == 0 {
+                bail!("runtime: prefill batch capacity is unsupported");
+            }
+            // Both owners use the same resolved capacity, so every crossing
+            // addresses equal windows and no backend-specific retry is possible.
+            let cpu_batch = G::batch(cpu, session.config, capacity)?;
+            let gpu_batch = G::batch(gpu, session.config, capacity)?;
+            for (batch_index, tokens) in prompt.chunks(capacity).enumerate() {
                 before_batch()?;
                 let base = batch_index
-                    .checked_mul(G::BATCH_ROWS)
+                    .checked_mul(capacity)
                     .ok_or_else(|| eyre!("hybrid residual crossing overflow"))?;
                 G::record_batch(
                     cpu,

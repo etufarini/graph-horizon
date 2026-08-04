@@ -23,7 +23,7 @@ use crate::gguf::tensor_index::GgmlType;
 // Builds the whole CPU buffer set (weights + scratch + logits). Nothing is kept
 // private on the CPU side (no readback mirror as on Vulkan), so only `Buffers`
 // is returned.
-#[cfg(any(test, not(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))))]
+#[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
 pub(super) fn load(
     meta: &ModelMetadata,
     ws: &dyn WeightSource,

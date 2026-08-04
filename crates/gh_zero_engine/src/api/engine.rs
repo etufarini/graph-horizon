@@ -78,7 +78,7 @@ impl Engine {
     }
 
     pub fn placement(&self) -> Option<PlacementReport> {
-        #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
         {
             crate::backend::selection::placement(&self.model.backend).map(|plan| {
                 let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
@@ -100,7 +100,7 @@ impl Engine {
                 }
             })
         }
-        #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
         {
             None
         }

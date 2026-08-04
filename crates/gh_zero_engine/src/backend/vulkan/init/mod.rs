@@ -36,13 +36,13 @@ pub(in crate::backend::vulkan) fn classify_unavailable(err: &Report) -> Option<U
     }
 }
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 pub(in crate::backend::vulkan) fn pure_loader_unavailable(err: Report) -> Report {
     let _unavailable = classify_unavailable(&err);
     eyre!("Vulkan backend is unavailable")
 }
 
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) fn hybrid_device() -> color_eyre::eyre::Result<Option<device::Device>> {
     #[cfg(test)]
     PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -53,15 +53,15 @@ pub(crate) fn hybrid_device() -> color_eyre::eyre::Result<Option<device::Device>
     }
 }
 
-#[cfg(all(test, feature = "vulcan-hybrid"))]
+#[cfg(all(test, feature = "vulkan-hybrid"))]
 static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-#[cfg(all(test, feature = "vulcan-hybrid"))]
+#[cfg(all(test, feature = "vulkan-hybrid"))]
 pub(crate) fn reset_probe_count() {
     PROBE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg(all(test, feature = "vulcan-hybrid"))]
+#[cfg(all(test, feature = "vulkan-hybrid"))]
 pub(crate) fn probe_count() -> usize {
     PROBE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }

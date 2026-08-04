@@ -25,7 +25,7 @@ pub(crate) use buffer::CpuBuffer;
 pub(crate) use buffer::CpuFormat;
 
 pub(crate) use kernels::attention::set_no_simd;
-#[cfg(all(test, any(feature = "vulcan", feature = "vulcan-hybrid")))]
+#[cfg(all(test, any(feature = "vulkan", feature = "vulkan-hybrid")))]
 pub(crate) use kernels::matmul::q4k::row_dot_q4k;
 mod backend;
 

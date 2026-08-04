@@ -223,7 +223,7 @@ mod tests {
         assert_eq!(placement::unified_capacity(90, 91), 0);
     }
 
-    #[cfg(feature = "vulcan-hybrid")]
+    #[cfg(feature = "vulkan-hybrid")]
     #[test]
     fn explicit_zero_skips_the_vulkan_probe() {
         use crate::backend::vulkan::VulkanBackend;

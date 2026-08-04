@@ -6,7 +6,7 @@
 
 pub(crate) mod contract;
 pub(crate) mod homogeneous;
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod partitioned;
 pub(crate) mod phases;
 

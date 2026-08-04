@@ -16,7 +16,7 @@ pub(crate) mod source;
 
 pub(crate) use contract::Backend;
 
-#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 pub(crate) mod vulkan;
 
 #[cfg(all(
@@ -32,32 +32,32 @@ pub(crate) mod metal;
 ))]
 compile_error!("metal profiles require macOS on Apple Silicon");
 
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod cpu;
 
 #[cfg(not(any(
     feature = "cpu",
-    feature = "vulcan",
-    feature = "vulcan-hybrid",
+    feature = "vulkan",
+    feature = "vulkan-hybrid",
     feature = "metal",
     feature = "metal-hybrid"
 )))]
 compile_error!(
-    "no backend selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"
+    "no backend selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
 );
 
 #[cfg(any(
-    all(feature = "cpu", feature = "vulcan"),
-    all(feature = "cpu", feature = "vulcan-hybrid"),
+    all(feature = "cpu", feature = "vulkan"),
+    all(feature = "cpu", feature = "vulkan-hybrid"),
     all(feature = "cpu", feature = "metal"),
-    all(feature = "vulcan", feature = "vulcan-hybrid"),
-    all(feature = "vulcan", feature = "metal"),
-    all(feature = "vulcan-hybrid", feature = "metal"),
+    all(feature = "vulkan", feature = "vulkan-hybrid"),
+    all(feature = "vulkan", feature = "metal"),
+    all(feature = "vulkan-hybrid", feature = "metal"),
     all(feature = "cpu", feature = "metal-hybrid"),
-    all(feature = "vulcan", feature = "metal-hybrid"),
-    all(feature = "vulcan-hybrid", feature = "metal-hybrid"),
+    all(feature = "vulkan", feature = "metal-hybrid"),
+    all(feature = "vulkan-hybrid", feature = "metal-hybrid"),
     all(feature = "metal", feature = "metal-hybrid")
 ))]
 compile_error!(
-    "multiple backend profiles selected: choose exactly one of cpu, vulcan, vulcan-hybrid, metal, or metal-hybrid"
+    "multiple backend profiles selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
 );

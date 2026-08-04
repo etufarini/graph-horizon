@@ -11,10 +11,10 @@ use color_eyre::eyre::{Result, bail, eyre};
 use super::graph::MistralGraph;
 use super::{RuntimeModel, template};
 use crate::api::message::{Message, Role};
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::hybrid::HybridMode;
 use crate::backend::selection;
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use crate::runtime::contract::LayeredGraph;
 use crate::runtime::contract::RuntimeSession;
 
@@ -50,7 +50,7 @@ pub(crate) fn validate(
     validate_vocab(&prompt, model.config.vocab_size, "prompt")?;
     validate_vocab(&completion, model.config.vocab_size, "completion")?;
 
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     crate::backend::hybrid::crossing::reset_count();
     let session = selection::session::<MistralGraph>(
         &model.backend,
@@ -75,14 +75,14 @@ pub(crate) fn validate(
     }
 
     let crossings = crossing_count();
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     let expected_crossings = match selection::placement(&model.backend).map(|plan| plan.mode) {
         Some(HybridMode::Mixed) => {
             prompt.len().div_ceil(MistralGraph::BATCH_ROWS) + TOKEN_COUNT - 1
         }
         _ => 0,
     };
-    #[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+    #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
     let expected_crossings = 0;
     if crossings != expected_crossings {
         bail!("parity crossing count mismatch");
@@ -152,12 +152,12 @@ fn validate_vocab(ids: &[u32], vocab: usize, label: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 fn crossing_count() -> usize {
     crate::backend::hybrid::crossing::count()
 }
 
-#[cfg(not(any(feature = "vulcan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
 fn crossing_count() -> usize {
     0
 }

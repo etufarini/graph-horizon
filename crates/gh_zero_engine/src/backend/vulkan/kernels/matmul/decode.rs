@@ -33,7 +33,7 @@ pub(crate) fn matmul(
 // The parity test needs the CPU Q4_K oracle (`compute::matmul`, cpu-gated) and the
 // Vulkan device, so it only compiles when both backends are present (the hybrid
 // build); a vulkan-only test build skips it.
-#[cfg(all(test, any(feature = "cpu", feature = "vulcan-hybrid")))]
+#[cfg(all(test, any(feature = "cpu", feature = "vulkan-hybrid")))]
 mod tests {
     use crate::backend::Backend;
     use crate::backend::cpu::buffer::{f16_to_f32, f32_to_f16_bytes};

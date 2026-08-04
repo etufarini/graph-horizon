@@ -201,7 +201,7 @@ fn record_layer<B: Backend>(
 }
 
 #[cfg(test)]
-#[cfg(any(feature = "cpu", feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod tests {
     #[test]
     fn batched_final_logits_match_sequential_for_both_kv_schemes() {

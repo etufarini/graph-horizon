@@ -4,20 +4,20 @@
  * It performs no probing, I/O, allocation, graph work, or family lookup.
  */
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod separate;
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod unified;
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use super::HybridPlan;
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use super::weights::model::WeightBytes;
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(dead_code)]
 pub(crate) enum MemoryTopology {
@@ -25,7 +25,7 @@ pub(crate) enum MemoryTopology {
     Unified,
 }
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 pub(crate) enum BudgetInput {
@@ -39,10 +39,10 @@ pub(crate) enum BudgetInput {
     },
 }
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) use separate::PlacementInput;
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn select(
     topology: MemoryTopology,
     weights: &WeightBytes,

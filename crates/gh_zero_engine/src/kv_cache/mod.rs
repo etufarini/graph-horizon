@@ -17,7 +17,7 @@
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]
@@ -48,7 +48,7 @@ impl<Buf> Kv<Buf> {
     // Byte base of the metadata region (the payload region of all layers
     // precedes it; role-independent since payload sizes are). The single
     // layout truth backends read instead of re-deriving the region split (D6).
-    #[cfg(any(feature = "vulcan", feature = "vulcan-hybrid", test))]
+    #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid", test))]
     pub(crate) fn meta_base(&self) -> u64 {
         self.meta_base_for(KvRole::Key)
     }

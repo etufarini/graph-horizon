@@ -116,7 +116,7 @@ pub(crate) fn yarn(cfg: &MistralConfig) -> Yarn {
         beta_slow: cfg.yarn_beta_slow,
         #[cfg(any(
             feature = "cpu",
-            feature = "vulcan-hybrid",
+            feature = "vulkan-hybrid",
             feature = "metal-hybrid",
             test
         ))]

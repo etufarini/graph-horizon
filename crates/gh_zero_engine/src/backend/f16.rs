@@ -9,7 +9,7 @@
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]

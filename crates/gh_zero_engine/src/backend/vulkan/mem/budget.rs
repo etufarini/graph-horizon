@@ -5,7 +5,7 @@
 
 // OnceLock backs the dial cache only in the single-backend builds; in hybrid
 // `weight_vram_percent()` is a const 100 and never caches.
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 use std::sync::OnceLock;
 
 use ash::vk;
@@ -13,7 +13,7 @@ use ash::vk;
 use super::memory::Budget;
 use crate::backend::vulkan::device::Device;
 
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) fn host_available() -> u64 {
     std::fs::read_to_string("/proc/meminfo")
         .ok()
@@ -22,7 +22,7 @@ pub(crate) fn host_available() -> u64 {
         .unwrap_or(0)
 }
 
-#[cfg(any(test, feature = "vulcan-hybrid"))]
+#[cfg(any(test, feature = "vulkan-hybrid"))]
 fn parse_mem_available(text: &str) -> Option<u64> {
     let mut found = None;
     for line in text.lines() {
@@ -45,7 +45,7 @@ fn parse_mem_available(text: &str) -> Option<u64> {
 
 // VRAM bytes held back before filling weights. Override wins; otherwise use
 // `max(256 MiB, 5% of total VRAM)`.
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
     override_mib
         .map(|m| m.saturating_mul(1024 * 1024))
@@ -53,24 +53,24 @@ pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
 }
 
 // Weight-percent dial, seeded once by `Engine::new` in single-backend builds.
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 static WEIGHTS_PERCENT: OnceLock<Option<u8>> = OnceLock::new();
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 static RESERVE_MIB: OnceLock<Option<u64>> = OnceLock::new();
 
 // Seeds the dial from the CLI value. See `WEIGHTS_PERCENT`.
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 pub(crate) fn set_weights_percent(percent: Option<u8>) {
     let _ = WEIGHTS_PERCENT.set(percent);
 }
 
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 pub(crate) fn set_reserve_mib(reserve_mib: Option<u64>) {
     let _ = RESERVE_MIB.set(reserve_mib);
 }
 
 // Resolves the dial: the seeded value (CLI-validated), else the default 100.
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 pub(super) fn weight_vram_percent() -> u8 {
     WEIGHTS_PERCENT
         .get()
@@ -80,12 +80,12 @@ pub(super) fn weight_vram_percent() -> u8 {
         .min(100)
 }
 
-#[cfg(not(feature = "vulcan-hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 pub(super) fn configured_reserve_mib() -> Option<u64> {
     RESERVE_MIB.get().copied().flatten()
 }
 
-#[cfg(all(feature = "vulcan-hybrid", test))]
+#[cfg(all(feature = "vulkan-hybrid", test))]
 pub(super) fn configured_reserve_mib() -> Option<u64> {
     None
 }
@@ -93,14 +93,14 @@ pub(super) fn configured_reserve_mib() -> Option<u64> {
 // In the hybrid build the dial is governed by the split runtime (which calls CPU
 // for offloaded layers), not by host-visible spill: the GPU side keeps every
 // weight it is given device-local, so here the cap is always 100% (no spill).
-#[cfg(all(feature = "vulcan-hybrid", test))]
+#[cfg(all(feature = "vulkan-hybrid", test))]
 pub(super) fn weight_vram_percent() -> u8 {
     100
 }
 
 // Byte-exact cap on weights kept resident in VRAM. The product is computed in
 // u128 so no plausible model overflows.
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 pub(super) fn weight_vram_budget(total_weights: u64, vram_for_weights: u64, pct: u8) -> u64 {
     let scaled = (pct as u128 * total_weights as u128 / 100) as u64;
     scaled.min(vram_for_weights)
@@ -120,7 +120,7 @@ pub(crate) fn device_budget(dev: &Device) -> Budget {
 
 // Prefer the live budget extension for hybrid auto placement; fall back to the
 // physical heap size with one sanitized diagnostic.
-#[cfg(feature = "vulcan-hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) fn vram_for_auto(dev: &Device) -> u64 {
     dev.free_vram().unwrap_or_else(|| {
         let total = device_budget(dev).vram;
@@ -137,7 +137,7 @@ pub(crate) fn vram_for_auto(dev: &Device) -> u64 {
 // context storage overflows, the requested context is rejected without reduction
 // (E17). Staging is the peak transient upload buffer. `percent` is a hard ceiling,
 // so pure Vulkan with 0% weights cannot load.
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pure_preflight(
     device_vram: u64,

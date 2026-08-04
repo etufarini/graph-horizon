@@ -7,7 +7,7 @@
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]
@@ -22,7 +22,7 @@ pub(crate) struct Yarn {
     pub beta_slow: f32,
     #[cfg(any(
         feature = "cpu",
-        feature = "vulcan-hybrid",
+        feature = "vulkan-hybrid",
         feature = "metal-hybrid",
         test
     ))]
@@ -38,7 +38,7 @@ pub(crate) enum RopeRole {
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]
@@ -50,7 +50,7 @@ pub(crate) struct Pair {
 impl Yarn {
     #[cfg(any(
         feature = "cpu",
-        feature = "vulcan-hybrid",
+        feature = "vulkan-hybrid",
         feature = "metal-hybrid",
         test
     ))]
@@ -78,7 +78,7 @@ impl Yarn {
 
     #[cfg(any(
         feature = "cpu",
-        feature = "vulcan-hybrid",
+        feature = "vulkan-hybrid",
         feature = "metal-hybrid",
         test
     ))]
@@ -107,7 +107,7 @@ impl Yarn {
 
     #[cfg(any(
         feature = "cpu",
-        feature = "vulcan-hybrid",
+        feature = "vulkan-hybrid",
         feature = "metal-hybrid",
         test
     ))]
@@ -130,7 +130,7 @@ impl Yarn {
 
     #[cfg(any(
         feature = "cpu",
-        feature = "vulcan-hybrid",
+        feature = "vulkan-hybrid",
         feature = "metal-hybrid",
         test
     ))]
@@ -157,7 +157,7 @@ impl Yarn {
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]
@@ -168,7 +168,7 @@ fn corr_dim(rope_dim: usize, original_context: usize, rotations: f32, base: f32)
 
 #[cfg(any(
     feature = "cpu",
-    feature = "vulcan-hybrid",
+    feature = "vulkan-hybrid",
     feature = "metal-hybrid",
     test
 ))]

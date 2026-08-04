@@ -19,16 +19,16 @@ use color_eyre::eyre::Result;
 
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use crate::backend::source::WeightSource;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use crate::gguf::metadata::ModelMetadata;
 
 use super::VulkanBackend;
 use super::buffers::GpuBuffer;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use super::device::Device;
 use super::kernels::attention::{
     attention_decode, attention_decode_int8, attention_prefill, attention_prefill_int8, kv_write,
@@ -44,7 +44,7 @@ impl Backend for VulkanBackend {
     type Buffer = GpuBuffer;
     type Encoder = vk::CommandBuffer;
 
-    #[cfg(any(test, not(feature = "vulcan-hybrid")))]
+    #[cfg(any(test, not(feature = "vulkan-hybrid")))]
     fn load(
         meta: &ModelMetadata,
         ws: &dyn WeightSource,

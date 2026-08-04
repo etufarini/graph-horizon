@@ -4,7 +4,7 @@
  * model-agnostic backends. It owns no concrete backend, family data, or resources.
  */
 
-#[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use std::ops::Range;
 
 use color_eyre::eyre::Result;
@@ -15,12 +15,12 @@ use crate::kv_cache::Kv;
 
 pub(crate) trait LayeredGraph: Sized {
     type Config;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     type Batch<'a, B: Backend>
     where
         B: 'a;
 
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     const BATCH_ROWS: usize;
 
     fn shape(config: &Self::Config) -> RuntimeShape;
@@ -32,14 +32,14 @@ pub(crate) trait LayeredGraph: Sized {
         token: u32,
         position: usize,
     ) -> Result<()>;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn embedding<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
         config: &Self::Config,
         token: u32,
     ) -> Result<()>;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn range<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
@@ -48,7 +48,7 @@ pub(crate) trait LayeredGraph: Sized {
         layers: Range<usize>,
         position: usize,
     ) -> Result<()>;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn tail<B: Backend>(backend: &B, encoder: &B::Encoder, config: &Self::Config);
     fn prefill<B: Backend>(
         backend: &B,
@@ -57,11 +57,11 @@ pub(crate) trait LayeredGraph: Sized {
         prompt: &[u32],
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()>;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>>;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer;
-    #[cfg(any(feature = "vulcan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     #[allow(clippy::too_many_arguments)]
     fn record_batch<B: Backend>(
         backend: &B,

@@ -25,12 +25,12 @@
  * selected-loader path; this full-backend planner always counts every weight.
 */
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use color_eyre::eyre::{Result, eyre};
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use crate::backend::source::WeightSource;
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 use crate::gguf::metadata::ModelMetadata;
 
 // Device-local byte budget the all-Vulkan plan must fit.
@@ -39,14 +39,14 @@ pub(crate) struct Budget {
 }
 
 // Placement decision per weight tensor, parallel to `WeightSet::tensors()`.
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 pub(crate) struct MemoryPlan {
     pub host: Vec<bool>,
 }
 
 // Builds an all-device placement. Hybrid range placement uses its independent
 // pure planner and selected loader; this path never spills individual tensors.
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 pub(crate) fn plan(
     meta: &ModelMetadata,
     ws: &dyn WeightSource,
@@ -112,19 +112,19 @@ pub(crate) fn plan(
     })
 }
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 fn checked_product(values: &[u64]) -> Option<u64> {
     values
         .iter()
         .try_fold(1u64, |acc, value| acc.checked_mul(*value))
 }
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 fn aligned_weight_bytes(bytes: u64) -> Option<u64> {
     bytes.checked_add(31).map(|n| n / 32 * 32)
 }
 
-#[cfg(any(test, not(feature = "vulcan-hybrid")))]
+#[cfg(any(test, not(feature = "vulkan-hybrid")))]
 fn checked_scratch_bytes(meta: &ModelMetadata) -> Option<u64> {
     let embd = meta.embedding_length as u64;
     let q = (meta.head_count as u64).checked_mul(meta.head_dim as u64)?;
@@ -186,7 +186,7 @@ mod tests {
         assert!(err.starts_with("Vulkan memory is insufficient: required overflow bytes"));
     }
 
-    #[cfg(not(feature = "vulcan-hybrid"))]
+    #[cfg(not(feature = "vulkan-hybrid"))]
     #[test]
     fn pure_weight_accounting_is_aligned_and_checked() {
         assert_eq!(aligned_weight_bytes(0), Some(0));

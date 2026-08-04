@@ -14,8 +14,6 @@ use crate::api::message::{Message, Role};
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::hybrid::HybridMode;
 use crate::backend::selection;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-use crate::runtime::contract::LayeredGraph;
 use crate::runtime::contract::RuntimeSession;
 
 pub const USER_CONTENT: &str = "Quanto fa 17 × 19?";
@@ -77,9 +75,7 @@ pub(crate) fn validate(
     let crossings = crossing_count();
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     let expected_crossings = match selection::placement(&model.backend).map(|plan| plan.mode) {
-        Some(HybridMode::Mixed) => {
-            prompt.len().div_ceil(MistralGraph::BATCH_ROWS) + TOKEN_COUNT - 1
-        }
+        Some(HybridMode::Mixed) => expected_prefill_crossings(prompt.len()) + TOKEN_COUNT - 1,
         _ => 0,
     };
     #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
@@ -93,6 +89,15 @@ pub(crate) fn validate(
         top_two,
         crossings,
     })
+}
+
+#[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+fn expected_prefill_crossings(prompt_tokens: usize) -> usize {
+    if prompt_tokens == 0 {
+        return 0;
+    }
+    let capacity = prompt_tokens.min(super::graph::prefill::MAX_PREFILL_ROWS);
+    prompt_tokens.div_ceil(capacity)
 }
 
 fn conversation() -> [Message; 2] {
@@ -187,5 +192,12 @@ mod tests {
         assert_eq!(ranked_logits(vec![1.0, 2.0, 2.0]).unwrap(), [1, 2, 0]);
         assert!(ranked_logits(vec![1.0, f32::NAN]).is_err());
         assert!(ranked_logits(vec![f32::INFINITY, 1.0]).is_err());
+    }
+
+    #[test]
+    fn mixed_prefill_crossings_follow_effective_capacity() {
+        for (tokens, expected) in [(0, 0), (16, 1), (33, 2), (2048, 64)] {
+            assert_eq!(expected_prefill_crossings(tokens), expected);
+        }
     }
 }

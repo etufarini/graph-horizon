@@ -55,10 +55,10 @@ fn run(command: Command) -> Result<(String, i32), ()> {
         Command::Validate(path) => {
             let matrix = evidence::load(&path)?;
             let summary = Validation {
-                schema_version: 1,
+                schema_version: 2,
                 validation: "valid",
                 revision: &matrix.revision,
-                total: 30,
+                total: 12,
                 pass: matrix.counts.pass,
                 fail: matrix.counts.fail,
                 external_verification: matrix.counts.external,

@@ -28,7 +28,7 @@ const DERIVED_KEYS: [&str; 19] = [
     "decode_p95_mean_ns", "decode_tps_mean", "decode_tps_stddev", "decode_tps_cv", "public_ttft_ms",
     "public_decode_tps", "cpu_memory_total", "gpu_memory_total",
 ];
-const PROFILES: [&str; 5] = ["cpu", "vulkan", "vulkan-hybrid", "metal", "metal-hybrid"];
+const PROFILES: [&str; 3] = ["cpu", "metal", "metal-hybrid"];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Requested {
@@ -83,10 +83,10 @@ pub(crate) fn load(path: &str) -> Result<Evidence, ()> {
 pub(super) fn parse_bytes(bytes: &[u8]) -> Result<Evidence, ()> {
     let text = std::str::from_utf8(bytes).map_err(|_| ())?;
     let lines = text.split_terminator('\n').collect::<Vec<_>>();
-    if lines.len() != 31 || lines.iter().any(|line| line.len() > 32_768) { return Err(()); }
-    let mut rows = Vec::with_capacity(30);
-    for (index, line) in lines[..30].iter().enumerate() { rows.push(parse_row(line, index)?); }
-    let (revision, counts) = parse_summary(lines[30])?;
+    if lines.len() != 13 || lines.iter().any(|line| line.len() > 32_768) { return Err(()); }
+    let mut rows = Vec::with_capacity(12);
+    for (index, line) in lines[..12].iter().enumerate() { rows.push(parse_row(line, index)?); }
+    let (revision, counts) = parse_summary(lines[12])?;
     let actual = Counts { pass: rows.iter().filter(|row| row.status == "pass").count() as u64, fail: rows.iter().filter(|row| row.status == "fail").count() as u64, external: rows.iter().filter(|row| row.status == "external verification").count() as u64 };
     if counts.pass != actual.pass || counts.fail != actual.fail || counts.external != actual.external
         || rows.iter().any(|row| row.revision != revision) { return Err(()); }
@@ -115,7 +115,7 @@ fn both_differ<T: PartialEq>(left: Option<T>, right: Option<T>) -> bool { matche
 
 fn parse_row(line: &str, index: usize) -> Result<Row, ()> {
     let map = object(line, &ROW_KEYS)?;
-    if integer(&map, "schema_version")? != 1 { return Err(()); }
+    if integer(&map, "schema_version")? != 2 { return Err(()); }
     let status = string(&map, "status")?; let reason = string(&map, "reason")?;
     let revision = string(&map, "revision")?; let profile = string(&map, "backend_profile")?;
     let requested = Requested {
@@ -145,7 +145,7 @@ fn validate_row(map: &BTreeMap<String, Value>, row: &Row, index: usize) -> Resul
     let (model, profile, kv, fixture) = expected(index);
     let req = &row.requested;
     let hybrid = profile.ends_with("-hybrid");
-    if req.profile != profile || req.model != model || req.kv != kv || req.fixture != fixture || req.family != "mistral3" || req.variant != "instruct" || req.bytes == 0 || !hex(&req.sha, 64) || !hex(&row.revision, 40) || !id(&req.hardware) || !id(&req.driver) || req.context != 4096 || req.warmup != 1 || req.repetitions != 7 || req.percent != hybrid.then_some(25) || row.placement != if hybrid { "mixed" } else { "pure" } || !reason_ok(&row.status, &row.reason) {
+    if req.profile != profile || req.model != model || req.kv != kv || req.fixture != fixture || req.family != "mistral3" || req.variant != "instruct" || req.bytes == 0 || !hex(&req.sha, 64) || !hex(&row.revision, 40) || !id(&req.hardware) || !id(&req.driver) || req.context != 4096 || req.warmup != 1 || req.repetitions != 3 || req.percent != hybrid.then_some(25) || row.placement != if hybrid { "mixed" } else { "pure" } || !reason_ok(&row.status, &row.reason) {
         return Err(());
     }
     let derived_null = DERIVED_KEYS.iter().all(|key| map[*key].is_null());
@@ -158,7 +158,7 @@ fn validate_row(map: &BTreeMap<String, Value>, row: &Row, index: usize) -> Resul
     if hybrid && !(cpu_layers.is_some_and(|v| v > 0) && gpu_layers.is_some_and(|v| v > 0)) || !hybrid && (cpu_layers.is_some() || gpu_layers.is_some()) {
         return Err(());
     }
-    let prompt = if fixture == "short" { 16 } else { 2048 };
+    let prompt = if fixture == "short" { 16 } else { 512 };
     if row.digest.as_ref().is_none_or(|v| !hex(v, 64)) || row.prompt_tokens != Some(prompt) || row.decode_steps != Some(31) || [row.prefill_ns, row.prefill_tps, row.first_sample_ns, row.decode_p50_ns, row.decode_p95_ns, row.decode_tps].iter().any(|v| v.is_none_or(|n| n <= 0.0)) || [row.prefill_cv, row.decode_cv].iter().any(|v| v.is_none_or(|n| n < 0.0)) || [row.public_ttft_ms, row.public_decode_tps].iter().any(|v| v.is_some_and(|n| n <= 0.0)) || optional_number(map, "prefill_tps_stddev")?.is_none_or(|v| v < 0.0) || optional_number(map, "decode_tps_stddev")?.is_none_or(|v| v < 0.0) {
         return Err(());
     }
@@ -166,22 +166,18 @@ fn validate_row(map: &BTreeMap<String, Value>, row: &Row, index: usize) -> Resul
 }
 
 pub(super) fn expected(index: usize) -> (&'static str, &'static str, &'static str, &'static str) {
-    if index < 20 {
-        let slot = index % 4;
-        ("3b-instruct", PROFILES[index / 4], if slot < 2 { "f16" } else { "int8" }, if slot % 2 == 0 { "short" } else { "long" })
-    } else {
-        (if index < 25 { "8b-instruct" } else { "14b-instruct" }, PROFILES[(index - 20) % 5], "f16", "long")
-    }
+    let slot = index % 4;
+    ("3b-instruct", PROFILES[index / 4], if slot < 2 { "f16" } else { "int8" }, if slot % 2 == 0 { "short" } else { "long" })
 }
 
 fn parse_summary(line: &str) -> Result<(String, Counts), ()> {
     let keys = ["schema_version", "summary", "total", "pass", "fail", "external_verification", "revision"];
     let map = object(line, &keys)?;
-    if integer(&map, "schema_version")? != 1 || map.get("summary") != Some(&Value::Bool(true)) || integer(&map, "total")? != 30 {
+    if integer(&map, "schema_version")? != 2 || map.get("summary") != Some(&Value::Bool(true)) || integer(&map, "total")? != 12 {
         return Err(());
     }
     let counts = Counts { pass: integer(&map, "pass")?, fail: integer(&map, "fail")?, external: integer(&map, "external_verification")? };
-    if counts.pass + counts.fail + counts.external != 30 { return Err(()); }
+    if counts.pass + counts.fail + counts.external != 12 { return Err(()); }
     let revision = string(&map, "revision")?;
     if !hex(&revision, 40) { return Err(()); }
     Ok((revision, counts))
@@ -219,7 +215,7 @@ pub(crate) use strict::{Evidence, Row, comparable_tuples, load};
 #[cfg(test)]
 pub(crate) fn sample_evidence(revision: &str, factor: f64) -> Evidence {
     let mut rows = Vec::new();
-    for index in 0..30 {
+    for index in 0..12 {
         let (model, profile, kv, fixture) = strict::expected(index);
         let hybrid = profile.ends_with("-hybrid");
         rows.push(Row {
@@ -231,7 +227,7 @@ pub(crate) fn sample_evidence(revision: &str, factor: f64) -> Evidence {
                 family: "mistral3".into(),
                 model: model.into(),
                 variant: "instruct".into(),
-                bytes: (index / 5 + 1) as u64,
+                bytes: 1,
                 sha: "a".repeat(64),
                 kv: kv.into(),
                 percent: hybrid.then_some(25),
@@ -240,11 +236,11 @@ pub(crate) fn sample_evidence(revision: &str, factor: f64) -> Evidence {
                 hardware: "host".into(),
                 driver: "driver".into(),
                 warmup: 1,
-                repetitions: 7,
+                repetitions: 3,
             },
             placement: if hybrid { "mixed" } else { "pure" }.into(),
             digest: Some("c".repeat(64)),
-            prompt_tokens: Some(if fixture == "short" { 16 } else { 2048 }),
+            prompt_tokens: Some(if fixture == "short" { 16 } else { 512 }),
             decode_steps: Some(31),
             prefill_ns: Some(100.0 / factor),
             prefill_tps: Some(100.0 * factor),
@@ -262,7 +258,7 @@ pub(crate) fn sample_evidence(revision: &str, factor: f64) -> Evidence {
         revision: revision.into(),
         rows,
         counts: strict::Counts {
-            pass: 30,
+            pass: 12,
             fail: 0,
             external: 0,
         },
@@ -273,39 +269,58 @@ pub(crate) fn sample_evidence(revision: &str, factor: f64) -> Evidence {
 mod tests {
     use super::strict::*;
 
-    fn external_matrix() -> String {
+    fn matrix(pass: bool) -> String {
         let mut output = String::new();
-        for index in 0..30 {
+        for index in 0..12 {
             let (model, profile, kv, fixture) = expected(index);
             let hybrid = profile.ends_with("-hybrid");
+            let status = if pass {
+                "pass"
+            } else {
+                "external verification"
+            };
+            let reason = if pass { "ok" } else { "artifact unavailable" };
             let row = serde_json::json!({
-                "schema_version":1,"status":"external verification","reason":"artifact unavailable",
+                "schema_version":2,"status":status,"reason":reason,
                 "revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","backend_profile":profile,
                 "family":"mistral3","model_id":model,"variant":"instruct","artifact_bytes":1,
                 "artifact_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kv":kv,
-                "placement_mode":if hybrid {"mixed"} else {"pure"},"cpu_layers":null,"gpu_layers":null,
+                "placement_mode":if hybrid {"mixed"} else {"pure"},
+                "cpu_layers":if pass && hybrid {Some(1)} else {None},
+                "gpu_layers":if pass && hybrid {Some(1)} else {None},
                 "weights_percent":if hybrid {Some(25)} else {None},"context":4096,"fixture":fixture,
-                "fixture_digest":null,"hardware_id":"host","driver_id":"driver","warmup":1,"repetitions":7,
-                "prompt_tokens":null,"decode_steps":null,"prefill_mean_ns":null,"prefill_tps_mean":null,
-                "prefill_tps_stddev":null,"prefill_tps_cv":null,"first_sample_mean_ns":null,
-                "decode_p50_mean_ns":null,"decode_p95_mean_ns":null,"decode_tps_mean":null,
-                "decode_tps_stddev":null,"decode_tps_cv":null,"public_ttft_ms":null,
-                "public_decode_tps":null,"cpu_memory_total":null,"gpu_memory_total":null
+                "fixture_digest":pass.then(|| "c".repeat(64)),"hardware_id":"host","driver_id":"driver",
+                "warmup":1,"repetitions":3,
+                "prompt_tokens":pass.then_some(if fixture == "short" {16} else {512}),
+                "decode_steps":pass.then_some(31),"prefill_mean_ns":pass.then_some(1.0),
+                "prefill_tps_mean":pass.then_some(1.0),"prefill_tps_stddev":pass.then_some(0.0),
+                "prefill_tps_cv":pass.then_some(0.0),"first_sample_mean_ns":pass.then_some(1.0),
+                "decode_p50_mean_ns":pass.then_some(1.0),"decode_p95_mean_ns":pass.then_some(1.0),
+                "decode_tps_mean":pass.then_some(1.0),"decode_tps_stddev":pass.then_some(0.0),
+                "decode_tps_cv":pass.then_some(0.0),"public_ttft_ms":pass.then_some(1.0),
+                "public_decode_tps":pass.then_some(1.0),"cpu_memory_total":null,"gpu_memory_total":null
             });
             output.push_str(&serde_json::to_string(&row).unwrap());
             output.push('\n');
         }
-        output.push_str("{\"schema_version\":1,\"summary\":true,\"total\":30,\"pass\":0,\"fail\":0,\"external_verification\":30,\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}\n");
+        output.push_str(if pass {
+            "{\"schema_version\":2,\"summary\":true,\"total\":12,\"pass\":12,\"fail\":0,\"external_verification\":0,\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}\n"
+        } else {
+            "{\"schema_version\":2,\"summary\":true,\"total\":12,\"pass\":0,\"fail\":0,\"external_verification\":12,\"revision\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"}\n"
+        });
         output
     }
 
     #[test]
     fn accepts_complete_canonical_matrix_and_rejects_shape_errors() {
-        let valid = external_matrix();
+        let valid = matrix(false);
         assert!(parse_bytes(valid.as_bytes()).is_ok());
+        let version_one = valid.replace("\"schema_version\":2", "\"schema_version\":1");
+        assert!(parse_bytes(version_one.as_bytes()).is_err());
         let mut missing = valid.lines().map(str::to_owned).collect::<Vec<_>>();
         missing.remove(10);
         assert!(parse_bytes(format!("{}\n", missing.join("\n")).as_bytes()).is_err());
+        assert!(parse_bytes(format!("{valid}{{}}\n").as_bytes()).is_err());
         let mut reordered = valid.lines().map(str::to_owned).collect::<Vec<_>>();
         reordered.swap(0, 1);
         assert!(parse_bytes(format!("{}\n", reordered.join("\n")).as_bytes()).is_err());
@@ -313,6 +328,12 @@ mod tests {
         assert!(parse_bytes(duplicate.as_bytes()).is_err());
         let derived = valid.replacen("\"prompt_tokens\":null", "\"prompt_tokens\":16", 1);
         assert!(parse_bytes(derived.as_bytes()).is_err());
+        let pass = matrix(true);
+        assert!(parse_bytes(pass.as_bytes()).is_ok());
+        let old_long = pass.replacen("\"prompt_tokens\":512", "\"prompt_tokens\":2048", 1);
+        assert!(parse_bytes(old_long.as_bytes()).is_err());
+        let old_repetitions = pass.replacen("\"repetitions\":3", "\"repetitions\":7", 1);
+        assert!(parse_bytes(old_repetitions.as_bytes()).is_err());
     }
 
     #[test]

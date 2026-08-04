@@ -188,7 +188,7 @@ mod tests {
         let mut capacity = sample_evidence(CANDIDATE, 1.05);
         capacity.rows[9].status = "external verification".into();
         capacity.rows[9].reason = "capacity unavailable".into();
-        capacity.counts.pass = 29; capacity.counts.external = 1;
+        capacity.counts.pass = 11; capacity.counts.external = 1;
         let result = evaluate(&baseline, &capacity, "decode", 1);
         assert_eq!((result.reason, result.regression_row, result.regression_metric), ("capacity regression", Some(10), Some("capacity")));
         assert!(result.capacity_regression);
@@ -209,14 +209,14 @@ mod tests {
     fn missing_pure_device_coverage_is_external() {
         let mut baseline = sample_evidence(BASE, 1.0);
         let mut candidate = sample_evidence(CANDIDATE, 1.05);
-        for index in [4, 5, 6, 7, 12, 13, 14, 15] {
+        for index in 4..8 {
             baseline.rows[index].status = "external verification".into();
             baseline.rows[index].reason = "device unavailable".into();
             candidate.rows[index].status = "external verification".into();
             candidate.rows[index].reason = "device unavailable".into();
         }
-        baseline.counts.pass = 22; baseline.counts.external = 8;
-        candidate.counts.pass = 22; candidate.counts.external = 8;
+        baseline.counts.pass = 8; baseline.counts.external = 4;
+        candidate.counts.pass = 8; candidate.counts.external = 4;
         let result = evaluate(&baseline, &candidate, "both", 1);
         assert_eq!((result.decision, result.reason, result.exit_code()),
             ("external verification", "insufficient measured hardware", 4));

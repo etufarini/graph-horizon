@@ -6,13 +6,13 @@
  */
 
 fn main() {
-    #[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
+    #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
     build_vulkan();
     #[cfg(any(feature = "metal", feature = "metal-hybrid"))]
     build_metal();
 }
 
-#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 fn build_vulkan() {
     use std::path::Path;
 
@@ -52,7 +52,7 @@ fn build_vulkan() {
     }
 }
 
-#[cfg(any(feature = "vulcan", feature = "vulcan-hybrid"))]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 fn collect_comp(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

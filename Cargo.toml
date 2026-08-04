@@ -11,8 +11,8 @@ edition = "2024"
 # Forward exactly one explicit backend profile to gh_zero_engine. There is no
 # default or target-based selection.
 cpu = ["gh_zero_engine/cpu"]
-vulcan = ["gh_zero_engine/vulcan"]
-vulcan-hybrid = ["gh_zero_engine/vulcan-hybrid"]
+vulkan = ["gh_zero_engine/vulkan"]
+vulkan-hybrid = ["gh_zero_engine/vulkan-hybrid"]
 metal = ["gh_zero_engine/metal"]
 metal-hybrid = ["gh_zero_engine/metal-hybrid"]
 

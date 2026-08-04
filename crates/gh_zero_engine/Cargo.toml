@@ -7,8 +7,8 @@ edition = "2024"
 # Independent public profiles; backend/mod.rs enforces that exactly one is
 # selected. Hybrid profiles gate their concrete dependencies directly.
 cpu = []
-vulcan = ["dep:ash", "dep:shaderc"]
-vulcan-hybrid = ["dep:ash", "dep:shaderc"]
+vulkan = ["dep:ash", "dep:shaderc"]
+vulkan-hybrid = ["dep:ash", "dep:shaderc"]
 metal = [
     "dep:dispatch2",
     "dep:objc2",
@@ -33,7 +33,7 @@ objc2-foundation = { version = "=0.3.2", optional = true }
 objc2-metal = { version = "=0.3.2", optional = true }
 
 # build-time only: compiles the GLSL .comp compute shaders to SPIR-V via
-# libshaderc (bundled). Not a runtime dependency; only used by the `vulcan`
+# libshaderc (bundled). Not a runtime dependency; only used by the `vulkan`
 # profiles (the `cpu` build must not require it).
 #
 # `build-from-source` is REQUIRED, not an optimization: without it shaderc-sys

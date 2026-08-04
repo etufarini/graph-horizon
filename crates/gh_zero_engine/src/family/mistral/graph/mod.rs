@@ -29,7 +29,7 @@ impl LayeredGraph for MistralGraph {
         B: 'a;
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    const BATCH_ROWS: usize = prefill::BATCH_ROWS;
+    const BATCH_ROWS: usize = prefill::MAX_PREFILL_ROWS;
 
     fn shape(config: &Self::Config) -> RuntimeShape {
         RuntimeShape {
@@ -97,7 +97,7 @@ impl LayeredGraph for MistralGraph {
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>> {
-        prefill::BatchBuffers::new(backend, config, prefill::BATCH_ROWS)
+        prefill::BatchBuffers::new(backend, config, prefill::MAX_PREFILL_ROWS)
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

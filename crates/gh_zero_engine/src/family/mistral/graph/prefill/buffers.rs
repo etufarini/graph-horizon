@@ -12,8 +12,6 @@ use crate::backend::buffers::Scratch;
 use crate::family::mistral::MistralConfig;
 use crate::family::mistral::graph::prefill::MAX_PREFILL_ROWS;
 
-pub(crate) const BATCH_ROWS: usize = 4;
-
 pub(crate) const X: usize = 0;
 pub(crate) const NORMED: usize = 1;
 pub(crate) const Q: usize = 2;

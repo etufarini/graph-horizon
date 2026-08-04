@@ -1,14 +1,14 @@
 /*
- * gh_zero_engine — partitioned decode session
- * Owns per-side request KV, executes an immutable CPU prefix/GPU suffix with one
- * checked crossing, routes tail/readback, and frees partial or complete state.
+ * gh_zero_engine — partitioned request session
+ * Constructs per-side request KV, delegates prefill and decode traversal to their
+ * focused siblings, and routes final-owner readback. `PartitionedSession::drop`
+ * retains deterministic cleanup; this file owns no traversal or placement policy.
  */
 
-use color_eyre::eyre::{Result, bail};
+use color_eyre::eyre::Result;
 
-use super::{KvState, PartitionedSession, prefill};
+use super::{KvState, PartitionedSession, decode, prefill};
 use crate::backend::Backend;
-use crate::backend::cpu::{CpuBackend, CpuBuffer};
 use crate::backend::hybrid::contract::HybridDevice;
 use crate::backend::hybrid::weights::runtime::RuntimeShape;
 use crate::backend::hybrid::{HybridBackends, HybridRuntime};
@@ -62,49 +62,6 @@ impl<'a, D: HybridDevice, G: LayeredGraph> PartitionedSession<'a, D, G> {
             graph: std::marker::PhantomData,
         })
     }
-
-    fn mixed_token(
-        cpu: &CpuBackend,
-        gpu: &D,
-        config: &G::Config,
-        cpu_kv: &Kv<CpuBuffer>,
-        gpu_kv: &Kv<D::Buffer>,
-        shape: RuntimeShape,
-        token: u32,
-        position: usize,
-    ) -> Result<()> {
-        if position >= cpu_kv.context || position >= gpu_kv.context {
-            bail!("runtime: position beyond context");
-        }
-        let cpu_encoder = cpu.begin()?;
-        G::embedding(cpu, &cpu_encoder, config, token)?;
-        G::range(
-            cpu,
-            &cpu_encoder,
-            config,
-            cpu_kv,
-            0..cpu_kv.block_count,
-            position,
-        )?;
-        cpu.submit(cpu_encoder)?;
-        crate::backend::hybrid::crossing::copy(
-            &cpu.buffers().scratch.x,
-            gpu,
-            &gpu.buffers().scratch.x,
-            shape.embedding,
-        )?;
-        let gpu_encoder = gpu.begin()?;
-        G::range(
-            gpu,
-            &gpu_encoder,
-            config,
-            gpu_kv,
-            0..gpu_kv.block_count,
-            position,
-        )?;
-        G::tail(gpu, &gpu_encoder, config);
-        gpu.submit(gpu_encoder)
-    }
 }
 
 impl<D: HybridDevice, G: LayeredGraph> RuntimeSession for PartitionedSession<'_, D, G> {
@@ -115,31 +72,11 @@ impl<D: HybridDevice, G: LayeredGraph> RuntimeSession for PartitionedSession<'_,
     }
 
     fn token(&self, token: u32, position: usize) -> Result<()> {
-        match (self.backends, self.state.as_ref()) {
-            (HybridBackends::AllGpu(backend), Some(KvState::AllGpu(kv))) => {
-                G::token(backend, self.config, kv, token, position)
-            }
-            (HybridBackends::CpuOnly(backend), Some(KvState::CpuOnly(kv))) => {
-                G::token(backend, self.config, kv, token, position)
-            }
-            (
-                HybridBackends::Mixed { cpu, gpu },
-                Some(KvState::Mixed {
-                    cpu: cpu_kv,
-                    gpu: gpu_kv,
-                }),
-            ) => Self::mixed_token(
-                cpu,
-                gpu,
-                self.config,
-                cpu_kv,
-                gpu_kv,
-                self.shape,
-                token,
-                position,
-            ),
-            _ => unreachable!("partition KV matches immutable owners"),
-        }
+        decode::token(self, token, position)
+    }
+
+    fn token_argmax(&self, token: u32, position: usize, vocab: usize) -> Result<u32> {
+        decode::token_argmax(self, token, position, vocab)
     }
 
     fn logits(&self, vocab: usize) -> Result<Vec<f32>> {

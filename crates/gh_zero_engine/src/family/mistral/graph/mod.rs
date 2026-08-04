@@ -58,6 +58,17 @@ impl LayeredGraph for MistralGraph {
         forward::token(backend, config, kv, token, position)
     }
 
+    fn token_argmax<B: Backend>(
+        backend: &B,
+        config: &Self::Config,
+        kv: &Kv<B::Buffer>,
+        token: u32,
+        position: usize,
+        vocab: usize,
+    ) -> Result<u32> {
+        forward::token_argmax(backend, config, kv, token, position, vocab)
+    }
+
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn embedding<B: Backend>(
         backend: &B,

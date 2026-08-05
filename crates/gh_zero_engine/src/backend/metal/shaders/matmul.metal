@@ -13,6 +13,22 @@ inline float q4(device const uchar*w,uint b,uint i,bool five){uint g=i/64,l=i%64
 inline float q6(device const uchar*w,uint b,uint i){uint s=i/128,r=i%128,c=r/32,l=r%32,qb=b+s*64+l+(c&1)*32;uint lo=c<2?(w[qb]&15):(w[qb]>>4),hi=(w[b+128+s*32+l]>>(c*2))&3;int sc=int(as_type<char>(w[b+192+s*8+l/16+c*2]));return h(w,b+208)*float(sc)*(float(lo|(hi<<4))-32.0f);}
 kernel void metal_matmul(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device uchar*out[[buffer(2)]],constant Params&p[[buffer(3)]],uint o[[thread_position_in_grid]]){
  if(o>=p.output)return;float acc=0.0f;uint ns=p.input/256;
- for(uint i=0;i<p.input;i++){float v;if(p.format==0)v=float(((device const half*)w)[o*p.input+i]);else{uint b=o*ns+i/256,q=i%256;v=p.format==1?q4(w,b*144,q,false):p.format==2?q4(w,b*176,q,true):q6(w,b*210,q);}acc+=float(a[i])*v;}
+ if(p.format==1){
+  for(uint s=0;s<ns;s++){
+   uint b=(o*ns+s)*144;float d=h(w,b),dm=h(w,b+2);
+   for(uint j=0;j<8;j++){
+    uint sc,mn;sm(w,b+4,j,sc,mn);
+    float dl=d*float(sc),ml=dm*float(mn);uint qo=b+16+(j/2)*32;
+    bool high=(j&1)!=0;uint i=s*256+j*32;
+    // Preserve natural input order so the FP32 accumulation sequence is unchanged.
+    for(uint l=0;l<32;l++){
+     uint q=high?(w[qo+l]>>4):(w[qo+l]&15);
+     float v=dl*float(q)-ml;acc+=float(a[i+l])*v;
+    }
+   }
+  }
+ }else{
+  for(uint i=0;i<p.input;i++){float v;if(p.format==0)v=float(((device const half*)w)[o*p.input+i]);else{uint b=o*ns+i/256,q=i%256;v=p.format==2?q4(w,b*176,q,true):q6(w,b*210,q);}acc+=float(a[i])*v;}
+ }
  if(p.fp32)((device float*)out)[o]=acc;else((device half*)out)[o]=half(acc);
 }

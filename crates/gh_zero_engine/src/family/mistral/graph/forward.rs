@@ -1,9 +1,9 @@
 /*
  * gh_zero_engine — backend-generic Ministral forward range
  * Single responsibility: record embedding and a validated contiguous layer
- * range through the shared block recorder and owns homogeneous token completion.
- * Plain and greedy paths share graph recording; it exposes the range seam needed
- * by hybrid placement but owns no crossing, sampling policy, or resources.
+ * range through the shared block recorder and owns the homogeneous token
+ * submission boundary. It exposes the range seam needed by hybrid placement
+ * but owns no crossing, sampling, or resources.
  */
 
 use std::ops::Range;
@@ -72,44 +72,12 @@ pub(crate) fn token<B: Backend>(
     token: u32,
     pos: usize,
 ) -> Result<()> {
-    let enc = record(backend, cfg, kv, token, pos)?;
-    backend.submit(enc)
-}
-
-pub(crate) fn token_argmax<B: Backend>(
-    backend: &B,
-    cfg: &MistralConfig,
-    kv: &Kv<B::Buffer>,
-    token: u32,
-    pos: usize,
-    vocab: usize,
-) -> Result<u32> {
-    let enc = record(backend, cfg, kv, token, pos)?;
-    backend.submit_argmax(enc, &backend.buffers().logits, vocab)
-}
-
-fn record<B: Backend>(
-    backend: &B,
-    cfg: &MistralConfig,
-    kv: &Kv<B::Buffer>,
-    token: u32,
-    pos: usize,
-) -> Result<B::Encoder> {
     if pos >= cfg.context_length || pos >= kv.context {
         bail!("mistral graph: position beyond context");
     }
-    if token as usize >= cfg.vocab_size {
-        bail!("mistral graph: token beyond vocabulary");
-    }
     let enc = backend.begin()?;
-    if let Err(error) = embedding(backend, &enc, cfg, token)
-        .and_then(|_| range(backend, &enc, cfg, kv, 0..cfg.block_count, pos))
-    {
-        // The generic backend contract has no cancel seam. Completing a partial
-        // encoder releases device command resources before this terminal error.
-        let _ = backend.submit(enc);
-        return Err(error);
-    }
+    embedding(backend, &enc, cfg, token)?;
+    range(backend, &enc, cfg, kv, 0..cfg.block_count, pos)?;
     tail::record(backend, &enc, cfg);
-    Ok(enc)
+    backend.submit(enc)
 }

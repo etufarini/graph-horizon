@@ -62,10 +62,6 @@ impl<B: Backend, G: LayeredGraph> RuntimeSession for HomogeneousSession<'_, B, G
         G::token(self.backend, self.config, self.kv(), token, position)
     }
 
-    fn token_argmax(&self, token: u32, position: usize, vocab: usize) -> Result<u32> {
-        G::token_argmax(self.backend, self.config, self.kv(), token, position, vocab)
-    }
-
     fn logits(&self, vocab: usize) -> Result<Vec<f32>> {
         self.backend
             .read_logits(&self.backend.buffers().logits, vocab)

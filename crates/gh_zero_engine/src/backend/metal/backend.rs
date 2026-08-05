@@ -95,17 +95,6 @@ impl Backend for MetalBackend {
         kernels::argmax::read(&self.device, &self.pipelines, logits, &self.reduce, vocab)
     }
 
-    fn submit_argmax(
-        &self,
-        encoder: MetalEncoder,
-        logits: &MetalBuffer,
-        vocab: usize,
-    ) -> Result<u32> {
-        kernels::argmax::encode(&encoder, &self.pipelines, logits, &self.reduce, vocab)?;
-        self.submit(encoder)?;
-        kernels::argmax::completed(&self.reduce, vocab)
-    }
-
     fn read_topk(&self, logits: &MetalBuffer, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>> {
         kernels::topk::read(
             &self.device,

@@ -13,7 +13,6 @@ use crate::backend::hybrid::weights::runtime::RuntimeShape;
 use crate::kv_cache::{self, Kv};
 use crate::runtime::contract::LayeredGraph;
 
-mod decode;
 mod prefill;
 mod session;
 
@@ -80,10 +79,8 @@ mod tests {
 
     thread_local! {
         static RANGE_CALLS: Cell<usize> = const { Cell::new(0) };
-        static FUSED_CALLS: Cell<usize> = const { Cell::new(0) };
         static FAIL_SUFFIX: Cell<bool> = const { Cell::new(false) };
         static KV_LAYERS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
-        static EVENTS: std::cell::RefCell<Vec<&'static str>> = const { std::cell::RefCell::new(Vec::new()) };
     }
 
     // Test-only adapter: host buffers exercise generic partition traversal.
@@ -183,29 +180,12 @@ mod tests {
             Ok(())
         }
 
-        fn token_argmax<B: Backend>(
-            backend: &B,
-            config: &Self::Config,
-            kv: &Kv<B::Buffer>,
-            token: u32,
-            position: usize,
-            vocab: usize,
-        ) -> Result<u32> {
-            FUSED_CALLS.with(|calls| calls.set(calls.get() + 1));
-            let encoder = backend.begin()?;
-            Self::embedding(backend, &encoder, config, token)?;
-            Self::range(backend, &encoder, config, kv, 0..kv.block_count, position)?;
-            Self::tail(backend, &encoder, config);
-            backend.submit_argmax(encoder, &backend.buffers().logits, vocab)
-        }
-
         fn embedding<B: Backend>(
             backend: &B,
             encoder: &B::Encoder,
             _: &Self::Config,
             token: u32,
         ) -> Result<()> {
-            EVENTS.with(|events| events.borrow_mut().push("embedding"));
             backend.embed(
                 encoder,
                 &backend.buffers().scratch.x,
@@ -221,23 +201,14 @@ mod tests {
         }
 
         fn range<B: Backend>(
-            backend: &B,
+            _: &B,
             _: &B::Encoder,
             _: &Self::Config,
             kv: &Kv<B::Buffer>,
             layers: std::ops::Range<usize>,
             _: usize,
         ) -> Result<()> {
-            assert_eq!(layers, 0..kv.block_count);
-            EVENTS.with(|events| {
-                events
-                    .borrow_mut()
-                    .push(if backend.buffers().weights.token_embd.is_some() {
-                        "prefix"
-                    } else {
-                        "suffix"
-                    })
-            });
+            assert_eq!(layers, 0..1);
             KV_LAYERS.with(|seen| seen.borrow_mut().push(kv.block_count));
             let call = RANGE_CALLS.with(|calls| {
                 let call = calls.get();
@@ -250,9 +221,7 @@ mod tests {
             Ok(())
         }
 
-        fn tail<B: Backend>(_: &B, _: &B::Encoder, _: &Self::Config) {
-            EVENTS.with(|events| events.borrow_mut().push("tail"));
-        }
+        fn tail<B: Backend>(_: &B, _: &B::Encoder, _: &Self::Config) {}
 
         fn prefill<B: Backend>(
             _: &B,
@@ -337,8 +306,6 @@ mod tests {
             values.write_f16_from_f32(&[1.0, 2.0, 3.0, 4.0]);
             values
         });
-        let logits = buffer(8, CpuFormat::F32);
-        logits.write_f32(&[0.0, 1.0]);
         CpuBackend::from_buffers(Buffers {
             weights: WeightSet {
                 token_embd,
@@ -359,7 +326,7 @@ mod tests {
                 act: buffer(2, CpuFormat::F16),
                 ffn_out: buffer(2, CpuFormat::F16),
             },
-            logits,
+            logits: buffer(8, CpuFormat::F32),
         })
     }
 
@@ -376,10 +343,8 @@ mod tests {
     fn reset() {
         crate::backend::hybrid::crossing::reset_count();
         RANGE_CALLS.with(|calls| calls.set(0));
-        FUSED_CALLS.with(|calls| calls.set(0));
         FAIL_SUFFIX.with(|fail| fail.set(false));
         KV_LAYERS.with(|seen| seen.borrow_mut().clear());
-        EVENTS.with(|events| events.borrow_mut().clear());
     }
 
     #[test]
@@ -395,15 +360,6 @@ mod tests {
         };
         assert_eq!(gpu.buffers().scratch.x.read_f32(), [1.0, 2.0]);
         assert!(KV_LAYERS.with(|seen| seen.borrow().iter().all(|layers| *layers == 1)));
-
-        reset();
-        assert_eq!(session.token_argmax(0, 1, 2)?, 1);
-        assert_eq!(crate::backend::hybrid::crossing::count(), 1);
-        assert_eq!(FUSED_CALLS.with(Cell::get), 0);
-        assert_eq!(
-            EVENTS.with(|events| events.borrow().clone()),
-            ["embedding", "prefix", "suffix", "tail"]
-        );
 
         crate::backend::hybrid::crossing::reset_count();
         session.prefill(&[0, 1, 0], &mut || Ok(()))?;
@@ -432,11 +388,9 @@ mod tests {
                 KvQuant::F16,
             )?;
             session.token(0, 0)?;
-            assert_eq!(session.token_argmax(0, 1, 2)?, 1);
             session.prefill(&[0], &mut || Ok(()))?;
         }
         assert_eq!(crate::backend::hybrid::crossing::count(), 0);
-        assert_eq!(FUSED_CALLS.with(Cell::get), 2);
         Ok(())
     }
 
@@ -482,7 +436,7 @@ mod tests {
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&suffix, &(), shape(), 8, KvQuant::F16)?;
         assert_eq!(
-            session.token_argmax(0, 0, 2).unwrap_err().to_string(),
+            session.token(0, 0).unwrap_err().to_string(),
             "synthetic suffix failure"
         );
         assert_eq!(suffix.plan.split, 1);

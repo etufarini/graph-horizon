@@ -367,30 +367,6 @@ impl Backend for VulkanBackend {
         )
     }
 
-    fn submit_argmax(
-        &self,
-        enc: vk::CommandBuffer,
-        logits: &GpuBuffer,
-        vocab: usize,
-    ) -> Result<u32> {
-        if let Err(error) = reduce::record_argmax(
-            &self.dev,
-            &self.reg,
-            enc,
-            logits,
-            &self.reduce,
-            &self.logits_host,
-            vocab,
-        ) {
-            // `submit_argmax` consumes the encoder. Vulkan has no separate cancel
-            // boundary, so complete it once before returning the validation error.
-            let _ = self.submit(enc);
-            return Err(error);
-        }
-        self.submit(enc)?;
-        reduce::completed_argmax(&self.dev, &self.logits_host, vocab)
-    }
-
     fn read_topk(&self, logits: &GpuBuffer, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>> {
         reduce::topk(
             &self.dev,

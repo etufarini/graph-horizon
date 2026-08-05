@@ -1,10 +1,10 @@
 /*
  * systemPrompt.ts — isolates the localStorage side effects for the system
- * prompt under the key 'gh-zero.system-prompt'. Both functions are
+ * prompt under the key 'graph-orizon.system-prompt'. Both functions are
  * exception-safe by contract: storage may be unavailable (private browsing,
  * quota, disabled), so every access is wrapped and failures are absorbed.
  */
-const STORAGE_KEY = 'gh-zero.system-prompt';
+const STORAGE_KEY = 'graph-orizon.system-prompt';
 
 export function loadSystemPrompt(): string {
   try {

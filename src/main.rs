@@ -1,14 +1,14 @@
 /*
- * GH Zero binary entrypoint
+ * Graph Orizon binary entrypoint
  * Neutral shell of the binary: installs color_eyre, initializes runtime
  * arguments through `app::args`, and delegates to `app::run`. It does not know
  * how CLI, headless server, or web mode are started.
  */
 
 mod app;
-mod gh_zero_cli;
-mod gh_zero_server;
-mod gh_zero_web;
+mod graph_orizon_cli;
+mod graph_orizon_server;
+mod graph_orizon_web;
 #[cfg(test)]
 mod support_scripts;
 

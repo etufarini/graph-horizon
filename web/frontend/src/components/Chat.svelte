@@ -40,7 +40,7 @@
 <section class="chat-layout">
   <header class="chat-header">
     <h1 class="chat-title">
-      <span class="chat-brand">GH Zero</span>
+      <span class="chat-brand">Graph Orizon</span>
       <span class="chat-divider" aria-hidden="true">//</span>
       <span class="chat-sub">console d'inferenza locale</span>
     </h1>

@@ -6,9 +6,9 @@ defines implementation boundaries and evidence gates, not current support scope.
 # Backend Addition Process
 
 This process applies when adding a hardware-facing implementation to
-`gh_zero_engine`. It does not claim that a proposed backend is supported. Current
+`graph_orizon_engine`. It does not claim that a proposed backend is supported. Current
 build features and support limits remain in the
-[engine documentation](../crates/gh_zero_engine/README.md).
+[engine documentation](../crates/graph_orizon_engine/README.md).
 
 Backend selection is currently a build-time contract. Runtime backend switching
 must not be introduced unless it is the explicitly approved feature.
@@ -33,7 +33,7 @@ families do not contain backend-pair orchestration.
 The stable boundaries are:
 
 ```text
-crates/gh_zero_engine/
+crates/graph_orizon_engine/
 ├── Cargo.toml                    backend features and optional dependencies
 ├── build.rs                      feature-gated build-time assets
 └── src/

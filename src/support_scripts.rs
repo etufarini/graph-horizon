@@ -104,7 +104,7 @@ fn script(relative: &str, args: &[&str]) -> Output {
 
 fn fixture_dir(label: &str) -> PathBuf {
     let path = std::env::temp_dir().join(format!(
-        "gh-zero support scripts {} {label}",
+        "graph-orizon support scripts {} {label}",
         std::process::id()
     ));
     if path.exists() {
@@ -303,7 +303,7 @@ fn support_scripts_reject_invalid_values_before_execution() {
             ],
         ),
         (
-            "support/testing/run-ghzero-engine.sh",
+            "support/testing/run-graph-orizon.sh",
             vec![
                 "--model",
                 model,
@@ -316,7 +316,7 @@ fn support_scripts_reject_invalid_values_before_execution() {
             ],
         ),
         (
-            "support/testing/run-ghzero-engine.sh",
+            "support/testing/run-graph-orizon.sh",
             vec![
                 "--model",
                 model,
@@ -412,7 +412,7 @@ fn installer_requires_profile_and_preflights_metal() {
     for tool in ["cargo", "npm"] {
         fs::write(
             bin.join(tool),
-            b"#!/usr/bin/env bash\nprintf called > \"$GH_ZERO_MUTATION_LOG\"\n",
+            b"#!/usr/bin/env bash\nprintf called > \"$GRAPH_ORIZON_MUTATION_LOG\"\n",
         )
         .unwrap();
     }
@@ -425,7 +425,7 @@ fn installer_requires_profile_and_preflights_metal() {
         .arg(repository().join("support/install.sh"))
         .args(["--backend", "metal"])
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("GH_ZERO_MUTATION_LOG", &mutation)
+        .env("GRAPH_ORIZON_MUTATION_LOG", &mutation)
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
@@ -451,7 +451,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
     let cargo = bin.join("cargo");
     fs::write(
         &cargo,
-        b"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$GH_ZERO_TEST_ARGS\"\n",
+        b"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$GRAPH_ORIZON_TEST_ARGS\"\n",
     )
     .unwrap();
     let mut permissions = fs::metadata(&cargo).unwrap().permissions();
@@ -476,7 +476,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "f16",
         ])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_ARGS", &log)
+        .env("GRAPH_ORIZON_TEST_ARGS", &log)
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -503,7 +503,7 @@ fn assert_scripts_quote_model_variables(root: &Path) {
         "support/testing/matrix-check.sh",
         "support/testing/parity-check.sh",
         "support/testing/semantic-check.sh",
-        "support/testing/run-ghzero-engine.sh",
+        "support/testing/run-graph-orizon.sh",
     ] {
         let source = fs::read_to_string(root.join(relative)).unwrap();
         assert!(
@@ -548,9 +548,9 @@ for argument in "$@"; do
     case "$argument" in *.gguf) model="$argument" ;; esac
 done
 last="${!#}"
-printf '%s\t%s\n' "$model" "$last" >> "$GH_ZERO_TEST_LOG"
+printf '%s\t%s\n' "$model" "$last" >> "$GRAPH_ORIZON_TEST_LOG"
 case " $* " in *" --example inspect "*) ;; *) exit 0 ;; esac
-if [[ -n "${GH_ZERO_BAD_INSPECT:-}" && "$model" == *"$GH_ZERO_BAD_INSPECT"* ]]; then
+if [[ -n "${GRAPH_ORIZON_BAD_INSPECT:-}" && "$model" == *"$GRAPH_ORIZON_BAD_INSPECT"* ]]; then
     printf 'weight_profile: Q4_K_M\n'
     exit 0
 fi
@@ -568,7 +568,7 @@ esac
         r#"#!/usr/bin/env bash
 set -eu
 model="${!#}"
-if [[ -n "${GH_ZERO_BAD_SIZE:-}" && "$model" == *"$GH_ZERO_BAD_SIZE"* ]]; then
+if [[ -n "${GRAPH_ORIZON_BAD_SIZE:-}" && "$model" == *"$GRAPH_ORIZON_BAD_SIZE"* ]]; then
     echo 1
     exit 0
 fi
@@ -616,7 +616,7 @@ printf '%s  %s\n' "$digest" "$model"
             "4096",
         ])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
         .output()
         .unwrap();
     assert!(
@@ -634,7 +634,7 @@ printf '%s  %s\n' "$digest" "$model"
         .arg(repository().join("support/profiling/validate-weights.sh"))
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
         .output()
         .unwrap();
     assert!(
@@ -658,8 +658,8 @@ printf '%s  %s\n' "$digest" "$model"
         .arg(repository().join("support/profiling/validate-weights.sh"))
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
-        .env("GH_ZERO_BAD_SIZE", "3B-Instruct")
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_BAD_SIZE", "3B-Instruct")
         .output()
         .unwrap();
     assert_eq!(mismatch.status.code(), Some(1));
@@ -676,7 +676,7 @@ printf '%s  %s\n' "$digest" "$model"
         .arg(repository().join("support/profiling/validate-weights.sh"))
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
         .output()
         .unwrap();
     assert!(missing_weight.status.success());
@@ -692,8 +692,8 @@ printf '%s  %s\n' "$digest" "$model"
         .arg(repository().join("support/profiling/validate-weights.sh"))
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
-        .env("GH_ZERO_BAD_INSPECT", "14B-Reasoning")
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_BAD_INSPECT", "14B-Reasoning")
         .output()
         .unwrap();
     assert_eq!(malformed.status.code(), Some(1));
@@ -747,7 +747,7 @@ printf '%s  %s\n' "$digest" "$model"
         .arg(copied_root.join("support/profiling/validate-weights.sh"))
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEST_LOG", &log)
+        .env("GRAPH_ORIZON_TEST_LOG", &log)
         .output()
         .unwrap();
     assert_eq!(bad_catalog.status.code(), Some(2));
@@ -793,7 +793,7 @@ fn parity_script_contract() {
     let server = fixture.join("llama server stub");
     fs::write(
         &stat,
-        b"#!/usr/bin/env bash\nif [[ \"${GH_ZERO_BAD_SIZE:-}\" == 1 ]]; then echo 1; else echo 2147023008; fi\n",
+        b"#!/usr/bin/env bash\nif [[ \"${GRAPH_ORIZON_BAD_SIZE:-}\" == 1 ]]; then echo 1; else echo 2147023008; fi\n",
     )
     .unwrap();
     fs::write(
@@ -813,17 +813,17 @@ while (($#)); do
 done
 case "$url" in
     */health)
-        if [[ "${GH_ZERO_HEALTH_WAIT:-}" == 1 ]]; then /bin/sleep 0.2; exit 1; fi
+        if [[ "${GRAPH_ORIZON_HEALTH_WAIT:-}" == 1 ]]; then /bin/sleep 0.2; exit 1; fi
         exit 0
         ;;
     */apply-template)
-        if [[ -n "${GH_ZERO_APPLY_TEMPLATE_LOG:-}" ]]; then
-            printf '%s\n' "$body" > "$GH_ZERO_APPLY_TEMPLATE_LOG"
+        if [[ -n "${GRAPH_ORIZON_APPLY_TEMPLATE_LOG:-}" ]]; then
+            printf '%s\n' "$body" > "$GRAPH_ORIZON_APPLY_TEMPLATE_LOG"
         fi
         printf '{"prompt":"oracle prompt"}\n'
         ;;
     */tokenize)
-        if [[ "${GH_ZERO_BAD_HTTP:-}" == tokenize ]]; then printf '{bad json\n'; else printf '{"tokens":[1,2,3]}\n'; fi
+        if [[ "${GRAPH_ORIZON_BAD_HTTP:-}" == tokenize ]]; then printf '{bad json\n'; else printf '{"tokens":[1,2,3]}\n'; fi
         ;;
     */completion) printf '{"tokens":[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]}\n' ;;
 esac
@@ -835,14 +835,14 @@ esac
         r#"#!/usr/bin/env bash
 set -eu
 printf 'args=%s\nmodel=%s\ncontext=%s\nkv=%s\npercent=%s\nmode=%s\nprompt=%s\ncompletion=%s\n' \
-    "$*" "$GH_ZERO_MODEL" "$GH_ZERO_CONTEXT" "$GH_ZERO_KV" \
-    "${GH_ZERO_VRAM_WEIGHTS_PERCENT:-}" "${GH_ZERO_EXPECTED_MODE:-}" "$GH_ZERO_REFERENCE_PROMPT_IDS" \
-    "$GH_ZERO_REFERENCE_COMPLETION_IDS" >> "$GH_ZERO_CARGO_LOG"
-if [[ "${GH_ZERO_MEMORY_FAILURE:-}" == 1 ]]; then
+    "$*" "$GRAPH_ORIZON_MODEL" "$GRAPH_ORIZON_CONTEXT" "$GRAPH_ORIZON_KV" \
+    "${GRAPH_ORIZON_VRAM_WEIGHTS_PERCENT:-}" "${GRAPH_ORIZON_EXPECTED_MODE:-}" "$GRAPH_ORIZON_REFERENCE_PROMPT_IDS" \
+    "$GRAPH_ORIZON_REFERENCE_COMPLETION_IDS" >> "$GRAPH_ORIZON_CARGO_LOG"
+if [[ "${GRAPH_ORIZON_MEMORY_FAILURE:-}" == 1 ]]; then
     printf 'Vulkan memory is insufficient: required 2 bytes, available 1 bytes\n' >&2
     exit 1
 fi
-if [[ "${GH_ZERO_DEVICE_FAILURE:-}" == 1 ]]; then
+if [[ "${GRAPH_ORIZON_DEVICE_FAILURE:-}" == 1 ]]; then
     printf 'load selected runtime: Vulkan backend is unavailable\n' >&2
     exit 1
 fi
@@ -852,7 +852,7 @@ printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,
     .unwrap();
     fs::write(
         &mktemp,
-        b"#!/usr/bin/env bash\nmkdir -p -- \"$GH_ZERO_TEMP_DIR\"\nprintf '%s\\n' \"$GH_ZERO_TEMP_DIR\"\n",
+        b"#!/usr/bin/env bash\nmkdir -p -- \"$GRAPH_ORIZON_TEMP_DIR\"\nprintf '%s\\n' \"$GRAPH_ORIZON_TEMP_DIR\"\n",
     )
     .unwrap();
     fs::write(
@@ -860,11 +860,11 @@ printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,
         r#"#!/usr/bin/env bash
 set -eu
 if [[ "${1:-}" == --version ]]; then
-    if [[ "${GH_ZERO_BAD_REVISION:-}" == 1 ]]; then echo 'llama.cpp old'; else echo 'llama.cpp 13f2b28b0'; fi
+    if [[ "${GRAPH_ORIZON_BAD_REVISION:-}" == 1 ]]; then echo 'llama.cpp old'; else echo 'llama.cpp 13f2b28b0'; fi
     exit 0
 fi
-printf 'started %s\n' "$$" >> "$GH_ZERO_SERVER_LOG"
-trap 'printf "stopped %s\n" "$$" >> "$GH_ZERO_SERVER_LOG"; exit 0' TERM INT HUP
+printf 'started %s\n' "$$" >> "$GRAPH_ORIZON_SERVER_LOG"
+trap 'printf "stopped %s\n" "$$" >> "$GRAPH_ORIZON_SERVER_LOG"; exit 0' TERM INT HUP
 while :; do /bin/sleep 0.05; done
 "#,
     )
@@ -905,10 +905,10 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &port])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
-        .env("GH_ZERO_APPLY_TEMPLATE_LOG", &template_log)
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_APPLY_TEMPLATE_LOG", &template_log)
         .output()
         .unwrap();
     assert!(
@@ -963,9 +963,9 @@ while :; do /bin/sleep 0.05; done
             "all-metal",
         ])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
         .output()
         .unwrap();
     assert!(
@@ -986,11 +986,11 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &port])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
-        .env("GH_ZERO_APPLY_TEMPLATE_LOG", &template_log)
-        .env("GH_ZERO_BAD_HTTP", "tokenize")
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_APPLY_TEMPLATE_LOG", &template_log)
+        .env("GRAPH_ORIZON_BAD_HTTP", "tokenize")
         .output()
         .unwrap();
     assert_eq!(malformed.status.code(), Some(1));
@@ -1007,7 +1007,7 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &revision_port])
         .env("PATH", &path)
-        .env("GH_ZERO_BAD_REVISION", "1")
+        .env("GRAPH_ORIZON_BAD_REVISION", "1")
         .output()
         .unwrap();
     assert!(revision.status.success());
@@ -1021,10 +1021,10 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &free_port()])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
-        .env("GH_ZERO_DEVICE_FAILURE", "1")
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_DEVICE_FAILURE", "1")
         .output()
         .unwrap();
     assert!(device.status.success());
@@ -1041,7 +1041,7 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &free_port()])
         .env("PATH", &path)
-        .env("GH_ZERO_BAD_SIZE", "1")
+        .env("GRAPH_ORIZON_BAD_SIZE", "1")
         .output()
         .unwrap();
     assert_eq!(mismatch.status.code(), Some(1));
@@ -1065,10 +1065,10 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &memory_port])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
-        .env("GH_ZERO_MEMORY_FAILURE", "1")
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_MEMORY_FAILURE", "1")
         .output()
         .unwrap();
     assert!(memory.status.success());
@@ -1101,10 +1101,10 @@ while :; do /bin/sleep 0.05; done
         .args(base)
         .args(["--reference-port", &port])
         .env("PATH", &path)
-        .env("GH_ZERO_TEMP_DIR", &temp)
-        .env("GH_ZERO_CARGO_LOG", &cargo_log)
-        .env("GH_ZERO_SERVER_LOG", &server_log)
-        .env("GH_ZERO_HEALTH_WAIT", "1")
+        .env("GRAPH_ORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_ORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_ORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_ORIZON_HEALTH_WAIT", "1")
         .spawn()
         .unwrap();
     for _ in 0..100 {
@@ -1167,9 +1167,9 @@ while :; do /bin/sleep 0.05; done
     let source = fs::read_to_string(repository().join("support/testing/parity-check.sh")).unwrap();
     for fixed in [
         "--ctx-size 4096",
-        "GH_ZERO_CONTEXT=4096",
-        "GH_ZERO_VRAM_WEIGHTS_PERCENT",
-        "GH_ZERO_EXPECTED_MODE",
+        "GRAPH_ORIZON_CONTEXT=4096",
+        "GRAPH_ORIZON_VRAM_WEIGHTS_PERCENT",
+        "GRAPH_ORIZON_EXPECTED_MODE",
         "n_predict:16",
         "--host 127.0.0.1",
         "--offline",
@@ -1243,9 +1243,9 @@ while (($#)); do
     esac
 done
 key="$id:$backend:$kv:$percent:$mode"
-printf '%s\n' "$key" >> "$GH_ZERO_PARITY_LOG"
-if [[ "$key" == "${GH_ZERO_FAIL_KEY:-}" ]]; then echo 'injected failure' >&2; exit 1; fi
-if [[ "$key" == "${GH_ZERO_EXTERNAL_KEY:-}" ]]; then echo 'external verification: injected resource unavailable'; exit 0; fi
+printf '%s\n' "$key" >> "$GRAPH_ORIZON_PARITY_LOG"
+if [[ "$key" == "${GRAPH_ORIZON_FAIL_KEY:-}" ]]; then echo 'injected failure' >&2; exit 1; fi
+if [[ "$key" == "${GRAPH_ORIZON_EXTERNAL_KEY:-}" ]]; then echo 'external verification: injected resource unavailable'; exit 0; fi
 printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=3\n' "$id" "$backend" "$kv"
 "#,
     )
@@ -1256,8 +1256,8 @@ printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=3
         r#"#!/usr/bin/env bash
 set -eu
 model="${!#}"
-printf '%s\n' "$model" >> "$GH_ZERO_INSPECT_LOG"
-if [[ -n "${GH_ZERO_BAD_Q8:-}" && "$model" == *"$GH_ZERO_BAD_Q8"* ]]; then
+printf '%s\n' "$model" >> "$GRAPH_ORIZON_INSPECT_LOG"
+if [[ -n "${GRAPH_ORIZON_BAD_Q8:-}" && "$model" == *"$GRAPH_ORIZON_BAD_Q8"* ]]; then
     echo 'placement: cpu'
     exit 0
 fi
@@ -1288,8 +1288,8 @@ exit 1
     let complete = Command::new(&matrix)
         .args(base)
         .env("PATH", &path)
-        .env("GH_ZERO_PARITY_LOG", &parity_log)
-        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .env("GRAPH_ORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_ORIZON_INSPECT_LOG", &inspect_log)
         .output()
         .unwrap();
     assert!(
@@ -1355,9 +1355,9 @@ exit 1
     let continued = Command::new(&matrix)
         .args(base)
         .env("PATH", &path)
-        .env("GH_ZERO_PARITY_LOG", &parity_log)
-        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
-        .env("GH_ZERO_EXTERNAL_KEY", "3b-instruct:cpu:f16::")
+        .env("GRAPH_ORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_ORIZON_INSPECT_LOG", &inspect_log)
+        .env("GRAPH_ORIZON_EXTERNAL_KEY", "3b-instruct:cpu:f16::")
         .output()
         .unwrap();
     assert!(continued.status.success());
@@ -1375,9 +1375,9 @@ exit 1
     let stopped = Command::new(&matrix)
         .args(base)
         .env("PATH", &path)
-        .env("GH_ZERO_PARITY_LOG", &parity_log)
-        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
-        .env("GH_ZERO_FAIL_KEY", "3b-instruct:cpu:int8::")
+        .env("GRAPH_ORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_ORIZON_INSPECT_LOG", &inspect_log)
+        .env("GRAPH_ORIZON_FAIL_KEY", "3b-instruct:cpu:int8::")
         .output()
         .unwrap();
     assert_eq!(stopped.status.code(), Some(1));
@@ -1391,9 +1391,9 @@ exit 1
     let bad_q8 = Command::new(&matrix)
         .args(base)
         .env("PATH", &path)
-        .env("GH_ZERO_PARITY_LOG", &parity_log)
-        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
-        .env("GH_ZERO_BAD_Q8", "3B-Instruct")
+        .env("GRAPH_ORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_ORIZON_INSPECT_LOG", &inspect_log)
+        .env("GRAPH_ORIZON_BAD_Q8", "3B-Instruct")
         .output()
         .unwrap();
     assert_eq!(bad_q8.status.code(), Some(1));
@@ -1410,8 +1410,8 @@ exit 1
     let malformed = Command::new(&matrix)
         .args(base)
         .env("PATH", &path)
-        .env("GH_ZERO_PARITY_LOG", &parity_log)
-        .env("GH_ZERO_INSPECT_LOG", &inspect_log)
+        .env("GRAPH_ORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_ORIZON_INSPECT_LOG", &inspect_log)
         .output()
         .unwrap();
     assert_eq!(malformed.status.code(), Some(2));
@@ -1507,19 +1507,19 @@ printf '%s  %s\n' "$digest" "$model"
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
-printf '%s\t%s\t%s\n' "$GH_ZERO_MODEL_ID" "$GH_ZERO_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
-temp=0.7; [[ "${SEMANTIC_STUB_PROTOCOL:-}" != config-mismatch || "$GH_ZERO_MODEL_ID" != 3b-reasoning ]] || temp=0
-printf 'semantic-config: model_id=%s context=4096 max_tokens=4096 temperature=%s top_p=1 top_k=0 min_p=0 repeat_penalty=1 seed=0 kv=f16\n' "$GH_ZERO_MODEL_ID" "$temp"
-if [[ "$GH_ZERO_MODEL_ID" == "${SEMANTIC_STUB_EXTERNAL_ID:-}" ]]; then
-    printf 'semantic-external: model_id=%s reason=no-full-vram-fit\n' "$GH_ZERO_MODEL_ID"
+printf '%s\t%s\t%s\n' "$GRAPH_ORIZON_MODEL_ID" "$GRAPH_ORIZON_MODEL" "$*" >> "$SEMANTIC_STUB_LOG"
+temp=0.7; [[ "${SEMANTIC_STUB_PROTOCOL:-}" != config-mismatch || "$GRAPH_ORIZON_MODEL_ID" != 3b-reasoning ]] || temp=0
+printf 'semantic-config: model_id=%s context=4096 max_tokens=4096 temperature=%s top_p=1 top_k=0 min_p=0 repeat_penalty=1 seed=0 kv=f16\n' "$GRAPH_ORIZON_MODEL_ID" "$temp"
+if [[ "$GRAPH_ORIZON_MODEL_ID" == "${SEMANTIC_STUB_EXTERNAL_ID:-}" ]]; then
+    printf 'semantic-external: model_id=%s reason=no-full-vram-fit\n' "$GRAPH_ORIZON_MODEL_ID"
     exit 0
 fi
-printf 'semantic-selection: model_id=%s backend=vulkan reason=full-vram-fit probe_mode=all-gpu run_mode=all-gpu cpu_layers=0 gpu_layers=34 cpu_weights=0 cpu_kv=0 cpu_scratch=0 cpu_fixed=0 cpu_staging=0 cpu_crossing=0 cpu_reserve=0 cpu_total=0 gpu_weights=0 gpu_kv=0 gpu_scratch=0 gpu_fixed=0 gpu_staging=0 gpu_crossing=0 gpu_reserve=0 gpu_total=0\n' "$GH_ZERO_MODEL_ID"
+printf 'semantic-selection: model_id=%s backend=vulkan reason=full-vram-fit probe_mode=all-gpu run_mode=all-gpu cpu_layers=0 gpu_layers=34 cpu_weights=0 cpu_kv=0 cpu_scratch=0 cpu_fixed=0 cpu_staging=0 cpu_crossing=0 cpu_reserve=0 cpu_total=0 gpu_weights=0 gpu_kv=0 gpu_scratch=0 gpu_fixed=0 gpu_staging=0 gpu_crossing=0 gpu_reserve=0 gpu_total=0\n' "$GRAPH_ORIZON_MODEL_ID"
 ids=(S01 S02 S03 S04 S06 S07 S08 S09 S10)
 critical=4; semantic=9; semantic_status=pass; markers=9; marker_status=pass; execution_status=pass
 for case_id in "${ids[@]}"; do
     emitted_id="$case_id"; stop=eos; status=pass; marker=complete; details=
-    if [[ "$GH_ZERO_MODEL_ID" == 3b-reasoning ]]; then
+    if [[ "$GRAPH_ORIZON_MODEL_ID" == 3b-reasoning ]]; then
         case "${SEMANTIC_STUB_PROTOCOL:-}" in
             semantic-miss) [[ "$case_id" != S09 && "$case_id" != S10 ]] || { status=fail; semantic=7; semantic_status=fail; details=' reason=semantic-gate-miss excerpt=fixture'; } ;;
             incomplete) [[ "$case_id" != S01 ]] || { stop=context; status=fail; critical=3; semantic=8; semantic_status=fail; details=' reason=incomplete-generation excerpt=fixture'; } ;;
@@ -1528,12 +1528,12 @@ for case_id in "${ids[@]}"; do
             duplicate-case) [[ "$case_id" != S02 ]] || emitted_id=S01 ;;
         esac
     fi
-    printf 'semantic-case: model_id=%s case_id=%s status=%s predicate=fixture class=semantic stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s%s\n' "$GH_ZERO_MODEL_ID" "$emitted_id" "$status" "$stop" "$marker" "$details"
+    printf 'semantic-case: model_id=%s case_id=%s status=%s predicate=fixture class=semantic stop=%s prompt_tokens=16 completion_tokens=1 marker_status=%s%s\n' "$GRAPH_ORIZON_MODEL_ID" "$emitted_id" "$status" "$stop" "$marker" "$details"
 done
-printf 'semantic-summary: model_id=%s critical=%s/4 semantic=%s/9 semantic_status=%s reasoning_format=%s/9 reasoning_format_status=%s execution_status=%s\n' "$GH_ZERO_MODEL_ID" "$critical" "$semantic" "$semantic_status" "$markers" "$marker_status" "$execution_status"
-[[ "${SEMANTIC_STUB_PROTOCOL:-}" == missing-timing && "$GH_ZERO_MODEL_ID" == 3b-reasoning ]] || printf 'semantic-timing: model_id=%s completed_cases=9 total_ms=100 prefill_ms=40 decode_ms=60\n' "$GH_ZERO_MODEL_ID"
+printf 'semantic-summary: model_id=%s critical=%s/4 semantic=%s/9 semantic_status=%s reasoning_format=%s/9 reasoning_format_status=%s execution_status=%s\n' "$GRAPH_ORIZON_MODEL_ID" "$critical" "$semantic" "$semantic_status" "$markers" "$marker_status" "$execution_status"
+[[ "${SEMANTIC_STUB_PROTOCOL:-}" == missing-timing && "$GRAPH_ORIZON_MODEL_ID" == 3b-reasoning ]] || printf 'semantic-timing: model_id=%s completed_cases=9 total_ms=100 prefill_ms=40 decode_ms=60\n' "$GRAPH_ORIZON_MODEL_ID"
 printf 'internal /secret/path must not escape\n' >&2
-[[ "$GH_ZERO_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
+[[ "$GRAPH_ORIZON_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
     )
     .unwrap();

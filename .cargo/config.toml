@@ -1,4 +1,4 @@
-# Build environment for the `shaderc` build-dependency (gh_zero_engine, M2).
+# Build environment for the `shaderc` build-dependency (graph_orizon_engine, M2).
 #
 # `shaderc-sys` compiles a bundled glslang/SPIRV-Tools from source. On recent
 # toolchains this needs two overrides, otherwise the build of libshaderc fails

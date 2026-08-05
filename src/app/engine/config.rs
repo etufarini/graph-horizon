@@ -1,11 +1,11 @@
 /*
- * GH Zero app engine config
+ * Graph Orizon app engine config
  * Single responsibility: convert the chat-only parsed runtime flags into
  * `EngineConfig`. It validates numeric/backend knobs, depends only on app args
- * and gh_zero_engine types, and does not expose tools or reasoning controls.
+ * and graph_orizon_engine types, and does not expose tools or reasoning controls.
  */
 
-use gh_zero_engine::{EngineConfig, KvQuant};
+use graph_orizon_engine::{EngineConfig, KvQuant};
 
 use crate::app::args;
 

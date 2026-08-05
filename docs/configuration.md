@@ -16,21 +16,21 @@ Profile selection is a build-time decision described in
 
 ```sh
 # TUI with the local engine
-gh-zero-engine --provider local --model /path/to/model.gguf
+graph-orizon --provider local --model /path/to/model.gguf
 
 # TUI with an OpenAI-compatible HTTP provider
-gh-zero-engine --base-url http://127.0.0.1:8080/v1
+graph-orizon --base-url http://127.0.0.1:8080/v1
 
 # Local server
-gh-zero-engine --mode server --model /path/to/model.gguf
+graph-orizon --mode server --model /path/to/model.gguf
 
 # Local web UI
-gh-zero-engine --mode web --model /path/to/model.gguf
+graph-orizon --mode web --model /path/to/model.gguf
 ```
 
 The file must satisfy the current library contract. Supported families and
 profiles are listed in the
-[crate README](../crates/gh_zero_engine/README.md), not on this page.
+[crate README](../crates/graph_orizon_engine/README.md), not on this page.
 
 ## Accepted Flags
 
@@ -89,7 +89,7 @@ of `--max-tokens` is used only when the HTTP request omits `max_tokens`; an
 explicit positive request value is not clamped to that default.
 
 ```sh
-gh-zero-engine --mode server --model /path/to/model.gguf \
+graph-orizon --mode server --model /path/to/model.gguf \
   --host 127.0.0.1 --port 8080 --max-tokens 1024
 ```
 
@@ -112,8 +112,8 @@ support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
 
 The backend is required; there is no default or runtime backend setting. Build
 profile defaults to `release` and prefix to `${HOME}/.local`. The only user
-environment variable is `GH_ZERO_INSTALL_PREFIX`, an alternative to `--prefix`.
-The `GH_ZERO_*` variables used by tests, profiling, and diagnostics are not
+environment variable is `GRAPH_ORIZON_INSTALL_PREFIX`, an alternative to `--prefix`.
+The `GRAPH_ORIZON_*` variables used by tests, profiling, and diagnostics are not
 binary runtime configuration; their scripts and sources remain authoritative
 for those development interfaces.
 

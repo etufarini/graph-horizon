@@ -5,11 +5,11 @@ support, and validation documents.
 -->
 
 <p align="center">
-  <img src="assets/gh-zero-engine-logo.svg" alt="Graph Horizon Zero Engine logo" width="220">
+  <img src="assets/graph-orizon-logo.svg" alt="Graph Orizon logo" width="220">
 </p>
 
 
-# Graph Orizon Zero Engine - Ministral 3 Version
+# Graph Orizon - Ministral 3 Version
 
 A local text-to-text runtime for Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. It provides an interactive console, an
@@ -29,17 +29,17 @@ The installer builds from source and does not download models.
 ## Installation
 
 ```sh
-git clone https://github.com/etufarini/gh-zero-engine.git
-cd gh-zero-engine
+git clone https://github.com/etufarini/graph-orizon.git
+cd graph-orizon
 ./support/install.sh --backend cpu
 ```
 
 There is no default backend. Installation requires one explicit profile and
-installs `$HOME/.local/bin/gh-zero-engine`. If that directory is not in `PATH`:
+installs `$HOME/.local/bin/graph-orizon`. If that directory is not in `PATH`:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
-gh-zero-engine --help
+graph-orizon --help
 ```
 
 To make the `PATH` change permanent, add the `export` line to `~/.profile`,
@@ -70,7 +70,7 @@ Examples:
 ./support/install.sh --backend metal --profile fast
 
 # Custom prefix (equivalent to --prefix "$HOME/.local")
-GH_ZERO_INSTALL_PREFIX="$HOME/.local" ./support/install.sh --backend cpu
+GRAPH_ORIZON_INSTALL_PREFIX="$HOME/.local" ./support/install.sh --backend cpu
 ```
 
 Run the installer again to rebuild and replace the binary.
@@ -83,13 +83,13 @@ The model is opened read-only and must declare
 ### Local console
 
 ```sh
-gh-zero-engine --provider local --model "/path/to/model.gguf"
+graph-orizon --provider local --model "/path/to/model.gguf"
 ```
 
 ### HTTP server
 
 ```sh
-gh-zero-engine --mode server --model "/path/to/model.gguf" \
+graph-orizon --mode server --model "/path/to/model.gguf" \
   --host 127.0.0.1 --port 8080
 ```
 
@@ -98,7 +98,7 @@ It exposes `POST /v1/chat/completions` and `GET /props`.
 ### Web UI
 
 ```sh
-gh-zero-engine --mode web --model "/path/to/model.gguf" \
+graph-orizon --mode web --model "/path/to/model.gguf" \
   --host 127.0.0.1 --port 8080
 ```
 
@@ -109,12 +109,12 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080).
 Without `--provider local`, the console uses an HTTP provider:
 
 ```sh
-gh-zero-engine --base-url "http://127.0.0.1:8080/v1"
+graph-orizon --base-url "http://127.0.0.1:8080/v1"
 ```
 
 ## Runtime configuration
 
-Runtime configuration uses flags only. Run `gh-zero-engine --help` for the
+Runtime configuration uses flags only. Run `graph-orizon --help` for the
 complete list accepted by the program.
 
 | Flag | Default | Effect |
@@ -134,7 +134,7 @@ of 32,768 tokens and the GGUF context maximum. An explicit positive value is
 never reduced and may reach the GGUF maximum when backend memory permits it.
 The official/reference maximum for Ministral 3 Instruct 2512 is 262,144 tokens.
 The repository source of truth is the private
-[Ministral version contract](crates/gh_zero_engine/src/family/mistral/version.rs).
+[Ministral version contract](crates/graph_orizon_engine/src/family/mistral/version.rs).
 
 The five profiles are `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, and
 `metal-hybrid`. Selection is compile-time and there is no runtime backend
@@ -150,16 +150,16 @@ Examples:
 
 ```sh
 # Explicit context and a more compact KV cache
-gh-zero-engine --provider local --model "/path/to/model.gguf" \
+graph-orizon --provider local --model "/path/to/model.gguf" \
   --context-tokens 4096 --kv-quant int8
 
 # CPU-only placement with a hybrid build
-gh-zero-engine --provider local --model "/path/to/model.gguf" \
+graph-orizon --provider local --model "/path/to/model.gguf" \
   --vram-weights-percent 0
 ```
 
 Advanced options, including `--vram-reserve-mib` and `--no-attn-simd`, are
-listed by `gh-zero-engine --help`.
+listed by `graph-orizon --help`.
 
 The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status
@@ -199,6 +199,6 @@ sampling through the unchanged server configuration.
 ## Documentation
 
 - [Reviewed validation evidence](VALIDATION.md)
-- [Engine library contract](crates/gh_zero_engine/README.md)
+- [Engine library contract](crates/graph_orizon_engine/README.md)
 - [Operational scripts](support/README.md)
 - [Contributing](CONTRIBUTING.md)

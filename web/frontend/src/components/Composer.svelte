@@ -6,7 +6,7 @@
    * reasoning controls.
    */
   // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
-  import logoUrl from '../../../../assets/gh-zero-engine-logo.svg';
+  import logoUrl from '../../../../assets/graph-orizon-logo.svg';
   import { createEventDispatcher } from 'svelte';
 
   export let value = '';
@@ -42,7 +42,7 @@
     disabled={streaming}
     on:keydown={keydown}
     aria-label="Messaggio"
-    placeholder="Scrivi a GH Zero…"
+    placeholder="Scrivi a Graph Orizon…"
   ></textarea>
   <div class="composer-bar">
     <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />

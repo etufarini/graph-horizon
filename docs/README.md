@@ -5,13 +5,13 @@ model-neutral behavior from the current support contract and validation evidence
 
 # Documentation
 
-These pages describe GH Zero Engine surfaces and processes without assuming a
+These pages describe Graph Orizon surfaces and processes without assuming a
 specific model family, size, or release. Examples therefore use the
 `<model.gguf>` placeholder.
 
 Concrete support changes with the code: currently accepted architectures, GGUF
 profiles, and limits are defined in the
-[library contract](../crates/gh_zero_engine/README.md), while reviewed results
+[library contract](../crates/graph_orizon_engine/README.md), while reviewed results
 belong in the [validation register](../VALIDATION.md).
 
 ## Usage And Structure

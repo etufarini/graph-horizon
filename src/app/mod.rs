@@ -1,5 +1,5 @@
 /*
- * GH Zero app domain
+ * Graph Orizon app domain
  * Single responsibility: validate chat runtime configuration and dispatch one
  * selected surface. It captures the immutable startup file authority before
  * dispatch and does not initialize tools, mutable workspaces, or reasoning.
@@ -19,7 +19,7 @@ pub(crate) async fn run() -> Result<()> {
     // fails fast on malformed numeric input.
     let _ = engine::config::engine_config(None);
 
-    let files = crate::gh_zero_cli::plugins::attachments::FileAuthority::capture()
+    let files = crate::graph_orizon_cli::plugins::attachments::FileAuthority::capture()
         .map_err(|_| color_eyre::eyre::eyre!("startup directory is unavailable"))?;
     let mode = mode::selected()?;
     dispatch(mode, args::value("--model"), files).await
@@ -28,11 +28,11 @@ pub(crate) async fn run() -> Result<()> {
 async fn dispatch(
     mode: Mode,
     model_path: Option<String>,
-    files: crate::gh_zero_cli::plugins::attachments::FileAuthority,
+    files: crate::graph_orizon_cli::plugins::attachments::FileAuthority,
 ) -> Result<()> {
     match mode {
-        Mode::Cli => crate::gh_zero_cli::startup::run(model_path, files).await,
-        Mode::Server => crate::gh_zero_server::startup::run(model_path).await,
-        Mode::Web => crate::gh_zero_web::startup::run(model_path).await,
+        Mode::Cli => crate::graph_orizon_cli::startup::run(model_path, files).await,
+        Mode::Server => crate::graph_orizon_server::startup::run(model_path).await,
+        Mode::Web => crate::graph_orizon_web::startup::run(model_path).await,
     }
 }

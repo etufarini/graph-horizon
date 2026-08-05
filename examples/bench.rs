@@ -1,5 +1,5 @@
 /*
- * GH Zero single-tuple chat benchmark
+ * Graph Orizon single-tuple chat benchmark
  * Owns CLI validation and rendering for one family-neutral public Engine run.
  * It owns no artifact authentication, comparison, performance verdict,
  * fallback, or phase-internal timing.
@@ -7,8 +7,8 @@
 
 use std::{collections::HashSet, path::Path};
 
-use gh_zero_engine::harness::throughput::{self, BenchConfig};
-use gh_zero_engine::{Engine, EngineConfig, KvQuant};
+use graph_orizon_engine::harness::throughput::{self, BenchConfig};
+use graph_orizon_engine::{Engine, EngineConfig, KvQuant};
 
 enum BenchFailure {
     Usage(&'static str),

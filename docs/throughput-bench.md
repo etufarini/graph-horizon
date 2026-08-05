@@ -148,7 +148,7 @@ The interface and retained statistics compile and test without a model:
 
 ```sh
 cargo check --locked --no-default-features --features cpu --example bench
-cargo test -p gh_zero_engine --locked --no-default-features \
+cargo test -p graph_orizon_engine --locked --no-default-features \
   --features cpu 'harness::'
 ```
 

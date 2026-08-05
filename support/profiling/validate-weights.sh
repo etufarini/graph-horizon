@@ -65,7 +65,7 @@ while IFS=$'\t' read -r id _ q4_file byte_count hash _; do
     [[ "$size" == "$byte_count" ]] || real_failure "$id byte count mismatch"
     digest="$(artifact_sha256 "$model")" || { printf '%s: external verification: SHA-256 unavailable\n' "$id"; ((external += 1)); continue; }
     [[ "$digest" == "$hash" ]] || real_failure "$id SHA-256 mismatch"
-    output="$(cd "$project_dir" && cargo run --quiet --locked -p gh_zero_engine \
+    output="$(cd "$project_dir" && cargo run --quiet --locked -p graph_orizon_engine \
         --no-default-features --features cpu --example inspect -- "$model")" || real_failure "$id inspector failed"
     case "$id" in
         3b-*) dimensions="dimensions: blocks=26 hidden=3072 q=4096 k=1024 v=1024 ffn=9216 context=262144"; ownership="tied-to-embedding"; histogram=$'F32: 53\n  Q4_K: 156\n  Q6_K: 27' ;;

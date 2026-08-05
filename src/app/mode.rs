@@ -1,5 +1,5 @@
 /*
- * Graph Orizon app mode
+ * Graph Horizon app mode
  * Closed vocabulary of process modes. It converts the raw `--mode` flag into a
  * small enum and applies the default CLI mode when the flag is absent.
  */

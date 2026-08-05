@@ -1,14 +1,14 @@
 /*
- * Graph Orizon binary entrypoint
+ * Graph Horizon binary entrypoint
  * Neutral shell of the binary: installs color_eyre, initializes runtime
  * arguments through `app::args`, and delegates to `app::run`. It does not know
  * how CLI, headless server, or web mode are started.
  */
 
 mod app;
-mod graph_orizon_cli;
-mod graph_orizon_server;
-mod graph_orizon_web;
+mod graph_horizon_cli;
+mod graph_horizon_server;
+mod graph_horizon_web;
 #[cfg(test)]
 mod support_scripts;
 

@@ -1,11 +1,11 @@
 /*
- * Graph Orizon app engine config
+ * Graph Horizon app engine config
  * Single responsibility: convert the chat-only parsed runtime flags into
  * `EngineConfig`. It validates numeric/backend knobs, depends only on app args
- * and graph_orizon_engine types, and does not expose tools or reasoning controls.
+ * and graph_horizon_engine types, and does not expose tools or reasoning controls.
  */
 
-use graph_orizon_engine::{EngineConfig, KvQuant};
+use graph_horizon_engine::{EngineConfig, KvQuant};
 
 use crate::app::args;
 

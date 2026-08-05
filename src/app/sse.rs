@@ -1,16 +1,16 @@
 /*
- * Graph Orizon app - shared SSE chat envelope
+ * Graph Horizon app - shared SSE chat envelope
  * Owns the OpenAI-compatible chat-completion chunk shape shared by the headless
  * server and web surfaces: delta chunks, usage chunk, final stop chunk and the
  * [DONE] sentinel. This module does egress formatting only; request parsing,
  * engine events and web-only extensions stay in their surface modules.
  */
 
-use graph_orizon_engine::GenerationStats;
+use graph_horizon_engine::GenerationStats;
 use serde::Serialize;
 
-const MODEL_NAME: &str = "graph-orizon";
-const CHUNK_ID: &str = "chatcmpl-graph-orizon";
+const MODEL_NAME: &str = "graph-horizon";
+const CHUNK_ID: &str = "chatcmpl-graph-horizon";
 const OBJECT: &str = "chat.completion.chunk";
 
 #[derive(Serialize)]
@@ -124,7 +124,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "data: {\"id\":\"chatcmpl-graph-orizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-orizon\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ciao\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ciao\"},\"finish_reason\":null}]}\n\n"
         );
     }
 
@@ -132,7 +132,7 @@ mod tests {
     fn final_line_matches_server_stop_chunk_shape() {
         assert_eq!(
             chunk_line(Delta::default(), Some("stop"), None, 7),
-            "data: {\"id\":\"chatcmpl-graph-orizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-orizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
+            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
         );
     }
 
@@ -146,7 +146,7 @@ mod tests {
         };
         assert_eq!(
             usage_line_at(&stats, 7),
-            "data: {\"id\":\"chatcmpl-graph-orizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-orizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":128,\"completion_tokens\":42,\"prefill_ms\":400,\"decode_ms\":875}}\n\n"
+            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":128,\"completion_tokens\":42,\"prefill_ms\":400,\"decode_ms\":875}}\n\n"
         );
     }
 

@@ -10,7 +10,7 @@ text-only, OpenAI-compatible endpoint. It does not forward requests to external
 providers.
 
 ```sh
-graph-orizon --mode server --model /path/to/model.gguf \
+graph-horizon --mode server --model /path/to/model.gguf \
   --host 127.0.0.1 --port 8080
 ```
 
@@ -24,7 +24,7 @@ the GGUF, and builds shared state. Missing files, incompatible metadata, and
 allocation errors therefore surface before the first request.
 
 Concrete model support is defined in the
-[crate README](../crates/graph_orizon_engine/README.md).
+[crate README](../crates/graph_horizon_engine/README.md).
 
 ## Route
 

@@ -5,7 +5,7 @@ supported model families and artifact profiles remain in the engine README.
 
 # Local Inference And Backends
 
-The `graph_orizon_engine` crate loads a supported GGUF read-only and exposes a
+The `graph_horizon_engine` crate loads a supported GGUF read-only and exposes a
 synchronous facade for text generation. The local console, server, and web UI
 share the same entry point; no surface imports a concrete backend directly.
 
@@ -18,7 +18,7 @@ types. The filename, directory, and total size do not authorize loading.
 
 An unsupported format must fail before backend allocation. The current set of
 architectures and GGUF profiles belongs to the
-[library contract](../crates/graph_orizon_engine/README.md). Adding a family or
+[library contract](../crates/graph_horizon_engine/README.md). Adding a family or
 profile follows the [model addition process](model-addition-process.md); adding
 a compute target follows the
 [backend addition process](backend-addition-process.md).

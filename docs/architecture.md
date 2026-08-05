@@ -5,8 +5,8 @@ surface contracts and family-specific engine behavior belong to linked documents
 
 # Architecture
 
-Graph Orizon separates the inference engine from the three surfaces that use
-it: the interactive console, HTTP server, and web UI. The `graph_orizon_engine` crate
+Graph Horizon separates the inference engine from the three surfaces that use
+it: the interactive console, HTTP server, and web UI. The `graph_horizon_engine` crate
 does not depend on the terminal, Hyper, or Svelte; surfaces only use its public API.
 
 ## Workspace Layout
@@ -15,11 +15,11 @@ does not depend on the terminal, Hyper, or Svelte; surfaces only use its public 
 .
 ├── src/
 │   ├── app/                     flags, engine configuration, and mode selection
-│   ├── graph_orizon_cli/             TUI and local/HTTP providers
-│   ├── graph_orizon_server/          chat endpoint and SSE streaming
-│   ├── graph_orizon_web/             static assets and chat server wrapper
+│   ├── graph_horizon_cli/             TUI and local/HTTP providers
+│   ├── graph_horizon_server/          chat endpoint and SSE streaming
+│   ├── graph_horizon_web/             static assets and chat server wrapper
 │   └── main.rs                  initialization and asynchronous entry point
-├── crates/graph_orizon_engine/       GGUF loader, families, backends, and public API
+├── crates/graph_horizon_engine/       GGUF loader, families, backends, and public API
 ├── examples/                    tools built on the public API
 ├── support/                     installation and validation procedures
 └── web/frontend/                Svelte application built as static assets
@@ -30,10 +30,10 @@ does not depend on the terminal, Hyper, or Svelte; surfaces only use its public 
 | Domain | Responsibility | Reference |
 |---|---|---|
 | `app` | Parses a closed flag table, validates common options, and selects `cli`, `server`, or `web` | [configuration.md](configuration.md) |
-| `graph_orizon_cli` | Manages input, history, transcripts, attachments, and the local/HTTP provider | [console.md](console.md), [commands.md](commands.md) |
-| `graph_orizon_server` | Converts text-only requests into engine requests and serializes events as SSE | [server.md](server.md) |
-| `graph_orizon_web` | Serves the built frontend and delegates chat to the same server state | [web.md](web.md) |
-| `graph_orizon_engine` | Validates a supported GGUF and runs prefill/decode on the compiled backend | [backend.md](backend.md) |
+| `graph_horizon_cli` | Manages input, history, transcripts, attachments, and the local/HTTP provider | [console.md](console.md), [commands.md](commands.md) |
+| `graph_horizon_server` | Converts text-only requests into engine requests and serializes events as SSE | [server.md](server.md) |
+| `graph_horizon_web` | Serves the built frontend and delegates chat to the same server state | [web.md](web.md) |
+| `graph_horizon_engine` | Validates a supported GGUF and runs prefill/decode on the compiled backend | [backend.md](backend.md) |
 
 ## Common Startup
 
@@ -112,4 +112,4 @@ public errors expose no device paths or driver internals.
 
 The actual set of accepted families and profiles is a versioned library
 contract, not part of the application architecture. See the
-[crate README](../crates/graph_orizon_engine/README.md) for current support.
+[crate README](../crates/graph_horizon_engine/README.md) for current support.

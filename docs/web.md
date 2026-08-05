@@ -10,7 +10,7 @@ policy and does not describe removed tool or workspace capabilities.
 Svelte frontend, and delegates chat to the server's text-only pipeline.
 
 ```sh
-graph-orizon --mode web --model /path/to/model.gguf \
+graph-horizon --mode web --model /path/to/model.gguf \
   --host 127.0.0.1 --port 8080
 ```
 
@@ -50,7 +50,7 @@ relative components; traversal, absolute paths, and invalid UTF-8 receive `404`.
 
 The UI keeps the conversation in browser memory and sends `system`, `user`, and
 `assistant` messages. The system prompt is editable and saved in `localStorage`
-under `graph-orizon.system-prompt`; storage errors do not block the session.
+under `graph-horizon.system-prompt`; storage errors do not block the session.
 
 Every request uses `fetch` with:
 

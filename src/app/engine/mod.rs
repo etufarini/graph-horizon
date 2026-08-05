@@ -1,5 +1,5 @@
 /*
- * Graph Orizon app engine boundary
+ * Graph Horizon app engine boundary
  * Loads and validates the chat model engine before startup hands it to a process
  * surface.
  */
@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
-use graph_orizon_engine::Engine;
+use graph_horizon_engine::Engine;
 
 pub(crate) mod config;
 

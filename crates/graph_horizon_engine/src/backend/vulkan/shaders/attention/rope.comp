@@ -1,0 +1,69 @@
+/*
+ * graph_horizon_engine — Vulkan YaRN RoPE kernel
+ * Rotates FP16 Q/K heads in place for the dense graph. The caller supplies the
+ * validated YaRN scalar parameters and the role-specific post-scale: query vectors
+ * receive the attention-temperature factor after rotation, while key vectors pass
+ * 1.0. The shader owns no model policy and no buffer allocation.
+ */
+
+// AGENTS deroga K: kernel RoPE/YaRN denso per il layout Mistral NORM.
+
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// One invocation per (head, j) rotation pair.
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer X { float16_t x[]; };  // [n_heads*head_dim]
+
+layout(push_constant) uniform P {
+    uint n_heads;
+    uint head_dim;
+    uint rope_dim;
+    uint pos;
+    float freq_base;
+    float factor;
+    float beta_fast;
+    float beta_slow;
+    float original_context;
+    float post_scale;
+} p;
+
+float corr_dim(float rotations) {
+    float denom = rotations * 2.0 * 3.14159265358979323846;
+    return float(p.rope_dim) * log(p.original_context / denom) / (2.0 * log(p.freq_base));
+}
+
+float yarn_ramp(float low, float high, float pair) {
+    float y = (pair - low) / max(high - low, 0.001);
+    return 1.0 - clamp(y, 0.0, 1.0);
+}
+
+void main() {
+    uint half_rope = p.rope_dim / 2u;
+    uint total = p.n_heads * half_rope;
+    uint gid = gl_GlobalInvocationID.x;
+    if (gid >= total) return;
+
+    uint head = gid / half_rope;
+    uint j = gid % half_rope;
+    uint base = head * p.head_dim;
+
+    float theta_extrap = float(p.pos) * pow(p.freq_base, -(float(j) * 2.0) / float(p.rope_dim));
+    float theta_interp = theta_extrap / p.factor;
+    float low = max(floor(corr_dim(p.beta_fast)), 0.0);
+    float high = min(ceil(corr_dim(p.beta_slow)), float(p.rope_dim - 1u));
+    float ramp = yarn_ramp(low, high, float(j));
+    float theta = theta_interp * (1.0 - ramp) + theta_extrap * ramp;
+    float c = cos(theta);
+    float s = sin(theta);
+
+    uint first = base + 2u * j;
+    uint second = first + 1u;
+    float x0 = float(x[first]);
+    float x1 = float(x[second]);
+    // Role invariant: Q applies `post_scale` after the rotation, K passes 1.0.
+    x[first] = float16_t((x0 * c - x1 * s) * p.post_scale);
+    x[second] = float16_t((x0 * s + x1 * c) * p.post_scale);
+}

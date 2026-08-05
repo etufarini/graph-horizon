@@ -1,20 +1,20 @@
 [workspace]
-members = [".", "crates/graph_orizon_engine"]
+members = [".", "crates/graph_horizon_engine"]
 resolver = "3"
 
 [package]
-name = "graph-orizon"
+name = "graph-horizon"
 version = "0.1.0"
 edition = "2024"
 
 [features]
-# Forward exactly one explicit backend profile to graph_orizon_engine. There is no
+# Forward exactly one explicit backend profile to graph_horizon_engine. There is no
 # default or target-based selection.
-cpu = ["graph_orizon_engine/cpu"]
-vulkan = ["graph_orizon_engine/vulkan"]
-vulkan-hybrid = ["graph_orizon_engine/vulkan-hybrid"]
-metal = ["graph_orizon_engine/metal"]
-metal-hybrid = ["graph_orizon_engine/metal-hybrid"]
+cpu = ["graph_horizon_engine/cpu"]
+vulkan = ["graph_horizon_engine/vulkan"]
+vulkan-hybrid = ["graph_horizon_engine/vulkan-hybrid"]
+metal = ["graph_horizon_engine/metal"]
+metal-hybrid = ["graph_horizon_engine/metal-hybrid"]
 
 # Maximum-performance build profile, used by `support/install.sh --profile fast`.
 # Inherits `release` and adds fat LTO + a single codegen unit so the compiler can
@@ -26,7 +26,7 @@ lto = true
 codegen-units = 1
 
 [dependencies]
-graph_orizon_engine = { path = "crates/graph_orizon_engine", default-features = false }
+graph_horizon_engine = { path = "crates/graph_horizon_engine", default-features = false }
 color-eyre = "0.6.5"
 crossterm = "0.29.0"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }

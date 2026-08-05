@@ -1,5 +1,5 @@
 /*
- * Graph Orizon runtime profile example
+ * Graph Horizon runtime profile example
  * Reports immutable placement/memory fields and one 32-token timing sample for
  * an explicit tuple. It rejects incomplete metrics and never retries another
  * backend, context, KV scheme, or placement.
@@ -8,8 +8,8 @@
 use std::path::Path;
 
 use color_eyre::eyre::{Result, eyre};
-use graph_orizon_engine::harness::throughput::{self, BenchConfig};
-use graph_orizon_engine::{BackendMemory, Engine, EngineConfig, KvQuant};
+use graph_horizon_engine::harness::throughput::{self, BenchConfig};
+use graph_horizon_engine::{BackendMemory, Engine, EngineConfig, KvQuant};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);

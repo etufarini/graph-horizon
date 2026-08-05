@@ -6,7 +6,7 @@ are documented separately.
 
 # Console: TUI, Streaming, And Status Bar
 
-The TUI lives under `src/graph_orizon_cli/console/` and alternates between input and
+The TUI lives under `src/graph_horizon_cli/console/` and alternates between input and
 streaming. It uses the same text-only format with both the local engine and the
 HTTP provider.
 

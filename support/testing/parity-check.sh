@@ -134,13 +134,13 @@ post_json completion "$body" "$temporary_dir/completion.json"
 completion_ids="$(jq -er '.tokens | select(type == "array" and length == 16) | select(all(.[]; type == "number" and . >= 0 and floor == .)) | map(tostring) | join(",")' "$temporary_dir/completion.json")" \
     || real_failure "malformed completion response"
 
-environment=(GRAPH_ORIZON_MODEL="$model" GRAPH_ORIZON_CONTEXT=4096 GRAPH_ORIZON_KV="$kv"
-    GRAPH_ORIZON_REFERENCE_PROMPT_IDS="$prompt_ids" GRAPH_ORIZON_REFERENCE_COMPLETION_IDS="$completion_ids")
+environment=(GRAPH_HORIZON_MODEL="$model" GRAPH_HORIZON_CONTEXT=4096 GRAPH_HORIZON_KV="$kv"
+    GRAPH_HORIZON_REFERENCE_PROMPT_IDS="$prompt_ids" GRAPH_HORIZON_REFERENCE_COMPLETION_IDS="$completion_ids")
 if [[ -n "$weights_percent" ]]; then
-    environment+=(GRAPH_ORIZON_VRAM_WEIGHTS_PERCENT="$weights_percent" GRAPH_ORIZON_EXPECTED_MODE="$expected_mode")
+    environment+=(GRAPH_HORIZON_VRAM_WEIGHTS_PERCENT="$weights_percent" GRAPH_HORIZON_EXPECTED_MODE="$expected_mode")
 fi
 set +e
-(cd "$project_dir" && env "${environment[@]}" cargo test --locked --release -p graph_orizon_engine \
+(cd "$project_dir" && env "${environment[@]}" cargo test --locked --release -p graph_horizon_engine \
     --no-default-features --features "$backend" --test family_agnostic \
     real_selected_runtime_parity_and_lifecycle -- --ignored --nocapture --exact) \
     >"$temporary_dir/test.log" 2>&1

@@ -374,7 +374,8 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
         (Boundary::BeforeDecode, 1, request(3)),
     ] {
         if boundary == Boundary::BeforePrefill {
-            req.prompt = vec![1, 2, 3, 4, 5];
+            req.prompt = vec![1; prefill::BATCH_ROWS + 1];
+            req.context = req.prompt.len();
         }
         let model = model();
         let cancel = CancelCall {

@@ -54,6 +54,95 @@ mod tests {
             .collect())
     }
 
+    fn half_at(bytes: &[u8], offset: usize) -> f32 {
+        f16_to_f32(u16::from_ne_bytes([bytes[offset], bytes[offset + 1]]))
+    }
+
+    fn set_half(bytes: &mut [u8], offset: usize, value: f32) {
+        bytes[offset..offset + 2].copy_from_slice(&f32_to_f16(value).to_ne_bytes());
+    }
+
+    fn scale_min(bytes: &[u8], base: usize, index: usize) -> (u32, u32) {
+        if index < 4 {
+            (
+                u32::from(bytes[base + index] & 63),
+                u32::from(bytes[base + index + 4] & 63),
+            )
+        } else {
+            let high = bytes[base + index + 4];
+            let low = bytes[base + index - 4];
+            (
+                u32::from((high & 15) | ((low >> 6) << 4)),
+                u32::from((high >> 4) | ((bytes[base + index] >> 6) << 4)),
+            )
+        }
+    }
+
+    fn quant_value(
+        format: MetalFormat,
+        bytes: &[u8],
+        row: usize,
+        index: usize,
+        input: usize,
+    ) -> f32 {
+        let blocks = input / 256;
+        let block_index = index / 256;
+        let local = index % 256;
+        match format {
+            MetalFormat::Q4K => {
+                let block = (row * blocks + block_index) * 144;
+                let group = local / 32;
+                let lane = local % 32;
+                let (scale, min) = scale_min(bytes, block + 4, group);
+                let packed = bytes[block + 16 + (group / 2) * 32 + lane];
+                let q = if group & 1 == 0 {
+                    packed & 15
+                } else {
+                    packed >> 4
+                };
+                half_at(bytes, block) * scale as f32 * f32::from(q)
+                    - half_at(bytes, block + 2) * min as f32
+            }
+            MetalFormat::Q6K => {
+                let block = (row * blocks + block_index) * 210;
+                let segment = local / 128;
+                let category = (local % 128) / 32;
+                let lane = local % 32;
+                let packed = bytes[block + segment * 64 + (category & 1) * 32 + lane];
+                let low = if category < 2 {
+                    packed & 15
+                } else {
+                    packed >> 4
+                };
+                let high = (bytes[block + 128 + segment * 32 + lane] >> (category * 2)) & 3;
+                let scale =
+                    bytes[block + 192 + segment * 8 + lane / 16 + category * 2] as i8 as f32;
+                half_at(bytes, block + 208) * scale * (f32::from(low | (high << 4)) - 32.)
+            }
+            _ => unreachable!("test oracle accepts only Q4_K and Q6_K"),
+        }
+    }
+
+    fn quant_fixture(format: MetalFormat, rows: usize, input: usize) -> Vec<u8> {
+        let block_bytes = if format == MetalFormat::Q4K { 144 } else { 210 };
+        let mut bytes: Vec<u8> = (0..rows * (input / 256) * block_bytes)
+            .map(|index| ((index * 37 + 13) % 251) as u8)
+            .collect();
+        for block in 0..rows * (input / 256) {
+            let base = block * block_bytes;
+            if format == MetalFormat::Q4K {
+                set_half(&mut bytes, base, 0.0005);
+                set_half(&mut bytes, base + 2, 0.0002);
+            } else {
+                for scale in 0..16 {
+                    bytes[base + 192 + scale] = (((block + scale) % 9) as i8 - 4) as u8;
+                }
+                set_half(&mut bytes, base + 208, 0.0005);
+            }
+        }
+        bytes
+    }
+
     #[test]
     fn f16_operations_run_on_non_multiple_shapes() -> Result<()> {
         let device = Device::acquire()?;
@@ -109,6 +198,117 @@ mod tests {
             )?;
             encoder.submit()?;
             assert_eq!(halfs(&output, 3)?, vec![0.; 3]);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn q4_and_q6_projection_match_nonzero_scalar_oracles() -> Result<()> {
+        const INPUT: usize = 512;
+        const OUTPUT: usize = 3;
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let source: Vec<f32> = (0..INPUT)
+            .map(|index| (index % 31) as f32 / 16. - 15. / 16.)
+            .collect();
+        let rounded: Vec<f32> = source
+            .iter()
+            .map(|value| f16_to_f32(f32_to_f16(*value)))
+            .collect();
+        let input = buffer(&device, &source, MetalFormat::F16)?;
+
+        for format in [MetalFormat::Q4K, MetalFormat::Q6K] {
+            let bytes = quant_fixture(format, OUTPUT, INPUT);
+            let weights = MetalBuffer::allocate(&device, bytes.len() as u64, format)?;
+            weights.write(&bytes)?;
+            let output = MetalBuffer::allocate(&device, (OUTPUT * 4) as u64, MetalFormat::F32)?;
+            let encoder = MetalEncoder::begin(&device)?;
+            matmul::encode(
+                &encoder,
+                &pipelines,
+                &output,
+                &input,
+                &weights,
+                INPUT as u32,
+                OUTPUT as u32,
+                true,
+            )?;
+            encoder.submit()?;
+
+            let actual = crate::backend::metal::exec::readback::logits(&output, OUTPUT)?;
+            for (row, got) in actual.into_iter().enumerate() {
+                let want = rounded.iter().enumerate().fold(0., |sum, (index, value)| {
+                    sum + value * quant_value(format, &bytes, row, index, INPUT)
+                });
+                let tolerance = 1e-2_f32.max(want.abs() * 1e-3);
+                assert!(got.is_finite());
+                assert!(
+                    (got - want).abs() <= tolerance,
+                    "{format:?} row {row}: got {got}, want {want}, tolerance {tolerance}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn q4_and_q6_batched_projection_matches_sequential_rows() -> Result<()> {
+        const INPUT: usize = 512;
+        const OUTPUT: usize = 32;
+        const ROWS: usize = 3;
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let source: Vec<f32> = (0..ROWS * INPUT)
+            .map(|index| ((index * 7) % 41) as f32 / 16. - 20. / 16.)
+            .collect();
+        let input = buffer(&device, &source, MetalFormat::F16)?;
+
+        for format in [MetalFormat::Q4K, MetalFormat::Q6K] {
+            let bytes = quant_fixture(format, OUTPUT, INPUT);
+            let weights = MetalBuffer::allocate(&device, bytes.len() as u64, format)?;
+            weights.write(&bytes)?;
+            let batched =
+                MetalBuffer::allocate(&device, (ROWS * OUTPUT * 2) as u64, MetalFormat::F16)?;
+            let sequential =
+                MetalBuffer::allocate(&device, (ROWS * OUTPUT * 2) as u64, MetalFormat::F16)?;
+
+            let encoder = MetalEncoder::begin(&device)?;
+            matmul::encode_batched(
+                &encoder,
+                &pipelines,
+                &batched,
+                &input,
+                &weights,
+                INPUT as u32,
+                OUTPUT as u32,
+                ROWS as u32,
+            )?;
+            encoder.submit()?;
+
+            let encoder = MetalEncoder::begin(&device)?;
+            for row in 0..ROWS {
+                matmul::encode(
+                    &encoder,
+                    &pipelines,
+                    &sequential.view((row * OUTPUT * 2) as u64, (OUTPUT * 2) as u64)?,
+                    &input.view((row * INPUT * 2) as u64, (INPUT * 2) as u64)?,
+                    &weights,
+                    INPUT as u32,
+                    OUTPUT as u32,
+                    false,
+                )?;
+            }
+            encoder.submit()?;
+
+            let batched = halfs(&batched, ROWS * OUTPUT)?;
+            let sequential = halfs(&sequential, ROWS * OUTPUT)?;
+            for (index, (got, want)) in batched.into_iter().zip(sequential).enumerate() {
+                assert!(got.is_finite());
+                assert!(
+                    (got - want).abs() <= 0.05,
+                    "{format:?} value {index}: got {got}, want {want}"
+                );
+            }
         }
         Ok(())
     }

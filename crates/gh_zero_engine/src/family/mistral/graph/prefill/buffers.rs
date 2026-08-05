@@ -11,7 +11,7 @@ use crate::backend::Backend;
 use crate::backend::buffers::Scratch;
 use crate::family::mistral::MistralConfig;
 
-pub(crate) const BATCH_ROWS: usize = 4;
+pub(crate) const BATCH_ROWS: usize = 32;
 
 pub(crate) const X: usize = 0;
 pub(crate) const NORMED: usize = 1;

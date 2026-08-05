@@ -202,13 +202,40 @@ Q6_K non ricalcolano più invarianti per peso, i candidati locali restanti sono
 stati regressivi o nel rumore e una riduzione parallela cambierebbe l'ordine
 floating-point senza un oracle numerico approvato.
 
+## Proiezione Metal cooperativa per il prefill — 5 agosto 2026
+
+La baseline `81ddd6b` eseguiva `Backend::matmul_batched` come una proiezione
+separata per token e limitava il batch Ministral a quattro righe. Il candidato
+corrente porta il limite fisso a 32 e aggiunge un kernel Q4_K/Q6_K 8×8 basato
+su `simdgroup_matrix`: ogni gruppo riusa lo stesso tile di pesi per un massimo
+di quattro tile da otto token. Formati, layout dei buffer, ordine del grafo e
+kernel decode restano invariati; forme non quantizzate, non allineate o con una
+sola riga conservano il percorso per-riga.
+
+Stesso hardware, artefatto e comando dei cicli precedenti, Cargo `release`,
+contesto 4096, KV f16, prompt `Quanto fa 17 × 19?`, 32 token generati, un
+warm-up e tre ripetizioni:
+
+| Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| `81ddd6b` | 20,52 | 1,44% | 682,25 | 1,44% | 10,16 | 0,08% |
+| candidato corrente | 38,41 | 0,18% | 364,52 | 0,18% | 10,03 | 0,01% |
+
+Il prompt throughput migliora dell'87,2% e il TTFT si riduce del 46,6%; il
+decode varia del −1,3%, entro il controllo del 2%. Due candidati matvec
+SIMD-group sono stati rimossi dopo regressioni decode a 9,70 e 9,11 tok/s.
+Il candidato mantenuto supera oracle sintetici non nulli Q4_K/Q6_K, confronto
+batch/sequenziale con scarto massimo ammesso 0,05, 129 test Metal, 152 test CPU
+e i test mirati Metal-hybrid. Nella parity reale tutti i 16 token greedy locali
+coincidono con l'oracolo `llama.cpp` `13f2b28b`.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
-I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono
-stati rimossi: il runtime corrente non contiene né il batching prefill dinamico
-da 32 righe né il completamento greedy fuso. Un rapporto intermedio positivo è
-un segnale `interesting`, non un miglioramento verificato e non descrive
-l'architettura corrente.
+I valori seguenti restano evidenza storica revisionata della precedente
+campagna generica. Entrambi quei candidati furono rimossi. Il tree corrente
+reintroduce separatamente il limite prefill da 32 insieme al kernel Metal
+cooperativo documentato sopra; il completamento greedy fuso resta assente. Un
+rapporto intermedio della campagna storica non descrive l'architettura corrente.
 
 ### Candidato prefill dinamico da 32 righe
 

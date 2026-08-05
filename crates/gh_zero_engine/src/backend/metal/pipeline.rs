@@ -23,6 +23,7 @@ use super::Device;
 pub(crate) enum Kernel {
     Embedding,
     Matmul,
+    MatmulBatched,
     Rmsnorm,
     Rope,
     SiluMul,
@@ -33,9 +34,10 @@ pub(crate) enum Kernel {
     Topk,
 }
 
-const KERNELS: [Kernel; 10] = [
+const KERNELS: [Kernel; 11] = [
     Kernel::Embedding,
     Kernel::Matmul,
+    Kernel::MatmulBatched,
     Kernel::Rmsnorm,
     Kernel::Rope,
     Kernel::SiluMul,
@@ -51,6 +53,7 @@ impl Kernel {
         match self {
             Self::Embedding => "metal_embedding",
             Self::Matmul => "metal_matmul",
+            Self::MatmulBatched => "metal_matmul_batched",
             Self::Rmsnorm => "metal_rmsnorm",
             Self::Rope => "metal_rope",
             Self::SiluMul => "metal_silu_mul",

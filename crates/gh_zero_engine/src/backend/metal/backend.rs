@@ -164,6 +164,28 @@ impl Backend for MetalBackend {
         );
     }
 
+    fn matmul_batched(
+        &self,
+        encoder: &MetalEncoder,
+        out: &MetalBuffer,
+        input: &MetalBuffer,
+        weight: &MetalBuffer,
+        in_dim: u32,
+        out_dim: u32,
+        rows: u32,
+    ) {
+        let _ = kernels::matmul::encode_batched(
+            encoder,
+            &self.pipelines,
+            out,
+            input,
+            weight,
+            in_dim,
+            out_dim,
+            rows,
+        );
+    }
+
     fn logits(
         &self,
         encoder: &MetalEncoder,

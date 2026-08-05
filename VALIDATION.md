@@ -110,6 +110,38 @@ i 16 token greedy locali coincidono con quelli dell'oracolo fissato
 `llama.cpp` `13f2b28b`. Stato terminale: `keep`. L'intera verifica è rimasta
 entro il budget di due ore.
 
+### Ciclo successivo sul kernel Q4_K
+
+Il ciclo successivo ha usato `4c591c1` come baseline, lo stesso artefatto e la
+stessa tupla. Baseline: prompt 10,75 tok/s (CV 0,62%), TTFT 1302,85 ms
+(CV 0,62%) e decode 6,08 tok/s (CV 0,21%). Il target dichiarato era `both`:
+prompt e decode dovevano migliorare entrambi almeno del 5% per lo stato
+`keep`. Nessun rerun è stato necessario perché ogni CV misurato era inferiore
+al 5%.
+
+| Tentativo | Ipotesi e modifica isolata | Prompt | TTFT | Decode | Esito |
+|---:|---|---:|---:|---:|---|
+| 1 | Accoppiare i sottoblocchi low/high per eliminare divisione e branch | +1,40% | −1,38% | +0,82% | `reject`: obiettivi sotto 3% |
+| 2 | Srotolare ×4 il ciclo interno da 32 valori | −1,58% | +1,54% | +0,16% | `reject`: regressione prompt |
+| 3 | Calcolare una volta i puntatori base di pesi e attivazioni | +0,74% | −0,77% | +0,82% | `reject`: obiettivi sotto 3% |
+| 4 | Leggere le metadate Q4_K come tre parole allineate | non misurato | non misurato | non misurato | `reject`: parity fallita per estrazione byte errata |
+| 5 | Correggere le tre letture allineate con maschere a 8 bit | +2,79% | −2,78% | +1,97% | `reject`: obiettivi sotto 3% |
+| 6 | Conservare 32 byte quantizzati privati e riusarne il nibble alto | +7,72% | −7,17% | +3,62% | `interesting`: decode sotto 5% |
+| 7 | Combinare riuso dei byte e metadate allineate corrette | +8,19% | −7,62% | +4,61% | `interesting`: decode sotto 5% |
+| 8 | Aggiungere puntatori base alla variante combinata | +8,65% | −8,02% | +4,93% | `interesting`: decode sotto 5% |
+| 9 | Srotolare ×2 i due loop della variante combinata | −5,02% | +5,27% | −2,47% | `reject`: regressione di tutti i controlli |
+
+I tentativi 1–3 e 5–9 hanno superato 127 test Metal e parity 16/16 contro
+l'oracolo fissato; il tentativo 4 ha superato i test sintetici ma è stato
+fermato dalla parity prima del benchmark. Ogni candidato è stato rimosso: il
+tree finale conserva soltanto `1466f4a`. Ulteriore parallelismo della
+proiezione richiederebbe una riduzione floating-point con ordine diverso e
+quindi un oracle numerico non previsto dalla specifica corrente.
+
+La misura finale dello stesso tree registra prompt 10,88 tok/s (CV 0,27%),
+TTFT 1286,75 ms (CV 0,27%) e decode 6,13 tok/s (CV 0,06%); 152 test CPU, 127
+test Metal, `cargo fmt --check` e parity reale 16/16 passano.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono

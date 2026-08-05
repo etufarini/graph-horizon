@@ -80,10 +80,6 @@ pub(crate) trait RuntimeSession {
 
     fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()>;
     fn token(&self, token: u32, position: usize) -> Result<()>;
-    fn token_argmax(&self, token: u32, position: usize, vocab: usize) -> Result<u32> {
-        self.token(token, position)?;
-        self.argmax(vocab)
-    }
     fn logits(&self, vocab: usize) -> Result<Vec<f32>>;
     fn argmax(&self, vocab: usize) -> Result<u32>;
     fn topk(&self, vocab: usize, k: usize) -> Result<Vec<(u32, f32)>>;

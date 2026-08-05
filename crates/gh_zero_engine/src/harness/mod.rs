@@ -6,7 +6,6 @@
  * this narrow public measurement boundary.
 */
 
-pub mod phases;
 mod stats;
 pub mod throughput;
 

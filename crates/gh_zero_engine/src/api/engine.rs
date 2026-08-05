@@ -11,7 +11,6 @@ use color_eyre::eyre::Result;
 use super::request::{EventSink, Request};
 use crate::family::{self, mistral};
 use crate::kv_cache::scheme::KvQuant;
-use crate::runtime::phases::{PhaseFixture, PhaseSample};
 
 pub struct EngineConfig {
     pub context_tokens: Option<usize>,
@@ -116,10 +115,6 @@ impl Engine {
         completion_ids: &str,
     ) -> Result<mistral::parity::ParityReport> {
         mistral::parity::validate(&self.model, prompt_ids, completion_ids)
-    }
-
-    pub(crate) fn measure_phase(&self, fixture: PhaseFixture) -> Result<(PhaseSample, String)> {
-        mistral::benchmark::measure(&self.model, fixture)
     }
 }
 

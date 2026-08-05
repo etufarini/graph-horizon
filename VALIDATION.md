@@ -193,6 +193,15 @@ passati, ma la misura stabile ha registrato prompt 17,70 tok/s (CV 0,20%), TTFT
 la cache privata è stata rimossa perché pressione sullo storage e istruzioni
 aggiunte superano il risparmio di letture.
 
+La verifica finale misura il tree mantenuto a 20,21 prompt tok/s (CV 0,53%),
+692,86 ms TTFT (CV 0,53%) e 10,14 decode tok/s (CV 0,09%). Una nuova misura
+della baseline originale `1e797f8`, con la stessa tupla, registra 2,55 prompt
+tok/s, 5480,01 ms e 2,16 decode tok/s: il miglioramento complessivo è quindi
++692,5% prompt, +369,4% decode e −87,4% TTFT. Il loop termina perché Q4_K e
+Q6_K non ricalcolano più invarianti per peso, i candidati locali restanti sono
+stati regressivi o nel rumore e una riduzione parallela cambierebbe l'ordine
+floating-point senza un oracle numerico approvato.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono

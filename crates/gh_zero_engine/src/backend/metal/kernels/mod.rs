@@ -349,6 +349,35 @@ mod tests {
         encoder.submit()?;
         assert_eq!(halfs(&attended, 3)?, vec![2., 4., 6.]);
 
+        let key = buffer(&device, &[0., 1., 0.], MetalFormat::F16)?;
+        let value = buffer(&device, &[8., 10., 12.], MetalFormat::F16)?;
+        let payload = layout::payload_offset(KvQuant::F16, 0, 1, 1, 3, 2);
+        let encoder = MetalEncoder::begin(&device)?;
+        kv_write::encode(
+            &encoder,
+            &pipelines,
+            &kv,
+            &key,
+            &value,
+            payload,
+            payload,
+            cache_bytes,
+            cache_bytes,
+            1,
+        )?;
+        attention::encode(&encoder, &pipelines, &attended, &query, &kv, 1, 1, 1, 0)?;
+        encoder.submit()?;
+        let first_weight = (1.0_f32 / 3.0_f32.sqrt()).exp();
+        let denominator = first_weight + 1.0;
+        let expected = [
+            (first_weight * 2.0 + 8.0) / denominator,
+            (first_weight * 4.0 + 10.0) / denominator,
+            (first_weight * 6.0 + 12.0) / denominator,
+        ];
+        for (got, want) in halfs(&attended, 3)?.into_iter().zip(expected) {
+            assert!((got - want).abs() <= 0.01, "got {got}, want {want}");
+        }
+
         let reduce = MetalBuffer::allocate(&device, 128, MetalFormat::Raw)?;
         let width = pipelines.get(Kernel::Argmax).width;
         let mut values = vec![-2.; width * 3 + 5];

@@ -7,6 +7,7 @@
 mod buffers;
 mod encode;
 
+#[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) use buffers::BATCH_ROWS;
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) use buffers::{BatchBuffers, X};

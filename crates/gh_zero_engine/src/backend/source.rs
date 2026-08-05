@@ -22,19 +22,20 @@ pub(crate) struct TailWeights<'a> {
 }
 
 pub(crate) enum OutputWeight<'a> {
-    Tied(&'a TensorInfo),
+    Tied,
     Dedicated(&'a TensorInfo),
 }
 
 impl<'a> OutputWeight<'a> {
-    pub(crate) fn tensor(&self) -> &'a TensorInfo {
-        match self {
-            Self::Tied(tensor) | Self::Dedicated(tensor) => tensor,
-        }
-    }
-
+    #[cfg(any(
+        test,
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "metal-hybrid"
+    ))]
     pub(crate) fn is_tied(&self) -> bool {
-        matches!(self, Self::Tied(_))
+        matches!(self, Self::Tied)
     }
 }
 
@@ -47,7 +48,7 @@ impl<'a> WeightGroups<'a> {
     ) -> Self {
         let output = output
             .map(OutputWeight::Dedicated)
-            .unwrap_or(OutputWeight::Tied(embedding));
+            .unwrap_or(OutputWeight::Tied);
         Self {
             embedding,
             tail: TailWeights { norm, output },
@@ -55,12 +56,18 @@ impl<'a> WeightGroups<'a> {
         }
     }
 
+    #[cfg(any(
+        test,
+        feature = "vulkan",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "metal-hybrid"
+    ))]
     fn tensors(&self) -> Vec<&'a TensorInfo> {
-        let dedicated = !self.tail.output.is_tied();
         let mut tensors = Vec::new();
         tensors.extend([self.embedding, self.tail.norm]);
-        if dedicated {
-            tensors.push(self.tail.output.tensor());
+        if let OutputWeight::Dedicated(tensor) = self.tail.output {
+            tensors.push(tensor);
         }
         tensors.extend(self.layers.iter().flatten().copied());
         tensors
@@ -90,6 +97,13 @@ impl WeightSelection {
 pub(crate) trait WeightSource {
     fn groups(&self) -> WeightGroups<'_>;
 
+    #[cfg(any(
+        test,
+        feature = "vulkan",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "metal-hybrid"
+    ))]
     fn tensors(&self) -> Vec<&TensorInfo> {
         self.groups().tensors()
     }
@@ -115,7 +129,6 @@ mod tests {
         let norm = tensor("norm", &[8], GgmlType::F32);
         let groups = WeightGroups::new(&embedding, &norm, None, Vec::new());
         assert!(groups.tail.output.is_tied());
-        assert!(std::ptr::eq(groups.embedding, groups.tail.output.tensor()));
         let names = groups
             .tensors()
             .into_iter()

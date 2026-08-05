@@ -13,6 +13,12 @@ use super::loader::GgufFile;
 // block count while preserving all allocation dimensions.
 #[derive(Clone)]
 pub(crate) struct ModelMetadata {
+    #[cfg(any(
+        feature = "vulkan",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "metal-hybrid"
+    ))]
     pub block_count: usize,
     pub embedding_length: usize,
     pub head_count: usize,
@@ -64,10 +70,22 @@ impl ModelMetadata {
         let tokens = md.get("tokenizer.ggml.tokens").and_then(|v| v.as_array());
         let vocab_size = tokens.map(|a| a.len()).unwrap_or(0);
 
+        #[cfg(any(
+            feature = "vulkan",
+            feature = "vulkan-hybrid",
+            feature = "metal",
+            feature = "metal-hybrid"
+        ))]
         let block_count = req_u("block_count")? as usize;
         let feed_forward_length = req_u("feed_forward_length")? as usize;
 
         Ok(ModelMetadata {
+            #[cfg(any(
+                feature = "vulkan",
+                feature = "vulkan-hybrid",
+                feature = "metal",
+                feature = "metal-hybrid"
+            ))]
             block_count,
             embedding_length,
             head_count,

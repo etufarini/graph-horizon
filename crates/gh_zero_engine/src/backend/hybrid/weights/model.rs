@@ -44,7 +44,7 @@ impl WeightBytes {
     pub(crate) fn from_source(source: &dyn WeightSource) -> Result<Self> {
         let groups = source.groups();
         let output = match groups.tail.output {
-            OutputWeight::Tied(_) => None,
+            OutputWeight::Tied => None,
             OutputWeight::Dedicated(tensor) => Some(representation_bytes(tensor)?),
         };
         let mut layers = Vec::with_capacity(groups.layers.len());

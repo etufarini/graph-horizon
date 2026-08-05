@@ -54,6 +54,7 @@ pub(crate) fn select(
     }
 }
 
+#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn unified_gross(physical_memory: u64, recommended_working_set: u64) -> Option<u64> {
     physical_memory
         .checked_mul(9)?
@@ -61,6 +62,7 @@ pub(crate) fn unified_gross(physical_memory: u64, recommended_working_set: u64) 
         .map(|value| value.min(recommended_working_set))
 }
 
+#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn unified_capacity(gross: u64, current_allocated: u64) -> u64 {
     gross.saturating_sub(current_allocated)
 }

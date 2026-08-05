@@ -34,16 +34,24 @@ impl LayeredGraph for MistralGraph {
     fn shape(config: &Self::Config) -> RuntimeShape {
         RuntimeShape {
             block_count: config.block_count,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             embedding: config.embedding_length,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             q: config.q_width,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             k: config.k_width,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             v: config.v_width,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             attention: config.attention_width,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             feed_forward: config.feed_forward_length,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             vocab: config.vocab_size,
             kv_heads: config.kv_head_count,
             key_length: config.key_length,
             value_length: config.value_length,
+            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
             prefill_rows: prefill::BATCH_ROWS,
         }
     }

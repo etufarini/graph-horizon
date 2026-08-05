@@ -15,16 +15,24 @@ use crate::kv_cache::scheme::{KvQuant, KvRole};
 #[derive(Clone, Copy)]
 pub(crate) struct RuntimeShape {
     pub(crate) block_count: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) embedding: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) q: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) k: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) v: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) attention: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) feed_forward: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) vocab: usize,
     pub(crate) kv_heads: usize,
     pub(crate) key_length: usize,
     pub(crate) value_length: usize,
+    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) prefill_rows: usize,
 }
 

@@ -38,6 +38,7 @@ pub(crate) struct CpuBackend {
 }
 
 impl CpuBackend {
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) fn load_selected(
         meta: &crate::gguf::metadata::ModelMetadata,
         ws: &dyn crate::backend::source::WeightSource,

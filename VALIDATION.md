@@ -185,6 +185,14 @@ rerun consentito. Passano 152 test CPU, 127 test Metal, 192 test
 Metal-hybrid, `cargo fmt --check` e le parity reali standalone e mixed, entrambe
 con 16 token greedy identici all'oracolo fissato. Stato terminale: `keep`.
 
+Il ciclo successivo ha provato a conservare in storage privato i 32 byte Q6_K
+letti prima come nibble basso e poi alto. Test CPU e Metal e parity 16/16 sono
+passati, ma la misura stabile ha registrato prompt 17,70 tok/s (CV 0,20%), TTFT
+790,96 ms (CV 0,20%) e decode 8,97 tok/s (CV 0,08%): rispetto alla baseline
+`9b1e24f`, rispettivamente −15,1%, +17,8% e −11,8%. Stato terminale: `reject`;
+la cache privata è stata rimossa perché pressione sullo storage e istruzioni
+aggiunte superano il risparmio di letture.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono

@@ -1,0 +1,105 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// AGENTS deroga K: kernel denso Q6_K per la proiezione prefill batched.
+
+// Q6_K batched matmul for a token-major FP16 activation matrix. One 256-thread
+// workgroup computes 64 output rows by 32 prompt rows. A 32-value K strip of
+// weights and activations is staged once, then reused for the complete output
+// tile; accumulation is FP32 and the retained graph interface remains FP16.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };
+layout(std430, binding = 1) readonly buffer W { uint q[]; };
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
+
+const uint TILE_ROWS = 64u;
+const uint TILE_COLS = 32u;
+const uint TK = 32u;
+const uint TM = 2u;
+const uint TN = 4u;
+const uint THREADS_X = 8u;
+
+shared float ws[TILE_ROWS * TK];
+shared float as_[TILE_COLS * TK];
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+int s8(uint b) { int v = int(gb(b)); return v >= 128 ? v - 256 : v; }
+
+float dequant_w(uint row, uint k, uint nsb) {
+    uint super_block = k >> 8u;
+    uint rem = k & 255u;
+    uint segment = rem >> 7u;
+    uint within = rem & 127u;
+    uint quarter = within >> 5u;
+    uint l = within & 31u;
+    uint block = (row * nsb + super_block) * 210u;
+    uint ql = block + segment * 64u + (quarter & 1u) * 32u + l;
+    uint qh = block + 128u + segment * 32u + l;
+    uint scales = block + 192u + segment * 8u;
+    uint low = (gb(ql) >> ((quarter >> 1u) * 4u)) & 0xFu;
+    uint high = (gb(qh) >> (quarter * 2u)) & 3u;
+    int quant = int(low | (high << 4u)) - 32;
+    int scale = s8(scales + quarter * 2u + l / 16u);
+    return hf(block + 208u) * float(scale) * float(quant);
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint nsb = p.in_dim / 256u;
+    uint row_base = gl_WorkGroupID.x * TILE_ROWS;
+    uint col_base = gl_WorkGroupID.y * TILE_COLS;
+    uint tr = tid / THREADS_X;
+    uint tc = tid % THREADS_X;
+
+    float acc[TM][TN];
+    for (uint m = 0u; m < TM; m++)
+        for (uint col = 0u; col < TN; col++)
+            acc[m][col] = 0.0;
+
+    for (uint kbase = 0u; kbase < p.in_dim; kbase += TK) {
+        for (uint index = tid; index < TILE_ROWS * TK; index += 256u) {
+            uint row = index / TK;
+            uint k = index % TK;
+            uint global_row = row_base + row;
+            ws[index] = global_row < p.out_dim
+                ? dequant_w(global_row, kbase + k, nsb)
+                : 0.0;
+        }
+        for (uint index = tid; index < TILE_COLS * TK; index += 256u) {
+            uint col = index / TK;
+            uint k = index % TK;
+            uint global_col = col_base + col;
+            as_[index] = global_col < p.n
+                ? float(a[global_col * p.in_dim + kbase + k])
+                : 0.0;
+        }
+        barrier();
+
+        for (uint k = 0u; k < TK; k++) {
+            float wreg[TM];
+            for (uint m = 0u; m < TM; m++)
+                wreg[m] = ws[(tr * TM + m) * TK + k];
+            for (uint col = 0u; col < TN; col++) {
+                float activation = as_[(tc * TN + col) * TK + k];
+                for (uint m = 0u; m < TM; m++)
+                    acc[m][col] += wreg[m] * activation;
+            }
+        }
+        barrier();
+    }
+
+    for (uint m = 0u; m < TM; m++) {
+        uint row = row_base + tr * TM + m;
+        if (row >= p.out_dim) continue;
+        for (uint col = 0u; col < TN; col++) {
+            uint global_col = col_base + tc * TN + col;
+            if (global_col < p.n)
+                y[global_col * p.out_dim + row] = float16_t(acc[m][col]);
+        }
+    }
+}

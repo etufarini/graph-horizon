@@ -1,5 +1,5 @@
 /*
- * GH Zero app arguments
+ * Graph Orizon app arguments
  * Single responsibility: own the chat-only runtime flag table, parser, and
  * usage text. It accepts only model/server/generation/backend configuration,
  * depends only on `std`, and does not implement tools or reasoning controls.
@@ -124,7 +124,7 @@ pub(crate) fn is_present(flag: &str) -> bool {
 // mentioned: the CLI is the single source of configuration.
 pub(crate) fn usage() -> String {
     let mut out = String::from(
-        "Uso: gh-zero-engine [opzioni]\n\n\
+        "Uso: graph-orizon [opzioni]\n\n\
          La configurazione avviene solo via flag (precedenza: flag > default).\n\n\
          Opzioni:\n",
     );
@@ -192,6 +192,6 @@ mod tests {
         assert!(u.contains("--no-attn-simd\n"));
         // No environment variable is mentioned anywhere.
         assert!(!u.to_lowercase().contains("env"));
-        assert!(!u.contains("GH_ZERO_"));
+        assert!(!u.contains("GRAPH_ORIZON_"));
     }
 }

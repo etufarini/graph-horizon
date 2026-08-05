@@ -1,5 +1,5 @@
 /*
- * GH Zero tokenize example
+ * Graph Orizon tokenize example
  * Opens one GGUF read-only, renders one fixed Ministral chat prompt, and prints
  * token IDs with decoded byte pieces. It allocates no inference backend and
  * treats prompt text as ordinary content.
@@ -8,7 +8,9 @@
 use std::path::Path;
 
 use color_eyre::eyre::{Result, eyre};
-use gh_zero_engine::{GgufFile, Message, MistralConfig, Role, TekkenTokenizer, render_chat_prompt};
+use graph_orizon_engine::{
+    GgufFile, Message, MistralConfig, Role, TekkenTokenizer, render_chat_prompt,
+};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);

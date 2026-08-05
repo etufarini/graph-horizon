@@ -67,7 +67,7 @@ for index in "${!model_ids[@]}"; do
         printf '%s: external verification: artifact is missing or unreadable\n' "$key"; ((external += 1)); continue
     fi
     set +e
-    output="$(cd "$project_dir" && cargo run --quiet --locked -p gh_zero_engine --no-default-features --features cpu --example inspect -- "$model" 2>&1)"
+    output="$(cd "$project_dir" && cargo run --quiet --locked -p graph_orizon_engine --no-default-features --features cpu --example inspect -- "$model" 2>&1)"
     status=$?
     set -e
     if ((status == 1)) && [[ "$output" == "$expected_q8" ]]; then printf '%s: pass\n' "$key"; ((pass += 1)); continue; fi

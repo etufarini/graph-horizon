@@ -138,7 +138,7 @@ while IFS=$'\t' read -r id profile file byte_count hash _; do
     set +e
     output="$(
         cd "$project_dir"
-        GH_ZERO_MODEL="$model" GH_ZERO_MODEL_ID="$id" cargo test --locked -p gh_zero_engine \
+        GRAPH_ORIZON_MODEL="$model" GRAPH_ORIZON_MODEL_ID="$id" cargo test --locked -p graph_orizon_engine \
             --no-default-features --features vulkan-hybrid --test semantic real_semantic_acceptance \
             -- --ignored --nocapture --exact 2>&1
     )"

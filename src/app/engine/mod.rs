@@ -1,5 +1,5 @@
 /*
- * GH Zero app engine boundary
+ * Graph Orizon app engine boundary
  * Loads and validates the chat model engine before startup hands it to a process
  * surface.
  */
@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use color_eyre::eyre::Result;
-use gh_zero_engine::Engine;
+use graph_orizon_engine::Engine;
 
 pub(crate) mod config;
 

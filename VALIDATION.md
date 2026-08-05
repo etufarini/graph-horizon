@@ -479,7 +479,7 @@ colonne e claim separati. In questa esecuzione tutti e tre i Reasoning correnti
 hanno superato il gate Piano 07, ma il risultato vale solo per la configurazione
 elencata sopra.
 
-`temperature=0.7` con `seed=0` rende riproducibile il percorso RNG di GH Zero a
+`temperature=0.7` con `seed=0` rende riproducibile il percorso RNG di Graph Orizon a
 parità di commit, artefatto, backend e parametri; non promette identità
 universale fra hardware o implementazioni. Il Piano 07 non testa contesto 256k,
 non testa un System prompt custom esplicito e non pubblica testo raw del
@@ -492,3 +492,102 @@ ragionamento.
 - `support/models.tsv`;
 - `target/ministral-q4-validation/semantic-reasoning-qualification.log`;
 - `target/m3-matrix.log` (evidenza locale non versionata).
+
+## Campagna Vulkan prefill/decode — 5 agosto 2026
+
+Questa campagna misura e ottimizza separatamente prefill e decode sul branch
+`perf/prefill-decode-stall-analysis`, partendo dal commit `8dec368`. Il candidato
+è stato misurato prima del commit. Le misure baseline sono state ripetute in un
+worktree detached al commit base; le misure finali usano un target Cargo isolato,
+così le fingerprint dei due tree non possono contaminarsi.
+
+### Sistema e protocollo
+
+- CPU AMD Ryzen 7 3800X, 16 thread, 30 GiB RAM;
+- Radeon RX 5500 XT 8 GiB, RADV Mesa 26.0.3, Vulkan 1.4, 22 CU;
+- Rust/Cargo 1.95, build `--release`, backend Vulkan standalone salvo dove
+  indicato, `context=4096`, greedy, KV f16;
+- modello locale catalogato
+  `Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf`, 2.147.021.472 byte, SHA-256
+  `7e9516cc0d42043a55269e57221a677f661ae6729a1436788650091647d9c0fc`;
+- prompt corto `Quanto fa 17 × 19?` (137 token con il template Reasoning);
+- prompt lungo ottenuto aggiungendo 256 ripetizioni di ` dato` (382 token);
+- un warm-up e tre ripetizioni misurate; media, deviazione standard e CV sono
+  calcolati separatamente per prompt tok/s, TTFT e decode tok/s.
+
+L'artefatto 3B Instruct prescritto dal catalogo non era presente localmente.
+La campagna usa quindi il 3B Reasoning catalogato per la diagnosi quantitativa e
+non estende il claim semantico all'Instruct o a Metal. L'obiettivo fissato prima
+delle modifiche era almeno 16 prompt tok/s e 8 decode tok/s sul caso corto, e
+almeno 16 prompt tok/s e 7 decode tok/s sul caso lungo, senza regressioni di
+correttezza né regressioni oltre il 5% nei controlli secondari.
+
+### Diagnosi baseline
+
+Sul caso corto baseline, `/usr/bin/time -v` riporta 35,52 s wall ma soltanto
+0,38 s user e 0,38 s system. Un campionamento sysfs di 673 punti riporta GPU busy
+media 96,97%, non-zero nel 100% dei campioni e massimo 99%. Il percorso registra
+circa 419 dispatch e oltre 300 barrier compute per token, ma il 2% di utilizzo
+host esclude scheduling CPU, allocazioni e submit come causa primaria.
+
+Il collo di bottiglia è quindi nei kernel GPU: il decode rilegge circa 2,14 GB
+di pesi per token e la baseline realizza circa 11,9 GB/s effettivi. Come controllo
+del limite hardware, llama.cpp `13f2b28b` sullo stesso modello e dispositivo
+misura 650,64 prompt tok/s a 137 token, 600,96 a 382 token e 70,54 decode tok/s.
+Il divario dimostra margine nei kernel/dequant e non un limite della GPU.
+
+### Esperimenti isolati
+
+| Candidato | Risultato comparabile | Decisione |
+|---|---|---|
+| `GRAPH_ORIZON_DECODE_MMVQ=1` | decode 5,55 → 5,62 tok/s (+1,3%) | scartato: guadagno sotto il 3% |
+| prefill batch 32 sul kernel seriale iniziale | device lost/RADV recovery | scartato in quello stato |
+| prefill batch 8 | prompt 4,11 → 6,53; TTFT 33.307,54 → 20.968,82 ms; decode 5,55 invariato | mantenuto come passo intermedio |
+| Q6_K decode a quattro lane | prompt 6,53 → 8,89; TTFT -26,5%; decode 5,55 → 6,68 | mantenuto |
+| logits Q6_K a quattro lane | prompt 8,89 → 10,20; TTFT -12,9%; decode 6,68 → 26,10 | mantenuto |
+| batch 16 dopo i nuovi kernel Q6_K | prompt 10,20 → 17,78; decode 26,09 | mantenuto come passo intermedio |
+| batch 32 dopo i nuovi kernel Q6_K | prompt 17,78 → 27,93; decode 26,09 | mantenuto; ora stabile |
+| Q6_K prefill batched 64×32 | prompt 27,93 → 35,37; TTFT -21,0%; decode invariato | mantenuto |
+
+Ogni riga cambia un solo concetto. Il batch aumenta il riuso temporale dei pesi;
+i kernel decode e logits dividono una riga Q6_K fra quattro lane con riduzione
+FP32; il kernel batched riusa un tile Q6_K su 32 token. Il precedente device
+lost a batch 32 non era quindi una capacità intrinsecamente invalida: dopo aver
+ridotto la durata dei kernel Q6_K, la stessa capacità passa stabilmente.
+
+### Risultati finali
+
+| Controllo | Baseline prompt tok/s | Finale prompt tok/s | Baseline TTFT ms | Finale TTFT ms | Baseline decode tok/s | Finale decode tok/s |
+|---|---:|---:|---:|---:|---:|---:|
+| corto, KV f16, 32 token | 4,11 | 35,37 | 33.307,54 | 3.873,04 | 5,55 | 26,11 |
+| lungo, KV f16, 32 token | 4,09 | 40,66 | 93.487,16 | 9.395,73 | 5,43 | 23,62 |
+| corto, KV f16, 128 token | 4,13 | 35,37 | 33.196,61 | 3.872,87 | 5,53 | 25,59 |
+| corto, KV int8, 32 token | 4,12 | 35,37 | 33.256,86 | 3.873,30 | 5,57 | 26,52 |
+| corto, Vulkan-hybrid 25%, 32 token | 11,52 | 19,33 | 11.892,49 | 7.088,44 | 4,41 | 9,43 |
+
+Sul controllo primario corto il prefill cresce del 760,6%, il TTFT cala
+dell'88,4% e il decode cresce del 370,5%. Sul lungo i valori sono rispettivamente
++894,1%, -89,9% e +335,0%. Il controllo da 128 token conferma +362,7% decode
+senza erosione con una generazione più lunga; int8 e hybrid migliorano senza
+regressioni. Tutte le misure finali standalone hanno CV inferiore allo 0,1%; il
+peggiore CV hybrid è 0,62%.
+
+### Correttezza, limiti e seguito
+
+Passano le suite complete `graph_orizon_engine` Vulkan standalone (135 test unitari),
+Vulkan-hybrid (206 test unitari più integrazione), CPU (156 test unitari), il
+gate statico delle 200 righe, `cargo fmt --check` e `git diff --check`. Passano
+anche gli oracle GPU diretti `parallel_q6k_projections_match_cpu_oracle` e
+`batched_q6k_matches_cpu_oracle`, oltre a parity reali 16/16 per Vulkan f16,
+Vulkan int8 e Vulkan-hybrid f16. La suite workspace CPU ha un solo errore
+preesistente e ambientale: `artifact_helpers_support_gnu_and_bsd_tools` simula
+`shasum`, ma su Linux trova prima il vero `sha256sum`; il file non è modificato
+dal candidato.
+
+Gli obiettivi sono superati su tutti i controlli e le ipotesi approvate sono
+esaurite. Il decode finale realizza circa 55,9 GB/s effettivi, ancora sotto il
+controllo llama.cpp: restano soprattutto il kernel Q4_K, il numero di dispatch e
+le barrier globali. Un seguito separato dovrebbe prima misurare timestamp GPU,
+poi valutare un kernel Q4_K batched 64×32 e soltanto dopo la fusione/riduzione
+delle barrier. Sono cambiamenti più ampi della struttura approvata e non sono
+necessari per il target corrente.

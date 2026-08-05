@@ -3,10 +3,10 @@ web/frontend/node_modules/
 web/frontend/dist/
 
 # throwaway debug examples
-crates/gh_zero_engine/examples/dbg*.rs
+crates/graph_orizon_engine/examples/dbg*.rs
 
 # transcript export artifact (default output of /export)
-gh-zero-export.json
+graph-orizon-export.json
 # parity-check.sh per-model golden reference: machine/build-specific, regenerate
 # locally with `parity-check.sh --bless`.
 support/testing/parity-ref-*.txt

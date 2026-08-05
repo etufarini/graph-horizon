@@ -10,7 +10,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "${script_dir}/.." && pwd)"
 backend=""
 profile="release"
-prefix="${GH_ZERO_INSTALL_PREFIX:-${HOME}/.local}"
+prefix="${GRAPH_ORIZON_INSTALL_PREFIX:-${HOME}/.local}"
 
 usage() {
     printf '%s\n' \
@@ -81,13 +81,13 @@ profile_args=(--profile "${profile}")
 (
     cd "${project_dir}"
     cargo build --locked --no-default-features --features "${backend}" \
-        "${profile_args[@]}" -p gh_zero_cli
+        "${profile_args[@]}" -p graph-orizon
 )
 
-binary="${project_dir}/target/${profile}/gh_zero_cli"
+binary="${project_dir}/target/${profile}/graph-orizon"
 [[ -f "${binary}" ]] || fail "build completed without the expected binary"
 bindir="${prefix}/bin"
 install -d "${bindir}"
-install -m 0755 "${binary}" "${bindir}/gh-zero-engine"
+install -m 0755 "${binary}" "${bindir}/graph-orizon"
 printf 'installed %s (backend=%s, build-profile=%s)\n' \
-    "${bindir}/gh-zero-engine" "${backend}" "${profile}"
+    "${bindir}/graph-orizon" "${backend}" "${profile}"

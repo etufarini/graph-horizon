@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Runs the exact six Q8 rejections and 36-row Q4 Cartesian product sequentially.
-# External-verification rows continue; the first attempted real failure stops
-# the matrix. Each row is reported, and no backend, KV, or model fallback exists.
+# Runs the exact six Q8 rejections, 60 main parity rows, and four Metal-hybrid
+# endpoints. It owns sequential child processes, continues unavailable rows,
+# stops at the first genuine failure, and never substitutes any tuple value.
 
 set -euo pipefail
 export LC_ALL=C
@@ -15,17 +15,9 @@ pass=0; external=0; failure=0
 
 usage_error() { printf 'matrix-check: %s\n' "$*" >&2; exit 2; }
 catalog_error() { printf 'matrix-check: catalog error: %s\n' "$*" >&2; exit 2; }
-summary() {
-    printf 'summary: pass=%d external_verification=%d failure=%d total=%d\n' \
-        "$pass" "$external" "$failure" "$((pass + external + failure))"
-}
-stop_failure() {
-    printf '%s: failure: %s\n' "$1" "$2"
-    ((failure += 1)); summary; exit 1
-}
-usage() {
-    echo "usage: matrix-check.sh --models-dir DIR --reference-server PATH [--reference-port PORT]"
-}
+summary() { printf 'summary: pass=%d external_verification=%d failure=%d total=%d\n' "$pass" "$external" "$failure" "$((pass + external + failure))"; }
+stop_failure() { printf '%s: failure: %s\n' "$1" "$2"; ((failure += 1)); summary; exit 1; }
+usage() { echo "usage: matrix-check.sh --models-dir DIR --reference-server PATH [--reference-port PORT]"; }
 
 while (($#)); do
     case "$1" in
@@ -37,8 +29,7 @@ while (($#)); do
     esac
 done
 [[ -n "$models_dir" && -n "$reference_server" ]] || usage_error "required argument is missing"
-[[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) \
-    || usage_error "invalid reference port"
+[[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) || usage_error "invalid reference port"
 [[ -r "$catalog" ]] || catalog_error "file is missing or unreadable"
 
 set +e
@@ -64,51 +55,54 @@ set -e
 ((catalog_status == 0)) || catalog_error "invalid row, value, or duplicate"
 [[ -x "$parity" ]] || usage_error "parity runner is missing or not executable"
 command -v cargo >/dev/null 2>&1 || usage_error "cargo is required"
-if (exec 3<>"/dev/tcp/127.0.0.1/$reference_port") 2>/dev/null; then
-    usage_error "reference port is occupied"
-fi
+if (exec 3<>"/dev/tcp/127.0.0.1/$reference_port") 2>/dev/null; then usage_error "reference port is occupied"; fi
 
 declare -a model_ids q8_files
-while IFS=$'\t' read -r id _ _ _ _ q8_file; do
-    model_ids+=("$id"); q8_files+=("$q8_file")
-done <<<"$catalog_rows"
+while IFS=$'\t' read -r id _ _ _ _ q8_file; do model_ids+=("$id"); q8_files+=("$q8_file"); done <<<"$catalog_rows"
 
 expected_q8="E04 unsupported GGUF weight profile 'Q8_0'; supported profile: Q4_K_M"
 for index in "${!model_ids[@]}"; do
     id="${model_ids[$index]}"; key="q8 model_id=$id"; model="$models_dir/${q8_files[$index]}"
     if [[ ! -r "$model" || ! -f "$model" ]]; then
-        printf '%s: external verification: artifact is missing or unreadable\n' "$key"
-        ((external += 1)); continue
+        printf '%s: external verification: artifact is missing or unreadable\n' "$key"; ((external += 1)); continue
     fi
     set +e
-    output="$(cd "$project_dir" && cargo run --quiet --locked -p gh_zero_engine \
-        --no-default-features --features cpu --example inspect -- "$model" 2>&1)"
+    output="$(cd "$project_dir" && cargo run --quiet --locked -p gh_zero_engine --no-default-features --features cpu --example inspect -- "$model" 2>&1)"
     status=$?
     set -e
-    if ((status == 1)) && [[ "$output" == "$expected_q8" ]]; then
-        printf '%s: pass\n' "$key"; ((pass += 1)); continue
-    fi
+    if ((status == 1)) && [[ "$output" == "$expected_q8" ]]; then printf '%s: pass\n' "$key"; ((pass += 1)); continue; fi
     stop_failure "$key" "Q8 rejection contract mismatch"
 done
 
+run_parity() {
+    local id="$1" backend="$2" kv="$3" percent="${4:-}" mode="${5:-}"
+    local key="parity model_id=$id backend=$backend kv=$kv" output status
+    local arguments=(--models-dir "$models_dir" --model-id "$id" --backend "$backend" --kv "$kv"
+        --reference-server "$reference_server" --reference-port "$reference_port")
+    if [[ -n "$percent" ]]; then
+        arguments+=(--weights-percent "$percent" --expect-mode "$mode")
+        key="$key weights_percent=$percent mode=$mode"
+    fi
+    set +e
+    output="$("$parity" "${arguments[@]}" 2>&1)"; status=$?
+    set -e
+    if ((status == 0)) && [[ "$output" == pass:* ]]; then printf '%s: %s\n' "$key" "$output"; ((pass += 1)); return; fi
+    if ((status == 0)) && [[ "$output" == "external verification: "* ]]; then printf '%s: %s\n' "$key" "$output"; ((external += 1)); return; fi
+    stop_failure "$key" "parity row failed"
+}
+
 for id in "${model_ids[@]}"; do
-    for backend in cpu vulkan hybrid; do
+    for backend in cpu vulkan vulkan-hybrid metal metal-hybrid; do
         for kv in f16 int8; do
-            key="parity model_id=$id backend=$backend kv=$kv"
-            set +e
-            output="$("$parity" --models-dir "$models_dir" --model-id "$id" \
-                --backend "$backend" --kv "$kv" --reference-server "$reference_server" \
-                --reference-port "$reference_port" 2>&1)"
-            status=$?
-            set -e
-            if ((status == 0)) && [[ "$output" == pass:* ]]; then
-                printf '%s: %s\n' "$key" "$output"; ((pass += 1)); continue
-            fi
-            if ((status == 0)) && [[ "$output" == "external verification: "* ]]; then
-                printf '%s: %s\n' "$key" "$output"; ((external += 1)); continue
-            fi
-            stop_failure "$key" "parity row failed"
+            case "$backend" in
+                vulkan-hybrid|metal-hybrid) run_parity "$id" "$backend" "$kv" 25 mixed ;;
+                *) run_parity "$id" "$backend" "$kv" ;;
+            esac
         done
     done
+done
+for mode_percent in all-metal:100 cpu-only:0; do
+    mode="${mode_percent%:*}"; percent="${mode_percent#*:}"
+    for kv in f16 int8; do run_parity 3b-instruct metal-hybrid "$kv" "$percent" "$mode"; done
 done
 summary

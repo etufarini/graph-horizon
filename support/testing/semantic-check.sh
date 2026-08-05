@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# Preserves three authenticated Instruct semantic passes, classifies three
-# current Reasoning runs, and emits a complete six-row qualification matrix
-# without retry, fallback, oracle, tuning, or production-runtime ownership.
+# Preserves three Instruct results and classifies three authenticated Reasoning
+# runs. It owns synchronous test/temp output only and never retries, falls back,
+# changes thresholds, starts an oracle, or owns a production runtime.
 
 set -euo pipefail
 export LC_ALL=C
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 catalog="$project_dir/support/models.tsv"
+source "$project_dir/support/artifact.sh"
 models_dir=""; qualified=0; not_qualified=0; external_verification=0
 case_ids="S01 S02 S03 S04 S06 S07 S08 S09 S10"
 
@@ -64,9 +65,9 @@ set -e
 ((catalog_status == 0)) || catalog_die "invalid row, value, or duplicate"
 
 missing_tool=""
-for tool in cargo stat sha256sum; do
-    command -v "$tool" >/dev/null 2>&1 || { missing_tool="$tool-unavailable"; break; }
-done
+command -v cargo >/dev/null 2>&1 || missing_tool="cargo-unavailable"
+[[ -n "$missing_tool" ]] || artifact_size_tool_available || missing_tool="size-tool-unavailable"
+[[ -n "$missing_tool" ]] || artifact_hash_tool_available || missing_tool="sha256-tool-unavailable"
 
 attempt_reason() {
     local id="$1" records="$2" status="$3" cfg sel summary_line timing_line metrics
@@ -130,15 +131,15 @@ while IFS=$'\t' read -r id profile file byte_count hash _; do
     if [[ -n "$missing_tool" ]]; then reasoning_external "$id" "$missing_tool"; continue; fi
     model="$models_dir/$file"
     [[ -r "$model" && -f "$model" ]] || { reasoning_external "$id" artifact-missing-or-unreadable; continue; }
-    size="$(stat -c %s -- "$model" 2>/dev/null)" || { reasoning_external "$id" stat-unavailable; continue; }
+    size="$(artifact_size "$model")" || { reasoning_external "$id" size-unavailable; continue; }
     [[ "$size" == "$byte_count" ]] || { reasoning_external "$id" byte-count-mismatch; continue; }
-    digest="$(sha256sum -- "$model" 2>/dev/null)" || { reasoning_external "$id" sha256sum-unavailable; continue; }
-    [[ "${digest%% *}" == "$hash" ]] || { reasoning_external "$id" sha256-mismatch; continue; }
+    digest="$(artifact_sha256 "$model")" || { reasoning_external "$id" sha256-unavailable; continue; }
+    [[ "$digest" == "$hash" ]] || { reasoning_external "$id" sha256-mismatch; continue; }
     set +e
     output="$(
         cd "$project_dir"
         GH_ZERO_MODEL="$model" GH_ZERO_MODEL_ID="$id" cargo test --locked -p gh_zero_engine \
-            --no-default-features --features hybrid --test semantic real_semantic_acceptance \
+            --no-default-features --features vulkan-hybrid --test semantic real_semantic_acceptance \
             -- --ignored --nocapture --exact 2>&1
     )"
     status=$?

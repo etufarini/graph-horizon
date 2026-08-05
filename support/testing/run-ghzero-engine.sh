@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Starts the final local chat binary for one explicit backend/model/context/KV
-# tuple. Model paths remain quoted data and no fallback is attempted.
+# Starts local chat for one explicit profile/model/context/KV tuple. It owns only
+# the final process, accepts no implicit profile, and never retries another
+# artifact, profile, context, or KV scheme.
 
 set -euo pipefail
 
@@ -25,7 +26,7 @@ while (($#)); do
         --kv) (($# >= 2)) || fail "missing --kv value"; kv="$2"; shift 2 ;;
         --max-tokens) (($# >= 2)) || fail "missing --max-tokens value"; max_tokens="$2"; shift 2 ;;
         --help|-h)
-            echo "usage: run-ghzero-engine.sh --model PATH --backend cpu|vulkan|hybrid --context N --kv f16|int8 [--max-tokens N]"
+            echo "usage: run-ghzero-engine.sh --model PATH --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --context N --kv f16|int8 [--max-tokens N]"
             exit 0
             ;;
         *) fail "unknown argument: $1" ;;
@@ -33,7 +34,7 @@ while (($#)); do
 done
 
 [[ -r "$model" ]] || fail "model is missing or unreadable"
-case "$backend" in cpu|vulkan|hybrid) ;; *) fail "invalid backend" ;; esac
+case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) fail "invalid backend" ;; esac
 case "$kv" in f16|int8) ;; *) fail "invalid KV scheme" ;; esac
 [[ "$context" =~ ^[1-9][0-9]*$ ]] || fail "context must be >= 1"
 [[ "$max_tokens" =~ ^[0-9]+$ ]] || fail "max tokens must be >= 0"

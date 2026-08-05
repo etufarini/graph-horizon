@@ -1,28 +1,33 @@
+<!--
+This document owns repository contribution invariants, validation expectations,
+and AGENTS line-limit exemptions. It does not define runtime support claims.
+-->
+
 # Contributing
 
-Follow [AGENTS.md](AGENTS.md): keep changes small, state invariants explicitly,
+Follow [AGENTS.md](AGENTS.md): keep changes small, state invariants and risks,
 and add no dependency or abstraction without a concrete need.
 
-Before making a change:
-
-1. identify the invariant to preserve;
-2. choose the smallest viable change;
-3. state the main risk.
-
-Always select the CPU feature explicitly when working on the CPU path:
+Before changing code, identify the invariant, smallest viable change, and main
+risk. Every build selects exactly one profile—`cpu`, `vulkan`,
+`vulkan-hybrid`, `metal`, or `metal-hybrid`—with defaults disabled:
 
 ```sh
-cargo check --no-default-features --features cpu
-cargo test --no-default-features --features cpu
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-default-features --features cpu
+cargo test --workspace --no-default-features --features cpu
 ```
 
-Also verify the default build and the Vulkan/hybrid features when code touches
-backends, placement, or shaders. Real-model tests are external: the local,
-synthetic suite does not depend on GGUF files being present.
+Repeat Clippy and tests for every affected profile. A missing device,
+toolchain, authenticated model, or pinned oracle is `external verification`;
+an assertion, comparison, placement, or lifecycle mismatch is a failure.
 
-A new family follows the CPU-first order described under
-[supported models](README.md#supported-models). Do not expand public profiles,
-reduce the context, or introduce fallbacks without first updating the
-specification.
+Orchestration stays under 200 productive lines. Only a single-operation dense
+numeric kernel may declare `// AGENTS deroga K: <nota>`; only one trait
+definition or one thin delegating `impl Trait` block may declare
+`// AGENTS deroga I: <nota>`.
 
-Do not commit secrets, personal paths in public messages, or model artifacts.
+New backends implement the neutral runtime contracts; new model families do not
+add backend-pair modules. Never reduce context, change placement, or retry a
+different tuple to turn a failed validation into a pass. Do not commit secrets,
+personal paths, generated oracle worktrees, or model artifacts.

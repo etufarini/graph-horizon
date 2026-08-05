@@ -13,19 +13,23 @@ HTTP o Web UI.
 ## Feature backend
 
 Il crate non seleziona un backend di default: il consumer abilita esattamente
-uno dei tre profili.
+uno dei cinque profili.
 
 ```sh
 cargo check -p gh_zero_engine --no-default-features --features cpu
 cargo check -p gh_zero_engine --no-default-features --features vulkan
-cargo check -p gh_zero_engine --no-default-features --features hybrid
+cargo check -p gh_zero_engine --no-default-features --features vulkan-hybrid
+cargo check -p gh_zero_engine --no-default-features --features metal
+cargo check -p gh_zero_engine --no-default-features --features metal-hybrid
 ```
 
 - `cpu`: percorso completo e riferimento numerico portabile.
 - `vulkan`: modello interamente GPU; memoria insufficiente o device non
   disponibile sono errori senza fallback.
-- `hybrid`: compila entrambi e seleziona al load tutto GPU, massimo suffisso GPU
-  contiguo con prefisso CPU, oppure tutto CPU.
+- `vulkan-hybrid`: CPU più Vulkan con piano immutabile all-GPU, mixed o CPU-only.
+- `metal`: modello interamente Metal su macOS arm64, senza fallback CPU.
+- `metal-hybrid`: CPU più Metal con capacità unificata e modalità all-Metal,
+  mixed o CPU-only.
 
 Il piano hybrid è immutabile dopo il load. Solo il piano misto copia il residuo
 CPU→GPU, una volta per passaggio; la KV di ogni layer resta sul suo backend. Il
@@ -36,7 +40,7 @@ scratch, fixed, staging, crossing e reserve.
 
 La qualifica semantica corrente è una policy separata e solo test: conserva i
 tre pass Instruct revisionati dal piano storico e invoca soltanto i tre profili
-Reasoning. Il runner usa il load `hybrid` per osservare il placement, ma la
+Reasoning. Il runner usa il load `vulkan-hybrid` per osservare il placement, ma la
 generazione qualificante è valida solo con Vulkan all-GPU; `mixed`, `cpu-only` o
 risorse assenti diventano `external-verification` e non attivano fallback.
 
@@ -149,20 +153,21 @@ emesso alcun altro evento.
 ## Memoria e contesto
 
 `EngineConfig` accetta contesto, schema KV `f16|int8`, thread CPU e budget
-Vulkan. `EngineConfig.context_tokens = None` applica la policy del motore:
+device. `EngineConfig.context_tokens = None` applica la policy del motore:
 `min(32.768, massimo contesto GGUF)`. `Some(N)` richiede invece esattamente
 `N`: ogni valore positivo fino al massimo GGUF è valido se entra nella memoria
 del backend e non viene troncato o ridotto. Il limite effettivo è restituito da
-`Engine::context_limit` alle superfici locali. In hybrid:
+`Engine::context_limit` alle superfici locali. Nei profili hybrid:
 
-- percentuale pesi Vulkan assente: budget automatico dalla VRAM post-riserva;
-- percentuale `0`: CPU-only e nessuna inizializzazione Vulkan;
-- Vulkan non disponibile: CPU-only se la RAM basta.
+- percentuale assente: selezione automatica dalla capacità disponibile;
+- percentuale `0`: CPU-only e nessuna inizializzazione device;
+- percentuale `100`: endpoint device-only (`all-gpu` o `all-metal`).
 
-La RAM automatica usa
-`floor(MemAvailable × 90 / 100)`, calcolato sul valore valido letto da
-`/proc/meminfo`, cioè il 90% intero; swap e `MemFree` sono esclusi. La riserva
-VRAM automatica resta il massimo tra 256 MiB e il 5% della VRAM. Errori di
+Vulkan usa RAM e VRAM separate; la RAM automatica è
+`floor(MemAvailable × 90 / 100)` su Linux e la riserva VRAM automatica è il
+maggiore tra 256 MiB e 5%.
+Metal usa memoria unificata: CPU e Metal competono nella stessa capacità
+derivata da memoria fisica e working set raccomandato. Errori di
 allocation, pipeline, kernel, transfer, readback o decoder dopo la scelta del
 piano non provocano retry.
 
@@ -191,11 +196,13 @@ risorse. Le variabili `GH_ZERO_REFERENCE_*_IDS` sono interne allo script di
 parità e non sono configurazione runtime stabile.
 
 ```sh
-GH_ZERO_MODEL="/path/model.gguf" GH_ZERO_CONTEXT=4096 \
-  cargo test -p gh_zero_engine --no-default-features --features cpu \
-  real_greedy_parity -- --ignored --nocapture
+GH_ZERO_MODEL="/path/model.gguf" GH_ZERO_CONTEXT=4096 GH_ZERO_KV=f16 \
+GH_ZERO_REFERENCE_PROMPT_IDS="..." GH_ZERO_REFERENCE_COMPLETION_IDS="..." \
+  cargo test --release -p gh_zero_engine --no-default-features --features cpu \
+  --test family_agnostic real_selected_runtime_parity_and_lifecycle \
+  -- --ignored --nocapture --exact
 ```
 
-Le interfacce complete della matrice 36-righe e dell'accettazione semantica sono
+Le interfacce complete della matrice 70-righe e dell'accettazione semantica sono
 descritte nella [guida degli script](../../support/README.md); i risultati
 revisionati appartengono al [registro di validazione](../../VALIDATION.md).

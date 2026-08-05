@@ -1,6 +1,7 @@
 <!--
   Questa guida possiede le interfacce operative degli script locali e mantiene
-  invarianti le directory modello in sola lettura; non definisce policy runtime.
+  invarianti le directory modello in sola lettura; non definisce policy runtime
+  o prestazionale.
 -->
 
 # Supporto operativo
@@ -11,11 +12,12 @@ diversi.
 
 | Script | Scopo |
 |---|---|
-| `install.sh` | build Web UI e binario CPU/Vulkan/hybrid |
+| `install.sh` | build Web UI e uno dei cinque profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
-| `testing/parity-check.sh` | prompt esatto e top-2 Reasoning contro oracle fissato |
+| `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
+| `testing/matrix-check.sh` | sei Q8, 60 righe principali e quattro endpoint |
 | `testing/semantic-check.sh` | matrice terminale di qualifica semantica Reasoning |
 | `testing/run-ghzero-engine.sh` | avvio esplicito della console locale |
 
@@ -25,24 +27,31 @@ diversi.
 - Node/npm per `install.sh`;
 - loader/driver Vulkan per esecuzione Vulkan;
 - artefatti GGUF già acquisiti in sola lettura;
-- `curl`, `jq` e `sha256sum` per la parità Reasoning;
+- `curl`, `jq`, `stat` e `sha256sum` oppure `shasum -a 256`;
+- macOS arm64 e `xcrun metal`/`metallib` per i profili Metal;
 - `llama-server` alla revisione fissata `13f2b28b0`.
 
 Il contratto degli artefatti e gli SHA registrati sono nel catalogo
 [`models.tsv`](models.tsv); gli esiti revisionati appartengono al
 [registro di validazione](../VALIDATION.md).
-L'assenza di una risorsa esterna produce `not verified: <motivo preciso>`; non
+Per la campagna corrente i modelli locali sono in
+`/Users/emanuele/Documents/models`, sempre passata esplicitamente con
+`--models-dir`; il checkout oracle è `/Users/emanuele/Documents/llama.cpp`,
+mentre il worktree disposable previsto è
+`target/oracle/llama.cpp-13f2b28b`. L'assenza di una
+risorsa esterna produce `external verification: <motivo preciso>`; non
 salta test sintetici.
 
 ## Installazione
 
 ```sh
-support/install.sh --backend hybrid --profile release
+support/install.sh --backend metal --profile release
 support/install.sh --backend cpu --profile fast --prefix "$PWD/.local"
 ```
 
-`release|fast` sono profili di compilazione Cargo. Il default backend è hybrid;
-non esiste un profilo runtime.
+`release|fast` sono profili di compilazione Cargo. `--backend` è obbligatorio e
+accetta `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`; non esiste un
+default né un profilo runtime.
 
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
 una build Cargo `--locked`. Gli script npm attivi sono `dev`, `check` e `build`.
@@ -65,12 +74,30 @@ support/testing/parity-check.sh \
   --reference-server "/path/llama-server"
 ```
 
+### Prestazioni iterative
+
+L'unico eseguibile prestazionale iterativo è
+[`examples/bench.rs`](../examples/bench.rs). Misura una tupla end-to-end e
+pubblica statistiche del flusso API; non autentica artefatti, non confronta
+revisioni e non decide se conservare una modifica. `profiling/profile.sh`
+fornisce soltanto uno snapshot di memoria, placement e throughput: non è un
+comparatore A/B.
+
+Il contratto CLI, l'output e gli errori bounded sono descritti nella
+[guida al benchmark](../docs/throughput-bench.md). Selezione della tupla,
+confronto, soglie e stati terminali appartengono al
+[processo prestazionale](../docs/performance-investigation-process.md).
+
+Una risorsa assente resta `external verification: <motivo preciso>`; non viene
+sostituita con altro modello, backend o profilo.
+
 L'interfaccia completa è:
 
 ```text
 parity-check.sh --models-dir DIR --model-id ID \
-  --backend cpu|vulkan|hybrid --kv f16|int8 \
-  --reference-server PATH [--reference-port PORT]
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --kv f16|int8 \
+  --reference-server PATH [--reference-port PORT] \
+  [--weights-percent 0..100 --expect-mode all-gpu|all-metal|mixed|cpu-only]
 ```
 
 Lo script esegue una sola riga, autentica il Q4_K_M catalogato, avvia un solo
@@ -93,7 +120,7 @@ catalogo, poi invocate con il test ignorato `real_semantic_acceptance`.
 
 La configurazione Reasoning accettata è esatta: `context=4096`,
 `max_tokens=4096`, `temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0`,
-`repeat_penalty=1`, KV `f16`, feature Cargo `hybrid`, backend finale Vulkan
+`repeat_penalty=1`, KV `f16`, feature Cargo `vulkan-hybrid`, backend finale Vulkan
 all-GPU. I soli casi reali sono S01–S04 e S06–S10, in quest'ordine. Non esiste
 retry, CPU fallback, oracle, tuning o inferenza Instruct.
 
@@ -122,6 +149,19 @@ tre Instruct preservati e tre Reasoning correnti `qualified`. Quella evidenza
 copre il percorso API Rust esercitato dal test, non il server HTTP greedy.
 
 ## Sicurezza
+
+La matrice completa si avvia con:
+
+```sh
+support/testing/matrix-check.sh \
+  --models-dir /Users/emanuele/Documents/models \
+  --reference-server "$PWD/target/oracle/llama.cpp-13f2b28b/build/bin/llama-server"
+```
+
+Tenta 70 righe seriali. Le righe hybrid principali
+usano 25%/mixed; i quattro endpoint 3B-Instruct usano 100/all-metal e
+0/cpu-only. Continua solo dopo `external verification` e si ferma al primo
+fallimento reale.
 
 Ogni path modello viene passato come un singolo argomento quotato. Valori enum e
 numerici sono validati prima di invocare Cargo o il binario. Gli script non usano

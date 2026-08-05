@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Runs both KV schemes for one explicit Q4_K_M model/backend/context profile.
-# Each tuple is attempted once: there is no artifact, backend, or context retry.
+# Runs both KV schemes for one explicit Q4_K_M model/profile/context tuple. It
+# owns each synchronous profiler process and never retries another artifact,
+# profile, context, KV scheme, or placement.
 
 set -euo pipefail
 
@@ -21,7 +22,7 @@ while (($#)); do
         --backend) (($# >= 2)) || fail "missing --backend value"; backend="$2"; shift 2 ;;
         --context) (($# >= 2)) || fail "missing --context value"; context="$2"; shift 2 ;;
         --help|-h)
-            echo "usage: validate-kv.sh --model PATH --backend cpu|vulkan|hybrid --context N"
+            echo "usage: validate-kv.sh --model PATH --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --context N"
             exit 0
             ;;
         *) fail "unknown argument: $1" ;;
@@ -29,7 +30,7 @@ while (($#)); do
 done
 
 [[ -n "$model" ]] || fail "--model is required"
-case "$backend" in cpu|vulkan|hybrid) ;; *) fail "invalid backend" ;; esac
+case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) fail "invalid backend" ;; esac
 [[ "$context" =~ ^[1-9][0-9]*$ ]] || fail "context must be >= 1"
 
 if [[ ! -r "$model" ]]; then

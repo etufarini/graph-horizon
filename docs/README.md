@@ -20,7 +20,7 @@ belong in the [validation register](../VALIDATION.md).
 |---|---|
 | [configuration.md](configuration.md) | Runtime flags, defaults, and build-time backend selection |
 | [architecture.md](architecture.md) | Workspace layout and application flows |
-| [backend.md](backend.md) | Engine facade, CPU/Vulkan/hybrid backends, and KV cache |
+| [backend.md](backend.md) | CPU, Vulkan, Metal, hybrid placement, and KV cache |
 | [server.md](server.md) | Text-only HTTP server and SSE protocol |
 | [web.md](web.md) | Local web UI, assets, and available routes |
 

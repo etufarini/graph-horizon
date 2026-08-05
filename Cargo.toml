@@ -8,15 +8,13 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-# Forward the backend choice down to gh_zero_engine. A bare build selects
-# `hybrid`; explicit builds may select `vulkan`, `cpu`, or `hybrid`. Enabling
-# `vulkan` and `cpu` manually without `hybrid` is rejected. `cpu` is the portable
-# reference backend.
-vulkan = ["gh_zero_engine/vulkan"]
+# Forward exactly one explicit backend profile to gh_zero_engine. There is no
+# default or target-based selection.
 cpu = ["gh_zero_engine/cpu"]
-# Build that compiles both backends together for the GPU/CPU split runtime.
-hybrid = ["gh_zero_engine/hybrid"]
-default = ["hybrid"]
+vulkan = ["gh_zero_engine/vulkan"]
+vulkan-hybrid = ["gh_zero_engine/vulkan-hybrid"]
+metal = ["gh_zero_engine/metal"]
+metal-hybrid = ["gh_zero_engine/metal-hybrid"]
 
 # Maximum-performance build profile, used by `support/install.sh --profile fast`.
 # Inherits `release` and adds fat LTO + a single codegen unit so the compiler can

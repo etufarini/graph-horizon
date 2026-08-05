@@ -15,7 +15,12 @@
  * VRAM. No raw math and no concrete GPU API here.
 */
 
-#[cfg(any(feature = "cpu", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 pub(crate) mod int8;
 pub(crate) mod layout;
 pub(crate) mod scheme;
@@ -43,7 +48,7 @@ impl<Buf> Kv<Buf> {
     // Byte base of the metadata region (the payload region of all layers
     // precedes it; role-independent since payload sizes are). The single
     // layout truth backends read instead of re-deriving the region split (D6).
-    #[cfg(any(feature = "vulkan", test))]
+    #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid", test))]
     pub(crate) fn meta_base(&self) -> u64 {
         self.meta_base_for(KvRole::Key)
     }

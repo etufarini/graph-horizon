@@ -103,6 +103,20 @@ runtime boundary for cataloged rows: it authenticates the artifact, pins the
 oracle revision, binds the oracle to loopback, obtains structured prompt and
 completion IDs, then runs one exact local parity test.
 
+For the current Ministral qualification, the accepted llama.cpp revision is
+exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout at
+`/Users/emanuele/Documents/llama.cpp` is never switched or detached. Build the
+pinned revision in the disposable worktree
+`target/oracle/llama.cpp-13f2b28b`, with Metal, Vulkan, and CURL disabled, and
+use `build/bin/llama-server` from that worktree.
+
+The wrapper starts one CPU-only, offline oracle on `127.0.0.1`, with context
+4096, no GPU or KV offload, and owns both the process and temporary directory.
+It first requires exact rendered prompt IDs. It then teacher-forces exactly 16
+oracle completion tokens; every local logit must be finite and each oracle token
+must occur in the deterministic local top two. Cleanup runs on every terminal
+path.
+
 That script has a deliberately narrow catalog contract. A different family or
 oracle requires its own approved catalog and test boundary; do not broaden the
 existing script through filename guesses or implicit fallback.
@@ -115,10 +129,11 @@ Classify each row as exactly one of:
 - **fail**: execution completed or started but violated the protocol or gate;
 - **external verification**: an authenticated prerequisite was unavailable.
 
-Missing hardware, driver, artifact, oracle binary, or free loopback port can be
-external verification. Malformed oracle output, prompt-ID mismatch, HTTP failure
-after successful startup, or numeric mismatch is a failure. External
-verification is never counted as pass.
+Missing hardware, driver, authenticated artifact, pinned oracle binary, or
+capacity can be external verification. An occupied requested port is a
+precondition error. Malformed oracle output, prompt-ID mismatch, HTTP failure
+after successful startup, lifecycle failure, or numeric mismatch is a failure.
+External verification is never counted as pass.
 
 ## Evidence Row
 

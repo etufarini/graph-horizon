@@ -97,6 +97,19 @@ dispatcher. The concrete gate uses metadata and capabilities, not the filename.
 Backends, KV layouts, and graphs remain internal details; selected GGUF and
 tokenizer types are exported for inspection.
 
+The engine dependency direction is deliberately narrow:
+
+```text
+family -> runtime <- backend
+```
+
+The family supplies `WeightSource` and `LayeredGraph`; a statically selected
+backend supplies buffers and encoders. The runtime owns either one homogeneous
+session or one immutable partitioned session. A partitioned pass runs a CPU
+prefix, crosses once, then runs the device suffix. Loading is transactional;
+generation emits one terminal event, cancellation emits none, and normalized
+public errors expose no device paths or driver internals.
+
 The actual set of accepted families and profiles is a versioned library
 contract, not part of the application architecture. See the
 [crate README](../crates/gh_zero_engine/README.md) for current support.

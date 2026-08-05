@@ -6,11 +6,11 @@
  * owns no runtime dispatch, resource state, or production entry point.
 */
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 use super::dequant;
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 use super::parallel;
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 use super::row_dot_q4k;
 use super::{CpuBuffer, CpuFormat};
 
@@ -18,7 +18,7 @@ use super::{CpuBuffer, CpuFormat};
 // into `out`: quantized/F16 rows are dequantized on the fly; an F32 row is read
 // directly (little-endian). Takes the byte slice (not the `CpuBuffer`) so callers
 // lock the storage once and reuse it across many rows / across worker threads.
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 fn weight_row(format: CpuFormat, bytes: &[u8], row: usize, in_dim: usize, out: &mut [f32]) {
     if matches!(format, CpuFormat::F32) {
         let base = row * in_dim * 4;
@@ -39,7 +39,7 @@ fn weight_row(format: CpuFormat, bytes: &[u8], row: usize, in_dim: usize, out: &
 // CPU has it, scalar otherwise — runtime-detected) and never materialize a
 // dequantized row; every other format dequantizes one row into a per-worker scratch
 // buffer and dots it. The weight storage is locked once here and shared as `&[u8]`.
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 pub(crate) fn matmul(w: &CpuBuffer, a: &[f32], in_dim: usize, out_dim: usize) -> Vec<f32> {
     let guard = w.bytes();
     let bytes: &[u8] = &guard[w.window()];

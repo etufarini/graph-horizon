@@ -44,15 +44,19 @@ The backend is selected at build time, not with a runtime flag:
 |---|---|---|
 | `cpu` | Multi-core CPU | Portable path and numeric reference |
 | `vulkan` | Vulkan GPU | Entire model on the GPU or an error |
-| `hybrid` | CPU and Vulkan | All GPU, layer split, or all CPU |
+| `vulkan-hybrid` | CPU and Vulkan | All GPU, layer split, or all CPU |
+| `metal` | Apple Metal | Entire model on Metal or an error |
+| `metal-hybrid` | CPU and Metal | All Metal, layer split, or all CPU |
 
-The library crate has no default feature. The root binary defaults to `hybrid`;
-`support/install.sh` makes the choice explicit:
+The library crate has no default feature, and neither does the root binary.
+`support/install.sh` requires the choice explicitly:
 
 ```sh
 support/install.sh --backend cpu
 support/install.sh --backend vulkan
-support/install.sh --backend hybrid
+support/install.sh --backend vulkan-hybrid
+support/install.sh --backend metal
+support/install.sh --backend metal-hybrid
 ```
 
 For reproducible Cargo builds:
@@ -60,7 +64,9 @@ For reproducible Cargo builds:
 ```sh
 cargo check --workspace --no-default-features --features cpu
 cargo check --workspace --no-default-features --features vulkan
-cargo check --workspace --no-default-features --features hybrid
+cargo check --workspace --no-default-features --features vulkan-hybrid
+cargo check --workspace --no-default-features --features metal
+cargo check --workspace --no-default-features --features metal-hybrid
 ```
 
 ## Hybrid Placement
@@ -76,8 +82,16 @@ withholds VRAM from the budget and participates in the hybrid automatic plan.
 `Engine::placement()` exposes the final decision and planned CPU/GPU memory
 breakdown.
 
-The Vulkan-only backend performs no implicit fallback. Device, allocation, and
-execution failures remain errors.
+Vulkan owns device memory and explicit transfer/staging buffers. Metal uses
+shared/private storage as required by CPU visibility, one command queue, and
+offline-compiled kernels; its planner counts weights, KV, scratch, fixed,
+staging, crossing, and reserve against unified memory. Both support Q4_K_M
+weights and f16/int8 KV. Standalone backends perform no implicit fallback;
+device, allocation, pipeline, command, and readback failures remain errors.
+
+Metal support is currently qualified on Apple M4 with macOS 26.3. Other Apple
+silicon generations and operating-system versions remain unqualified rather
+than implicitly supported.
 
 ## KV Cache And Sampling
 

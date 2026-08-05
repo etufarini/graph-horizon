@@ -11,6 +11,11 @@ use crate::backend::Backend;
 use crate::backend::buffers::Scratch;
 use crate::family::mistral::MistralConfig;
 
+// Only standalone Metal retained the 32-row cooperative projection; every
+// other profile keeps the qualified four-row orchestration.
+#[cfg(feature = "metal")]
+pub(crate) const BATCH_ROWS: usize = 32;
+#[cfg(not(feature = "metal"))]
 pub(crate) const BATCH_ROWS: usize = 4;
 
 pub(crate) const X: usize = 0;
@@ -71,7 +76,7 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
         Ok(Self { backend, items })
     }
 
-    #[cfg(feature = "hybrid")]
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) fn all(&self, index: usize) -> &B::Buffer {
         &self.items[index]
     }
@@ -117,4 +122,14 @@ fn bytes(width: usize, element: usize) -> Result<u64> {
         .checked_mul(element)
         .and_then(|n| u64::try_from(n).ok())
         .ok_or_else(|| eyre!("mistral prefill: buffer size overflow"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BATCH_ROWS;
+
+    #[test]
+    fn batch_capacity_matches_the_selected_profile() {
+        assert_eq!(BATCH_ROWS, if cfg!(feature = "metal") { 32 } else { 4 });
+    }
 }

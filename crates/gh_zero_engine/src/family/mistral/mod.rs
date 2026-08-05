@@ -1,36 +1,31 @@
 /*
  * gh_zero_engine — Ministral 3 family boundary
  * Applies the pure Q4-only detection gate, validates one mistral3 GGUF
- * contract, resolves the versioned implicit
- * context, and constructs the compile-time-selected CPU, Vulkan, or immutable
- * hybrid backend. It owns no request lifecycle or graph operations.
+ * contract, resolves context, and constructs the statically selected resource
+ * owner. It owns no concrete backend choice or request lifecycle.
  */
 
 pub(crate) mod config;
 pub(crate) mod decode;
 pub(crate) mod detect;
+pub(crate) mod generation;
 pub(crate) mod graph;
-#[cfg(feature = "hybrid")]
-pub(crate) mod hybrid;
-#[cfg(test)]
-mod parity;
-pub(crate) mod run;
+pub(crate) mod parity;
 pub(crate) mod template;
 pub(crate) mod tensors;
 pub(crate) mod tokenizer;
 mod version;
-#[cfg(all(test, feature = "vulkan"))]
-mod vulkan;
 
 use color_eyre::eyre::Result;
 
 use crate::api::engine::EngineConfig;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(test)]
 use crate::backend::Backend;
+use crate::backend::selection;
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "hybrid")))]
 use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::TensorIndex;
+use crate::runtime::contract::LayeredGraph;
 
 pub use config::MistralConfig;
 pub(crate) use tensors::MistralTensors;
@@ -70,57 +65,25 @@ pub(crate) struct MistralModel<B: Backend> {
     pub(crate) backend: B,
 }
 
-#[cfg(test)]
-impl<B: Backend> MistralModel<B> {
-    pub(crate) fn load(file: &GgufFile, context: usize) -> Result<Self> {
-        let contract = MistralContract::from_gguf(file)?;
-        let metadata = ModelMetadata::from_gguf(file)?;
-        // WeightSource is consumed synchronously: after load, only backend-owned
-        // buffers remain, including one allocation for tied embedding/output.
-        let backend = B::load(&metadata, &contract.tensors, file, context)?;
-        Ok(Self {
-            config: contract.config,
-            backend,
-        })
-    }
-}
-
 pub(crate) struct RuntimeModel {
     pub(crate) config: MistralConfig,
     pub(crate) tokenizer: TekkenTokenizer,
     pub(crate) context: usize,
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
-    #[cfg(all(feature = "cpu", not(feature = "hybrid")))]
-    pub(crate) backend: crate::backend::cpu::CpuBackend,
-    #[cfg(all(feature = "vulkan", not(feature = "cpu")))]
-    pub(crate) backend: crate::backend::vulkan::VulkanBackend,
-    #[cfg(feature = "hybrid")]
-    pub(crate) backend: hybrid::LoadedHybrid,
+    pub(crate) backend: selection::SelectedBackend,
 }
 
 impl RuntimeModel {
     pub(crate) fn load(file: &GgufFile, settings: &EngineConfig) -> Result<Self> {
         let contract = MistralContract::from_gguf(file)?;
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
-        #[cfg(all(feature = "cpu", not(feature = "hybrid")))]
-        let backend = {
-            let metadata = ModelMetadata::from_gguf(file)?;
-            crate::backend::cpu::CpuBackend::load(&metadata, &contract.tensors, file, context)?
-        };
-        #[cfg(all(feature = "vulkan", not(feature = "cpu")))]
-        let backend = {
-            let metadata = ModelMetadata::from_gguf(file)?;
-            crate::backend::vulkan::VulkanBackend::load(
-                &metadata,
-                &contract.tensors,
-                file,
-                context,
-            )?
-        };
-        #[cfg(feature = "hybrid")]
-        let backend = hybrid::loader::load(
+        let metadata = ModelMetadata::from_gguf(file)?;
+        let shape = graph::MistralGraph::shape(&contract.config);
+        let backend = selection::load(
             file,
-            &contract,
+            &contract.tensors,
+            &metadata,
+            shape,
             context,
             settings.kv_quant,
             settings.vram_weights_percent,
@@ -137,6 +100,10 @@ impl RuntimeModel {
 
     pub(crate) fn context_limit(&self) -> u32 {
         self.context as u32
+    }
+
+    pub(crate) fn shape(&self) -> crate::backend::hybrid::weights::runtime::RuntimeShape {
+        graph::MistralGraph::shape(&self.config)
     }
 }
 

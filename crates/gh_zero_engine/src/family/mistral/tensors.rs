@@ -8,7 +8,7 @@
 
 use color_eyre::eyre::{Result, bail};
 
-use crate::backend::source::{WeightLayout, WeightSource};
+use crate::backend::source::{WeightGroups, WeightSource};
 use crate::gguf::tensor_index::{GgmlType, TensorIndex, TensorInfo};
 
 use super::config::MistralConfig;
@@ -102,34 +102,29 @@ impl<'a> MistralTensors<'a> {
 }
 
 impl WeightSource for MistralTensors<'_> {
-    fn tensors(&self) -> Vec<&TensorInfo> {
-        let mut out = Vec::with_capacity(2 + self.layers.len() * 9 + 1);
-        out.push(self.token_embd);
-        out.push(self.output_norm);
-        if let OutputTensor::Dedicated(t) = self.output {
-            out.push(t);
-        }
-        for layer in &self.layers {
-            out.extend([
-                layer.attn_norm,
-                layer.attn_q,
-                layer.attn_k,
-                layer.attn_v,
-                layer.attn_output,
-                layer.ffn_norm,
-                layer.ffn_gate,
-                layer.ffn_up,
-                layer.ffn_down,
-            ]);
-        }
-        out
-    }
-
-    fn layout(&self) -> WeightLayout {
-        WeightLayout {
-            has_output: matches!(self.output, OutputTensor::Dedicated(_)),
-            layer_count: self.layers.len(),
-        }
+    fn groups(&self) -> WeightGroups<'_> {
+        let layers = self
+            .layers
+            .iter()
+            .map(|layer| {
+                vec![
+                    layer.attn_norm,
+                    layer.attn_q,
+                    layer.attn_k,
+                    layer.attn_v,
+                    layer.attn_output,
+                    layer.ffn_norm,
+                    layer.ffn_gate,
+                    layer.ffn_up,
+                    layer.ffn_down,
+                ]
+            })
+            .collect();
+        let output = match self.output {
+            OutputTensor::Tied => None,
+            OutputTensor::Dedicated(tensor) => Some(tensor),
+        };
+        WeightGroups::new(self.token_embd, self.output_norm, output, layers)
     }
 }
 

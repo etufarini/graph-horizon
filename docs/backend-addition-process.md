@@ -15,17 +15,20 @@ must not be introduced unless it is the explicitly approved feature.
 
 ## Current Boundary
 
-The current build exposes three features:
+The current build exposes five mutually exclusive features:
 
 | Feature | Role |
 |---|---|
 | `cpu` | Compiles `CpuBackend`, the portable numeric reference |
 | `vulkan` | Compiles `VulkanBackend`, with all-GPU-or-error placement |
-| `hybrid` | Compiles CPU and Vulkan together for an immutable split plan |
+| `vulkan-hybrid` | Compiles CPU and Vulkan for an immutable split plan |
+| `metal` | Compiles `MetalBackend`, with all-Metal-or-error placement |
+| `metal-hybrid` | Compiles CPU and Metal for a unified-memory split plan |
 
-CPU and Vulkan each implement the model-neutral `Backend` trait. Hybrid is not a
-third trait implementation: it combines the two concrete backends and owns
-cross-backend placement and execution in the family domain.
+CPU, Vulkan, and Metal implement the model-neutral `Backend` trait. A
+hybrid-capable device also implements `HybridDevice`; the neutral runtime owns
+the immutable partition, backend resources, and crossing between them. Model
+families do not contain backend-pair orchestration.
 
 The stable boundaries are:
 
@@ -38,7 +41,8 @@ crates/gh_zero_engine/
     │   ├── contract.rs           model-neutral Backend trait
     │   ├── mod.rs                feature selection and shared modules
     │   └── <name>/               one concrete hardware backend
-    └── family/<family>/          graph, model loading, and split orchestration
+    ├── runtime/                  homogeneous and partitioned execution
+    └── family/<family>/          graph and model loading
 ```
 
 A concrete backend owns device or runtime state, buffers, weight upload, kernel
@@ -150,7 +154,9 @@ Existing build rows must remain green:
 ```sh
 cargo check --workspace --no-default-features --features cpu
 cargo check --workspace --no-default-features --features vulkan
-cargo check --workspace --no-default-features --features hybrid
+cargo check --workspace --no-default-features --features vulkan-hybrid
+cargo check --workspace --no-default-features --features metal
+cargo check --workspace --no-default-features --features metal-hybrid
 ```
 
 Add the new standalone or combined feature to this matrix. Also verify that
@@ -202,6 +208,11 @@ future backend may be discussed only as an example until its implementation and
 evidence are present.
 
 ## Definition Of Done
+
+A standalone backend implements the neutral `Backend` contract. If it supports
+partitioned execution it also implements `HybridDevice`; the shared hybrid
+runtime owns placement and crossing. Model families and graphs remain unchanged
+and no family/backend pair file is added.
 
 A backend addition is complete when feature selection is explicit, unrelated
 builds do not require its dependencies, the full trait is implemented without

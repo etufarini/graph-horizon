@@ -5,7 +5,12 @@
  * the same parameters directly to shaders.
 */
 
-#[cfg(any(feature = "cpu", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 use color_eyre::eyre::{Result, bail};
 
 pub(crate) struct Yarn {
@@ -15,7 +20,12 @@ pub(crate) struct Yarn {
     pub factor: f32,
     pub beta_fast: f32,
     pub beta_slow: f32,
-    #[cfg(any(feature = "cpu", test))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        test
+    ))]
     pub log_multiplier: f32,
     pub q_temperature_scale: f32,
 }
@@ -26,14 +36,24 @@ pub(crate) enum RopeRole {
     Key,
 }
 
-#[cfg(any(feature = "cpu", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 pub(crate) struct Pair {
     pub cos: f32,
     pub sin: f32,
 }
 
 impl Yarn {
-    #[cfg(any(feature = "cpu", test))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        test
+    ))]
     pub(crate) fn validate(&self) -> Result<()> {
         if self.rope_dim == 0 || !self.rope_dim.is_multiple_of(2) {
             bail!("rope: rope_dim must be positive and even");
@@ -56,7 +76,12 @@ impl Yarn {
         Ok(())
     }
 
-    #[cfg(any(feature = "cpu", test))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        test
+    ))]
     pub(crate) fn pair(&self, role: RopeRole, pair: usize, position: usize) -> Result<Pair> {
         self.validate()?;
         if pair >= self.rope_dim / 2 {
@@ -80,7 +105,12 @@ impl Yarn {
         })
     }
 
-    #[cfg(any(feature = "cpu", test))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        test
+    ))]
     fn role_scale(&self, role: RopeRole) -> f32 {
         match role {
             RopeRole::Query => 1.0,
@@ -98,7 +128,12 @@ impl Yarn {
         }
     }
 
-    #[cfg(any(feature = "cpu", test))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        test
+    ))]
     fn correction_dims(&self) -> (f32, f32) {
         let start = corr_dim(
             self.rope_dim,
@@ -120,13 +155,23 @@ impl Yarn {
     }
 }
 
-#[cfg(any(feature = "cpu", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 fn corr_dim(rope_dim: usize, original_context: usize, rotations: f32, base: f32) -> f32 {
     let denom = rotations * 2.0 * std::f32::consts::PI;
     rope_dim as f32 * (original_context as f32 / denom).ln() / (2.0 * base.ln())
 }
 
-#[cfg(any(feature = "cpu", test))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    test
+))]
 fn yarn_ramp(low: f32, high: f32, pair: usize) -> f32 {
     let y = (pair as f32 - low) / (high - low).max(0.001);
     1.0 - y.clamp(0.0, 1.0)

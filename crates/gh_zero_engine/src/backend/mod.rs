@@ -9,23 +9,55 @@
 pub(crate) mod buffers;
 pub(crate) mod contract;
 pub(crate) mod f16;
+pub(crate) mod hybrid;
 pub(crate) mod rope;
+pub(crate) mod selection;
 pub(crate) mod source;
 
 pub(crate) use contract::Backend;
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 pub(crate) mod vulkan;
 
-#[cfg(feature = "cpu")]
+#[cfg(all(
+    any(feature = "metal", feature = "metal-hybrid"),
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+pub(crate) mod metal;
+
+#[cfg(all(
+    any(feature = "metal", feature = "metal-hybrid"),
+    not(all(target_os = "macos", target_arch = "aarch64"))
+))]
+compile_error!("metal profiles require macOS on Apple Silicon");
+
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod cpu;
 
-#[cfg(not(any(feature = "vulkan", feature = "cpu")))]
+#[cfg(not(any(
+    feature = "cpu",
+    feature = "vulkan",
+    feature = "vulkan-hybrid",
+    feature = "metal",
+    feature = "metal-hybrid"
+)))]
 compile_error!(
-    "no backend selected: build with exactly one of --features vulkan or --features cpu"
+    "no backend selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
 );
 
-#[cfg(all(feature = "vulkan", feature = "cpu", not(feature = "hybrid")))]
+#[cfg(any(
+    all(feature = "cpu", feature = "vulkan"),
+    all(feature = "cpu", feature = "vulkan-hybrid"),
+    all(feature = "cpu", feature = "metal"),
+    all(feature = "vulkan", feature = "vulkan-hybrid"),
+    all(feature = "vulkan", feature = "metal"),
+    all(feature = "vulkan-hybrid", feature = "metal"),
+    all(feature = "cpu", feature = "metal-hybrid"),
+    all(feature = "vulkan", feature = "metal-hybrid"),
+    all(feature = "vulkan-hybrid", feature = "metal-hybrid"),
+    all(feature = "metal", feature = "metal-hybrid")
+))]
 compile_error!(
-    "vulkan and cpu backends are mutually exclusive: enable exactly one, or use --features hybrid to compile both for the split runtime"
+    "multiple backend profiles selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
 );

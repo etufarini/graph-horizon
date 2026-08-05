@@ -1,29 +1,20 @@
 #!/usr/bin/env bash
 #
-# Authenticates the six catalogued Q4 validation artifacts, then checks their
-# runtime metadata and exact tensor histograms read-only. Identity facts do not
-# expand runtime capability, and an identity mismatch is never inspected.
+# Authenticates and inspects exactly the six catalogued Q4 artifacts read-only.
+# It owns synchronous CPU inspector processes, creates no temp state, and never
+# inspects an unauthenticated artifact or retries another artifact/profile.
 
 set -euo pipefail
+export LC_ALL=C
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 catalog="$project_dir/support/models.tsv"
+source "$project_dir/support/artifact.sh"
 models_dir=""
 
-catalog_error() {
-    printf 'validate-weights: catalog error: %s\n' "$*" >&2
-    exit 2
-}
-
-usage_error() {
-    printf 'validate-weights: %s\n' "$*" >&2
-    exit 2
-}
-
-real_failure() {
-    printf 'validate-weights: %s\n' "$*" >&2
-    exit 1
-}
+catalog_error() { printf 'validate-weights: catalog error: %s\n' "$*" >&2; exit 2; }
+usage_error() { printf 'validate-weights: %s\n' "$*" >&2; exit 2; }
+real_failure() { printf 'validate-weights: %s\n' "$*" >&2; exit 1; }
 
 while (($#)); do
     case "$1" in
@@ -32,66 +23,50 @@ while (($#)); do
         *) usage_error "unknown argument: $1" ;;
     esac
 done
-
 [[ -n "$models_dir" ]] || usage_error "--models-dir is required"
 [[ -r "$catalog" ]] || catalog_error "file is missing or unreadable"
 
-declare -a ids chats q4_files byte_counts hashes q8_files
-declare -A seen_ids seen_q4 seen_hashes seen_q8
-while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" == \#* ]] && continue
-    [[ -n "$line" && "$line" != *$'\r'* && "$line" != *$'\t\t'* \
-        && "$line" != $'\t'* && "$line" != *$'\t' ]] || catalog_error "invalid row"
-    IFS=$'\t' read -r -a fields <<<"$line"
-    ((${#fields[@]} == 6)) || catalog_error "expected six columns"
-    id="${fields[0]}"; chat="${fields[1]}"; q4="${fields[2]}"
-    bytes="${fields[3]}"; sha="${fields[4]}"; q8="${fields[5]}"
-    [[ "$id" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || catalog_error "invalid model ID"
-    [[ "$q4" =~ ^[[:alnum:]_.][[:alnum:]_.-]*$ && "$q8" =~ ^[[:alnum:]_.][[:alnum:]_.-]*$ \
-        && "$q4" != "." && "$q4" != ".." && "$q8" != "." && "$q8" != ".." ]] \
-        || catalog_error "invalid filename"
-    [[ "$bytes" =~ ^[1-9][0-9]*$ ]] || catalog_error "invalid byte count"
-    [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || catalog_error "invalid SHA-256"
-    case "$id:$chat" in
-        3b-instruct:instruct|3b-reasoning:reasoning|8b-instruct:instruct|8b-reasoning:reasoning|14b-instruct:instruct|14b-reasoning:reasoning) ;;
-        *) catalog_error "unknown model ID or chat value" ;;
-    esac
-    [[ ! -v 'seen_ids[$id]' && ! -v 'seen_q4[$q4]' && ! -v 'seen_hashes[$sha]' \
-        && ! -v 'seen_q8[$q8]' ]] || catalog_error "duplicate ID, file, or hash"
-    seen_ids[$id]=1; seen_q4[$q4]=1; seen_hashes[$sha]=1; seen_q8[$q8]=1
-    ids+=("$id"); chats+=("$chat"); q4_files+=("$q4")
-    byte_counts+=("$bytes"); hashes+=("$sha"); q8_files+=("$q8")
-done <"$catalog"
-(( ${#ids[@]} == 6 )) || catalog_error "expected exactly six rows"
-command -v sha256sum >/dev/null 2>&1 || usage_error "sha256sum is required"
-command -v stat >/dev/null 2>&1 || usage_error "stat is required"
+set +e
+catalog_rows="$(awk -F '\t' '
+BEGIN {
+    valid["3b-instruct"]="instruct"; valid["3b-reasoning"]="reasoning"
+    valid["8b-instruct"]="instruct"; valid["8b-reasoning"]="reasoning"
+    valid["14b-instruct"]="instruct"; valid["14b-reasoning"]="reasoning"
+}
+/^#/ { next }
+{
+    if (index($0, "\r") || NF != 6 || $0 ~ /\t\t/ || $0 ~ /^[[:space:]]|[[:space:]]$/) { bad=1; exit 2 }
+    if (!($1 in valid) || valid[$1] != $2 || $3 !~ /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/ ||
+        $6 !~ /^[A-Za-z0-9_.][A-Za-z0-9_.-]*$/ || $3 == "." || $3 == ".." || $6 == "." || $6 == ".." ||
+        $4 !~ /^[1-9][0-9]*$/ || $5 !~ /^[0-9a-f]{64}$/) { bad=1; exit 2 }
+    if (ids[$1]++ || q4[$3]++ || hashes[$5]++ || q8[$6]++) { bad=1; exit 2 }
+    rows++; print
+}
+END { if (!bad && rows != 6) exit 2 }
+' "$catalog")"
+catalog_status=$?
+set -e
+((catalog_status == 0)) || catalog_error "invalid row, value, or duplicate"
 
-verified=0
-external=0
-for index in "${!ids[@]}"; do
-    id="${ids[$index]}"; model="$models_dir/${q4_files[$index]}"
-    if [[ ! -r "$model" ]]; then
-        printf '%s: external verification: artifact is missing or unreadable\n' "$id"
-        ((external += 1))
-        continue
+missing_tool=""
+command -v cargo >/dev/null 2>&1 || missing_tool="cargo unavailable"
+[[ -n "$missing_tool" ]] || artifact_size_tool_available || missing_tool="size tool unavailable"
+[[ -n "$missing_tool" ]] || artifact_hash_tool_available || missing_tool="SHA-256 tool unavailable"
+verified=0; external=0
+while IFS=$'\t' read -r id _ q4_file byte_count hash _; do
+    if [[ -n "$missing_tool" ]]; then
+        printf '%s: external verification: %s\n' "$id" "$missing_tool"; ((external += 1)); continue
     fi
-    size="$(stat -c %s -- "$model")" || real_failure "$id byte count failed"
-    if [[ "$size" != "${byte_counts[$index]}" ]]; then
-        printf '%s: external verification: byte count mismatch (expected=%s actual=%s)\n' \
-            "$id" "${byte_counts[$index]}" "$size"
-        ((external += 1))
-        continue
+    model="$models_dir/$q4_file"
+    if [[ ! -r "$model" || ! -f "$model" ]]; then
+        printf '%s: external verification: artifact is missing or unreadable\n' "$id"; ((external += 1)); continue
     fi
-    digest="$(sha256sum -- "$model")" || real_failure "$id SHA-256 failed"
-    digest="${digest%% *}"
-    if [[ "$digest" != "${hashes[$index]}" ]]; then
-        printf '%s: external verification: SHA-256 mismatch\n' "$id"
-        ((external += 1))
-        continue
-    fi
+    size="$(artifact_size "$model")" || { printf '%s: external verification: byte count unavailable\n' "$id"; ((external += 1)); continue; }
+    [[ "$size" == "$byte_count" ]] || real_failure "$id byte count mismatch"
+    digest="$(artifact_sha256 "$model")" || { printf '%s: external verification: SHA-256 unavailable\n' "$id"; ((external += 1)); continue; }
+    [[ "$digest" == "$hash" ]] || real_failure "$id SHA-256 mismatch"
     output="$(cd "$project_dir" && cargo run --quiet --locked -p gh_zero_engine \
-        --no-default-features --features cpu --example inspect -- "$model")" \
-        || real_failure "$id inspector failed"
+        --no-default-features --features cpu --example inspect -- "$model")" || real_failure "$id inspector failed"
     case "$id" in
         3b-*) dimensions="dimensions: blocks=26 hidden=3072 q=4096 k=1024 v=1024 ffn=9216 context=262144"; ownership="tied-to-embedding"; histogram=$'F32: 53\n  Q4_K: 156\n  Q6_K: 27' ;;
         8b-*) dimensions="dimensions: blocks=34 hidden=4096 q=4096 k=1024 v=1024 ffn=14336 context=262144"; ownership="dedicated"; histogram=$'F32: 69\n  Q4_K: 205\n  Q6_K: 35' ;;
@@ -103,8 +78,6 @@ for index in "${!ids[@]}"; do
     [[ "$output" == *$'\ntensor_histogram:\n'* ]] || real_failure "$id histogram is missing"
     actual_histogram="${output##*$'\ntensor_histogram:\n'}"
     [[ "$actual_histogram" == "  $histogram" ]] || real_failure "$id histogram mismatch"
-    printf '%s: pass\n' "$id"
-    ((verified += 1))
-done
-
+    printf '%s: pass\n' "$id"; ((verified += 1))
+done <<<"$catalog_rows"
 printf 'summary: pass=%d external_verification=%d total=6\n' "$verified" "$external"

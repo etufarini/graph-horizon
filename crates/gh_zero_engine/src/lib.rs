@@ -13,6 +13,7 @@ mod gguf;
 pub mod harness;
 mod kv_cache;
 mod rng;
+mod runtime;
 mod sampling;
 
 pub use api::engine::{BackendMemory, Engine, EngineConfig, PlacementReport};

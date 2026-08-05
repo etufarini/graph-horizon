@@ -20,7 +20,7 @@ pub(crate) mod pipeline;
 
 use crate::backend::buffers::Buffers;
 use buffers::GpuBuffer;
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 use init::device::Device;
 use pipeline::PipelineRegistry;
 
@@ -45,7 +45,7 @@ impl VulkanBackend {
 
     // The hybrid residual boundary and Vulkan tests share the loader's bounded
     // staging upload primitive.
-    #[cfg(any(test, feature = "hybrid"))]
+    #[cfg(any(test, feature = "vulkan-hybrid"))]
     pub(crate) fn upload_bytes(&self, buf: &GpuBuffer, data: &[u8]) -> color_eyre::Result<()> {
         buf.upload(&self.dev, data)
     }
@@ -75,17 +75,89 @@ fn record_submit() {
 }
 
 pub(crate) use init::device;
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) use init::device::Device;
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) use init::hybrid_device;
-#[cfg(all(test, feature = "hybrid"))]
+#[cfg(all(test, feature = "vulkan-hybrid"))]
 pub(crate) use init::{probe_count, reset_probe_count};
-#[cfg(feature = "hybrid")]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) use mem::budget::vram_for_auto;
-#[cfg(not(feature = "hybrid"))]
+#[cfg(not(feature = "vulkan-hybrid"))]
 pub(crate) use mem::budget::{set_reserve_mib, set_weights_percent};
 pub(crate) use mem::{buffers, weights};
+
+#[cfg(feature = "vulkan-hybrid")]
+impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
+    type Device = Device;
+
+    fn host_available() -> color_eyre::eyre::Result<u64> {
+        Ok(mem::budget::host_available())
+    }
+
+    fn acquire() -> color_eyre::eyre::Result<Option<Self::Device>> {
+        hybrid_device()
+    }
+
+    fn budget(
+        device: &Self::Device,
+    ) -> color_eyre::eyre::Result<crate::backend::hybrid::placement::BudgetInput> {
+        Ok(crate::backend::hybrid::placement::BudgetInput::Separate {
+            gpu_available: vram_for_auto(device),
+        })
+    }
+
+    fn topology() -> crate::backend::hybrid::placement::MemoryTopology {
+        crate::backend::hybrid::placement::MemoryTopology::Separate
+    }
+
+    fn all_mode_name() -> &'static str {
+        "all-gpu"
+    }
+
+    fn invalid_percentage_error() -> &'static str {
+        "invalid Vulkan weight percentage"
+    }
+
+    fn fixed_bytes(
+        shape: &crate::backend::hybrid::weights::runtime::RuntimeShape,
+    ) -> color_eyre::eyre::Result<crate::backend::hybrid::weights::runtime::DeviceFixedBytes> {
+        let logits = (shape.vocab as u64)
+            .checked_mul(4)
+            .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
+        let reduce = (kernels::reduce::TOPK_GROUPS as u64)
+            .checked_mul(kernels::reduce::MAX_K as u64)
+            .and_then(|bytes| bytes.checked_mul(8))
+            .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
+        let mmvq = MMVQ_SCRATCH_IN_DIM + MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4;
+        Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
+            host: logits,
+            device: logits
+                .checked_add(reduce)
+                .and_then(|bytes| bytes.checked_add(mmvq))
+                .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?,
+            staging: 0,
+        })
+    }
+
+    fn load_selected(
+        device: Self::Device,
+        meta: &crate::gguf::metadata::ModelMetadata,
+        source: &dyn crate::backend::source::WeightSource,
+        gguf: &crate::gguf::loader::GgufFile,
+        selection: &crate::backend::source::WeightSelection,
+    ) -> color_eyre::eyre::Result<Self> {
+        VulkanBackend::load_selected(device, meta, source, gguf, selection)
+    }
+
+    fn buffer_bytes(buffer: &Self::Buffer) -> u64 {
+        buffer.size
+    }
+
+    fn upload_residual(&self, target: &Self::Buffer, bytes: &[u8]) -> color_eyre::eyre::Result<()> {
+        self.upload_bytes(target, bytes)
+    }
+}
 
 #[cfg(test)]
 pub(crate) mod fault {
@@ -545,6 +617,10 @@ mod vulkan_failure_lifecycle {
     fn real_owner_failpoints_release_acquired_resources() {
         use super::fault::{self, Point};
 
+        if VulkanBackend::bare().is_err() {
+            eprintln!("external verification: no Vulkan device");
+            return;
+        }
         for point in [Point::Initialization, Point::Pipeline, Point::Allocation] {
             fault::arm(point);
             let error = VulkanBackend::bare()

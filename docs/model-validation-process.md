@@ -86,8 +86,9 @@ runs so editing protocol code cannot trigger accidental inference.
 ## Phase 5: Run The Technical Matrix
 
 Execute every authenticated supported artifact across the matrix frozen in Phase
-1. A row must keep its model, backend, KV scheme, context and placement unchanged
-after an error.
+1. Every row names one explicit compile-time profile; there is no runtime
+backend default. A row must keep its model, profile, KV scheme, context and
+placement unchanged after an error.
 
 Each row records at least:
 
@@ -101,6 +102,12 @@ Each row records at least:
 
 Missing hardware, memory or oracle programs are visible external states, not
 reasons for an implicit CPU or smaller-context retry.
+
+For a partitioned profile, assert the generic runtime facts: requested mode and
+percentage, positive host and device layer counts for `mixed`, endpoint ownership
+for 0% and 100%, and the expected number of crossings per pass. These assertions
+belong to selected-runtime integration tests; model-family code must not import
+Metal, Vulkan, or any backend pair.
 
 ## Phase 6: Check Oracle Parity
 
@@ -142,7 +149,8 @@ cases may be non-blocking but cannot be rewritten as passes.
 
 ## Phase 9: Classify Terminal States
 
-Every catalog row receives exactly one state:
+Every catalog row receives exactly one terminal state. A matrix must not omit a
+row, retry it under another profile, or leave it pending:
 
 ### `qualified`
 

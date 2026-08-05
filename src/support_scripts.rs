@@ -245,9 +245,12 @@ fn support_scripts_reject_invalid_values_before_execution() {
     let model = fixture.join("model with spaces.gguf");
     fs::write(&model, b"unchanged model bytes").unwrap();
     let model = model.to_str().unwrap();
+    let legacy_vulkan = concat!("vul", "can");
 
     for (relative, args) in [
         ("support/install.sh", vec!["--backend", "invalid"]),
+        ("support/install.sh", vec!["--backend", legacy_vulkan]),
+        ("support/install.sh", vec![]),
         (
             "support/profiling/profile.sh",
             vec![
@@ -265,8 +268,40 @@ fn support_scripts_reject_invalid_values_before_execution() {
             "support/profiling/validate-kv.sh",
             vec!["--backend", "invalid", "--context", "1"],
         ),
+        (
+            "support/profiling/validate-kv.sh",
+            vec!["--backend", legacy_vulkan, "--context", "1"],
+        ),
+        (
+            "support/profiling/profile.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                legacy_vulkan,
+                "--context",
+                "1",
+                "--kv",
+                "f16",
+            ],
+        ),
         ("support/profiling/validate-weights.sh", vec!["--unknown"]),
         ("support/testing/semantic-check.sh", vec!["--unknown"]),
+        (
+            "support/testing/parity-check.sh",
+            vec![
+                "--models-dir",
+                model,
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                legacy_vulkan,
+                "--kv",
+                "f16",
+                "--reference-server",
+                model,
+            ],
+        ),
         (
             "support/testing/run-ghzero-engine.sh",
             vec![
@@ -280,6 +315,19 @@ fn support_scripts_reject_invalid_values_before_execution() {
                 "invalid",
             ],
         ),
+        (
+            "support/testing/run-ghzero-engine.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                legacy_vulkan,
+                "--context",
+                "1",
+                "--kv",
+                "f16",
+            ],
+        ),
     ] {
         let output = script(relative, &args);
         assert_eq!(
@@ -289,6 +337,109 @@ fn support_scripts_reject_invalid_values_before_execution() {
         );
     }
 
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn artifact_helpers_support_gnu_and_bsd_tools() {
+    let fixture = fixture_dir("artifact helpers");
+    let artifact = fixture.join("artifact with spaces");
+    let bin = fixture.join("bin");
+    fs::create_dir(&bin).unwrap();
+    fs::write(&artifact, b"fixture").unwrap();
+    let digest = "0123456789abcdef".repeat(4);
+
+    let stat = bin.join("stat");
+    let shasum = bin.join("shasum");
+    fs::write(
+        &stat,
+        b"#!/usr/bin/env bash\nif [[ \"$1\" == -c ]]; then exit 1; fi\n[[ \"$1 $2\" == '-f %z' ]] || exit 2\nprintf '7\\n'\n",
+    )
+    .unwrap();
+    fs::write(
+        &shasum,
+        format!(
+            "#!/usr/bin/env bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{}  %s\\n' \"${{!#}}\"\n",
+            digest
+        ),
+    )
+    .unwrap();
+    for executable in [&stat, &shasum] {
+        let mut permissions = fs::metadata(executable).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(executable, permissions).unwrap();
+    }
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let command = format!(
+        "source \"{}\"; artifact_size \"$1\"; artifact_sha256 \"$1\"",
+        repository().join("support/artifact.sh").display()
+    );
+    let output = Command::new("/bin/bash")
+        .args(["-c", &command, "artifact-test", artifact.to_str().unwrap()])
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("7\n{digest}\n")
+    );
+
+    let source = fs::read_to_string(repository().join("support/artifact.sh")).unwrap();
+    assert!(!source.contains("set -"));
+    assert!(source.contains("stat -c %s"));
+    assert!(source.contains("stat -f %z"));
+    assert!(source.contains("sha256sum"));
+    assert!(source.contains("shasum -a 256"));
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_requires_profile_and_preflights_metal() {
+    let fixture = fixture_dir("installer preflight");
+    let bin = fixture.join("bin");
+    let mutation = fixture.join("build tool called");
+    fs::create_dir(&bin).unwrap();
+    fs::write(
+        bin.join("uname"),
+        b"#!/usr/bin/env bash\nprintf 'Linux\\n'\n",
+    )
+    .unwrap();
+    for tool in ["cargo", "npm"] {
+        fs::write(
+            bin.join(tool),
+            b"#!/usr/bin/env bash\nprintf called > \"$GH_ZERO_MUTATION_LOG\"\n",
+        )
+        .unwrap();
+    }
+    for tool in ["uname", "cargo", "npm"] {
+        let mut permissions = fs::metadata(bin.join(tool)).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(bin.join(tool), permissions).unwrap();
+    }
+    let output = Command::new("/bin/bash")
+        .arg(repository().join("support/install.sh"))
+        .args(["--backend", "metal"])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GH_ZERO_MUTATION_LOG", &mutation)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("Metal requires macOS on arm64")
+    );
+    assert!(!mutation.exists());
+
+    let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid"));
+    assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
+    assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
 }
 
@@ -511,11 +662,13 @@ printf '%s  %s\n' "$digest" "$model"
         .env("GH_ZERO_BAD_SIZE", "3B-Instruct")
         .output()
         .unwrap();
-    assert!(mismatch.status.success());
-    let stdout = String::from_utf8(mismatch.stdout).unwrap();
-    assert!(stdout.contains("3b-instruct: external verification: byte count mismatch"));
-    assert!(stdout.contains("summary: pass=5 external_verification=1 total=6"));
-    assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 5);
+    assert_eq!(mismatch.status.code(), Some(1));
+    assert!(
+        String::from_utf8(mismatch.stderr)
+            .unwrap()
+            .contains("3b-instruct byte count mismatch")
+    );
+    assert!(!log.exists() || fs::read_to_string(&log).unwrap().is_empty());
 
     fs::remove_file(models.join(rows[1].q4_file)).unwrap();
     fs::write(&log, []).unwrap();
@@ -578,6 +731,11 @@ printf '%s  %s\n' "$digest" "$model"
     fs::copy(
         repository().join("support/profiling/validate-weights.sh"),
         copied_root.join("support/profiling/validate-weights.sh"),
+    )
+    .unwrap();
+    fs::copy(
+        repository().join("support/artifact.sh"),
+        copied_root.join("support/artifact.sh"),
     )
     .unwrap();
     fs::write(
@@ -676,12 +834,16 @@ esac
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
-printf 'args=%s\nmodel=%s\ncontext=%s\nkv=%s\npercent=%s\nprompt=%s\ncompletion=%s\n' \
+printf 'args=%s\nmodel=%s\ncontext=%s\nkv=%s\npercent=%s\nmode=%s\nprompt=%s\ncompletion=%s\n' \
     "$*" "$GH_ZERO_MODEL" "$GH_ZERO_CONTEXT" "$GH_ZERO_KV" \
-    "$GH_ZERO_VRAM_WEIGHTS_PERCENT" "$GH_ZERO_REFERENCE_PROMPT_IDS" \
+    "${GH_ZERO_VRAM_WEIGHTS_PERCENT:-}" "${GH_ZERO_EXPECTED_MODE:-}" "$GH_ZERO_REFERENCE_PROMPT_IDS" \
     "$GH_ZERO_REFERENCE_COMPLETION_IDS" >> "$GH_ZERO_CARGO_LOG"
 if [[ "${GH_ZERO_MEMORY_FAILURE:-}" == 1 ]]; then
     printf 'Vulkan memory is insufficient: required 2 bytes, available 1 bytes\n' >&2
+    exit 1
+fi
+if [[ "${GH_ZERO_DEVICE_FAILURE:-}" == 1 ]]; then
+    printf 'load selected runtime: Vulkan backend is unavailable\n' >&2
     exit 1
 fi
 printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45 oracle_top2=pass\n'
@@ -726,11 +888,15 @@ while :; do /bin/sleep 0.05; done
         "--model-id",
         "3b-instruct",
         "--backend",
-        "hybrid",
+        "vulkan-hybrid",
         "--kv",
         "int8",
         "--reference-server",
         server.to_str().unwrap(),
+        "--weights-percent",
+        "25",
+        "--expect-mode",
+        "mixed",
     ];
 
     let port = free_port();
@@ -752,7 +918,11 @@ while :; do /bin/sleep 0.05; done
     );
     let stdout = String::from_utf8(pass.stdout).unwrap();
     assert_eq!(stdout.lines().count(), 1);
-    assert!(stdout.starts_with("pass: model_id=3b-instruct backend=hybrid kv=int8"));
+    assert!(
+        stdout.starts_with("pass: model_id=3b-instruct backend=vulkan-hybrid kv=int8"),
+        "unexpected parity output: {stdout:?}; stderr={:?}",
+        String::from_utf8_lossy(&pass.stderr)
+    );
     assert!(
         stdout.contains(
             "prompt_ids=1,2,3 oracle_ids=10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25"
@@ -761,16 +931,54 @@ while :; do /bin/sleep 0.05; done
     assert!(stdout.contains("local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45"));
     assert!(!temp.exists());
     let cargo_call = fs::read_to_string(&cargo_log).unwrap();
-    assert!(
-        cargo_call
-            .contains("--features hybrid family::mistral::hybrid::graph::real_ministral_parity")
-    );
-    assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25"));
+    assert!(cargo_call.contains(
+        "--features vulkan-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+    ));
+    assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
     assert_eq!(
         fs::read_to_string(&template_log).unwrap().trim_end(),
         r#"{"messages":[{"role":"system","content":""},{"role":"user","content":"Quanto fa 17 × 19?"}],"add_generation_prompt":true}"#
     );
+
+    let endpoint_port = free_port();
+    let endpoint = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args([
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "3b-instruct",
+            "--backend",
+            "metal-hybrid",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+            "--reference-port",
+            &endpoint_port,
+            "--weights-percent",
+            "100",
+            "--expect-mode",
+            "all-metal",
+        ])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .output()
+        .unwrap();
+    assert!(
+        endpoint.status.success(),
+        "{}",
+        String::from_utf8_lossy(&endpoint.stderr)
+    );
+    assert!(
+        String::from_utf8(endpoint.stdout)
+            .unwrap()
+            .starts_with("pass: model_id=3b-instruct backend=metal-hybrid kv=f16")
+    );
+    assert!(!temp.exists());
 
     let port = free_port();
     let malformed = Command::new("bash")
@@ -808,6 +1016,24 @@ while :; do /bin/sleep 0.05; done
         "external verification: unsupported llama.cpp revision"
     );
 
+    let device = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args(base)
+        .args(["--reference-port", &free_port()])
+        .env("PATH", &path)
+        .env("GH_ZERO_TEMP_DIR", &temp)
+        .env("GH_ZERO_CARGO_LOG", &cargo_log)
+        .env("GH_ZERO_SERVER_LOG", &server_log)
+        .env("GH_ZERO_DEVICE_FAILURE", "1")
+        .output()
+        .unwrap();
+    assert!(device.status.success());
+    assert_eq!(
+        String::from_utf8(device.stdout).unwrap().trim(),
+        "external verification: vulkan-hybrid backend unavailable"
+    );
+    assert!(!temp.exists());
+
     let server_calls = fs::read_to_string(&server_log).unwrap().lines().count();
     let cargo_calls = fs::read_to_string(&cargo_log).unwrap().lines().count();
     let mismatch = Command::new("bash")
@@ -818,10 +1044,11 @@ while :; do /bin/sleep 0.05; done
         .env("GH_ZERO_BAD_SIZE", "1")
         .output()
         .unwrap();
-    assert!(mismatch.status.success());
-    assert_eq!(
-        String::from_utf8(mismatch.stdout).unwrap().trim(),
-        "external verification: 3b-instruct byte count mismatch"
+    assert_eq!(mismatch.status.code(), Some(1));
+    assert!(
+        String::from_utf8(mismatch.stderr)
+            .unwrap()
+            .contains("3b-instruct byte count mismatch")
     );
     assert_eq!(
         fs::read_to_string(&server_log).unwrap().lines().count(),
@@ -847,7 +1074,7 @@ while :; do /bin/sleep 0.05; done
     assert!(memory.status.success());
     assert_eq!(
         String::from_utf8(memory.stdout).unwrap().trim(),
-        "external verification: insufficient memory for hybrid row"
+        "external verification: insufficient memory for vulkan-hybrid row"
     );
     assert!(!temp.exists());
 
@@ -941,7 +1168,8 @@ while :; do /bin/sleep 0.05; done
     for fixed in [
         "--ctx-size 4096",
         "GH_ZERO_CONTEXT=4096",
-        "GH_ZERO_VRAM_WEIGHTS_PERCENT=25",
+        "GH_ZERO_VRAM_WEIGHTS_PERCENT",
+        "GH_ZERO_EXPECTED_MODE",
         "n_predict:16",
         "--host 127.0.0.1",
         "--offline",
@@ -950,12 +1178,13 @@ while :; do /bin/sleep 0.05; done
         "--no-kv-offload",
         "--no-warmup",
         "--ignore-eos",
+        "cargo test --locked --release",
         "--exact",
     ] {
         assert!(source.contains(fixed), "missing fixed contract: {fixed}");
     }
     assert!(!source.contains("--context)"));
-    assert!(!source.contains("--vram-weights-percent)"));
+    assert!(source.contains("--weights-percent)"));
     assert!(!source.contains("eval "));
     assert_eq!(fs::read(&model).unwrap(), b"immutable parity fixture");
     fs::remove_dir_all(fixture).unwrap();
@@ -988,6 +1217,11 @@ fn matrix_script_contract() {
         include_str!("../support/models.tsv"),
     )
     .unwrap();
+    fs::copy(
+        repository().join("support/artifact.sh"),
+        copied_root.join("support/artifact.sh"),
+    )
+    .unwrap();
     fs::write(&server, b"reference fixture").unwrap();
 
     let rows = parse_catalog(include_str!("../support/models.tsv")).unwrap();
@@ -1000,14 +1234,15 @@ fn matrix_script_contract() {
         &parity,
         r#"#!/usr/bin/env bash
 set -eu
-id=""; backend=""; kv=""
+id=""; backend=""; kv=""; percent=""; mode=""
 while (($#)); do
     case "$1" in
         --model-id) id="$2"; shift 2 ;; --backend) backend="$2"; shift 2 ;;
-        --kv) kv="$2"; shift 2 ;; *) shift ;;
+        --kv) kv="$2"; shift 2 ;; --weights-percent) percent="$2"; shift 2 ;;
+        --expect-mode) mode="$2"; shift 2 ;; *) shift ;;
     esac
 done
-key="$id:$backend:$kv"
+key="$id:$backend:$kv:$percent:$mode"
 printf '%s\n' "$key" >> "$GH_ZERO_PARITY_LOG"
 if [[ "$key" == "${GH_ZERO_FAIL_KEY:-}" ]]; then echo 'injected failure' >&2; exit 1; fi
 if [[ "$key" == "${GH_ZERO_EXTERNAL_KEY:-}" ]]; then echo 'external verification: injected resource unavailable'; exit 0; fi
@@ -1067,7 +1302,7 @@ exit 1
         .lines()
         .filter(|line| !line.starts_with("summary:"))
         .collect::<Vec<_>>();
-    assert_eq!(statuses.len(), 42);
+    assert_eq!(statuses.len(), 70);
     assert_eq!(
         statuses
             .iter()
@@ -1080,23 +1315,36 @@ exit 1
             .iter()
             .filter(|line| line.starts_with("parity "))
             .count(),
-        36
+        64
     );
-    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 42);
-    assert!(stdout.contains("summary: pass=42 external_verification=0 failure=0 total=42"));
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 70);
+    assert!(stdout.contains("summary: pass=70 external_verification=0 failure=0 total=70"));
     assert_eq!(fs::read_to_string(&inspect_log).unwrap().lines().count(), 6);
 
     let expected = rows
         .iter()
         .flat_map(|row| {
-            ["cpu", "vulkan", "hybrid"]
+            ["cpu", "vulkan", "vulkan-hybrid", "metal", "metal-hybrid"]
                 .into_iter()
                 .flat_map(move |backend| {
-                    ["f16", "int8"]
-                        .into_iter()
-                        .map(move |kv| format!("{}:{backend}:{kv}", row.id))
+                    ["f16", "int8"].into_iter().map(move |kv| match backend {
+                        "vulkan-hybrid" | "metal-hybrid" => {
+                            format!("{}:{backend}:{kv}:25:mixed", row.id)
+                        }
+                        _ => format!("{}:{backend}:{kv}::", row.id),
+                    })
                 })
         })
+        .chain(
+            ["all-metal:100", "cpu-only:0"]
+                .into_iter()
+                .flat_map(|mode_percent| {
+                    let (mode, percent) = mode_percent.split_once(':').unwrap();
+                    ["f16", "int8"]
+                        .into_iter()
+                        .map(move |kv| format!("3b-instruct:metal-hybrid:{kv}:{percent}:{mode}"))
+                }),
+        )
         .collect::<Vec<_>>();
     let calls = fs::read_to_string(&parity_log).unwrap();
     assert_eq!(calls.lines().collect::<Vec<_>>(), expected);
@@ -1109,7 +1357,7 @@ exit 1
         .env("PATH", &path)
         .env("GH_ZERO_PARITY_LOG", &parity_log)
         .env("GH_ZERO_INSPECT_LOG", &inspect_log)
-        .env("GH_ZERO_EXTERNAL_KEY", "3b-instruct:cpu:f16")
+        .env("GH_ZERO_EXTERNAL_KEY", "3b-instruct:cpu:f16::")
         .output()
         .unwrap();
     assert!(continued.status.success());
@@ -1118,8 +1366,8 @@ exit 1
     assert!(
         stdout.contains("parity model_id=3b-instruct backend=cpu kv=f16: external verification")
     );
-    assert!(stdout.contains("summary: pass=40 external_verification=2 failure=0 total=42"));
-    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 36);
+    assert!(stdout.contains("summary: pass=68 external_verification=2 failure=0 total=70"));
+    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 64);
     fs::write(models.join(rows[0].q8_file), b"Q8 rejection fixture").unwrap();
 
     fs::write(&parity_log, []).unwrap();
@@ -1129,7 +1377,7 @@ exit 1
         .env("PATH", &path)
         .env("GH_ZERO_PARITY_LOG", &parity_log)
         .env("GH_ZERO_INSPECT_LOG", &inspect_log)
-        .env("GH_ZERO_FAIL_KEY", "3b-instruct:cpu:int8")
+        .env("GH_ZERO_FAIL_KEY", "3b-instruct:cpu:int8::")
         .output()
         .unwrap();
     assert_eq!(stopped.status.code(), Some(1));
@@ -1178,8 +1426,9 @@ exit 1
     let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
     assert!(!source.contains("&\n"));
     assert!(!source.contains("eval "));
-    assert!(source.contains("for backend in cpu vulkan hybrid"));
+    assert!(source.contains("for backend in cpu vulkan vulkan-hybrid metal metal-hybrid"));
     assert!(source.contains("for kv in f16 int8"));
+    assert!(source.contains("all-metal:100 cpu-only:0"));
     assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
     fs::remove_dir_all(fixture).unwrap();
 }
@@ -1206,6 +1455,11 @@ fn semantic_script_contract() {
     fs::write(
         copied_root.join("support/models.tsv"),
         include_str!("../support/models.tsv"),
+    )
+    .unwrap();
+    fs::copy(
+        repository().join("support/artifact.sh"),
+        copied_root.join("support/artifact.sh"),
     )
     .unwrap();
 
@@ -1345,7 +1599,7 @@ printf 'internal /secret/path must not escape\n' >&2
         assert_eq!(fields[0], row.id);
         assert_eq!(fields[1], models.join(row.q4_file).to_str().unwrap());
         assert!(fields[2].contains(
-            "--no-default-features --features hybrid --test semantic real_semantic_acceptance"
+            "--no-default-features --features vulkan-hybrid --test semantic real_semantic_acceptance"
         ));
         assert!(fields[2].contains("--ignored --nocapture --exact"));
     }
@@ -1467,20 +1721,14 @@ printf 'internal /secret/path must not escape\n' >&2
     );
     let source =
         fs::read_to_string(repository().join("support/testing/semantic-check.sh")).unwrap();
-    for forbidden in [
-        "curl ",
-        "wget ",
-        "eval ",
-        "--features vulkan",
-        "--features cpu",
-        "pass=6",
-    ] {
+    for forbidden in ["curl ", "wget ", "eval ", "--features cpu", "pass=6"] {
         assert!(
             !source.contains(forbidden),
             "semantic runner contains {forbidden}"
         );
     }
-    assert_eq!(source.matches("--features hybrid").count(), 1);
+    assert!(!source.contains("--features vulkan --test"));
+    assert_eq!(source.matches("--features vulkan-hybrid").count(), 1);
     assert!(source.lines().count() <= 160);
     for row in &rows {
         assert_eq!(

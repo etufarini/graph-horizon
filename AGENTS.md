@@ -79,6 +79,10 @@ Once the structure is approved, ensure that every file adheres to the following 
 
 - Do not optimize blindly.
 - First choose a design that is small, correct, and inspectable.
+- During implementation and profiling, use the smallest supported model that exercises the affected path.
+- Validate the other supported models only after the candidate is complete on the smallest applicable model.
+- Validate a larger model earlier when the change directly depends on model size, capacity, layout, or memory pressure.
+- Run larger-model performance benchmarks only when an approved acceptance criterion explicitly requires them.
 - Optimize only after identifying a real bottleneck.
 - Prefer structural performance improvements over micro-optimizations.
 - Use copies, clones, and allocation avoidance intentionally.

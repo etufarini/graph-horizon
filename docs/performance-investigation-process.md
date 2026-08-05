@@ -1,154 +1,164 @@
 <!--
-This document owns the model-neutral process for investigating performance. It
-keeps measurement subordinate to correctness and current repository tooling.
+This page owns model-neutral performance-investigation process and policy. It
+contains no measured result and makes no runtime or support claim.
 -->
 
 # Performance Investigation Process
 
-Use this process for changes affecting prompt throughput, time to first token,
-decode throughput, memory residency, host-device transfer, kernel dispatch,
-batching, KV behavior, or backend placement.
+Use this process for performance-sensitive changes after correctness and scope
+have been approved. `examples/bench.rs` is the only retained iterative
+performance executable. It measures one end-to-end public-event tuple; the
+operator authenticates artifacts, records environment metadata, compares
+revisions, and assigns the terminal state.
 
-Correctness comes first, measurement second, and optimization third. Performance
-cannot justify a changed numeric or public behavior unless that trade-off was
-explicitly approved before implementation.
+`support/profiling/profile.sh` may provide a placement and memory snapshot.
+`support/profiling/validate-kv.sh` checks both public KV schemes, and
+`support/testing/parity-check.sh` provides pinned-oracle parity. None of these
+tools compares A/B records or makes a performance decision.
 
-## Freeze A Baseline
+## Declare The Experiment
 
-Before editing performance-sensitive code, record:
+Before changing code, declare:
 
-- repository revision and build profile;
-- authenticated artifact and weight format;
-- backend feature and final placement;
-- KV scheme and context;
-- prompt text and maximum generated tokens;
-- warmup and repetition counts;
-- hardware, driver/runtime, operating system, and relevant environment values;
-- benchmark output and any placement or profiling record used.
+- the target: `prefill`, `decode`, or `both`;
+- the intentional code variable;
+- the changed runtime profile;
+- the narrow correctness gate selected for that path.
 
-If the baseline cannot be reproduced, repair the measurement setup before
-changing code. Do not replace an unavailable artifact or backend with a more
-convenient row.
+Prompt throughput is the end-to-end proxy for prefill. It is prompt-token count
+divided by time to the first public text delta, so it includes first sampling;
+it is not isolated prefill timing. Decode throughput uses intervals between
+public text deltas, not raw model-token steps. TTFT runs from
+`Engine::generate` entry to the first public text delta.
 
-## Classify The Bottleneck
+## Default Iterative Tuple
 
-Identify the dominant class before choosing an optimization:
+Define the default tuple once as follows:
 
-| Class | Typical Evidence |
-|---|---|
-| Compute | Kernel time dominates and faster math changes wall time |
-| Bandwidth | Weight, KV, crossing, or readback traffic dominates |
-| Residency | Placement or capacity prevents the intended device execution |
-| Submission | Small dispatches or synchronization dominate token time |
-| KV/context | Decode cost grows with context and attention dominates |
-| Host orchestration | Scheduling, allocation, formatting, or waits dominate |
+- authenticated `3b-instruct` Q4_K_M artifact, including catalog ID, byte size,
+  and SHA-256;
+- Cargo build profile, repository revision, hardware, driver/runtime, and
+  placement;
+- context `4096`, KV `f16`, and greedy sampling;
+- prompt `Quanto fa 17 × 19?` and 32 requested tokens;
+- one warm-up and three measured repetitions;
+- the benchmark's prompt-token and decoded-delta counts, TTFT statistics,
+  prompt-throughput statistics, and decode-throughput statistics.
 
-A faster kernel does not improve a run dominated by transfer or submission.
-State the bottleneck as a measured hypothesis, not an explanation inferred only
-from end-to-end token rates.
+Every later reference to the default tuple means this complete definition.
+Baseline and candidate may differ only by repository revision and the declared
+intentional change. Treat the artifact and every recorded field as untrusted
+until catalog authentication and tuple comparison pass.
 
-## Current Tools
+Run only the profile whose path changed. If the change is shared by standalone
+Metal and hybrid Metal, run two selected rows: `metal` and `metal-hybrid` with
+`weights_percent=25`. CPU is not an automatic control row. Add `int8`, Vulkan,
+8B, or 14B only when the approved change directly depends on that scheme,
+backend, size, layout, capacity, or memory pressure. Select a larger model early
+only when 3B cannot exercise the relevant property.
 
-Use the smallest retained tool that answers the question:
+## Acquire Matching Records
 
-| Tool | Purpose |
-|---|---|
-| `examples/bench.rs` | End-to-end prompt throughput, TTFT, and public-stream decode throughput |
-| `support/profiling/profile.sh` | Immutable placement/memory report and one timing sample |
-| `support/profiling/validate-kv.sh` | Same model/backend/context across both public KV schemes |
-| `support/testing/parity-check.sh` | Pinned external-oracle parity for an approved catalog row |
-| Backend tests and opt-in diagnostics | Narrow kernel, allocation, dispatch, or transfer questions |
+Build and run baseline A, apply only the declared change, then build and run
+candidate B with the default tuple. Store the benchmark's single-line records
+beside the tuple metadata; do not add metadata to benchmark stdout. Do not
+selectively repeat a favorable row or alter inputs after reading results.
 
-There is no retained `validate` or `regression` example. Benchmark tools report
-measurements; validation gates decide pass or fail.
+The complete comparison must finish within two hours of elapsed wall time. Once
+two hours are reached, do not start another row; allow an already running row to finish,
+then assign `not_verified: time budget exceeded` if the comparison remains
+unfinished.
 
-## A/B Method
+For each metric, the benchmark reports the mean and sample standard deviation.
+CV is sample standard deviation divided by the positive mean and is a
+fractional ratio: `0.0500` means 5%. One measured repetition reports standard
+deviation and CV as `n/a`, never zero.
 
-Run comparisons with one intentional variable changed:
+If an objective CV exceeds 5% in either baseline or candidate, allow exactly
+one complete rerun of the selected A/B tuple set. If any objective CV remains
+above 5% after that rerun, assign
+`not_verified: unstable measurement`. Never rerun an individual row alone.
 
-1. capture baseline A;
-2. apply the change or enable candidate B;
-3. keep artifact, backend, KV, context, prompt, generation length, warmup, and repetitions fixed;
-4. run the applicable correctness gate;
-5. compare TTFT, prompt throughput, decode throughput, memory, and the targeted metric;
-6. keep, revise, disable, or revert the candidate.
+## Compare And Classify
 
-If two variables change, split the experiment. Record variance rather than
-treating one favorable sample as a result.
+For throughput, improvement is `candidate / baseline - 1`. For TTFT,
+regression is `candidate / baseline - 1`. Evaluate only the target declared
+before acquisition. For target `both`, prompt and decode throughput must each
+meet the selected threshold; a favorable aggregate cannot hide a failing row.
 
-## Context Regimes
+TTFT is always a control for prefill work. The non-target throughput metric is
+also a control. Apply exactly one terminal state:
 
-Use explicit context values. The current benchmark has no context presets and no
-model environment fallback:
+- `keep`: every objective improves by at least 5%, every objective CV in both
+  records is at most 5%, correctness passes, and no control regresses by more
+  than 5%;
+- `interesting`: every objective improves by at least 3% but less than 5%, with
+  the same stability, correctness, and control gates; preserve the evidence,
+  not disproportionate candidate code;
+- `reject`: any objective improves by less than 3%, correctness fails, a
+  control regresses by more than 5%, the artifact mismatches, or the tuples are
+  incomparable;
+- `not_verified`: a prerequisite is absent, the two-hour budget expires, or
+  the only complete rerun remains unstable.
 
-```sh
-cargo run --release --no-default-features --features cpu --example bench -- \
-  /path/to/model.gguf --context 2048 --kv f16 \
-  --prompt "Hello" --max-tokens 32 --warmup 1 --reps 3
+Correctness failure or a control regression over 5% is `reject` regardless of
+the target gain. A result at or above 5% does not bypass stability or control
+gates.
 
-cargo run --release --no-default-features --features cpu --example bench -- \
-  /path/to/model.gguf --context 8192 --kv f16 \
-  --prompt "Hello" --max-tokens 32 --warmup 1 --reps 3
-```
+## Prerequisite And Tuple Failures
 
-Choose context rows that fit the approved artifact and hypothesis; the values
-above are examples, not release presets. A high-context allocation failure is a
-capacity result and does not authorize retrying with another context.
+Apply these conditions before interpreting performance:
 
-For a placement and memory snapshot, use the retained wrapper:
-
-```sh
-support/profiling/profile.sh --model /path/to/model.gguf \
-  --backend cpu --context 4096 --kv f16
-```
+- If the cataloged artifact is absent, assign
+  `not_verified: artifact unavailable`; do not substitute another model or
+  quantization.
+- If artifact byte size or SHA-256 differs from the catalog, stop before
+  inference and assign `reject: artifact mismatch`.
+- If baseline and candidate differ outside revision and the intentional code
+  change, assign `reject: incomparable tuple`.
+- If required hardware, driver, local oracle, or another external resource is
+  unavailable to the implementer, record
+  `external verification: <exact missing prerequisite>` for that check and run
+  every independent local check. This implementation status is not `keep` and
+  is distinct from the A/B state `not_verified`.
 
 ## Correctness Gate
 
-Select the gate before reading performance results:
+Choose the narrow gate before reading performance output:
 
-- exact parity for bit-preserving refactors;
-- bounded logit, KL, perplexity, or teacher-forced top-k for numeric drift;
-- payload, layout, and quality gates for KV changes;
-- event ordering and cancellation tests for orchestration changes;
-- unchanged placement and capacity accounting unless placement is the variable.
+- exact parity for bit-preserving runtime, scheduling, dispatch, and submission
+  changes;
+- the existing bounded numeric gate for approved numeric drift;
+- KV payload, layout, and quality tests for KV changes;
+- event-order and cancellation tests for orchestration changes;
+- placement and capacity accounting for ownership or placement changes.
 
-The [oracle validation process](oracle-validation-process.md) defines evidence
-and terminal states. A performance path that misses its correctness gate is
-removed or remains disabled; its speed is not an acceptance argument.
+No performance result compensates for a correctness failure. A capacity error
+describes that exact tuple and does not authorize a smaller context or a
+different artifact.
 
-## Keep Or Revert
+## Release Qualification Boundary
 
-Keep a candidate only when:
-
-- the targeted bottleneck improves in the intended regime beyond noise;
-- correctness and validation gates pass;
-- memory use and failure modes remain explicit;
-- unrelated supported regimes remain within the approved budget;
-- added complexity is proportionate to the measured benefit.
-
-Revert or keep disabled when the wrong bottleneck was targeted, the result is
-noise, the gain disappears at the target context, another required metric
-regresses without an approved trade-off, or the path depends on undocumented
-hardware behavior.
+The 70-row correctness matrix is outside iterative performance Definition of
+Done. Run it only for release qualification or for a change to a shared backend
+contract, public artifact compatibility, family-wide numeric behavior, KV
+layout, or placement policy. Do not run it merely because one selected
+performance row changed. Ordinary iterative work does not run separate 8B or
+14B performance benchmarks.
 
 ## Reporting
 
-A performance record includes the change and hypothesis, artifact/backend/KV/
-context/hardware tuple, baseline and candidate samples, variance, correctness
-gate, capacity changes, and one decision: keep, revert, keep disabled, or
-external verification.
+The final investigation record contains:
 
-Do not publish an unlabeled token rate. TTFT and decode throughput depend on
-context, prompt, generation length, backend, build, and hardware.
+- hypothesis, declared target, intentional change, and terminal state with
+  exact reason;
+- baseline and candidate revisions and benchmark records;
+- artifact ID, size, SHA-256, hardware, driver/runtime, Cargo profile,
+  placement, KV, context, prompt, requested tokens, warm-up, and repetitions;
+- objective and control calculations, CV gate, rerun use, and elapsed time;
+- chosen correctness gate and result;
+- every `external verification` item and its exact missing prerequisite.
 
-## External Verification
-
-Missing required hardware, driver, artifact, or memory capacity is external
-verification, not pass. Local compile, synthetic, and correctness gates still
-run when a hardware-specific measurement cannot be attempted.
-
-## Definition Of Done
-
-An investigation is complete when the baseline is reproducible, the bottleneck
-was measured, A/B rows changed one variable, correctness passed, the result was
-classified, and the record contains enough fixed inputs to repeat the run.
+Do not publish an unlabeled token rate, convert prompt throughput into an
+isolated phase claim, or describe an `interesting` signal as a verified
+improvement.

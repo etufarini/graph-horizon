@@ -1,48 +1,28 @@
 /*
- * gh_zero_engine — build script
- * Compiles every GLSL compute shader (each `.comp` found RECURSIVELY under
- * `src/backend/vulkan/shaders/`, including the per-family subfolders) to a
- * SPIR-V module in OUT_DIR at build time, using libshaderc (bundled by the
- * `shaderc` build-dependency: no system tool required). The output stays FLAT,
- * keyed by stem (`OUT_DIR/{stem}.spv`), regardless of the source folder depth,
- * so the crate's `include_bytes!` paths never change. No shader is ever compiled
- * at runtime. This runs ONLY when the `vulkan` feature is active; otherwise (the
- * `cpu` backend) it exits quietly.
- *
- * A missing source directory or a GLSL compilation error fails the build with a
- * clear message instead of producing a silently broken artifact.
-*/
+ * gh_zero_engine — offline shader build
+ * Compiles recursive Vulkan GLSL only for Vulkan profiles and links the ten
+ * trusted Metal sources into one OUT_DIR metallib only for Metal profiles.
+ * It performs no runtime compilation and never reads model data.
+ */
 
-// No-op for the `cpu` backend (no build step). Build scripts are
-// compiled with the package's active feature cfgs, so when `vulkan` is off `main`
-// is empty and nothing references the (then absent) `shaderc` build-dependency.
-#[cfg(not(feature = "vulkan"))]
-fn main() {}
-
-#[cfg(feature = "vulkan")]
 fn main() {
+    #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
+    build_vulkan();
+    #[cfg(any(feature = "metal", feature = "metal-hybrid"))]
+    build_metal();
+}
+
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
+fn build_vulkan() {
     use std::path::Path;
 
     let shader_dir = Path::new("src/backend/vulkan/shaders");
     println!("cargo:rerun-if-changed={}", shader_dir.display());
-
-    // No shaders yet (e.g. early build): nothing to compile, succeed quietly.
-    // The walk collects every `.comp` under the subtree; a missing root dir
-    // yields an empty list, preserving the prior quiet-success behaviour.
     let mut shaders = Vec::new();
     collect_comp(shader_dir, &mut shaders);
 
     let compiler = shaderc::Compiler::new().expect("shaderc: cannot create compiler");
     let out_dir = std::env::var("OUT_DIR").expect("build: OUT_DIR not set");
-
-    // Target Vulkan 1.3 (SPIR-V 1.6) so kernels may use, besides subgroup
-    // arithmetic (GL_KHR_shader_subgroup_*, SPIR-V >= 1.3), cooperative matrix
-    // (SPV_KHR_cooperative_matrix, used by the prefill tensor-core path) and
-    // integer dot product (SPV_KHR_integer_dot_product, used by mmvq decode). The
-    // runtime device is created with
-    // VK_API_VERSION_1_3 to consume these modules. Raising the target only lifts
-    // the SPIR-V version header for the pre-existing (non-coopmat/non-dp4a)
-    // shaders; their generated code — and thus their runtime output — is unchanged.
     let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
     options.set_target_env(
         shaderc::TargetEnv::Vulkan,
@@ -51,15 +31,12 @@ fn main() {
 
     for path in shaders {
         println!("cargo:rerun-if-changed={}", path.display());
-
         let name = path
             .file_stem()
-            .and_then(|s| s.to_str())
+            .and_then(|stem| stem.to_str())
             .expect("build: invalid shader file name");
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|_| panic!("build: cannot read shader '{}'", path.display()));
-
-        // Compute stage; GLSL → SPIR-V. A compilation error aborts the build.
         let artifact = compiler
             .compile_into_spirv(
                 &source,
@@ -68,30 +45,125 @@ fn main() {
                 "main",
                 Some(&options),
             )
-            .unwrap_or_else(|e| panic!("build: shader '{name}' failed to compile:\n{e}"));
-
-        let out = Path::new(&out_dir).join(format!("{name}.spv"));
-        std::fs::write(&out, artifact.as_binary_u8())
-            .unwrap_or_else(|_| panic!("build: cannot write '{}'", out.display()));
+            .unwrap_or_else(|error| panic!("build: shader '{name}' failed to compile:\n{error}"));
+        let output = Path::new(&out_dir).join(format!("{name}.spv"));
+        std::fs::write(&output, artifact.as_binary_u8())
+            .unwrap_or_else(|_| panic!("build: cannot write '{}'", output.display()));
     }
 }
 
-// Depth-first collection of every `.comp` under `dir`. A non-existent or
-// unreadable directory contributes nothing (preserves the quiet-success path);
-// empty subfolders are simply skipped. Output is flat per stem, so callers must
-// keep shader stems unique across the whole subtree.
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 fn collect_comp(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
     };
     for entry in entries {
         let path = entry.expect("build: cannot read shader dir entry").path();
         if path.is_dir() {
             collect_comp(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("comp") {
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("comp") {
             out.push(path);
         }
     }
+}
+
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
+fn build_metal() {
+    use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos")
+        || std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() != Ok("aarch64")
+    {
+        panic!("metal profiles require macOS on Apple Silicon");
+    }
+
+    let metal = find_tool("metal");
+    let metallib = find_tool("metallib");
+    let source_dir = Path::new("src/backend/metal/shaders");
+    println!("cargo:rerun-if-changed={}", source_dir.display());
+    let names = [
+        "embedding.metal",
+        "matmul.metal",
+        "rmsnorm.metal",
+        "rope.metal",
+        "silu_mul.metal",
+        "residual_add.metal",
+        "kv_write.metal",
+        "attention.metal",
+        "argmax.metal",
+        "topk.metal",
+    ];
+    let mut stems = BTreeSet::new();
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("build: OUT_DIR not set"));
+    let mut objects = Vec::with_capacity(names.len());
+
+    for name in names {
+        let source = source_dir.join(name);
+        println!("cargo:rerun-if-changed={}", source.display());
+        let stem = source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .expect("build: invalid Metal shader name")
+            .to_owned();
+        if !stems.insert(stem.clone()) {
+            panic!("Metal shader compilation failed: {name}");
+        }
+        let object = out_dir.join(format!("{stem}.air"));
+        let output = Command::new(&metal)
+            .args(["-std=metal4.0", "-c"])
+            .arg(&source)
+            .arg("-o")
+            .arg(&object)
+            .output()
+            .unwrap_or_else(|_| toolchain_unavailable());
+        if !output.status.success() {
+            panic!(
+                "Metal shader compilation failed: {name}\n{}",
+                bounded(&output.stderr)
+            );
+        }
+        objects.push(object);
+    }
+
+    let library = out_dir.join("gh_zero_engine.metallib");
+    let output = Command::new(&metallib)
+        .args(&objects)
+        .arg("-o")
+        .arg(&library)
+        .output()
+        .unwrap_or_else(|_| toolchain_unavailable());
+    if !output.status.success() {
+        panic!("Metal library link failed\n{}", bounded(&output.stderr));
+    }
+}
+
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
+fn find_tool(name: &str) -> std::path::PathBuf {
+    let output = std::process::Command::new("xcrun")
+        .args(["--find", name])
+        .output()
+        .unwrap_or_else(|_| toolchain_unavailable());
+    if !output.status.success() {
+        toolchain_unavailable();
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if path.is_empty() {
+        toolchain_unavailable();
+    }
+    path.into()
+}
+
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
+fn toolchain_unavailable() -> ! {
+    panic!(
+        "Metal toolchain unavailable: install the Metal Toolchain and ensure xcrun can find metal and metallib"
+    )
+}
+
+#[cfg(any(feature = "metal", feature = "metal-hybrid"))]
+fn bounded(bytes: &[u8]) -> String {
+    const LIMIT: usize = 8 * 1024;
+    String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]).into_owned()
 }

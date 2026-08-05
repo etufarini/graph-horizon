@@ -10,15 +10,15 @@ use color_eyre::eyre::Result;
 
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
 use crate::backend::source::WeightSource;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
 use crate::gguf::loader::GgufFile;
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
 use crate::gguf::metadata::ModelMetadata;
 
 use super::buffer::{CpuBuffer, CpuFormat};
-#[cfg(any(test, not(feature = "hybrid")))]
+#[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
 use super::weights;
 use super::{CpuBackend, CpuEncoder, dispatch, kernels, readback};
 
@@ -27,7 +27,7 @@ impl Backend for CpuBackend {
     type Buffer = CpuBuffer;
     type Encoder = CpuEncoder;
 
-    #[cfg(any(test, not(feature = "hybrid")))]
+    #[cfg(any(test, not(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))))]
     fn load(
         meta: &ModelMetadata,
         ws: &dyn WeightSource,

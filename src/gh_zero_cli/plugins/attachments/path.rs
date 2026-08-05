@@ -1,5 +1,5 @@
 /*
- * GH Zero CLI Linux anchored-file authority
+ * GH Zero CLI Unix anchored-file authority
  * Owns the immutable startup-directory descriptor and opens user-requested
  * descendants relative to already-open directories. It never changes the
  * current directory or returns a validated path for later reopening.
@@ -8,20 +8,38 @@
 use std::ffi::CString;
 use std::fs::File;
 use std::io;
+#[cfg(target_os = "macos")]
+use std::os::fd::IntoRawFd;
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 #[cfg(test)]
 use std::path::Path;
 
 const DENIED: io::ErrorKind = io::ErrorKind::PermissionDenied;
 
-const O_DIRECTORY: i32 = 0o200000;
-const O_NOFOLLOW: i32 = 0o400000;
-const O_CLOEXEC: i32 = 0o2000000;
 const O_RDONLY: i32 = 0;
 const O_WRONLY: i32 = 1;
-const O_CREAT: i32 = 0o100;
-const O_TRUNC: i32 = 0o1000;
-const O_NONBLOCK: i32 = 0o4000;
+
+#[cfg(target_os = "macos")]
+mod platform {
+    pub(super) const O_DIRECTORY: i32 = 0x0010_0000;
+    pub(super) const O_NOFOLLOW: i32 = 0x0000_0100;
+    pub(super) const O_CLOEXEC: i32 = 0x0100_0000;
+    pub(super) const O_CREAT: i32 = 0x0000_0200;
+    pub(super) const O_TRUNC: i32 = 0x0000_0400;
+    pub(super) const O_NONBLOCK: i32 = 0x0000_0004;
+}
+
+#[cfg(not(target_os = "macos"))]
+mod platform {
+    pub(super) const O_DIRECTORY: i32 = 0o200000;
+    pub(super) const O_NOFOLLOW: i32 = 0o400000;
+    pub(super) const O_CLOEXEC: i32 = 0o2000000;
+    pub(super) const O_CREAT: i32 = 0o100;
+    pub(super) const O_TRUNC: i32 = 0o1000;
+    pub(super) const O_NONBLOCK: i32 = 0o4000;
+}
+
+use platform::*;
 
 unsafe extern "C" {
     fn openat(dirfd: i32, path: *const std::ffi::c_char, flags: i32, ...) -> i32;
@@ -91,18 +109,24 @@ impl FileAuthority {
             let parts = components(requested_dir)?;
             self.walk(&parts)?
         };
-        // `/proc/self/fd` reopens the already-authorized directory object, not
-        // a user path. Root renames therefore do not change authority.
-        let descriptor_path = format!("/proc/self/fd/{}", dir.as_raw_fd());
-        let mut entries = Vec::new();
-        for entry in std::fs::read_dir(descriptor_path)? {
-            let entry = entry?;
-            let Ok(name) = entry.file_name().into_string() else {
-                continue;
-            };
-            entries.push((name, entry.file_type()?.is_dir()));
+        #[cfg(target_os = "macos")]
+        return macos_entries(&dir);
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            // Linux procfs reopens the authorized directory object, not a user
+            // path. Root renames therefore cannot change this authority.
+            let descriptor_path = format!("/proc/self/fd/{}", dir.as_raw_fd());
+            let mut entries = Vec::new();
+            for entry in std::fs::read_dir(descriptor_path)? {
+                let entry = entry?;
+                let Ok(name) = entry.file_name().into_string() else {
+                    continue;
+                };
+                entries.push((name, entry.file_type()?.is_dir()));
+            }
+            Ok(entries)
         }
-        Ok(entries)
     }
 
     fn walk(&self, components: &[CString]) -> io::Result<File> {
@@ -125,6 +149,61 @@ impl FileAuthority {
         }
         Ok(dir)
     }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_entries(dir: &File) -> io::Result<Vec<(String, bool)>> {
+    let fd = dir.try_clone()?.into_raw_fd();
+    // SAFETY: fd is a new owned directory descriptor transferred to fdopendir.
+    let stream = unsafe { fdopendir(fd) };
+    if stream.is_null() {
+        // SAFETY: fdopendir failed, so ownership of fd was not transferred.
+        drop(unsafe { File::from_raw_fd(fd) });
+        return Err(io::Error::last_os_error());
+    }
+    let mut entries = Vec::new();
+    loop {
+        // SAFETY: stream remains live until closed below; readdir owns its row.
+        let entry = unsafe { readdir(stream) };
+        if entry.is_null() {
+            break;
+        }
+        // SAFETY: Darwin guarantees d_namlen bytes inside d_name for this row.
+        let row = unsafe { &*entry };
+        let name = unsafe {
+            std::slice::from_raw_parts(row.d_name.as_ptr().cast::<u8>(), row.d_namlen as usize)
+        };
+        if name == b"." || name == b".." {
+            continue;
+        }
+        if let Ok(name) = std::str::from_utf8(name) {
+            entries.push((name.to_owned(), row.d_type == 4));
+        }
+    }
+    // SAFETY: stream was returned by fdopendir and is closed exactly once.
+    unsafe { closedir(stream) };
+    Ok(entries)
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct DarwinDirent {
+    _header: [u64; 2],
+    _d_reclen: u16,
+    d_namlen: u16,
+    d_type: u8,
+    d_name: [std::ffi::c_char; 1024],
+}
+
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct DirStream([u8; 0]);
+
+#[cfg(target_os = "macos")]
+unsafe extern "C" {
+    fn fdopendir(fd: i32) -> *mut DirStream;
+    fn readdir(dir: *mut DirStream) -> *mut DarwinDirent;
+    fn closedir(dir: *mut DirStream) -> i32;
 }
 
 fn components(requested: &str) -> io::Result<Vec<CString>> {
@@ -295,7 +374,10 @@ mod tests {
 
         let (root, authority) = root("non-utf8");
         let invalid = std::ffi::OsString::from_vec(vec![b'n', b'a', 0xff]);
-        File::create(root.join(invalid)).unwrap();
+        let Ok(_) = File::create(root.join(invalid)) else {
+            std::fs::remove_dir_all(root).unwrap();
+            return;
+        };
         assert!(authority.entries("").unwrap().is_empty());
         std::fs::remove_dir_all(root).unwrap();
     }

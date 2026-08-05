@@ -1,25 +1,29 @@
 <!--
-Questo registro conserva evidenza revisionata di artefatti, rifiuti Q8,
-parità e qualifica semantica; non definisce capability runtime, supporto
-prodotto o whitelist di modelli.
+Questo registro conserva evidenza revisionata di artefatti, correttezza,
+qualifica semantica, Metal e candidati prestazionali rifiutati; non definisce
+capability runtime, supporto prodotto o whitelist di modelli.
 -->
 
 # Registro di validazione
 
 ## Ambito e data
 
-Registro aggiornato il 3 agosto 2026 per la specifica `01-metal-backend`.
+Registro aggiornato il 5 agosto 2026. Conserva la qualifica della specifica
+`01-metal-backend` e l'esito revisionato della successiva campagna
+prestazionale.
 
 Gli artefatti locali di questa campagna sono in
 `/Users/emanuele/Documents/models`; il percorso è solo un input di validazione
 e non è un default del runtime.
 
-L'evidenza distingue tre piani:
+L'evidenza distingue quattro piani:
 
 - compatibilità tecnica: autenticazione Q4_K_M, rifiuto Q8, backend, KV e
   parità;
 - qualifica semantica: solo il corpus e la configurazione esplicitamente
   descritti dal Piano 07;
+- indagine prestazionale: misure A/B storiche e relativi verdetti, senza claim
+  sull'architettura corrente;
 - runtime prodotto: API, CLI, HTTP server e Web UI restano governati dai loro
   contratti, non da questo registro.
 
@@ -80,6 +84,48 @@ Hardware: MacBook Air `Mac16,13`, Apple M4 10 core, 24 GB, macOS 26.3
 
 Le metriche sono finite e descrittive. Questa modifica non impone velocità o
 rapporto minimo.
+
+## Esito della campagna prestazionale — 5 agosto 2026
+
+I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono
+stati rimossi: il runtime corrente non contiene né il batching prefill dinamico
+da 32 righe né il completamento greedy fuso. Un rapporto intermedio positivo è
+un segnale `interesting`, non un miglioramento verificato e non descrive
+l'architettura corrente.
+
+### Candidato prefill dinamico da 32 righe
+
+Revisione candidata:
+`cc729eb974431b51eaf067adf3a8de34217951cf`.
+
+| Tentativo | Geomean prefill | Geomean decode | Decisione | Prima regressione |
+|---:|---:|---:|---|---|
+| 1 | 1.2184276784715833 | 1.0248269438770594 | `repeat required` | `public_decode_tps=0.9246821218888349` |
+| 2 | 1.2762628240786342 | 1.0695683954824686 | `revert` — `unstable measurement` | `prefill_tps=0.9174527480250944` |
+
+Il verdetto terminale del secondo tentativo è riportato in tabella; il codice
+di produzione è stato rimosso da `46e8cc1`. Il segnale aggregato sul prefill era
+interessante, ma le righe instabili e una regressione ripetuta impediscono
+qualsiasi claim di miglioramento verificato.
+
+### Candidato decode greedy fuso
+
+Revisione candidata:
+`24f3b6fc53ed3b40c1675e8ffaa302f8301d6b04`.
+
+| Tentativo | Geomean prefill | Geomean decode | Decisione | Prima regressione |
+|---:|---:|---:|---|---|
+| 1 | 1.0899998824625137 | 1.1013495018254948 | `repeat required` | `first_sample_latency=1.089238234438909` |
+| 2 | 0.9062425203332453 | 0.9131343535729636 | `revert` — `unstable measurement` | `prefill_tps=0.6349648977217498` |
+
+Il verdetto terminale del secondo tentativo è riportato in tabella; il codice
+di produzione è stato rimosso da `d3c27d1`. Il primo tentativo indicava un
+segnale positivo ma instabile; il rerun completo ha invertito entrambi gli
+aggregati e ha confermato che non è possibile dichiarare un miglioramento.
+
+Fonti: record decisionali versionati in `DECISIONS.md` e valori fissati nella
+specifica approvata `plans/03-performance-cleanup/m2.md`. L'evidenza locale
+ignorata sotto `target/performance` resta storica e non viene riscritta.
 
 ## Configurazione semantica Piano 07
 

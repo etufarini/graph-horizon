@@ -360,6 +360,27 @@ mod tests {
             (width - 1) as u32
         );
 
+        let negative_infinity = vec![f32::NEG_INFINITY; width + 3];
+        let logits = buffer(&device, &negative_infinity, MetalFormat::F32)?;
+        assert_eq!(
+            argmax::read(
+                &device,
+                &pipelines,
+                &logits,
+                &reduce,
+                negative_infinity.len()
+            )?,
+            0
+        );
+
+        let mut non_finite = vec![f32::NAN; width + 3];
+        non_finite[width + 1] = 1.;
+        let logits = buffer(&device, &non_finite, MetalFormat::F32)?;
+        assert_eq!(
+            argmax::read(&device, &pipelines, &logits, &reduce, non_finite.len())?,
+            (width + 1) as u32
+        );
+
         let logits = buffer(&device, &[1., 3., 3., -2.], MetalFormat::F32)?;
         assert_eq!(argmax::read(&device, &pipelines, &logits, &reduce, 4)?, 1);
         assert_eq!(

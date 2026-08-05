@@ -1,7 +1,7 @@
 /*
  * gh_zero_engine — Metal projection dispatch
  * Selects scalar or bounded cooperative projection and binds its checked grid;
- * unsupported batch shapes retain the per-row path.
+ * hybrid and unsupported batch shapes retain the per-row path.
  */
 use super::super::exec::dispatch;
 use super::super::{
@@ -52,7 +52,10 @@ pub(crate) fn encode_batched(
         MetalFormat::Q6K => 3,
         _ => 0,
     };
-    if rows > 1
+    // The cooperative path is retained only where its A/B control passed;
+    // Metal-hybrid builds keep the stable per-row execution order.
+    if !cfg!(feature = "metal-hybrid")
+        && rows > 1
         && rows <= 32
         && input.is_multiple_of(256)
         && output.is_multiple_of(32)

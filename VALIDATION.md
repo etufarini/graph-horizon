@@ -73,7 +73,7 @@ Le tre quantità devono sommare esattamente al totale fissato.
 ## Ciclo di ottimizzazione CPU — 5 agosto 2026
 
 Hardware: MacBook Air Apple M4 10 core, 24 GB, macOS 26.3, Rust 1.95.0; artefatto `3b-instruct` Q4_K_M autenticato, 2147023008 byte, SHA-256 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
-Tupla: Cargo `release`, feature `cpu`, thread automatici (10), contesto 4096, KV f16, prompt `Ciao`, greedy, 32 token, warm-up 1, ripetizioni 5; revisione iniziale e finale `5882b22`.
+Tupla: Cargo `release`, feature `cpu`, thread automatici (10), contesto 4096, KV f16, prompt `Ciao`, greedy, 32 token, warm-up 1, ripetizioni 5; revisione iniziale e finale `e6f02ee`.
 
 Il profilo pubblico registra prompt 3,61 tok/s, TTFT 1383,61 ms e decode 2,18 tok/s. Il campionamento decode attribuisce circa il 68% dei campioni attivi ai kernel Q4_K e il 32% a Q6_K; attenzione e plumbing sono trascurabili.
 
@@ -109,9 +109,9 @@ rapporto minimo.
 ## Ottimizzazione corrente della proiezione Q4_K Metal — 5 agosto 2026
 
 Ipotesi: il kernel di proiezione ricalcolava scale, minimi e indirizzi Q4_K per
-ogni peso. Il candidato `1466f4a` li calcola una volta per sottoblocco senza
+ogni peso. Il candidato `1b37fda` li calcola una volta per sottoblocco senza
 cambiare formato, precisione o ordine naturale dell'accumulo FP32. La baseline
-è `1e797f8`; il solo profilo modificato è `metal` standalone.
+è `a7c410f`; il solo profilo modificato è `metal` standalone.
 
 Artefatto `3b-instruct` Q4_K_M autenticato, 2147023008 byte, SHA-256
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
@@ -121,8 +121,8 @@ warm-up e tre ripetizioni:
 
 | Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
 |---|---:|---:|---:|---:|---:|---:|
-| `1e797f8` | 2,62 | 0,31% | 5341,41 | 0,31% | 2,21 | 0,03% |
-| `1466f4a` | 10,74 | 0,74% | 1303,38 | 0,74% | 6,08 | 0,05% |
+| `a7c410f` | 2,62 | 0,31% | 5341,41 | 0,31% | 2,21 | 0,03% |
+| `1b37fda` | 10,74 | 0,74% | 1303,38 | 0,74% | 6,08 | 0,05% |
 
 Il prompt throughput migliora del 309,9%, il decode del 175,1% e il TTFT si
 riduce del 75,6%. Tutti i CV sono inferiori al 5%, quindi non è stato usato il
@@ -133,7 +133,7 @@ entro il budget di due ore.
 
 ### Ciclo successivo sul kernel Q4_K
 
-Il ciclo successivo ha usato `4c591c1` come baseline, lo stesso artefatto e la
+Il ciclo successivo ha usato `27e4670` come baseline, lo stesso artefatto e la
 stessa tupla. Baseline: prompt 10,75 tok/s (CV 0,62%), TTFT 1302,85 ms
 (CV 0,62%) e decode 6,08 tok/s (CV 0,21%). Il target dichiarato era `both`:
 prompt e decode dovevano migliorare entrambi almeno del 5% per lo stato
@@ -155,7 +155,7 @@ al 5%.
 I tentativi 1–3 e 5–9 hanno superato 127 test Metal e parity 16/16 contro
 l'oracolo fissato; il tentativo 4 ha superato i test sintetici ma è stato
 fermato dalla parity prima del benchmark. Ogni candidato è stato rimosso: il
-tree finale conserva soltanto `1466f4a`. Ulteriore parallelismo della
+tree finale conserva soltanto `1b37fda`. Ulteriore parallelismo della
 proiezione richiederebbe una riduzione floating-point con ordine diverso e
 quindi un oracle numerico non previsto dalla specifica corrente.
 
@@ -167,17 +167,17 @@ test Metal, `cargo fmt --check` e parity reale 16/16 passano.
 
 L'audit del tree finale ha individuato un invariante Q6_K ancora calcolato per
 ogni peso: la scala FP16 è comune ai 256 valori del blocco e ciascuna scala
-signed è comune a 16 valori consecutivi. Il candidato `9b1e24f` le carica una
+signed è comune a 16 valori consecutivi. Il candidato `96acbc5` le carica una
 volta ai rispettivi livelli, continuando a visitare gli input in ordine
 crescente; formato, precisione e sequenza dell'accumulo FP32 restano invariati.
 
-La baseline è `cbc680c`; artefatto, hardware e tupla sono gli stessi del ciclo
+La baseline è `28c854a`; artefatto, hardware e tupla sono gli stessi del ciclo
 Q4_K. Le misure A/B usano Cargo `release`, un warm-up e tre ripetizioni:
 
 | Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
 |---|---:|---:|---:|---:|---:|---:|
-| `cbc680c` | 10,56 | 0,23% | 1325,32 | 0,23% | 6,00 | 0,05% |
-| `9b1e24f` | 20,85 | 0,01% | 671,32 | 0,01% | 10,17 | 0,11% |
+| `28c854a` | 10,56 | 0,23% | 1325,32 | 0,23% | 6,00 | 0,05% |
+| `96acbc5` | 20,85 | 0,01% | 671,32 | 0,01% | 10,17 | 0,11% |
 
 Il prompt throughput migliora del 97,4%, il decode del 69,5% e il TTFT si
 riduce del 49,3%. Tutti i CV sono inferiori al 5%, quindi non è stato usato il
@@ -189,13 +189,13 @@ Il ciclo successivo ha provato a conservare in storage privato i 32 byte Q6_K
 letti prima come nibble basso e poi alto. Test CPU e Metal e parity 16/16 sono
 passati, ma la misura stabile ha registrato prompt 17,70 tok/s (CV 0,20%), TTFT
 790,96 ms (CV 0,20%) e decode 8,97 tok/s (CV 0,08%): rispetto alla baseline
-`9b1e24f`, rispettivamente −15,1%, +17,8% e −11,8%. Stato terminale: `reject`;
+`96acbc5`, rispettivamente −15,1%, +17,8% e −11,8%. Stato terminale: `reject`;
 la cache privata è stata rimossa perché pressione sullo storage e istruzioni
 aggiunte superano il risparmio di letture.
 
 La verifica finale misura il tree mantenuto a 20,21 prompt tok/s (CV 0,53%),
 692,86 ms TTFT (CV 0,53%) e 10,14 decode tok/s (CV 0,09%). Una nuova misura
-della baseline originale `1e797f8`, con la stessa tupla, registra 2,55 prompt
+della baseline originale `a7c410f`, con la stessa tupla, registra 2,55 prompt
 tok/s, 5480,01 ms e 2,16 decode tok/s: il miglioramento complessivo è quindi
 +692,5% prompt, +369,4% decode e −87,4% TTFT. Il loop termina perché Q4_K e
 Q6_K non ricalcolano più invarianti per peso, i candidati locali restanti sono
@@ -204,13 +204,15 @@ floating-point senza un oracle numerico approvato.
 
 ## Proiezione Metal cooperativa per il prefill — 5 agosto 2026
 
-La baseline `81ddd6b` eseguiva `Backend::matmul_batched` come una proiezione
+La baseline `a7f3d3b` eseguiva `Backend::matmul_batched` come una proiezione
 separata per token e limitava il batch Ministral a quattro righe. Il candidato
 corrente porta il limite fisso a 32 e aggiunge un kernel Q4_K/Q6_K 8×8 basato
-su `simdgroup_matrix`: ogni gruppo riusa lo stesso tile di pesi per un massimo
-di quattro tile da otto token. Formati, layout dei buffer, ordine del grafo e
-kernel decode restano invariati; forme non quantizzate, non allineate o con una
-sola riga conservano il percorso per-riga.
+su `simdgroup_matrix` nel solo profilo `metal`: ogni gruppo riusa lo stesso tile
+di pesi per un massimo di quattro tile da otto token. Gli altri profili,
+compreso `metal-hybrid`, conservano batch da quattro righe e percorso per-riga.
+Formati, layout dei buffer, ordine del grafo e kernel decode restano invariati;
+forme non quantizzate, non allineate o con una sola riga conservano anch'esse il
+percorso per-riga.
 
 Stesso hardware, artefatto e comando dei cicli precedenti, Cargo `release`,
 contesto 4096, KV f16, prompt `Quanto fa 17 × 19?`, 32 token generati, un
@@ -218,7 +220,7 @@ warm-up e tre ripetizioni:
 
 | Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
 |---|---:|---:|---:|---:|---:|---:|
-| `81ddd6b` | 20,52 | 1,44% | 682,25 | 1,44% | 10,16 | 0,08% |
+| `a7f3d3b` | 20,52 | 1,44% | 682,25 | 1,44% | 10,16 | 0,08% |
 | candidato corrente | 38,41 | 0,18% | 364,52 | 0,18% | 10,03 | 0,01% |
 
 Il prompt throughput migliora dell'87,2% e il TTFT si riduce del 46,6%; il
@@ -229,9 +231,26 @@ batch/sequenziale con scarto massimo ammesso 0,05, 129 test Metal, 152 test CPU
 e i test mirati Metal-hybrid. Nella parity reale tutti i 16 token greedy locali
 coincidono con l'oracolo `llama.cpp` `13f2b28b`.
 
+Il controllo `metal-hybrid` usa la stessa tupla con `weights_percent=25`, piano
+mixed da 24 layer CPU e 2 Metal e build isolate per revisione. La prima
+acquisizione completa richiede il solo rerun consentito perché B1 supera il 5%
+di CV su TTFT e decode:
+
+| Record mixed | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| A1 `a7f3d3b` | 3,99 | 0,52% | 3504,60 | 0,52% | 2,27 | 0,92% |
+| B1 candidato finale | 3,76 | 4,94% | 3726,57 | 5,04% | 2,13 | 7,03% |
+| A2 `a7f3d3b` | 3,01 | 2,26% | 4650,79 | 2,28% | 1,72 | 2,90% |
+| B2 candidato finale | 2,89 | 0,57% | 4839,65 | 0,57% | 1,70 | 1,11% |
+
+Nel rerun stabile B2 rispetto ad A2 varia del −4,0% sul prompt, +4,1% sul
+TTFT e −1,2% sul decode: tutti i controlli restano entro il 5%. Il profilo
+hybrid non riceve quindi il kernel cooperativo né un claim di accelerazione;
+la riga è soltanto il controllo che chiude il gate del cambiamento standalone.
+
 ## Riduzione Metal parallela per il decode — 5 agosto 2026
 
-Un trace `Metal System Trace` sul tree `d08b45b` ha separato circa 79,8 ms di
+Un trace `Metal System Trace` sul tree `8a8ec5a` ha separato circa 79,8 ms di
 forward da 9,9 ms di argmax per token. Il kernel argmax usava un solo thread per
 scandire serialmente i 131072 logit. Il candidato corrente distribuisce la
 scansione su una sola SIMD-group e riduce prima il valore massimo, poi l'indice
@@ -245,9 +264,9 @@ campagna Metal precedente, con Cargo `release`, un warm-up e tre ripetizioni:
 
 | Profilo | Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Metal | `d08b45b` | 37,06 | 0,21% | 377,81 | 0,21% | 10,02 | 0,37% |
+| Metal | `8a8ec5a` | 37,06 | 0,21% | 377,81 | 0,21% | 10,02 | 0,37% |
 | Metal | candidato corrente | 37,93 | 0,23% | 369,06 | 0,23% | 10,97 | 0,05% |
-| Metal-hybrid 25% | `d08b45b` | 5,53 | 2,31% | 2533,15 | 2,33% | 2,48 | 2,00% |
+| Metal-hybrid 25% | `8a8ec5a` | 5,53 | 2,31% | 2533,15 | 2,33% | 2,48 | 2,00% |
 | Metal-hybrid 25% | candidato corrente | 5,39 | 1,85% | 2598,35 | 1,84% | 2,49 | 1,06% |
 
 Metal standalone migliora il decode del 9,5%, il prompt del 2,3% e riduce il
@@ -280,7 +299,7 @@ rapporto intermedio della campagna storica non descrive l'architettura corrente.
 ### Candidato prefill dinamico da 32 righe
 
 Revisione candidata:
-`cc729eb974431b51eaf067adf3a8de34217951cf`.
+`df4dc871e8e8a5711a4c5ed79435770c7abbef66`.
 
 | Tentativo | Geomean prefill | Geomean decode | Decisione | Prima regressione |
 |---:|---:|---:|---|---|
@@ -288,14 +307,14 @@ Revisione candidata:
 | 2 | 1.2762628240786342 | 1.0695683954824686 | `revert` — `unstable measurement` | `prefill_tps=0.9174527480250944` |
 
 Il verdetto terminale del secondo tentativo è riportato in tabella; il codice
-di produzione è stato rimosso da `46e8cc1`. Il segnale aggregato sul prefill era
+di produzione è stato rimosso da `15c0ca9`. Il segnale aggregato sul prefill era
 interessante, ma le righe instabili e una regressione ripetuta impediscono
 qualsiasi claim di miglioramento verificato.
 
 ### Candidato decode greedy fuso
 
 Revisione candidata:
-`24f3b6fc53ed3b40c1675e8ffaa302f8301d6b04`.
+`b03a2f8db7fde9989ee477a80d8297dc40ee00ca`.
 
 | Tentativo | Geomean prefill | Geomean decode | Decisione | Prima regressione |
 |---:|---:|---:|---|---|
@@ -303,7 +322,7 @@ Revisione candidata:
 | 2 | 0.9062425203332453 | 0.9131343535729636 | `revert` — `unstable measurement` | `prefill_tps=0.6349648977217498` |
 
 Il verdetto terminale del secondo tentativo è riportato in tabella; il codice
-di produzione è stato rimosso da `d3c27d1`. Il primo tentativo indicava un
+di produzione è stato rimosso da `4bfc532`. Il primo tentativo indicava un
 segnale positivo ma instabile; il rerun completo ha invertito entrambi gli
 aggregati e ha confermato che non è possibile dichiarare un miglioramento.
 

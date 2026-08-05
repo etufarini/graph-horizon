@@ -30,7 +30,7 @@ pub(crate) struct PipelineRegistry {
 }
 
 // Capability-gated variants are added separately during construction.
-const KERNELS: [Kernel; 25] = [
+const KERNELS: [Kernel; 26] = [
     Kernel::MatmulF16,
     Kernel::MatmulQ4KTiled,
     Kernel::MatmulQ5K,
@@ -56,6 +56,7 @@ const KERNELS: [Kernel; 25] = [
     Kernel::TopkPartial,
     Kernel::SiluMul,
     Kernel::MatmulQ4KBatchF16Out,
+    Kernel::MatmulQ6KBatchF16Out,
 ];
 
 impl PipelineRegistry {

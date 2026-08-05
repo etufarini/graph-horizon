@@ -96,6 +96,10 @@ pub(in crate::backend::vulkan) fn matmul_batched(
         kernels::matmul::matmul_batched_q4k(&b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n);
         return;
     }
+    if n > 1 && matches!(w.quant, WeightFormat::Q6K) {
+        kernels::matmul::matmul_batched_q6k(&b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n);
+        return;
+    }
     let a_stride = in_dim as u64 * 2; // FP16 activation row
     let o_stride = out_dim as u64 * 2; // FP16 output row
     for i in 0..n as u64 {

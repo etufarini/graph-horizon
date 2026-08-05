@@ -2,10 +2,12 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
-// Q6_K logits projection: same dequant+matmul as matmul_q6_k but the output is
-// FP32 (the vocab-sized logits). Used when the lm_head (output.weight) is Q6_K
-// (the Q4_K_M case). See matmul_q6_k.comp for the block layout and ordering.
-layout(local_size_x = 64) in;
+// AGENTS deroga K: kernel denso Q6_K per la proiezione logits FP32.
+
+// Q6_K logits projection: four invocations cooperate on each vocabulary row,
+// matching matmul_q6_k's 64-value split while retaining FP32 output. Used when
+// the tied or dedicated lm_head is Q6_K.
+layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer A { float16_t a[]; };  // [in_dim]
 layout(std430, binding = 1) readonly buffer W { uint q[]; };       // Q6_K bytes
@@ -13,24 +15,37 @@ layout(std430, binding = 2) writeonly buffer Y { float y[]; };     // [out_dim]
 
 layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
 
+shared float asb[256];
+shared float partial[256];
+
 uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
 float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
 int s8(uint b) { int v = int(gb(b)); return v >= 128 ? v - 256 : v; }
 
 void main() {
-    uint o = gl_GlobalInvocationID.x;
-    if (o >= p.out_dim) return;
+    uint tid = gl_LocalInvocationID.x;
+    uint row_local = tid >> 2u;
+    uint lane = tid & 3u;
+    uint o = gl_WorkGroupID.x * 64u + row_local;
+    bool live = o < p.out_dim;
     uint nsb = p.in_dim / 256u;
+    uint seg = lane >> 1u;
+    uint pair = lane & 1u;
+    uint nibble_shift = pair * 4u;
+    uint scale_shift = pair * 4u;
+    uint activation_shift = seg * 128u + pair * 64u;
     float acc = 0.0;
+
     for (uint s = 0u; s < nsb; s++) {
-        uint blk = (o * nsb + s) * 210u;
-        uint qlo = blk;
-        uint qho = blk + 128u;
-        uint sco = blk + 192u;
-        float d = hf(blk + 208u);
-        uint abase = s * 256u;
-        for (uint n = 0u; n < 256u; n += 128u) {
-            uint seg = n / 128u;
+        asb[tid] = float(a[s * 256u + tid]);
+        barrier();
+
+        if (live) {
+            uint blk = (o * nsb + s) * 210u;
+            uint qlo = blk;
+            uint qho = blk + 128u;
+            uint sco = blk + 192u;
+            float d = hf(blk + 208u);
             uint qlb = qlo + seg * 64u;
             uint qhb = qho + seg * 32u;
             uint scb = sco + seg * 8u;
@@ -39,16 +54,22 @@ void main() {
                 uint lo0 = gb(qlb + l);
                 uint lo1 = gb(qlb + l + 32u);
                 uint h = gb(qhb + l);
-                int q1 = int((lo0 & 0xFu) | (((h >> 0u) & 3u) << 4u)) - 32;
-                int q2 = int((lo1 & 0xFu) | (((h >> 2u) & 3u) << 4u)) - 32;
-                int q3 = int((lo0 >> 4u) | (((h >> 4u) & 3u) << 4u)) - 32;
-                int q4 = int((lo1 >> 4u) | (((h >> 6u) & 3u) << 4u)) - 32;
-                acc += d * float(s8(scb + is + 0u)) * float(q1) * float(a[abase + n + l + 0u]);
-                acc += d * float(s8(scb + is + 2u)) * float(q2) * float(a[abase + n + l + 32u]);
-                acc += d * float(s8(scb + is + 4u)) * float(q3) * float(a[abase + n + l + 64u]);
-                acc += d * float(s8(scb + is + 6u)) * float(q4) * float(a[abase + n + l + 96u]);
+                int q0 = int(((lo0 >> nibble_shift) & 0xFu) |
+                             (((h >> scale_shift) & 3u) << 4u)) - 32;
+                int q1 = int(((lo1 >> nibble_shift) & 0xFu) |
+                             (((h >> (scale_shift + 2u)) & 3u) << 4u)) - 32;
+                acc += d * float(s8(scb + is + scale_shift)) * float(q0) *
+                       asb[activation_shift + l];
+                acc += d * float(s8(scb + is + scale_shift + 2u)) * float(q1) *
+                       asb[activation_shift + l + 32u];
             }
         }
+        barrier();
     }
-    y[o] = acc;
+
+    partial[tid] = acc;
+    barrier();
+    if (lane == 0u && live) {
+        y[o] = partial[tid] + partial[tid + 1u] + partial[tid + 2u] + partial[tid + 3u];
+    }
 }

@@ -11,11 +11,11 @@ use crate::backend::Backend;
 use crate::backend::buffers::Scratch;
 use crate::family::mistral::MistralConfig;
 
-// Only standalone Metal retained the 32-row cooperative projection; every
-// other profile keeps the qualified four-row orchestration.
-#[cfg(feature = "metal")]
+// Standalone GPU profiles keep enough rows to amortize their batched projection;
+// hybrid profiles retain four rows because their split graph crosses backends.
+#[cfg(any(feature = "metal", feature = "vulkan"))]
 pub(crate) const BATCH_ROWS: usize = 32;
-#[cfg(not(feature = "metal"))]
+#[cfg(not(any(feature = "metal", feature = "vulkan")))]
 pub(crate) const BATCH_ROWS: usize = 4;
 
 pub(crate) const X: usize = 0;
@@ -130,6 +130,15 @@ mod tests {
 
     #[test]
     fn batch_capacity_matches_the_selected_profile() {
-        assert_eq!(BATCH_ROWS, if cfg!(feature = "metal") { 32 } else { 4 });
+        assert_eq!(
+            BATCH_ROWS,
+            if cfg!(feature = "metal") {
+                32
+            } else if cfg!(feature = "vulkan") {
+                32
+            } else {
+                4
+            }
+        );
     }
 }

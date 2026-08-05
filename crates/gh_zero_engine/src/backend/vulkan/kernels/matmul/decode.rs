@@ -33,7 +33,8 @@ pub(crate) fn matmul(
 // The parity test needs the CPU Q4_K oracle (`compute::matmul`, cpu-gated) and the
 // Vulkan device, so it only compiles when both backends are present (the hybrid
 // build); a vulkan-only test build skips it.
-#[cfg(all(test, any(feature = "cpu", feature = "vulkan-hybrid")))]
+#[cfg(test)]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid"))]
 mod tests {
     use crate::backend::Backend;
     use crate::backend::cpu::buffer::{f16_to_f32, f32_to_f16_bytes};
@@ -113,6 +114,119 @@ mod tests {
         w.destroy(&backend.dev);
         in_buf.destroy(&backend.dev);
         out_buf.destroy(&backend.dev);
+    }
+
+    #[test]
+    fn parallel_q6k_projections_match_cpu_oracle() {
+        let backend = match VulkanBackend::bare() {
+            Ok(backend) => backend,
+            Err(_) => {
+                eprintln!("parallel Q6_K parity skipped: no Vulkan device");
+                return;
+            }
+        };
+        let in_dim = 512usize;
+        let out_dim = 70usize;
+        let nsb = in_dim / 256;
+        let mut seed = 0x71_36_6b_21u32;
+        let mut rng = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            seed
+        };
+        let mut qbytes: Vec<u8> = (0..out_dim * nsb * 210)
+            .map(|_| (rng() >> 16) as u8)
+            .collect();
+        let f16le = |value: f32| {
+            let bytes = f32_to_f16_bytes(&value.to_le_bytes());
+            [bytes[0], bytes[1]]
+        };
+        for block in qbytes.chunks_exact_mut(210) {
+            for (index, scale) in block[192..208].iter_mut().enumerate() {
+                *scale = (index % 7 + 1) as u8;
+            }
+            block[208..210].copy_from_slice(&f16le(0.01));
+        }
+        let activation: Vec<f32> = (0..in_dim)
+            .map(|_| ((rng() >> 8) as f32 / u32::MAX as f32) - 0.5)
+            .collect();
+        let want = compute::matmul(
+            &CpuBuffer::from_bytes(qbytes.clone(), CpuFormat::Q6_K),
+            &activation,
+            in_dim,
+            out_dim,
+        );
+
+        let activation_bytes = f32_to_f16_bytes(
+            &activation
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+        let input = backend
+            .alloc_buffer(activation_bytes.len() as u64)
+            .expect("input");
+        backend
+            .upload_bytes(&input, &activation_bytes)
+            .expect("upload input");
+        let mut weights =
+            GpuBuffer::alloc(&backend.dev, qbytes.len() as u64, false).expect("weights");
+        weights.quant = WeightFormat::Q6K;
+        backend
+            .upload_bytes(&weights, &qbytes)
+            .expect("upload weights");
+        let output = backend.alloc_buffer((out_dim * 2) as u64).expect("output");
+        let encoder = backend.begin().expect("begin");
+        backend.matmul(
+            &encoder,
+            &output,
+            &input,
+            &weights,
+            in_dim as u32,
+            out_dim as u32,
+        );
+        backend.submit(encoder).expect("submit");
+        let raw = backend
+            .read_bytes(&output, out_dim * 2)
+            .expect("read output");
+        for (index, bytes) in raw.chunks_exact(2).enumerate() {
+            let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
+            let reference = want[index];
+            assert!(got.is_finite(), "row {index}: non-finite result");
+            assert!(
+                (got - reference).abs() <= 5e-2
+                    || (got - reference).abs() <= 5e-3 * reference.abs().max(1.0),
+                "row {index}: got={got} want={reference}"
+            );
+        }
+
+        let logits = backend.alloc_buffer((out_dim * 4) as u64).expect("logits");
+        let encoder = backend.begin().expect("begin logits");
+        backend.logits(
+            &encoder,
+            &logits,
+            &input,
+            &weights,
+            in_dim as u32,
+            out_dim as u32,
+        );
+        backend.submit(encoder).expect("submit logits");
+        let raw = backend
+            .read_bytes(&logits, out_dim * 4)
+            .expect("read logits");
+        for (index, bytes) in raw.chunks_exact(4).enumerate() {
+            let got = f32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
+            let reference = want[index];
+            assert!(got.is_finite(), "logit {index}: non-finite result");
+            assert!(
+                (got - reference).abs() <= 5e-2
+                    || (got - reference).abs() <= 5e-3 * reference.abs().max(1.0),
+                "logit {index}: got={got} want={reference}"
+            );
+        }
+        input.destroy(&backend.dev);
+        weights.destroy(&backend.dev);
+        output.destroy(&backend.dev);
+        logits.destroy(&backend.dev);
     }
 
     // The mmvq Q4_K decode GEMV (quant A → int8 Q8_1, then the dp4a GEMV) produces

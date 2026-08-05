@@ -85,6 +85,31 @@ Hardware: MacBook Air `Mac16,13`, Apple M4 10 core, 24 GB, macOS 26.3
 Le metriche sono finite e descrittive. Questa modifica non impone velocità o
 rapporto minimo.
 
+## Ottimizzazione corrente della proiezione Q4_K Metal — 5 agosto 2026
+
+Ipotesi: il kernel di proiezione ricalcolava scale, minimi e indirizzi Q4_K per
+ogni peso. Il candidato `1466f4a` li calcola una volta per sottoblocco senza
+cambiare formato, precisione o ordine naturale dell'accumulo FP32. La baseline
+è `1e797f8`; il solo profilo modificato è `metal` standalone.
+
+Artefatto `3b-instruct` Q4_K_M autenticato, 2147023008 byte, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Build Cargo `release`, MacBook Air Apple M4 10 core con Metal 32023.864,
+contesto 4096, KV f16, prompt `Quanto fa 17 × 19?`, greedy, 32 token, un
+warm-up e tre ripetizioni:
+
+| Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| `1e797f8` | 2,62 | 0,31% | 5341,41 | 0,31% | 2,21 | 0,03% |
+| `1466f4a` | 10,74 | 0,74% | 1303,38 | 0,74% | 6,08 | 0,05% |
+
+Il prompt throughput migliora del 309,9%, il decode del 175,1% e il TTFT si
+riduce del 75,6%. Tutti i CV sono inferiori al 5%, quindi non è stato usato il
+rerun consentito. I 127 test Metal, i 152 test CPU e la parity reale passano;
+i 16 token greedy locali coincidono con quelli dell'oracolo fissato
+`llama.cpp` `13f2b28b`. Stato terminale: `keep`. L'intera verifica è rimasta
+entro il budget di due ore.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono

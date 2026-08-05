@@ -1,7 +1,7 @@
 <!--
 Questo registro conserva evidenza revisionata di artefatti, correttezza,
-qualifica semantica, Metal e candidati prestazionali rifiutati; non definisce
-capability runtime, supporto prodotto o whitelist di modelli.
+qualifica semantica, Metal, CPU e candidati prestazionali rifiutati; non
+definisce capability runtime, supporto prodotto o whitelist di modelli.
 -->
 
 # Registro di validazione
@@ -69,6 +69,27 @@ eseguita che soddisfa tutti i gate; `failure` indica una riga tentata con errore
 di protocollo, lifecycle, prompt o numerica; `external_verification` indica un
 prerequisito autenticato, device, tool o capacità assente e non conta come pass.
 Le tre quantità devono sommare esattamente al totale fissato.
+
+## Ciclo di ottimizzazione CPU — 5 agosto 2026
+
+Hardware: MacBook Air Apple M4 10 core, 24 GB, macOS 26.3, Rust 1.95.0; artefatto `3b-instruct` Q4_K_M autenticato, 2147023008 byte, SHA-256 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Tupla: Cargo `release`, feature `cpu`, thread automatici (10), contesto 4096, KV f16, prompt `Ciao`, greedy, 32 token, warm-up 1, ripetizioni 5; revisione iniziale e finale `5882b22`.
+
+Il profilo pubblico registra prompt 3,61 tok/s, TTFT 1383,61 ms e decode 2,18 tok/s. Il campionamento decode attribuisce circa il 68% dei campioni attivi ai kernel Q4_K e il 32% a Q6_K; attenzione e plumbing sono trascurabili.
+
+L'unico candidato bit-exact riusava il percorso single-token per `matmul_batched(..., n=1)` non-x86, eliminando scratch SIMD, output trasposto e allocazioni senza cambiare l'accumulo scalare. Due test ARM verificavano uguaglianza esatta Q4_K/Q6_K; `cargo fmt --check`, 154 test unitari CPU e parity reale passavano, con 16 token greedy identici a llama.cpp `13f2b28b0`.
+
+| Record | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| A1 baseline | 3,32 | 2,99% | 1504,84 | 2,94% | 1,97 | 3,24% |
+| B1 candidato | 2,63 | 11,57% | 1920,67 | 11,31% | 1,53 | 12,09% |
+| A2 baseline, rerun | 2,34 | 8,65% | 2153,98 | 8,89% | 1,37 | 9,75% |
+| B2 candidato, rerun | 2,39 | 8,52% | 2105,69 | 8,62% | 1,39 | 9,00% |
+| Tree finale originale | 2,47 | 9,43% | 2035,24 | 9,58% | 1,43 | 10,15% |
+
+Poiché B1 supera il limite CV del 5%, viene eseguito il solo rerun completo consentito. B2 rispetto ad A2 mostra `+2,14%` prompt, `+1,46%` decode e `−2,24%` TTFT, sotto la soglia minima del 3%, con tutti i CV oltre il 5%. Stato: `not_verified: unstable measurement`; anche senza il gate sarebbe `reject`. Candidato e test rimossi: miglioramento conservato 0%, nessun commit CPU di produzione.
+
+Il loop termina perché rerun e misura finale confermano un oracle instabile sul carico CPU sostenuto. I candidati bit-exact restanti hanno beneficio atteso inferiore alla dispersione; una riduzione SIMD NEON cambierebbe l'ordine floating-point e richiederebbe un oracle numerico non approvato.
 
 ## Prestazioni Metal (nessun gate)
 

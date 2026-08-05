@@ -40,12 +40,24 @@ pub(crate) fn encode(
         c.extend(n.to_ne_bytes());
     }
     c.extend((1.0f32 / (kv.head_dim as f32).sqrt()).to_ne_bytes());
+    c.extend(u32::from(!cfg!(feature = "metal-hybrid")).to_ne_bytes());
+    let width = p.get(Kernel::Attention).width;
+    let heads = (rows as usize)
+        .checked_mul(qh as usize)
+        .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
+    let threads = if cfg!(feature = "metal-hybrid") {
+        heads
+    } else {
+        heads
+            .checked_mul(width)
+            .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?
+    };
     dispatch::encode(
         e,
         p,
         Kernel::Attention,
         &[q, &kv.k, &kv.v, out],
         &c,
-        [(rows as usize) * (qh as usize), 1, 1],
+        [threads, 1, 1],
     )
 }

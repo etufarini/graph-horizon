@@ -288,6 +288,107 @@ quindi agire sulla proiezione/dequantizzazione mantenendo un oracle numerico
 esplicito; ulteriori sole modifiche al lifecycle host non hanno margine
 sufficiente per un miglioramento sostanziale.
 
+## Attenzione Metal parallela — 5 agosto 2026
+
+La nuova indagine parte dal tree `e372a17` sullo stesso MacBook Air Apple M4
+10 core, 24 GB, macOS 26.3, Metal 32023.864 e Rust 1.95.0. L'artefatto
+`3b-instruct` Q4_K_M è autenticato: 2147023008 byte e SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+La configurazione primaria resta Metal standalone, contesto 4096, KV f16,
+greedy, Cargo `release`, un warm-up e tre ripetizioni.
+
+L'obiettivo dichiarato prima delle modifiche è almeno 12,20 decode tok/s sulla
+tupla canonica (+10% rispetto alla nuova baseline) e almeno 8,00 decode tok/s
+dopo un prompt lungo, senza regressioni oltre il 5% su prompt throughput o
+TTFT. Il secondo valore è deliberatamente inferiore al tetto empirico:
+`llama-bench` Metal locale alla revisione `2b63e0610` misura circa 166,38
+prompt tok/s e 40,78 generation tok/s sullo stesso artefatto, con un'interfaccia
+non direttamente equivalente al benchmark pubblico.
+
+### Baseline e causa dello stallo
+
+La baseline canonica usa il prompt `Quanto fa 17 × 19?` (14 token) e 32 delta:
+
+| Tree | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| `e372a17` | 38,06 | 0,87% | 367,88 | 0,87% | 11,09 | 0,26% |
+| finale | 39,76 | 0,53% | 352,15 | 0,53% | 14,36 | 0,07% |
+
+Il prompt lungo ripete 64 volte la frase
+`Descrivi in modo conciso il rapporto tra memoria, calcolo e sincronizzazione.`
+e produce 1220 prompt token. La baseline stabile registra 33,00 prompt tok/s,
+36968,76 ms TTFT e 1,03 decode tok/s. Il kernel attenzione assegnava un query
+head intero a un solo thread, conservava 256 accumulatori FP32 privati e
+scansionava serialmente ogni posizione KV. La crescita da circa 90,2 ms/token
+sul prompt corto a 970,9 ms/token sul prompt lungo attribuisce circa il 90,7%
+del tempo lungo aggiuntivo a questa serializzazione; allocazioni, crossing e
+argmax non crescono con il contesto.
+
+Il candidato mantenuto assegna un'intera SIMD-group a ogni query head. Le lane
+si dividono la dimensione 128, riducono il dot product con `simd_sum` e
+conservano al massimo otto valori di output ciascuna. Layout KV, online
+softmax, causalità, accumulo FP32 e output FP16 restano invariati; cambia
+l'ordine della riduzione del dot product, coperto dal gate numerico e dalla
+parity reale. Metal-hybrid mantiene esplicitamente il percorso seriale: sul
+piano CPU-dominant da 24 layer CPU e 2 Metal il primo candidato condiviso aveva
+superato il limite di regressione.
+
+### Risultati mantenuti
+
+| Tupla | Prima | Dopo | Variazione |
+|---|---:|---:|---:|
+| f16, 14 prompt, 32 delta — prompt tok/s | 38,06 | 39,76 | +4,5% |
+| f16, 14 prompt, 32 delta — TTFT ms | 367,88 | 352,15 | −4,3% |
+| f16, 14 prompt, 32 delta — decode tok/s | 11,09 | 14,36 | +29,5% |
+| f16, 14 prompt, 128 delta — decode tok/s | 7,98 | 13,81 | +73,1% |
+| int8, 14 prompt, 32 delta — decode tok/s | 11,01 | 14,29 | +29,8% |
+| f16, 1220 prompt, 32 delta — prompt tok/s | 33,00 | 52,52 | +59,2% |
+| f16, 1220 prompt, 32 delta — TTFT ms | 36968,76 | 23230,94 | −37,2% |
+| f16, 1220 prompt, 32 delta — decode tok/s | 1,03 | 7,15 | +594,2% |
+| hybrid 25%, f16 — decode tok/s | 2,41 | 2,45 | +1,7% |
+
+La riga lunga A/B sopra è l'acquisizione isolata stabile, con CV al massimo
+0,05% sul candidato. Dopo l'intera sequenza di esperimenti, la riacquisizione
+finale sul MacBook Air fanless richiede il rerun consentito e registra 37,40
+prompt tok/s (CV 5,37%), 32682,70 ms TTFT (CV 5,54%) e 6,66 decode tok/s
+(CV 0,24%). Il decode resta stabile e +546,6% rispetto alla baseline; prefill e
+TTFT finali sono `not_verified: unstable measurement` e non sostituiscono la
+riga A/B stabile con un claim selettivo.
+
+Il target corto è superato. Il target lungo da 8,00 tok/s non è raggiunto:
+l'acquisizione finale conservativa dista 1,34 tok/s (16,8% del target). Sul
+tree finale il prompt corto costa circa 69,6 ms/token e quello lungo circa
+150,2 ms/token: il residuo lungo è diviso approssimativamente tra streaming
+delle proiezioni Q4_K/Q6_K e scansione KV ancora sequenziale nel tempo. I circa
+2,14 GB di pesi per token implicano almeno 30,7 GB/s effettivi già sul percorso
+corto; il limite non è dispatch, allocazione o argmax.
+
+### Esperimenti rimossi
+
+| Ipotesi isolata | Risultato principale | Decisione |
+|---|---:|---|
+| Usare il kernel parallelo anche su Metal-hybrid 25% | −8,7% decode, −9,2% prompt, +10,0% TTFT | rimosso dal profilo hybrid |
+| SIMD-group per proiezione Q4_K/Q6_K | −8,1% decode | `reject`, rimosso |
+| Calcolare online-softmax su una lane e distribuire i coefficienti | −0,7% decode lungo, −2,2% prompt | `reject`, rimosso |
+| Condividere K/V tra quattro query head GQA | −36,6% decode lungo | `reject`, rimosso |
+| Ridurre da otto a quattro accumulatori per lane | 6,94 decode tok/s nel rerun | `reject`, rimosso |
+
+La proiezione SIMD conferma i tentativi storici: letture più coalescenti non
+compensano riduzione FP32 e aumento dei thread. Il riuso GQA riduce traffico ma
+perde parallelismo e aumenta la pressione registri. Le ottimizzazioni semplici
+del kernel sono quindi esaurite. Superare stabilmente 8 tok/s a 1220 token
+richiede una modifica più profonda: attenzione segmentata o flash con più
+SIMD-group per head e combinazione numericamente controllata dei softmax
+parziali. Il percorso corto resta invece limitato dalla proiezione/dequant dei
+pesi; serve un matvec Metal progettato insieme al layout quantizzato, non un
+semplice cambio di griglia.
+
+Passano `cargo fmt --check`, `git diff --check`, le suite complete Metal
+(130 test), Metal-hybrid e CPU (153 test), e le parity reali 16/16 per Metal e
+Metal-hybrid con KV f16 e int8. Tutti i candidati numerici misurati hanno
+superato la parity prima del benchmark; soltanto il kernel attenzione
+standalone è mantenuto.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti restano evidenza storica revisionata della precedente

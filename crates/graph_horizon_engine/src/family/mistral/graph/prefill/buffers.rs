@@ -11,13 +11,6 @@ use crate::backend::Backend;
 use crate::backend::buffers::Scratch;
 use crate::family::mistral::MistralConfig;
 
-// Standalone GPU profiles keep enough rows to amortize their batched projection;
-// hybrid profiles retain four rows because their split graph crosses backends.
-#[cfg(any(feature = "metal", feature = "vulkan"))]
-pub(crate) const BATCH_ROWS: usize = 32;
-#[cfg(not(any(feature = "metal", feature = "vulkan")))]
-pub(crate) const BATCH_ROWS: usize = 4;
-
 pub(crate) const X: usize = 0;
 pub(crate) const NORMED: usize = 1;
 pub(crate) const Q: usize = 2;
@@ -33,10 +26,14 @@ pub(crate) const FFN_OUT: usize = 10;
 pub(crate) struct BatchBuffers<'a, B: Backend> {
     backend: &'a B,
     items: Vec<B::Buffer>,
+    capacity: usize,
 }
 
 impl<'a, B: Backend> BatchBuffers<'a, B> {
-    pub(crate) fn new(backend: &'a B, cfg: &MistralConfig) -> Result<Self> {
+    pub(crate) fn new(backend: &'a B, cfg: &MistralConfig, capacity: usize) -> Result<Self> {
+        if capacity == 0 {
+            bail!("mistral prefill: zero batch capacity");
+        }
         let widths = [
             (cfg.embedding_length, 4usize),
             (cfg.embedding_length, 2),
@@ -61,7 +58,7 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
                 bail!("mistral prefill: row alignment is unsupported");
             }
             let total = stride
-                .checked_mul(BATCH_ROWS as u64)
+                .checked_mul(capacity as u64)
                 .ok_or_else(|| eyre!("mistral prefill: buffer size overflow"))?;
             match backend.alloc_buffer(total) {
                 Ok(buffer) => items.push(buffer),
@@ -73,7 +70,18 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
                 }
             }
         }
-        Ok(Self { backend, items })
+        Ok(Self {
+            backend,
+            items,
+            capacity,
+        })
+    }
+
+    pub(crate) fn validate_rows(&self, rows: usize) -> Result<()> {
+        if rows == 0 || rows > self.capacity {
+            bail!("mistral prefill: batch exceeds capacity");
+        }
+        Ok(())
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
@@ -122,23 +130,4 @@ fn bytes(width: usize, element: usize) -> Result<u64> {
         .checked_mul(element)
         .and_then(|n| u64::try_from(n).ok())
         .ok_or_else(|| eyre!("mistral prefill: buffer size overflow"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::BATCH_ROWS;
-
-    #[test]
-    fn batch_capacity_matches_the_selected_profile() {
-        assert_eq!(
-            BATCH_ROWS,
-            if cfg!(feature = "metal") {
-                32
-            } else if cfg!(feature = "vulkan") {
-                32
-            } else {
-                4
-            }
-        );
-    }
 }

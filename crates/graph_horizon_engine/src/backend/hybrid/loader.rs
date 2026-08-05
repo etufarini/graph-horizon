@@ -1,24 +1,21 @@
 /*
  * graph_horizon_engine — transactional hybrid loader
  * Acquires an optional generic GPU, computes one immutable plan, and constructs
- * exactly its CPU/GPU owners from neutral weights and shape. It owns no family
- * graph, runtime traversal, post-plan fallback, or retry.
+ * exactly its CPU/GPU owners from neutral weights and shape. Build features
+ * control availability; the immutable plan controls selected GPU dispatch.
  */
 
-use color_eyre::eyre::{Result, bail, eyre};
+use color_eyre::eyre::{Result, bail};
 
 use super::contract::HybridDevice;
-use super::placement::{self, BudgetInput, PlacementInput};
-use super::weights::model::WeightBytes;
-use super::weights::runtime::{RuntimeBytes, RuntimeShape};
+use super::placement::{self, BudgetInput};
+use super::weights::runtime::RuntimeShape;
 use super::{HybridBackends, HybridMode, HybridPlan, HybridRuntime};
 use crate::backend::cpu::CpuBackend;
 use crate::backend::source::{WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 use crate::kv_cache::scheme::KvQuant;
-
-const MIB: u64 = 1024 * 1024;
 
 pub(crate) fn load<G: HybridDevice>(
     file: &GgufFile,
@@ -52,6 +49,7 @@ pub(crate) fn load<G: HybridDevice>(
             source,
             file,
             &WeightSelection::full(plan.block_count),
+            false,
         )?),
         HybridMode::Mixed => {
             let cpu = CpuBackend::load_selected(
@@ -74,6 +72,7 @@ pub(crate) fn load<G: HybridDevice>(
                     embedding: false,
                     tail: true,
                 },
+                true,
             )?;
             HybridBackends::Mixed { cpu, gpu }
         }
@@ -120,85 +119,17 @@ pub(crate) fn select_plan<G: HybridDevice>(
     cpu_available: u64,
     budget: Option<BudgetInput>,
 ) -> Result<HybridPlan> {
-    if weights_percent > 100 {
-        bail!(G::invalid_percentage_error());
-    }
-    if shape.block_count != source.groups().layers.len() {
-        bail!("hybrid placement layer count mismatch");
-    }
-    let weights = WeightBytes::from_source(source)?;
-    let topology = G::topology();
-    let gpu_enabled = weights_percent > 0 && budget.is_some();
-    let (cpu_available, gpu_available, reserve) = match (topology, budget) {
-        (placement::MemoryTopology::Separate, Some(BudgetInput::Separate { gpu_available })) => (
-            cpu_available,
-            gpu_available,
-            reserve_bytes(gpu_available, reserve_mib)?,
-        ),
-        (
-            placement::MemoryTopology::Unified,
-            Some(BudgetInput::Unified {
-                physical_memory,
-                recommended_working_set,
-                current_allocated,
-            }),
-        ) => {
-            let gross = placement::unified_gross(physical_memory, recommended_working_set)
-                .ok_or_else(|| eyre!("hybrid placement arithmetic overflow"))?;
-            let reserve = reserve_bytes(gross, reserve_mib)?;
-            let available = placement::unified_capacity(gross, current_allocated);
-            (available, available, reserve)
-        }
-        (_, None) => (cpu_available, 0, 0),
-        _ => return Err(eyre!("hybrid placement topology mismatch")),
-    };
-    let weight_total = weights
-        .globals
-        .all()
-        .and_then(|globals| {
-            weights
-                .layer_range(0..weights.layers.len())?
-                .checked_add(globals)
-        })
-        .ok_or_else(|| eyre!("hybrid placement arithmetic overflow"))?;
-    let gpu_weight_available = if gpu_enabled {
-        ((weight_total as u128 * weights_percent as u128) / 100)
-            .min(gpu_available.saturating_sub(reserve) as u128) as u64
-    } else {
-        0
-    };
-    let runtime = RuntimeBytes::new(shape, context, scheme)?;
-    let fixed = G::fixed_bytes(&shape)?;
-    placement::select(
-        topology,
-        &weights,
-        PlacementInput {
-            cpu_available,
-            gpu_available,
-            gpu_weight_available,
-            gpu_enabled,
-            context,
-            cpu_kv_per_layer: runtime.kv_per_layer,
-            gpu_kv_per_layer: runtime.kv_per_layer,
-            cpu_scratch: runtime.scratch,
-            cpu_fixed: runtime.logits,
-            gpu_host_fixed: fixed.host,
-            gpu_scratch: runtime.scratch,
-            gpu_fixed: fixed.device,
-            gpu_staging: fixed.staging,
-            gpu_reserve: reserve,
-            crossing: runtime.crossing,
-        },
-    )
-}
-
-fn reserve_bytes(gpu_available: u64, override_mib: Option<u64>) -> Result<u64> {
-    match override_mib {
-        Some(mib) => mib
-            .checked_mul(MIB)
-            .ok_or_else(|| eyre!("hybrid placement arithmetic overflow")),
-        None => Ok((256 * MIB).max(gpu_available / 20)),
-    }
+    let (topology, weights, input) = placement::build::<G>(
+        source,
+        shape,
+        context,
+        scheme,
+        weights_percent,
+        reserve_mib,
+        cpu_available,
+        budget,
+    )?;
+    placement::select(topology, &weights, input)
 }
 
 #[cfg(test)]
@@ -206,10 +137,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reserve_override_and_default_are_checked() {
-        assert_eq!(reserve_bytes(16 << 30, None).unwrap(), (16 << 30) / 20);
-        assert_eq!(reserve_bytes(1 << 30, None).unwrap(), 256 * MIB);
-        assert!(reserve_bytes(u64::MAX, Some(u64::MAX)).is_err());
+    fn selected_gpu_loader_receives_only_effective_mixed_placement() {
+        let source = include_str!("loader.rs");
+        let all_gpu = source
+            .split("HybridMode::AllGpu")
+            .nth(1)
+            .unwrap()
+            .split("HybridMode::Mixed")
+            .next()
+            .unwrap();
+        let mixed = source
+            .split("HybridMode::Mixed")
+            .nth(1)
+            .unwrap()
+            .split("HybridMode::CpuOnly")
+            .next()
+            .unwrap();
+        let cpu_only = source.split("HybridMode::CpuOnly").nth(1).unwrap();
+        assert!(all_gpu.contains("false,"));
+        assert!(mixed.contains("true,"));
+        assert!(!cpu_only.contains("G::load_selected"));
     }
 
     #[test]

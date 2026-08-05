@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — Metal Backend trait implementation
  * Contains one thin `impl Backend` delegating ownership, command lifecycle,
- * readback, and operation dispatch. Algorithms and loading remain outside.
+ * readback, and operation dispatch. Features control availability; immutable
+ * effective placement reaches only Metal's two approved operation exceptions.
  */
 
 use color_eyre::eyre::Result;
@@ -48,7 +49,9 @@ impl Backend for MetalBackend {
                 kv_heads: meta.head_count_kv,
                 key_length: meta.head_dim,
                 value_length: meta.head_dim,
-                prefill_rows: 1,
+                cpu_prefill_rows: 4,
+                gpu_prefill_rows: 32,
+                mixed_prefill_rows: 4,
             },
             context,
             crate::kv_cache::scheme::KvQuant::F16,
@@ -183,6 +186,7 @@ impl Backend for MetalBackend {
             in_dim,
             out_dim,
             rows,
+            self.mixed_placement,
         );
     }
 
@@ -286,6 +290,7 @@ impl Backend for MetalBackend {
             position,
             1,
             layer,
+            self.mixed_placement,
         );
     }
 
@@ -310,6 +315,7 @@ impl Backend for MetalBackend {
             base,
             n,
             layer,
+            self.mixed_placement,
         );
     }
 }

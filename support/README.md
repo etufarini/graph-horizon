@@ -17,7 +17,7 @@ diversi.
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
-| `testing/matrix-check.sh` | sei Q8, 60 righe principali e quattro endpoint |
+| `testing/matrix-check.sh` | sei Q8, 60 righe principali e otto endpoint hybrid |
 | `testing/semantic-check.sh` | matrice terminale di qualifica semantica Reasoning |
 | `testing/run-graph-horizon.sh` | avvio esplicito della console locale |
 
@@ -158,10 +158,14 @@ support/testing/matrix-check.sh \
   --reference-server "$PWD/target/oracle/llama.cpp-13f2b28b/build/bin/llama-server"
 ```
 
-Tenta 70 righe seriali. Le righe hybrid principali
-usano 25%/mixed; i quattro endpoint 3B-Instruct usano 100/all-metal e
-0/cpu-only. Continua solo dopo `external verification` e si ferma al primo
-fallimento reale.
+Tenta 74 righe seriali: sei rifiuti Q8, 60 righe principali e otto endpoint
+3B-Instruct. Le righe hybrid principali usano 25%/mixed. Gli endpoint Vulkan e
+Metal usano f16/int8 con 100/all-gpu o 100/all-metal e 0/cpu-only. Per ogni KV,
+la sequenza completa di 16 `local_ids` dell'endpoint omogeneo deve essere
+identica a quella del backend standalone corrispondente. Un controllo o endpoint
+non disponibile resta `external verification`, non produce un claim di
+uguaglianza e non impedisce le righe indipendenti; una differenza ferma subito la
+matrice con failure.
 
 Ogni path modello viene passato come un singolo argomento quotato. Valori enum e
 numerici sono validati prima di invocare Cargo o il binario. Gli script non usano

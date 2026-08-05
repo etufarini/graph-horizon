@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — standalone Metal load transaction
  * Validates configuration and memory before persistent allocation, then builds
- * device, immutable pipelines, weights, and runtime buffers before publication.
+ * device, immutable placement state, pipelines, weights, and runtime buffers.
  */
 
 use color_eyre::eyre::Result;
@@ -52,6 +52,7 @@ pub(crate) fn load(
         source,
         metadata,
         &WeightSelection::full(metadata.block_count),
+        false,
     )
 }
 
@@ -61,11 +62,13 @@ pub(crate) fn load_selected(
     source: &dyn WeightSource,
     metadata: &ModelMetadata,
     selection: &WeightSelection,
+    mixed_placement: bool,
 ) -> Result<MetalBackend> {
     let pipelines = super::pipeline::PipelineRegistry::load(&device)?;
     let weights = weights::load_selected(&device, file, source, selection)?;
     let (buffers, reduce, staging) = buffers::allocate(&device, metadata, weights)?;
     Ok(MetalBackend {
+        mixed_placement,
         device,
         pipelines,
         buffers,

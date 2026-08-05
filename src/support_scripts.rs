@@ -353,13 +353,13 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
     let shasum = bin.join("shasum");
     fs::write(
         &stat,
-        b"#!/usr/bin/env bash\nif [[ \"$1\" == -c ]]; then exit 1; fi\n[[ \"$1 $2\" == '-f %z' ]] || exit 2\nprintf '7\\n'\n",
+        b"#!/bin/bash\nif [[ \"$1\" == -c ]]; then exit 1; fi\n[[ \"$1 $2\" == '-f %z' ]] || exit 2\nprintf '7\\n'\n",
     )
     .unwrap();
     fs::write(
         &shasum,
         format!(
-            "#!/usr/bin/env bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{}  %s\\n' \"${{!#}}\"\n",
+            "#!/bin/bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{}  %s\\n' \"${{!#}}\"\n",
             digest
         ),
     )
@@ -369,7 +369,7 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
         permissions.set_mode(0o755);
         fs::set_permissions(executable, permissions).unwrap();
     }
-    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let path = bin.display().to_string();
     let command = format!(
         "source \"{}\"; artifact_size \"$1\"; artifact_sha256 \"$1\"",
         repository().join("support/artifact.sh").display()
@@ -1191,7 +1191,7 @@ while :; do /bin/sleep 0.05; done
 }
 
 #[test]
-fn matrix_script_contract() {
+fn matrix_runs_seventy_four_exact_rows() {
     use std::collections::HashSet;
     use std::net::TcpListener;
 
@@ -1246,7 +1246,9 @@ key="$id:$backend:$kv:$percent:$mode"
 printf '%s\n' "$key" >> "$GRAPH_HORIZON_PARITY_LOG"
 if [[ "$key" == "${GRAPH_HORIZON_FAIL_KEY:-}" ]]; then echo 'injected failure' >&2; exit 1; fi
 if [[ "$key" == "${GRAPH_HORIZON_EXTERNAL_KEY:-}" ]]; then echo 'external verification: injected resource unavailable'; exit 0; fi
-printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=3\n' "$id" "$backend" "$kv"
+ids='3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18'
+if [[ "$key" == "${GRAPH_HORIZON_MISMATCH_KEY:-}" ]]; then ids='3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,99'; fi
+printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=%s\n' "$id" "$backend" "$kv" "$ids"
 "#,
     )
     .unwrap();
@@ -1302,7 +1304,7 @@ exit 1
         .lines()
         .filter(|line| !line.starts_with("summary:"))
         .collect::<Vec<_>>();
-    assert_eq!(statuses.len(), 70);
+    assert_eq!(statuses.len(), 74);
     assert_eq!(
         statuses
             .iter()
@@ -1315,10 +1317,10 @@ exit 1
             .iter()
             .filter(|line| line.starts_with("parity "))
             .count(),
-        64
+        68
     );
-    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 70);
-    assert!(stdout.contains("summary: pass=70 external_verification=0 failure=0 total=70"));
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 74);
+    assert!(stdout.contains("summary: pass=74 external_verification=0 failure=0 total=74"));
     assert_eq!(fs::read_to_string(&inspect_log).unwrap().lines().count(), 6);
 
     let expected = rows
@@ -1336,13 +1338,16 @@ exit 1
                 })
         })
         .chain(
-            ["all-metal:100", "cpu-only:0"]
+            [("vulkan-hybrid", "all-gpu"), ("metal-hybrid", "all-metal")]
                 .into_iter()
-                .flat_map(|mode_percent| {
-                    let (mode, percent) = mode_percent.split_once(':').unwrap();
-                    ["f16", "int8"]
-                        .into_iter()
-                        .map(move |kv| format!("3b-instruct:metal-hybrid:{kv}:{percent}:{mode}"))
+                .flat_map(|(backend, all_mode)| {
+                    [(all_mode, "100"), ("cpu-only", "0")].into_iter().flat_map(
+                        move |(mode, percent)| {
+                            ["f16", "int8"].into_iter().map(move |kv| {
+                                format!("3b-instruct:{backend}:{kv}:{percent}:{mode}")
+                            })
+                        },
+                    )
                 }),
         )
         .collect::<Vec<_>>();
@@ -1366,8 +1371,8 @@ exit 1
     assert!(
         stdout.contains("parity model_id=3b-instruct backend=cpu kv=f16: external verification")
     );
-    assert!(stdout.contains("summary: pass=68 external_verification=2 failure=0 total=70"));
-    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 64);
+    assert!(stdout.contains("summary: pass=72 external_verification=2 failure=0 total=74"));
+    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 68);
     fs::write(models.join(rows[0].q8_file), b"Q8 rejection fixture").unwrap();
 
     fs::write(&parity_log, []).unwrap();
@@ -1385,6 +1390,27 @@ exit 1
     assert!(stdout.contains("parity model_id=3b-instruct backend=cpu kv=int8: failure"));
     assert!(stdout.contains("summary: pass=7 external_verification=0 failure=1 total=8"));
     assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 2);
+
+    fs::write(&parity_log, []).unwrap();
+    fs::write(&inspect_log, []).unwrap();
+    let mismatch = Command::new(&matrix)
+        .args(base)
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
+        .env("GRAPH_HORIZON_INSPECT_LOG", &inspect_log)
+        .env(
+            "GRAPH_HORIZON_MISMATCH_KEY",
+            "3b-instruct:vulkan-hybrid:int8:100:all-gpu",
+        )
+        .output()
+        .unwrap();
+    assert_eq!(mismatch.status.code(), Some(1));
+    let stdout = String::from_utf8(mismatch.stdout).unwrap();
+    assert!(
+        stdout.contains("backend=vulkan-hybrid kv=int8 weights_percent=100 mode=all-gpu: failure")
+    );
+    assert!(stdout.contains("summary: pass=67 external_verification=0 failure=1 total=68"));
+    assert!(!stdout.contains(models.to_str().unwrap()));
 
     fs::write(&parity_log, []).unwrap();
     fs::write(&inspect_log, []).unwrap();
@@ -1428,9 +1454,16 @@ exit 1
     assert!(!source.contains("eval "));
     assert!(source.contains("for backend in cpu vulkan vulkan-hybrid metal metal-hybrid"));
     assert!(source.contains("for kv in f16 int8"));
-    assert!(source.contains("all-metal:100 cpu-only:0"));
+    assert!(source.contains("vulkan-hybrid:vulkan:all-gpu metal-hybrid:metal:all-metal"));
     assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
     fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn matrix_rejects_homogeneous_endpoint_sequence_mismatch() {
+    let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
+    assert!(source.contains("homogeneous endpoint local ID mismatch"));
+    assert!(source.contains("local_ids=([0-9]+(,[0-9]+){15})"));
 }
 
 #[test]

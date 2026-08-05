@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — native Metal backend namespace
- * Wires the statically selected Metal implementation on qualified Apple hosts.
- * Resource ownership, execution, memory, and kernels live in focused children.
+ * Wires the statically available Metal implementation on qualified Apple hosts.
+ * Effective placement is immutable backend state for two operation exceptions;
+ * resource ownership, execution, memory, and kernels live in focused children.
  */
 
 #![deny(clippy::undocumented_unsafe_blocks)]
@@ -23,6 +24,7 @@ pub(crate) use mem::buffer::{MetalBuffer, MetalFormat};
 use crate::backend::buffers::Buffers;
 
 pub(crate) struct MetalBackend {
+    mixed_placement: bool,
     pub(crate) device: Device,
     pub(crate) pipelines: pipeline::PipelineRegistry,
     pub(crate) buffers: Buffers<MetalBuffer>,
@@ -109,8 +111,9 @@ impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
         source: &dyn crate::backend::source::WeightSource,
         gguf: &crate::gguf::loader::GgufFile,
         selection: &crate::backend::source::WeightSelection,
+        mixed_placement: bool,
     ) -> color_eyre::eyre::Result<Self> {
-        loader::load_selected(device, gguf, source, meta, selection)
+        loader::load_selected(device, gguf, source, meta, selection, mixed_placement)
     }
 
     fn buffer_bytes(buffer: &Self::Buffer) -> u64 {

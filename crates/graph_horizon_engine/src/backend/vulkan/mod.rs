@@ -2,8 +2,8 @@
  * graph_horizon_engine — Vulkan module boundary
  * Owns the concrete backend state and exposes the Vulkan domains for
  * initialization, memory, execution, pipelines, and kernels. Loading and trait
- * delegation stay in their dedicated modules; hybrid policy stays in the
- * feature-gated Mistral domain.
+ * delegation stay in their dedicated modules. Features control availability;
+ * effective hybrid placement does not select a Vulkan numeric variant.
  */
 
 #![deny(clippy::undocumented_unsafe_blocks)]
@@ -146,6 +146,7 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         source: &dyn crate::backend::source::WeightSource,
         gguf: &crate::gguf::loader::GgufFile,
         selection: &crate::backend::source::WeightSelection,
+        _mixed_placement: bool,
     ) -> color_eyre::eyre::Result<Self> {
         VulkanBackend::load_selected(device, meta, source, gguf, selection)
     }

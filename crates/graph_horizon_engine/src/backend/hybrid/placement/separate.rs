@@ -8,25 +8,7 @@ use color_eyre::eyre::{Result, bail, eyre};
 
 use super::super::weights::model::WeightBytes;
 use super::super::{BackendBytes, HybridPlan};
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PlacementInput {
-    pub(crate) cpu_available: u64,
-    pub(crate) gpu_available: u64,
-    pub(crate) gpu_weight_available: u64,
-    pub(crate) gpu_enabled: bool,
-    pub(crate) context: usize,
-    pub(crate) cpu_kv_per_layer: u64,
-    pub(crate) gpu_kv_per_layer: u64,
-    pub(crate) cpu_scratch: u64,
-    pub(crate) cpu_fixed: u64,
-    pub(crate) gpu_host_fixed: u64,
-    pub(crate) gpu_scratch: u64,
-    pub(crate) gpu_fixed: u64,
-    pub(crate) gpu_staging: u64,
-    pub(crate) gpu_reserve: u64,
-    pub(crate) crossing: u64,
-}
+use super::PlacementInput;
 
 #[derive(Clone, Copy)]
 struct Candidate {
@@ -110,7 +92,13 @@ fn candidate(weights: &WeightBytes, input: PlacementInput, split: usize) -> Resu
     let gpu_base = breakdown(
         add(required(gpu_globals)?, required(gpu_layers)?)?,
         0,
-        if has_gpu { input.gpu_scratch } else { 0 },
+        if mixed {
+            input.gpu_mixed_scratch
+        } else if has_gpu {
+            input.gpu_all_scratch
+        } else {
+            0
+        },
         if has_gpu { input.gpu_fixed } else { 0 },
         if has_gpu { input.gpu_staging } else { 0 },
         if mixed { input.crossing } else { 0 },
@@ -211,7 +199,8 @@ mod tests {
             cpu_scratch: 3,
             cpu_fixed: 4,
             gpu_host_fixed: 0,
-            gpu_scratch: 3,
+            gpu_all_scratch: 3,
+            gpu_mixed_scratch: 3,
             gpu_fixed: 4,
             gpu_staging: 0,
             gpu_reserve: 1,
@@ -240,7 +229,7 @@ mod tests {
         let exact = select(&weights(), input(first.cpu.total, first.gpu.total)).unwrap();
         assert_eq!(exact, first);
         let mut overflow = input(u64::MAX, u64::MAX);
-        overflow.gpu_scratch = u64::MAX;
+        overflow.gpu_all_scratch = u64::MAX;
         assert_eq!(
             select(&weights(), overflow).unwrap_err().to_string(),
             "hybrid placement arithmetic overflow"
@@ -257,5 +246,53 @@ mod tests {
             select(&weights(), input(25, 120)).unwrap_err().to_string(),
             "context 4096 does not fit the selected backend; context was not reduced"
         );
+    }
+
+    #[test]
+    fn separate_candidates_use_mode_specific_prefill_bytes() {
+        let mut facts = input(u64::MAX, u64::MAX);
+        facts.cpu_scratch = 4;
+        facts.gpu_all_scratch = 32;
+        facts.gpu_mixed_scratch = 4;
+        facts.crossing = 7;
+
+        let all = candidate(&weights(), facts, 0).unwrap();
+        assert_eq!(all.cpu_full.scratch, 0);
+        assert_eq!(all.gpu_full.scratch, 32);
+        assert_eq!(all.gpu_full.crossing, 0);
+        let mixed = candidate(&weights(), facts, 1).unwrap();
+        assert_eq!(mixed.cpu_full.scratch, 4);
+        assert_eq!(mixed.gpu_full.scratch, 4);
+        assert_eq!(mixed.cpu_full.crossing, 7);
+        assert_eq!(mixed.gpu_full.crossing, 7);
+        let cpu = candidate(&weights(), facts, 3).unwrap();
+        assert_eq!(cpu.cpu_full.scratch, 4);
+        assert_eq!(cpu.gpu_full.total, 0);
+
+        let mut exact = facts;
+        exact.cpu_available = all.cpu_full.total;
+        exact.gpu_available = all.gpu_full.total;
+        assert_eq!(select(&weights(), exact).unwrap().mode, HybridMode::AllGpu);
+        exact.gpu_available -= 1;
+        assert!(select(&weights(), exact).is_err());
+
+        let mut mixed_exact = facts;
+        mixed_exact.cpu_available = mixed.cpu_full.total;
+        mixed_exact.gpu_available = mixed.gpu_full.total;
+        mixed_exact.gpu_weight_available = mixed.gpu_base.weights;
+        assert_eq!(select(&weights(), mixed_exact).unwrap().split, 1);
+        mixed_exact.gpu_available -= 1;
+        assert!(select(&weights(), mixed_exact).is_err());
+
+        let mut cpu_exact = facts;
+        cpu_exact.gpu_enabled = false;
+        cpu_exact.gpu_available = 0;
+        cpu_exact.cpu_available = cpu.cpu_full.total;
+        assert_eq!(
+            select(&weights(), cpu_exact).unwrap().mode,
+            HybridMode::CpuOnly
+        );
+        cpu_exact.cpu_available -= 1;
+        assert!(select(&weights(), cpu_exact).is_err());
     }
 }

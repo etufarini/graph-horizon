@@ -224,6 +224,7 @@ fn generate_with_prefill<B: Backend, C: Cancel>(
             &model.config,
             owned.kv.as_ref().unwrap(),
             &req.prompt,
+            prefill::CPU_ROWS,
             || boundary(cancel, fail_at, Boundary::BeforePrefill),
         )?;
     } else {
@@ -374,7 +375,7 @@ fn cancellation_is_checked_before_each_batch_and_decode_step() {
         (Boundary::BeforeDecode, 1, request(3)),
     ] {
         if boundary == Boundary::BeforePrefill {
-            req.prompt = vec![1; prefill::BATCH_ROWS + 1];
+            req.prompt = vec![1; prefill::CPU_ROWS + 1];
             req.context = req.prompt.len();
         }
         let model = model();
@@ -553,7 +554,8 @@ pub(crate) mod numeric {
         )
         .unwrap();
         if batched {
-            prefill::prefill_with(&backend, cfg, &kv, prompt, || Ok(())).unwrap();
+            prefill::prefill_with(&backend, cfg, &kv, prompt, prefill::CPU_ROWS, || Ok(()))
+                .unwrap();
         } else {
             for (pos, &token) in prompt.iter().enumerate() {
                 forward::token(&backend, cfg, &kv, token, pos).unwrap();

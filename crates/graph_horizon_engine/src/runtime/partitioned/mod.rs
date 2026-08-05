@@ -81,6 +81,8 @@ mod tests {
         static RANGE_CALLS: Cell<usize> = const { Cell::new(0) };
         static FAIL_SUFFIX: Cell<bool> = const { Cell::new(false) };
         static KV_LAYERS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+        static PREFILL_ROWS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+        static BATCH_ROWS: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
     }
 
     // Test-only adapter: host buffers exercise generic partition traversal.
@@ -129,6 +131,7 @@ mod tests {
             _: &dyn WeightSource,
             _: &GgufFile,
             _: &WeightSelection,
+            _: bool,
         ) -> Result<Self> {
             bail!("unused test loader")
         }
@@ -163,8 +166,6 @@ mod tests {
             = Batch<'a, B>
         where
             B: 'a;
-
-        const BATCH_ROWS: usize = 2;
 
         fn shape(_: &Self::Config) -> RuntimeShape {
             shape()
@@ -227,16 +228,26 @@ mod tests {
             _: &B,
             _: &Self::Config,
             _: &Kv<B::Buffer>,
-            _: &[u32],
-            _: &mut dyn FnMut() -> Result<()>,
+            prompt: &[u32],
+            row_capacity: usize,
+            before: &mut dyn FnMut() -> Result<()>,
         ) -> Result<()> {
+            PREFILL_ROWS.with(|seen| seen.borrow_mut().push(row_capacity));
+            for _ in prompt.chunks(row_capacity) {
+                before()?;
+            }
             Ok(())
         }
 
-        fn batch<'a, B: Backend>(backend: &'a B, _: &Self::Config) -> Result<Batch<'a, B>> {
+        fn batch<'a, B: Backend>(
+            backend: &'a B,
+            _: &Self::Config,
+            row_capacity: usize,
+        ) -> Result<Batch<'a, B>> {
+            BATCH_ROWS.with(|seen| seen.borrow_mut().push(row_capacity));
             Ok(Batch {
                 backend,
-                x: Some(backend.alloc_buffer(16)?),
+                x: Some(backend.alloc_buffer((row_capacity * 8) as u64)?),
             })
         }
 
@@ -295,7 +306,9 @@ mod tests {
             kv_heads: 1,
             key_length: 1,
             value_length: 1,
-            prefill_rows: 2,
+            cpu_prefill_rows: 3,
+            gpu_prefill_rows: 4,
+            mixed_prefill_rows: 2,
         }
     }
 
@@ -345,6 +358,39 @@ mod tests {
         RANGE_CALLS.with(|calls| calls.set(0));
         FAIL_SUFFIX.with(|fail| fail.set(false));
         KV_LAYERS.with(|seen| seen.borrow_mut().clear());
+        PREFILL_ROWS.with(|seen| seen.borrow_mut().clear());
+        BATCH_ROWS.with(|seen| seen.borrow_mut().clear());
+    }
+
+    #[test]
+    fn prefill_rows_follow_effective_placement() -> Result<()> {
+        reset();
+        let all_gpu = HybridRuntime {
+            plan: HybridPlan::new(0, 2, BackendBytes::default(), BackendBytes::default())?,
+            backends: HybridBackends::AllGpu(backend(8, true)),
+        };
+        let session =
+            PartitionedSession::<CpuBackend, Graph>::new(&all_gpu, &(), shape(), 8, KvQuant::F16)?;
+        session.prefill(&[0, 1, 0, 1, 0], &mut || Ok(()))?;
+
+        let cpu_only = HybridRuntime {
+            plan: HybridPlan::new(2, 2, BackendBytes::default(), BackendBytes::default())?,
+            backends: HybridBackends::CpuOnly(backend(8, true)),
+        };
+        let session =
+            PartitionedSession::<CpuBackend, Graph>::new(&cpu_only, &(), shape(), 8, KvQuant::F16)?;
+        session.prefill(&[0, 1, 0, 1], &mut || Ok(()))?;
+
+        let mixed = mixed(8);
+        let session =
+            PartitionedSession::<CpuBackend, Graph>::new(&mixed, &(), shape(), 8, KvQuant::F16)?;
+        crate::backend::hybrid::crossing::reset_count();
+        session.prefill(&[0, 1, 0], &mut || Ok(()))?;
+
+        assert_eq!(PREFILL_ROWS.with(|seen| seen.borrow().clone()), [4, 3]);
+        assert_eq!(BATCH_ROWS.with(|seen| seen.borrow().clone()), [2, 2]);
+        assert_eq!(crate::backend::hybrid::crossing::count(), 2);
+        Ok(())
     }
 
     #[test]

@@ -1,8 +1,8 @@
 /*
  * graph_horizon_engine — final source and family boundary audit
  * Statically enforces the exact K/I exemption lists, the 200 productive-line
- * orchestration limit, the Reasoning documentation contract, and absence of
- * obsolete family/backend domains. Tiny synthetic GGUFs exercise the sole
+ * orchestration limit, placement-based numeric dispatch, the documentation
+ * contract, and absence of obsolete domains. Tiny GGUFs exercise the sole
  * mistral3 architecture gate.
  */
 
@@ -130,6 +130,29 @@ fn source_structure() {
         "orchestration over 200 lines:\n{}",
         over.join("\n")
     );
+}
+
+#[test]
+fn hybrid_numeric_dispatch_uses_effective_placement() {
+    let metal = manifest().join("src/backend/metal");
+    for relative in ["kernels/matmul.rs", "kernels/attention.rs"] {
+        let source = fs::read_to_string(metal.join(relative)).expect("Metal dispatcher source");
+        assert!(
+            !source.contains("feature = \"metal-hybrid\""),
+            "{relative} dispatches numerically from a Cargo profile"
+        );
+        assert!(
+            source.contains("mixed_placement"),
+            "{relative} does not use effective placement"
+        );
+    }
+    let backend = fs::read_to_string(metal.join("backend.rs")).expect("Metal backend delegator");
+    assert_eq!(backend.matches("AGENTS deroga I").count(), 1);
+    assert_eq!(backend.matches("self.mixed_placement").count(), 3);
+    let contract = fs::read_to_string(manifest().join("src/backend/hybrid/contract.rs"))
+        .expect("hybrid device contract");
+    assert_eq!(contract.matches("AGENTS deroga I").count(), 1);
+    assert!(contract.contains("mixed_placement: bool"));
 }
 
 #[test]
@@ -266,6 +289,15 @@ fn docs_contract() {
     assert!(engine_flat.contains("`GgmlType::Q8_0`"));
     assert!(backend_flat.contains("Build Backends"));
     assert!(backend_flat.contains("The library crate has no default feature"));
+    assert!(
+        backend_flat.contains("exactly three numeric backend families: CPU, Vulkan, and Metal")
+    );
+    assert!(backend_flat.contains("public composition profiles, not numeric backend families"));
+    assert!(
+        backend_flat.contains(
+            "Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split"
+        )
+    );
     assert!(config_flat.contains("`--context-tokens` requests exactly"));
     assert!(config_flat.contains("GET /props"));
     assert!(ownership.contains("family/mistral/version.rs"));
@@ -286,6 +318,20 @@ fn docs_contract() {
     assert!(ownership.contains("family/mistral/tokenizer/profile.rs"));
     assert!(ownership.contains("family/mistral/parity.rs"));
     assert!(support_flat.contains("parity-check.sh --models-dir DIR --model-id ID"));
+    assert!(support_flat.contains("Tenta 74 righe seriali"));
+    assert!(support_flat.contains("sequenza completa di 16 `local_ids`"));
+    let addition = fs::read_to_string(root.join("docs/backend-addition-process.md"))
+        .expect("backend addition process");
+    assert!(addition.contains("must not select a numeric operation variant"));
+    assert!(addition.contains("local to one operation"));
+    let performance = fs::read_to_string(root.join("docs/performance-investigation-process.md"))
+        .expect("performance process");
+    let performance_flat = performance.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(performance.contains("terminal state `keep`"));
+    assert!(
+        performance_flat
+            .contains("`interesting`, `reject`, or `not_verified`, remove the candidate code")
+    );
     for prerequisite in ["`curl`", "`jq`", "`sha256sum`", "`13f2b28b0`"] {
         assert!(
             support.contains(prerequisite),
@@ -295,6 +341,7 @@ fn docs_contract() {
     assert!(
         validation.contains("summary: qualified=6 not_qualified=0 external_verification=0 total=6")
     );
+    assert!(validation.contains("summary: pass=1 external_verification=73 failure=0 total=74"));
     for model in ["3b-reasoning", "8b-reasoning", "14b-reasoning"] {
         assert!(
             validation.contains(&format!(

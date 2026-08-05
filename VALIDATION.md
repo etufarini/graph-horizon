@@ -48,7 +48,7 @@ non caricabile. L'evidenza storica registra sei rifiuti Q8; nella
 rivalidazione più recente gli artefatti Q8 non erano disponibili e sono stati
 registrati come verifiche esterne, senza riabilitare il formato.
 
-La matrice finale contiene 70 righe: sei rifiuti Q8, 60 righe Q4_K_M (sei
+La matrice storica precedente conteneva 70 righe: sei rifiuti Q8, 60 righe Q4_K_M (sei
 modelli × cinque profili × due KV) e quattro endpoint 3B-Instruct
 Metal-hybrid. Ogni riga usa contesto 4096, prompt token IDs identici all'oracolo
 e 16 token teacher-forced; ogni token oracle deve essere nel top-two locale
@@ -69,6 +69,69 @@ eseguita che soddisfa tutti i gate; `failure` indica una riga tentata con errore
 di protocollo, lifecycle, prompt o numerica; `external_verification` indica un
 prerequisito autenticato, device, tool o capacità assente e non conta come pass.
 Le tre quantità devono sommare esattamente al totale fissato.
+
+## Composizione numerica hybrid — 6 agosto 2026
+
+Revisione di base `f25923bf87c9c98c9a3c80e13ab25c4d17cd7364`; candidato
+nel branch `agent/hybrid-numeric-composition` (il commit che contiene questo
+record). Host Linux x86_64, kernel 7.0.0-28, Rust/Cargo 1.95.0, CPU AMD Ryzen 7
+3800X e AMD Radeon RX 5500 XT con RADV Mesa 26.0.3. Il Mac Apple M4 qualificato
+non era disponibile: `external verification: qualified Metal host unavailable`.
+
+L'audit architetturale conferma tre sole famiglie numeriche — CPU, Vulkan e
+Metal — e due profili pubblici di composizione. `AllGpu` usa 32 righe, `CpuOnly`
+quattro e `Mixed` quattro per entrambi gli owner. I dispatcher Metal matmul e
+attention non contengono condizioni `feature = "metal-hybrid"`; ricevono il
+fatto immutabile `mixed_placement`. Le liste di deroga K/I sono invariate e
+`source_structure` non trova orchestrazione oltre 200 righe produttive.
+
+Comandi locali completati con exit 0:
+
+```text
+cargo fmt --check
+cargo test --locked --workspace --no-default-features --features cpu
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic source_structure -- --exact
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic hybrid_numeric_dispatch_uses_effective_placement -- --exact
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic docs_contract -- --exact
+cargo test --locked --no-default-features --features cpu support_scripts
+bash -n support/testing/matrix-check.sh
+bash -n support/testing/parity-check.sh
+cargo test --locked -p graph_horizon_engine --no-default-features --features vulkan --lib
+cargo test --locked -p graph_horizon_engine --no-default-features --features vulkan-hybrid --lib
+cargo check --locked --workspace --no-default-features --features cpu
+cargo check --locked --workspace --no-default-features --features vulkan
+cargo check --locked --workspace --no-default-features --features vulkan-hybrid
+git diff --check
+```
+
+Il runner sintetico osserva esattamente sei rifiuti Q8, 60 righe principali e
+otto endpoint. Verifica l'uguaglianza di tutti i 16 `local_ids`, rifiuta una
+differenza introdotta soltanto nel sedicesimo ID e non formula uguaglianza se il
+controllo o l'endpoint è esterno.
+
+La matrice reale è stata invocata senza sostituzioni con
+`/home/emanuele/Documenti/models` e il checkout oracle
+`target/oracle/llama.cpp-13f2b28b`. Il checkout oracle è al commit esatto
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`; il binario pubblica però soltanto
+`version: 1 (13f2b28)`, mentre il runner richiede il prefisso fissato di nove
+caratteri, e classifica quindi le dieci righe 3B-Reasoning come
+`external verification: unsupported llama.cpp revision`. Dei modelli catalogati
+era presente soltanto il 3B-Reasoning Q4_K_M e il relativo Q8: quel rifiuto Q8 è
+l'unico pass. Mancavano gli altri cinque Q8 e gli altri cinque Q4_K_M, incluso
+il 3B-Instruct richiesto dagli otto endpoint. Output esatto finale:
+
+```text
+summary: pass=1 external_verification=73 failure=0 total=74
+```
+
+Nessun endpoint omogeneo era eseguibile in questa campagna, quindi non viene
+dichiarata uguaglianza locale. Restano da eseguire sul Mac M4 i test/check
+`metal` e `metal-hybrid` e gli endpoint Metal f16/int8; restano inoltre esterne
+le equivalenze Vulkan/CPU 3B-Instruct finché l'artefatto autenticato non è
+presente. La contabilità corretta a 32 righe può cambiare uno split limitato
+dalla capacità, ma percentuale, riserva, ordine dei candidati, piano immutabile
+e assenza di retry restano invariati. Questa campagna non formula alcun nuovo
+claim prestazionale.
 
 ## Ciclo di ottimizzazione CPU — 5 agosto 2026
 

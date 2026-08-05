@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — Metal projection dispatch
- * Selects scalar or bounded cooperative projection and binds its checked grid;
- * hybrid and unsupported batch shapes retain the per-row path.
+ * Selects scalar or bounded cooperative projection and binds its checked grid.
+ * Features control availability; effective Mixed placement and unsupported
+ * shapes retain the per-row path.
  */
 use super::super::exec::dispatch;
 use super::super::{
@@ -46,6 +47,7 @@ pub(crate) fn encode_batched(
     input: u32,
     output: u32,
     rows: u32,
+    mixed_placement: bool,
 ) -> Result<()> {
     let format = match w.format() {
         MetalFormat::Q4K => 1,
@@ -53,14 +55,8 @@ pub(crate) fn encode_batched(
         _ => 0,
     };
     // The cooperative path is retained only where its A/B control passed;
-    // Metal-hybrid builds keep the stable per-row execution order.
-    if !cfg!(feature = "metal-hybrid")
-        && rows > 1
-        && rows <= 32
-        && input.is_multiple_of(256)
-        && output.is_multiple_of(32)
-        && format != 0
-    {
+    // an effective Mixed suffix keeps the stable per-row execution order.
+    if cooperative(mixed_placement, rows, input, output, format) {
         // One 32-lane SIMD group computes each 8-column output tile.
         if p.get(Kernel::MatmulBatched).width != 32 {
             return Err(eyre!("metal: batched projection requires 32 threads"));
@@ -83,4 +79,33 @@ pub(crate) fn encode_batched(
         encode(e, p, &output_row, &input_row, w, input, output, false)?;
     }
     Ok(())
+}
+
+fn cooperative(mixed_placement: bool, rows: u32, input: u32, output: u32, format: u32) -> bool {
+    !mixed_placement
+        && rows > 1
+        && rows <= 32
+        && input.is_multiple_of(256)
+        && output.is_multiple_of(32)
+        && format != 0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cooperative;
+
+    #[test]
+    fn metal_matmul_route_depends_on_effective_placement_not_feature() {
+        assert!(cooperative(false, 2, 256, 32, 1));
+        assert!(!cooperative(true, 2, 256, 32, 1));
+        for args in [
+            (1, 256, 32, 1),
+            (2, 255, 32, 1),
+            (2, 256, 31, 1),
+            (2, 256, 32, 0),
+        ] {
+            assert!(!cooperative(false, args.0, args.1, args.2, args.3));
+            assert!(!cooperative(true, args.0, args.1, args.2, args.3));
+        }
+    }
 }

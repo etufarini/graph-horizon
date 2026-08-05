@@ -6,28 +6,30 @@
 
 use color_eyre::eyre::{Result, bail};
 
-use super::buffers::*;
+use super::buffers::{BatchBuffers, NORMED, X};
+use super::layer;
 use crate::backend::Backend;
-use crate::backend::buffers::LayerWeights;
-use crate::backend::rope::RopeRole;
 use crate::family::mistral::MistralConfig;
-use crate::family::mistral::graph::{block, mlp, tail};
-use crate::kv_cache::{self, Kv};
+use crate::family::mistral::graph::tail;
+use crate::kv_cache::Kv;
 
 pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
     backend: &B,
     cfg: &MistralConfig,
     kv: &Kv<B::Buffer>,
     prompt: &[u32],
+    row_capacity: usize,
     mut before_batch: F,
 ) -> Result<()> {
     if prompt.is_empty() {
         bail!("mistral graph: empty prompt");
     }
-    let buffers = BatchBuffers::new(backend, cfg)?;
-    for (batch_index, tokens) in prompt.chunks(BATCH_ROWS).enumerate() {
+    let buffers = BatchBuffers::new(backend, cfg, row_capacity)?;
+    for (batch_index, tokens) in prompt.chunks(row_capacity).enumerate() {
         before_batch()?;
-        let base = batch_index * BATCH_ROWS;
+        let base = batch_index
+            .checked_mul(row_capacity)
+            .ok_or_else(|| color_eyre::eyre::eyre!("mistral prefill: buffer size overflow"))?;
         record_batch(backend, cfg, kv, &buffers, tokens, base, true, true)?;
     }
     Ok(())
@@ -45,6 +47,9 @@ pub(crate) fn record_batch<B: Backend>(
     with_tail: bool,
 ) -> Result<()> {
     let rows = tokens.len();
+    batch.validate_rows(rows)?;
+    base.checked_add(rows)
+        .ok_or_else(|| color_eyre::eyre::eyre!("mistral prefill: buffer size overflow"))?;
     let enc = backend.begin()?;
     if with_embedding {
         for (row, &token) in tokens.iter().enumerate() {
@@ -66,7 +71,7 @@ pub(crate) fn record_batch<B: Backend>(
         }
     }
     for (layer_index, layer) in backend.buffers().weights.layers.iter().enumerate() {
-        record_layer(
+        layer::record(
             backend,
             &enc,
             cfg,
@@ -90,119 +95,57 @@ pub(crate) fn record_batch<B: Backend>(
     backend.submit(enc)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn record_layer<B: Backend>(
-    backend: &B,
-    enc: &B::Encoder,
-    cfg: &MistralConfig,
-    kv: &Kv<B::Buffer>,
-    batch: &BatchBuffers<'_, B>,
-    layer: &LayerWeights<B::Buffer>,
-    layer_index: usize,
-    base: usize,
-    rows: usize,
-) -> Result<()> {
-    let hidden = cfg.embedding_length as u32;
-    let row_count = rows as u32;
-    let scratch = batch.scratch(cfg, rows);
-    backend.rmsnorm_x(
-        enc,
-        &scratch.normed,
-        &scratch.x,
-        &layer.attn_norm,
-        hidden,
-        cfg.rms_epsilon,
-        row_count,
-    );
-    backend.no_barrier();
-    backend.matmul_batched(
-        enc,
-        &scratch.q,
-        &scratch.normed,
-        &layer.attn_q,
-        hidden,
-        cfg.q_width as u32,
-        row_count,
-    );
-    backend.no_barrier();
-    backend.matmul_batched(
-        enc,
-        &scratch.k,
-        &scratch.normed,
-        &layer.attn_k,
-        hidden,
-        cfg.k_width as u32,
-        row_count,
-    );
-    backend.matmul_batched(
-        enc,
-        &scratch.v,
-        &scratch.normed,
-        &layer.attn_v,
-        hidden,
-        cfg.v_width as u32,
-        row_count,
-    );
-
-    let yarn = block::yarn(cfg);
-    for row in 0..rows {
-        backend.no_barrier();
-        backend.rope_yarn(
-            enc,
-            &batch.row(Q, row, cfg.q_width, 2),
-            cfg.head_count as u32,
-            cfg.key_length as u32,
-            (base + row) as u32,
-            &yarn,
-            RopeRole::Query,
-        )?;
-        backend.rope_yarn(
-            enc,
-            &batch.row(K, row, cfg.k_width, 2),
-            cfg.kv_head_count as u32,
-            cfg.key_length as u32,
-            (base + row) as u32,
-            &yarn,
-            RopeRole::Key,
-        )?;
-    }
-    kv_cache::append_batch(
-        backend,
-        enc,
-        kv,
-        layer_index,
-        base,
-        &scratch.k,
-        &scratch.v,
-        rows,
-    )?;
-    backend.attention_prefill(
-        enc,
-        &scratch.attn,
-        &scratch.q,
-        kv,
-        cfg.head_count as u32,
-        base as u32,
-        row_count,
-        layer_index as u32,
-    );
-    backend.matmul_batched(
-        enc,
-        &scratch.proj,
-        &scratch.attn,
-        &layer.attn_output,
-        cfg.attention_width as u32,
-        hidden,
-        row_count,
-    );
-    backend.residual_add(enc, &scratch.x, &scratch.proj, hidden * row_count);
-    mlp::record_rows(backend, enc, cfg, layer, &scratch, row_count);
-    Ok(())
-}
-
 #[cfg(test)]
 #[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod tests {
+    use std::cell::Cell;
+
+    use crate::family::mistral::graph::shape::{ShapeBackend, config};
+    use crate::kv_cache;
+    use crate::kv_cache::scheme::KvQuant;
+
+    use super::{BatchBuffers, prefill, record_batch};
+
+    #[test]
+    fn explicit_batch_capacity_bounds_allocation_and_chunks() {
+        let cfg = config(1, 8, 8);
+        let backend = ShapeBackend::new(&cfg, false);
+        let kv = kv_cache::alloc_shape(
+            &backend,
+            cfg.block_count,
+            cfg.context_length,
+            cfg.kv_head_count,
+            cfg.key_length,
+            cfg.value_length,
+            KvQuant::F16,
+        )
+        .unwrap();
+        let calls = Cell::new(0);
+        prefill(&backend, &cfg, &kv, &[1, 1, 1], 2, || {
+            calls.set(calls.get() + 1);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 2);
+        assert_eq!(
+            BatchBuffers::new(&backend, &cfg, 0)
+                .err()
+                .unwrap()
+                .to_string(),
+            "mistral prefill: zero batch capacity"
+        );
+        let batch = BatchBuffers::new(&backend, &cfg, 2).unwrap();
+        assert_eq!(
+            record_batch(&backend, &cfg, &kv, &batch, &[1, 1, 1], 0, true, true)
+                .unwrap_err()
+                .to_string(),
+            "mistral prefill: batch exceeds capacity"
+        );
+        drop(batch);
+        kv_cache::free(&backend, kv);
+        assert_eq!(backend.live_allocations(), 0);
+    }
+
     #[test]
     fn batched_final_logits_match_sequential_for_both_kv_schemes() {
         crate::family::mistral::generation::tests::numeric::

@@ -28,9 +28,6 @@ impl LayeredGraph for MistralGraph {
     where
         B: 'a;
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    const BATCH_ROWS: usize = prefill::BATCH_ROWS;
-
     fn shape(config: &Self::Config) -> RuntimeShape {
         RuntimeShape {
             block_count: config.block_count,
@@ -51,8 +48,9 @@ impl LayeredGraph for MistralGraph {
             kv_heads: config.kv_head_count,
             key_length: config.key_length,
             value_length: config.value_length,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-            prefill_rows: prefill::BATCH_ROWS,
+            cpu_prefill_rows: prefill::CPU_ROWS,
+            gpu_prefill_rows: prefill::HOMOGENEOUS_GPU_ROWS,
+            mixed_prefill_rows: prefill::MIXED_ROWS,
         }
     }
 
@@ -98,14 +96,19 @@ impl LayeredGraph for MistralGraph {
         config: &Self::Config,
         kv: &Kv<B::Buffer>,
         prompt: &[u32],
+        row_capacity: usize,
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()> {
-        prefill::prefill_with(backend, config, kv, prompt, before_batch)
+        prefill::prefill_with(backend, config, kv, prompt, row_capacity, before_batch)
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>> {
-        prefill::BatchBuffers::new(backend, config)
+    fn batch<'a, B: Backend>(
+        backend: &'a B,
+        config: &Self::Config,
+        row_capacity: usize,
+    ) -> Result<Self::Batch<'a, B>> {
+        prefill::BatchBuffers::new(backend, config, row_capacity)
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

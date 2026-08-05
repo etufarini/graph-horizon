@@ -10,7 +10,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 project_dir="$(cd "${script_dir}/.." && pwd)"
 backend=""
 profile="release"
-prefix="${GRAPH_ORIZON_INSTALL_PREFIX:-${HOME}/.local}"
+prefix="${GRAPH_HORIZON_INSTALL_PREFIX:-${HOME}/.local}"
 
 usage() {
     printf '%s\n' \
@@ -81,13 +81,13 @@ profile_args=(--profile "${profile}")
 (
     cd "${project_dir}"
     cargo build --locked --no-default-features --features "${backend}" \
-        "${profile_args[@]}" -p graph-orizon
+        "${profile_args[@]}" -p graph-horizon
 )
 
-binary="${project_dir}/target/${profile}/graph-orizon"
+binary="${project_dir}/target/${profile}/graph-horizon"
 [[ -f "${binary}" ]] || fail "build completed without the expected binary"
 bindir="${prefix}/bin"
 install -d "${bindir}"
-install -m 0755 "${binary}" "${bindir}/graph-orizon"
+install -m 0755 "${binary}" "${bindir}/graph-horizon"
 printf 'installed %s (backend=%s, build-profile=%s)\n' \
-    "${bindir}/graph-orizon" "${backend}" "${profile}"
+    "${bindir}/graph-horizon" "${backend}" "${profile}"

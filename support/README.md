@@ -19,7 +19,7 @@ diversi.
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
 | `testing/matrix-check.sh` | sei Q8, 60 righe principali e quattro endpoint |
 | `testing/semantic-check.sh` | matrice terminale di qualifica semantica Reasoning |
-| `testing/run-graph-orizon.sh` | avvio esplicito della console locale |
+| `testing/run-graph-horizon.sh` | avvio esplicito della console locale |
 
 ## Prerequisiti
 
@@ -57,7 +57,7 @@ default né un profilo runtime.
 una build Cargo `--locked`. Gli script npm attivi sono `dev`, `check` e `build`.
 La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
-prima di entrare nel lockfile. `GRAPH_ORIZON_INSTALL_PREFIX` imposta il prefisso
+prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso
 quando `--prefix` non è presente.
 
 ## Verifica

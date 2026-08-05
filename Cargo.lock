@@ -529,13 +529,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
 
 [[package]]
-name = "graph-orizon"
+name = "graph-horizon"
 version = "0.1.0"
 dependencies = [
  "bytes",
  "color-eyre",
  "crossterm",
- "graph_orizon_engine",
+ "graph_horizon_engine",
  "http-body-util",
  "hyper",
  "hyper-util",
@@ -549,7 +549,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "graph_orizon_engine"
+name = "graph_horizon_engine"
 version = "0.1.0"
 dependencies = [
  "ash",

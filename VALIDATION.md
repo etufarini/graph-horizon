@@ -479,7 +479,7 @@ colonne e claim separati. In questa esecuzione tutti e tre i Reasoning correnti
 hanno superato il gate Piano 07, ma il risultato vale solo per la configurazione
 elencata sopra.
 
-`temperature=0.7` con `seed=0` rende riproducibile il percorso RNG di Graph Orizon a
+`temperature=0.7` con `seed=0` rende riproducibile il percorso RNG di Graph Horizon a
 parità di commit, artefatto, backend e parametri; non promette identità
 universale fra hardware o implementazioni. Il Piano 07 non testa contesto 256k,
 non testa un System prompt custom esplicito e non pubblica testo raw del
@@ -540,7 +540,7 @@ Il divario dimostra margine nei kernel/dequant e non un limite della GPU.
 
 | Candidato | Risultato comparabile | Decisione |
 |---|---|---|
-| `GRAPH_ORIZON_DECODE_MMVQ=1` | decode 5,55 → 5,62 tok/s (+1,3%) | scartato: guadagno sotto il 3% |
+| `GRAPH_HORIZON_DECODE_MMVQ=1` | decode 5,55 → 5,62 tok/s (+1,3%) | scartato: guadagno sotto il 3% |
 | prefill batch 32 sul kernel seriale iniziale | device lost/RADV recovery | scartato in quello stato |
 | prefill batch 8 | prompt 4,11 → 6,53; TTFT 33.307,54 → 20.968,82 ms; decode 5,55 invariato | mantenuto come passo intermedio |
 | Q6_K decode a quattro lane | prompt 6,53 → 8,89; TTFT -26,5%; decode 5,55 → 6,68 | mantenuto |
@@ -574,7 +574,7 @@ peggiore CV hybrid è 0,62%.
 
 ### Correttezza, limiti e seguito
 
-Passano le suite complete `graph_orizon_engine` Vulkan standalone (135 test unitari),
+Passano le suite complete `graph_horizon_engine` Vulkan standalone (135 test unitari),
 Vulkan-hybrid (206 test unitari più integrazione), CPU (156 test unitari), il
 gate statico delle 200 righe, `cargo fmt --check` e `git diff --check`. Passano
 anche gli oracle GPU diretti `parallel_q6k_projections_match_cpu_oracle` e

@@ -14,7 +14,7 @@ current conversation.
 
 | Command | Effect |
 |---|---|
-| `/export [path]` | Saves the conversation as JSON; defaults to `graph-orizon-export.json` |
+| `/export [path]` | Saves the conversation as JSON; defaults to `graph-horizon-export.json` |
 | `/import <path>` | Validates and restores a transcript, replacing the current one |
 
 The name must be a complete word. `/exporting` is an ordinary prompt, as is any

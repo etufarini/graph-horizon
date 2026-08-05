@@ -13,7 +13,7 @@
   export let streaming = false;
 
   $: isUser = message.role === 'user';
-  $: label = isUser ? 'Tu' : 'Graph Orizon';
+  $: label = isUser ? 'Tu' : 'Graph Horizon';
   // Only assistant presentation derives sections; the raw message stays intact.
   $: reasoning = isUser ? null : splitReasoning(message.content, streaming);
 </script>

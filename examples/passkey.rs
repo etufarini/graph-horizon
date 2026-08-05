@@ -1,5 +1,5 @@
 /*
- * Graph Orizon passkey example
+ * Graph Horizon passkey example
  * Exercises long text-context recall through the final public chat API for one
  * explicit model/context/KV configuration. It reports correctness only when
  * the generated text contains the supplied passkey.
@@ -8,7 +8,7 @@
 use std::path::Path;
 
 use color_eyre::eyre::{Result, bail, eyre};
-use graph_orizon_engine::{
+use graph_horizon_engine::{
     Engine, EngineConfig, Event, KvQuant, Message, Request, Role, SamplingParams,
 };
 

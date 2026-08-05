@@ -19,6 +19,7 @@ pub(crate) fn read(
     if n == 0 {
         return Err(eyre!("metal: invalid readback size"));
     }
+    let width = p.get(Kernel::Argmax).width;
     let e = MetalEncoder::begin(d)?;
     dispatch::encode(
         &e,
@@ -26,7 +27,8 @@ pub(crate) fn read(
         Kernel::Argmax,
         &[logits, out],
         &n.to_ne_bytes(),
-        [1, 1, 1],
+        // Exactly one complete SIMD group cooperates on the deterministic reduction.
+        [width, 1, 1],
     )?;
     e.submit()?;
     let b = out.read(4)?;

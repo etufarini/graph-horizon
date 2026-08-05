@@ -229,6 +229,46 @@ batch/sequenziale con scarto massimo ammesso 0,05, 129 test Metal, 152 test CPU
 e i test mirati Metal-hybrid. Nella parity reale tutti i 16 token greedy locali
 coincidono con l'oracolo `llama.cpp` `13f2b28b`.
 
+## Riduzione Metal parallela per il decode — 5 agosto 2026
+
+Un trace `Metal System Trace` sul tree `d08b45b` ha separato circa 79,8 ms di
+forward da 9,9 ms di argmax per token. Il kernel argmax usava un solo thread per
+scandire serialmente i 131072 logit. Il candidato corrente distribuisce la
+scansione su una sola SIMD-group e riduce prima il valore massimo, poi l'indice
+minimo tra le lane vincitrici. Il tie-break greedy resta quindi identico.
+
+Il target primario è il decode Metal standalone. Poiché lo shader è condiviso,
+Metal-hybrid al 25% è stato misurato come controllo di placement; quel piano è
+CPU-dominant (`cpu_layers=24`, `gpu_layers=2`) e non costituisce un secondo
+claim di accelerazione. Artefatto, hardware e tupla restano quelli della
+campagna Metal precedente, con Cargo `release`, un warm-up e tre ripetizioni:
+
+| Profilo | Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Metal | `d08b45b` | 37,06 | 0,21% | 377,81 | 0,21% | 10,02 | 0,37% |
+| Metal | candidato corrente | 37,93 | 0,23% | 369,06 | 0,23% | 10,97 | 0,05% |
+| Metal-hybrid 25% | `d08b45b` | 5,53 | 2,31% | 2533,15 | 2,33% | 2,48 | 2,00% |
+| Metal-hybrid 25% | candidato corrente | 5,39 | 1,85% | 2598,35 | 1,84% | 2,49 | 1,06% |
+
+Metal standalone migliora il decode del 9,5%, il prompt del 2,3% e riduce il
+TTFT del 2,3%: stato terminale `keep`. Nel controllo mixed il decode varia del
++0,4%, il prompt del -2,5% e il TTFT del +2,6%, tutti entro il limite di
+regressione del 5%; non viene formulato alcun claim prestazionale hybrid. Un
+trace diagnostico separato, quattro token e nessun warm-up, misura l'argmax a
+circa 1,39 ms invece di 9,88 ms (-85,9%).
+
+Passano 129 test Metal, 152 test CPU, il test GPU con vocabolario maggiore di
+una SIMD-group e tie su lane distinte, `cargo fmt --check`, `git diff --check`
+e le parity reali Metal e Metal-hybrid: in entrambe tutti i 16 token greedy
+coincidono con l'oracolo `llama.cpp` `13f2b28b`.
+
+Il tempo restante è dominato dal forward batch-1: ogni token attraversa circa
+2,14 GB di pesi quantizzati, dei quali circa 1,34 GB appartengono alle
+proiezioni FFN e 330 MB alla LM head tied Q6_K. Il prossimo ciclo decode deve
+quindi agire sulla proiezione/dequantizzazione mantenendo un oracle numerico
+esplicito; ulteriori sole modifiche al lifecycle host non hanno margine
+sufficiente per un miglioramento sostanziale.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti restano evidenza storica revisionata della precedente

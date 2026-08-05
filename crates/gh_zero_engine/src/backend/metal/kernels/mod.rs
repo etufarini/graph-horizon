@@ -26,7 +26,7 @@ mod tests {
 
     use super::*;
     use crate::backend::f16::{f16_to_f32, f32_to_f16};
-    use crate::backend::metal::pipeline::PipelineRegistry;
+    use crate::backend::metal::pipeline::{Kernel, PipelineRegistry};
     use crate::backend::metal::{Device, MetalBuffer, MetalEncoder, MetalFormat};
     use crate::kv_cache::{
         Kv, layout,
@@ -349,8 +349,18 @@ mod tests {
         encoder.submit()?;
         assert_eq!(halfs(&attended, 3)?, vec![2., 4., 6.]);
 
-        let logits = buffer(&device, &[1., 3., 3., -2.], MetalFormat::F32)?;
         let reduce = MetalBuffer::allocate(&device, 128, MetalFormat::Raw)?;
+        let width = pipelines.get(Kernel::Argmax).width;
+        let mut values = vec![-2.; width * 3 + 5];
+        values[width - 1] = 3.;
+        values[width * 2 + 1] = 3.;
+        let logits = buffer(&device, &values, MetalFormat::F32)?;
+        assert_eq!(
+            argmax::read(&device, &pipelines, &logits, &reduce, values.len())?,
+            (width - 1) as u32
+        );
+
+        let logits = buffer(&device, &[1., 3., 3., -2.], MetalFormat::F32)?;
         assert_eq!(argmax::read(&device, &pipelines, &logits, &reduce, 4)?, 1);
         assert_eq!(
             topk::read(&device, &pipelines, &logits, &reduce, 4, 3)?,

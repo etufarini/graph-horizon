@@ -9,7 +9,7 @@ support, and validation documents.
 </p>
 
 
-# GH Zero Engine - Ministral 3 Version
+# Graph Orizon Zero Engine - Ministral 3 Version
 
 A local text-to-text runtime for Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. It provides an interactive console, an

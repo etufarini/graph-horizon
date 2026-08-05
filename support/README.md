@@ -1,6 +1,7 @@
 <!--
   Questa guida possiede le interfacce operative degli script locali e mantiene
-  invarianti le directory modello in sola lettura; non definisce policy runtime.
+  invarianti le directory modello in sola lettura; non definisce policy runtime
+  o prestazionale.
 -->
 
 # Supporto operativo
@@ -13,7 +14,6 @@ diversi.
 |---|---|
 | `install.sh` | build Web UI e uno dei cinque profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
-| `profiling/performance-matrix.sh` | matrice prestazionale locale 3B a 12 righe |
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
@@ -74,23 +74,22 @@ support/testing/parity-check.sh \
   --reference-server "/path/llama-server"
 ```
 
-La matrice prestazionale locale usa solo il 3B Instruct autenticato e produce
-12 righe schema 2 più un summary terminale:
+### Prestazioni iterative
 
-```sh
-support/profiling/performance-matrix.sh \
-  --models-dir "/path/to/models" --hardware-id HOST --driver-id DRIVER \
-  --binary-cache target/performance/matrix-bin \
-  > target/performance/matrix.jsonl
+L'unico eseguibile prestazionale iterativo è
+[`examples/bench.rs`](../examples/bench.rs). Misura una tupla end-to-end e
+pubblica statistiche del flusso API; non autentica artefatti, non confronta
+revisioni e non decide se conservare una modifica. `profiling/profile.sh`
+fornisce soltanto uno snapshot di memoria, placement e throughput: non è un
+comparatore A/B.
 
-cargo run --quiet --locked --no-default-features --features cpu \
-  --example compare -- --validate target/performance/matrix.jsonl
-```
+Il contratto CLI, l'output e gli errori bounded sono descritti nella
+[guida al benchmark](../docs/throughput-bench.md). Selezione della tupla,
+confronto, soglie e stati terminali appartengono al
+[processo prestazionale](../docs/performance-investigation-process.md).
 
-Le tuple coprono `cpu`, `metal` e `metal-hybrid`, KV f16/int8 e fixture da
-16/512 token, con un warm-up e tre ripetizioni. Il profilo hybrid usa 25% e
-placement `mixed`; modelli più grandi appartengono alla matrice finale di
-correttezza, non al tuning prestazionale locale.
+Una risorsa assente resta `external verification: <motivo preciso>`; non viene
+sostituita con altro modello, backend o profilo.
 
 L'interfaccia completa è:
 

@@ -47,12 +47,9 @@ fn run() -> Result<(), BenchFailure> {
     let mut weights_percent = None;
     let mut seen = HashSet::new();
     let usage = BenchFailure::Usage;
-    let number = |value: &str, minimum, maximum, message| {
-        value
-            .parse::<usize>()
-            .ok()
-            .filter(|value| (minimum..=maximum).contains(value))
-            .ok_or(usage(message))
+    let number = |value: &str, minimum, maximum, message| match value.parse::<usize>() {
+        Ok(value) if (minimum..=maximum).contains(&value) => Ok(value),
+        _ => Err(usage(message)),
     };
     for pair in options.chunks(2) {
         let flag = &pair[0];
@@ -115,17 +112,19 @@ fn run() -> Result<(), BenchFailure> {
         return Err(INVALID_MEASUREMENT);
     }
     let metric = |mean: f64, stddev: Option<f64>, scale: f64| {
+        let shown_mean = mean * scale;
+        let shown_stddev = stddev.map(|value| value * scale);
         let cv = stddev.map(|value| value / mean);
-        if !mean.is_finite()
-            || mean <= 0.0
-            || stddev.is_some_and(|value| !value.is_finite() || value < 0.0)
+        if !shown_mean.is_finite()
+            || shown_mean <= 0.0
+            || shown_stddev.is_some_and(|value| !value.is_finite() || value < 0.0)
             || cv.is_some_and(|value| !value.is_finite())
         {
             return Err(INVALID_MEASUREMENT);
         }
         Ok([
-            format!("{:.2}", mean * scale),
-            stddev.map_or_else(|| "n/a".into(), |value| format!("{:.2}", value * scale)),
+            format!("{shown_mean:.2}"),
+            shown_stddev.map_or_else(|| "n/a".into(), |value| format!("{value:.2}")),
             cv.map_or_else(|| "n/a".into(), |value| format!("{value:.4}")),
         ])
     };

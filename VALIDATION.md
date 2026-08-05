@@ -163,6 +163,28 @@ La misura finale dello stesso tree registra prompt 10,88 tok/s (CV 0,27%),
 TTFT 1286,75 ms (CV 0,27%) e decode 6,13 tok/s (CV 0,06%); 152 test CPU, 127
 test Metal, `cargo fmt --check` e parity reale 16/16 passano.
 
+### Ottimizzazione successiva della proiezione Q6_K
+
+L'audit del tree finale ha individuato un invariante Q6_K ancora calcolato per
+ogni peso: la scala FP16 è comune ai 256 valori del blocco e ciascuna scala
+signed è comune a 16 valori consecutivi. Il candidato `9b1e24f` le carica una
+volta ai rispettivi livelli, continuando a visitare gli input in ordine
+crescente; formato, precisione e sequenza dell'accumulo FP32 restano invariati.
+
+La baseline è `cbc680c`; artefatto, hardware e tupla sono gli stessi del ciclo
+Q4_K. Le misure A/B usano Cargo `release`, un warm-up e tre ripetizioni:
+
+| Revisione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode tok/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| `cbc680c` | 10,56 | 0,23% | 1325,32 | 0,23% | 6,00 | 0,05% |
+| `9b1e24f` | 20,85 | 0,01% | 671,32 | 0,01% | 10,17 | 0,11% |
+
+Il prompt throughput migliora del 97,4%, il decode del 69,5% e il TTFT si
+riduce del 49,3%. Tutti i CV sono inferiori al 5%, quindi non è stato usato il
+rerun consentito. Passano 152 test CPU, 127 test Metal, 192 test
+Metal-hybrid, `cargo fmt --check` e le parity reali standalone e mixed, entrambe
+con 16 token greedy identici all'oracolo fissato. Stato terminale: `keep`.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti sono evidenza storica revisionata. Entrambi i candidati sono

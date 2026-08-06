@@ -5,6 +5,8 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 
+// AGENTS deroga K: kernel numerico della sola attention decode INT8.
+
 // INT8 variant of attention_decode.comp: same causal GQA online-softmax and
 // KV-parallel structure (see that file for the layout/invariant notes), but
 // the K-dot and V-axpy element reads dequantize u8 codes on the fly with the

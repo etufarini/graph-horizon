@@ -203,6 +203,6 @@ GRAPH_HORIZON_REFERENCE_PROMPT_IDS="..." GRAPH_HORIZON_REFERENCE_COMPLETION_IDS=
   -- --ignored --nocapture --exact
 ```
 
-Le interfacce complete della matrice 70-righe e dell'accettazione semantica sono
+Le interfacce complete della matrice 74-righe e dell'accettazione semantica sono
 descritte nella [guida degli script](../../support/README.md); i risultati
 revisionati appartengono al [registro di validazione](../../VALIDATION.md).

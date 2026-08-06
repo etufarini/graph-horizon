@@ -104,9 +104,8 @@ oracle revision, binds the oracle to loopback, obtains structured prompt and
 completion IDs, then runs one exact local parity test.
 
 For the current Ministral qualification, the accepted llama.cpp revision is
-exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout at
-`/Users/emanuele/Documents/llama.cpp` is never switched or detached. Build the
-pinned revision in the disposable worktree
+exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout is
+never switched or detached. Build the pinned revision in the disposable worktree
 `target/oracle/llama.cpp-13f2b28b`, with Metal, Vulkan, and CURL disabled, and
 use `build/bin/llama-server` from that worktree.
 

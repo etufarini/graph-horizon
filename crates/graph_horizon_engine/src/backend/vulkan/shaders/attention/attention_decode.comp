@@ -4,6 +4,8 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 
+// AGENTS deroga K: kernel numerico della sola attention decode F16.
+
 // Causal GQA attention for the current token (batch 1), softmax fused via the online
 // (flash) algorithm. One workgroup per query head; the cached positions 0..=pos are
 // split ACROSS the workgroup's subgroups so the long serial KV loop runs in parallel.

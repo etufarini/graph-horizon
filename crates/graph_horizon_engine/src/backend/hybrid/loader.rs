@@ -17,6 +17,9 @@ use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 use crate::kv_cache::scheme::KvQuant;
 
+// These arguments are the complete immutable inputs to one placement decision;
+// grouping them would only duplicate the existing domain types.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn load<G: HybridDevice>(
     file: &GgufFile,
     source: &dyn WeightSource,

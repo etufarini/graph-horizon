@@ -22,7 +22,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::{ChatMessage, Chunk, ChunkStream};
 
 // Builds the local provider closure, shaped like the HTTP path. The shared Engine
-// is loaded once; every request disables temporary tool/reasoning compatibility.
+// is loaded once; every request contains only the text-chat fields the engine owns.
 pub(crate) fn provider(
     engine: Arc<Engine>,
     max_tokens: usize,

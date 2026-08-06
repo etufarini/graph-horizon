@@ -21,16 +21,13 @@ pub(crate) struct ClientConfig {
 }
 
 impl ClientConfig {
-    pub(crate) fn from_env() -> Self {
+    pub(crate) fn from_args() -> Self {
         Self {
             base_url: args::value("--base-url")
                 .unwrap_or_else(|| client::DEFAULT_BASE_URL.to_string()),
             system: args::value("--system-prompt"),
-            // A non-numeric or empty value is treated as "no limit" rather than a
-            // fatal error: the program must keep running with pruning disabled.
-            context_limit: args::value("--context-tokens")
-                .and_then(|v| v.trim().parse::<usize>().ok()),
-            max_tokens: crate::app::engine::config::max_tokens_from_args(),
+            context_limit: crate::app::engine::config::context_tokens_from_args(),
+            max_tokens: crate::app::engine::config::max_tokens_from_args(2048),
         }
     }
 

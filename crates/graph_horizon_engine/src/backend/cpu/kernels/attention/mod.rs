@@ -1,12 +1,8 @@
 /*
  * graph_horizon_engine — CPU attention kernels
- * Scalar transcription of attention_decode.comp / attention_prefill.comp and
- * kv_write.comp. The public entry points branch ONCE per call on the runtime
- * KV scheme (I2): the f16 arms below are the historic kernels (payload laid
- * out [layer][token][kv_head][head_dim], same indexing formula as
- * kv_cache::layout::offset); the quantized arms live in `write_q`/`read_q`.
- * The f16 `kv_write` is a pure copy of `count` FP16 elements (K and V
- * separately) at a precomputed element offset.
+ * Scalar transcription of attention_decode.comp / attention_prefill.comp. The
+ * public entry points branch once per call on the runtime KV scheme; quantized
+ * dequantize-on-read variants live in `read_q`.
  * `attention_decode` runs causal GQA attention for the current token;
  * `attention_prefill` is its N-query generalization in one call (row i is the
  * query at absolute position base+i). Both delegate the per-(row,head) work to the
@@ -22,16 +18,19 @@
  * by `attend_pair`, so each cached K/V row is read+widened ONCE for the pair (the GQA
  * reuse). Each head's three passes (score → softmax → V mix) stay in fixed order, so
  * the output is bit-identical to the per-head single-thread path. The `scores` scratch
- * is per-thread. `kv_write` is a pure copy and stays serial.
+ * is per-thread. KV writes are owned separately by `write`/`write_q`.
 */
 
-// AGENTS deroga K: kernel attention denso (decode/prefill/kv_write), una sola operazione, nessun dispatch cross-operazione né I/O.
+// AGENTS deroga K: kernel attention denso decode/prefill, nessun dispatch cross-operazione né I/O.
 
 // AVX2+F16C inner kernels, used internally by the dispatch above.
 mod simd;
 // Per-scheme quantize-on-write / dequantize-on-read variants of the same op family.
 mod read_q;
+mod write;
 mod write_q;
+
+pub(crate) use write::kv_write;
 
 use crate::backend::cpu::buffer::{CpuBuffer, f16_to_f32};
 use crate::backend::cpu::parallel;
@@ -160,63 +159,6 @@ fn axpy_f16(simd: bool, out: &mut [f32], w: f32, vc: &[u8], vbase: usize, head_d
     for (d, o) in out.iter_mut().enumerate() {
         *o += w * elem(vc, vbase + d);
     }
-}
-
-// Appends the current token's K and V into the caches, branching ONCE on the
-// scheme (I2): the f16 arm is the historic pure copy; the quantized arms live
-// in `write_q`. Byte offsets arrive precomputed from kv_cache (D6).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn kv_write(
-    kv: &Kv<CpuBuffer>,
-    k: &CpuBuffer,
-    v: &CpuBuffer,
-    k_payload_offset: u64,
-    v_payload_offset: u64,
-    k_meta_offset: u64,
-    _v_meta_offset: u64,
-    vectors: usize,
-) {
-    match kv.scheme {
-        // f16: the payload region is the whole buffer; the byte offset maps
-        // back to the historic element offset (2 bytes/element), same copy.
-        KvQuant::F16 => kv_write_f16(
-            &kv.k,
-            &kv.v,
-            k,
-            v,
-            k_payload_offset as usize / 2,
-            v_payload_offset as usize / 2,
-            vectors * kv.head_dim,
-            vectors * kv.value_dim,
-        ),
-        KvQuant::Int8 => write_q::kv_write_int8(
-            kv,
-            k,
-            v,
-            k_payload_offset,
-            v_payload_offset,
-            k_meta_offset,
-            _v_meta_offset,
-            vectors,
-        ),
-    }
-}
-
-// The f16 copy: `count` FP16 elements from `k`->`k_cache` and `v`->`v_cache`
-// starting at element `offset`. Mirror of kv_write.comp.
-#[allow(clippy::too_many_arguments)]
-fn kv_write_f16(
-    k_cache: &CpuBuffer,
-    v_cache: &CpuBuffer,
-    k: &CpuBuffer,
-    v: &CpuBuffer,
-    k_offset: usize,
-    v_offset: usize,
-    k_count: usize,
-    v_count: usize,
-) {
-    k_cache.copy_f16_from(k, k_offset, k_count);
-    v_cache.copy_f16_from(v, v_offset, v_count);
 }
 
 // Three-pass causal attention for one query head at absolute position `pos`:
@@ -589,18 +531,6 @@ mod tests {
         let buf = CpuBuffer::zeroed(values.len() * 2, CpuFormat::F16);
         buf.write_f16_from_f32(values);
         buf
-    }
-
-    #[test]
-    fn kv_write_copies_count_elements_at_offset() {
-        let kc = CpuBuffer::zeroed(4 * 2, CpuFormat::F16);
-        let vc = CpuBuffer::zeroed(4 * 2, CpuFormat::F16);
-        let k = f16_buf(&[1.0, 2.0]);
-        let v = f16_buf(&[3.0, 4.0]);
-        // Append at element offset 2: leaves slots 0..2 untouched, fills 2..4.
-        kv_write_f16(&kc, &vc, &k, &v, 2, 2, 2, 2);
-        assert_eq!(kc.read_f16_as_f32(), vec![0.0, 0.0, 1.0, 2.0]);
-        assert_eq!(vc.read_f16_as_f32(), vec![0.0, 0.0, 3.0, 4.0]);
     }
 
     #[test]

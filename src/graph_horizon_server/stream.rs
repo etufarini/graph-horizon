@@ -7,14 +7,11 @@
  * know the OpenAI wire format (delegated to `api`): it only moves bytes and owns
  * the lifecycle.
  *
- * The channel is unbounded BY DESIGN. Unlike local.rs (bounded-32 + blocking_send)
- * the consumer here is a network client we do not trust to read promptly: `send`
- * is synchronous and never blocks, so generation runs at the engine's full speed,
- * DECOUPLED from the consumer. The guard (serialization) and the admission permit
- * are released the instant `generate` returns — not when the client finishes
- * reading — so a slow client never holds the global mutex nor a queue slot hostage.
- * The buffer is bounded in practice by `max_tokens` (already clamped to
- * the `--max-tokens` ceiling), so no explicit capacity cap is needed.
+ * The channel holds at most 32 frames. A slow client therefore applies
+ * backpressure to generation instead of growing process memory without bound.
+ * The serialization guard and admission permit remain held while generation is
+ * blocked on that backpressure; disconnecting the client closes the receiver,
+ * makes `blocking_send` fail, and cancels generation.
  *
  * Three concerns are owned here:
  *  - Serialization: `guard` and `permit` are moved into the blocking task and
@@ -37,9 +34,9 @@ use graph_horizon_engine::{Engine, Event, EventSink, Request};
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
 use tokio::sync::OwnedSemaphorePermit;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc;
 use tokio_stream::StreamExt;
-use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::wrappers::ReceiverStream;
 
 use super::api;
 use super::handler::ResponseBody;
@@ -53,16 +50,14 @@ pub(super) type OwnedGuard = tokio::sync::OwnedMutexGuard<()>;
 // `Response`. Receives the shared engine, the already-built request, and the
 // serialization guard + admission permit (both already acquired by the handler):
 // it owns their lifetime from here until generation ends or is cancelled. See the
-// file-level comment for the unbounded-channel rationale.
+// file-level comment for the bounded-channel lifecycle.
 pub(super) fn sse_body(
     engine: Arc<Engine>,
     req: Request,
     guard: OwnedGuard,
     permit: OwnedSemaphorePermit,
 ) -> ResponseBody {
-    // Unbounded so `send` never blocks: generation is decoupled from the consumer
-    // (see file-level comment). The bound is `max_tokens` in practice.
-    let (tx, rx) = unbounded_channel::<String>();
+    let (tx, rx) = mpsc::channel::<String>(32);
 
     tokio::task::spawn_blocking(move || {
         // guard and permit are MOVED in here: they are dropped when this closure
@@ -76,15 +71,15 @@ pub(super) fn sse_body(
         // Returning here drops _guard and _permit: lock released, slot returned.
     });
 
-    let stream = UnboundedReceiverStream::new(rx)
-        .map(|line| Ok::<_, Infallible>(Frame::data(Bytes::from(line))));
+    let stream =
+        ReceiverStream::new(rx).map(|line| Ok::<_, Infallible>(Frame::data(Bytes::from(line))));
     StreamBody::new(stream)
         .map_err(|never: Infallible| -> Box<dyn std::error::Error + Send + Sync> { match never {} })
         .boxed()
 }
 
 struct ServerSink {
-    tx: tokio::sync::mpsc::UnboundedSender<String>,
+    tx: mpsc::Sender<String>,
 }
 
 impl EventSink for ServerSink {
@@ -97,21 +92,36 @@ impl EventSink for ServerSink {
             // A terminal event closes this sink after its final SSE frames.
             Event::Error(_) => {
                 if let Some(line) = api::chat::event_line(&event) {
-                    let _ = self.tx.send(line);
+                    let _ = self.tx.blocking_send(line);
                 }
-                let _ = self.tx.send(api::chat::done_line());
+                let _ = self.tx.blocking_send(api::chat::done_line());
                 false
             }
             Event::Finished(stats) => {
-                let _ = self.tx.send(api::chat::usage_line(stats));
-                let _ = self.tx.send(api::chat::final_line());
-                let _ = self.tx.send(api::chat::done_line());
+                let _ = self.tx.blocking_send(api::chat::usage_line(stats));
+                let _ = self.tx.blocking_send(api::chat::final_line());
+                let _ = self.tx.blocking_send(api::chat::done_line());
                 false
             }
             Event::TextDelta(_) => match api::chat::event_line(&event) {
-                Some(line) => self.tx.send(line).is_ok(),
+                Some(line) => self.tx.blocking_send(line).is_ok(),
                 None => true,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disconnected_receiver_cancels_generation() {
+        let (tx, rx) = mpsc::channel(1);
+        drop(rx);
+        let mut sink = ServerSink { tx };
+
+        assert!(!sink.emit(Event::TextDelta("ignored".into())));
+        assert!(sink.cancelled());
     }
 }

@@ -61,7 +61,7 @@ pub(crate) fn to_request(
     // default; the provided value is otherwise the sole generation cap.
     let max_tokens = match req.max_tokens {
         Some(n) if n <= 0 => return Err(ApiError::InvalidMaxTokens),
-        Some(n) => n as usize,
+        Some(n) => usize::try_from(n).map_err(|_| ApiError::InvalidMaxTokens)?,
         None => cfg.max_tokens,
     };
 

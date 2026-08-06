@@ -30,15 +30,15 @@ fn repository() -> PathBuf {
         .to_path_buf()
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect(dir: &Path, extension: &str, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect(&path, out);
-        } else if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+            collect(&path, extension, out);
+        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
             out.push(path);
         }
     }
@@ -46,20 +46,43 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn productive_lines(path: &Path) -> usize {
     let text = fs::read_to_string(path).expect("read source");
-    let mut in_test = false;
-    text.lines()
-        .filter(|line| {
-            let line = line.trim();
-            if line.starts_with("#[cfg(test)]") {
-                in_test = true;
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut productive = 0;
+    let mut index = 0;
+    while index < lines.len() {
+        if lines[index] == "#[cfg(test)]" || lines[index].starts_with("#[cfg(all(test,") {
+            // Rustfmt leaves top-level items unindented. Skip the complete
+            // test-only item, including any additional attributes, without
+            // hiding production items that follow it.
+            index += 1;
+            while index < lines.len()
+                && (lines[index].trim().is_empty() || lines[index].starts_with("#["))
+            {
+                index += 1;
             }
-            !in_test
-                && !line.is_empty()
-                && !line.starts_with("//")
-                && !line.starts_with("/*")
-                && !line.starts_with('*')
-        })
-        .count()
+            let block = lines
+                .get(index)
+                .is_some_and(|line| line.contains('{') && !line.trim_end().ends_with(';'));
+            while index < lines.len() {
+                let line = lines[index];
+                index += 1;
+                if (block && line.starts_with('}')) || (!block && line.trim_end().ends_with(';')) {
+                    break;
+                }
+            }
+            continue;
+        }
+        let line = lines[index].trim();
+        if !line.is_empty()
+            && !line.starts_with("//")
+            && !line.starts_with("/*")
+            && !line.starts_with('*')
+        {
+            productive += 1;
+        }
+        index += 1;
+    }
+    productive
 }
 
 #[test]
@@ -76,8 +99,13 @@ fn source_structure() {
         "src/backend/cpu/kernels/attention/mod.rs",
         "src/backend/cpu/kernels/attention/read_q.rs",
         "src/backend/cpu/kernels/attention/simd.rs",
+        "src/backend/cpu/kernels/attention/write.rs",
         "src/backend/cpu/kernels/attention/write_q.rs",
-        "src/backend/cpu/kernels/elementwise.rs",
+        "src/backend/cpu/kernels/elementwise/activation.rs",
+        "src/backend/cpu/kernels/elementwise/embedding.rs",
+        "src/backend/cpu/kernels/elementwise/normalization.rs",
+        "src/backend/cpu/kernels/elementwise/residual.rs",
+        "src/backend/cpu/kernels/elementwise/rope.rs",
         "src/backend/cpu/kernels/matmul/mod.rs",
         "src/backend/cpu/kernels/matmul/q4k.rs",
         "src/backend/cpu/kernels/matmul/q4k_simd.rs",
@@ -85,14 +113,14 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q5k_simd.rs",
         "src/backend/cpu/kernels/matmul/q6k.rs",
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
-        "src/backend/vulkan/kernels/attention.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
         "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
     ];
     let mut files = Vec::new();
-    collect(&manifest().join("src"), &mut files);
+    collect(&manifest().join("src"), "rs", &mut files);
+    files.push(manifest().join("build.rs"));
     let mut marked_i = Vec::new();
     let mut marked_k = Vec::new();
     let mut over = Vec::new();
@@ -103,10 +131,14 @@ fn source_structure() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = fs::read_to_string(&path).expect("read source");
-        if text.contains("AGENTS deroga I") {
+        let i_markers = text.matches("AGENTS deroga I:").count();
+        let k_markers = text.matches("AGENTS deroga K:").count();
+        assert!(i_markers <= 1, "multiple category-I markers: {relative}");
+        assert!(k_markers <= 1, "multiple category-K markers: {relative}");
+        if i_markers == 1 {
             marked_i.push(relative.clone());
         }
-        if text.contains("AGENTS deroga K") {
+        if k_markers == 1 {
             marked_k.push(relative.clone());
         }
         if !I.contains(&relative.as_str())
@@ -125,11 +157,47 @@ fn source_structure() {
     expected_k.sort();
     assert_eq!(marked_i, expected_i, "category-I marker list changed");
     assert_eq!(marked_k, expected_k, "category-K marker list changed");
+
+    let root = repository();
+    let mut root_sources = Vec::new();
+    collect(&root.join("src"), "rs", &mut root_sources);
+    collect(&root.join("examples"), "rs", &mut root_sources);
+    for path in root_sources {
+        let relative = path
+            .strip_prefix(&root)
+            .expect("source under repository")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative != "src/support_scripts.rs" && productive_lines(&path) > 200 {
+            over.push(format!("{relative}: {}", productive_lines(&path)));
+        }
+    }
     assert!(
         over.is_empty(),
         "orchestration over 200 lines:\n{}",
         over.join("\n")
     );
+
+    let mut shaders = Vec::new();
+    collect(
+        &manifest().join("src/backend/metal/shaders"),
+        "metal",
+        &mut shaders,
+    );
+    collect(
+        &manifest().join("src/backend/vulkan/shaders"),
+        "comp",
+        &mut shaders,
+    );
+    for path in shaders {
+        let text = fs::read_to_string(&path).expect("read shader");
+        assert_eq!(
+            text.matches("AGENTS deroga K:").count(),
+            1,
+            "shader must declare category K exactly once: {}",
+            path.display()
+        );
+    }
 }
 
 #[test]

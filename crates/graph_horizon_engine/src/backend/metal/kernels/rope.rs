@@ -9,6 +9,8 @@ use super::super::{
 };
 use crate::backend::rope::{RopeRole, Yarn};
 use color_eyre::eyre::{Result, eyre};
+// Mirrors the in-place kernel shape, YaRN contract, role, and dispatch owners.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(
     e: &MetalEncoder,
     p: &PipelineRegistry,

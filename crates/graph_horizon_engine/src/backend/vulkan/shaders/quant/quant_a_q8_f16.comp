@@ -1,6 +1,8 @@
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola quantizzazione attivazioni Q8_1.
+
 // Quantizes dense FP16 decode activations to Q8_1: packed int8 quants plus
 // per-block d/s metadata. The near-zero maximum guard prevents infinite scales.
 layout(local_size_x = 64) in;

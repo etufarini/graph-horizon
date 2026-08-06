@@ -2,6 +2,8 @@
 #extension GL_EXT_integer_dot_product : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K MMVQ.
+
 // Dense FP16-output MMVQ decode GEMV. It multiplies Q4_K weights by Q8_1
 // activations with DP4A and FP32 accumulation, then narrows binding 3 on store.
 layout(local_size_x = 64) in;

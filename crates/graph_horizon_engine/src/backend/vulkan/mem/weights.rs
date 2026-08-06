@@ -71,12 +71,12 @@ fn selected_slot<'a>(
     slot
 }
 
-fn upload_slots<'a>(
+fn upload_slots(
     dev: &Device,
     gguf: &GgufFile,
     has_output: bool,
     layer_count: usize,
-    slots: &[Option<(&'a TensorInfo, bool)>],
+    slots: &[Option<(&TensorInfo, bool)>],
 ) -> Result<GpuWeightSet<GpuBuffer>> {
     // This guard owns every partial upload until the complete selected set is
     // assembled, so any failure destroys each prior allocation exactly once.

@@ -8,6 +8,8 @@ use super::super::{
     pipeline::{Kernel, PipelineRegistry},
 };
 use color_eyre::eyre::Result;
+// Mirrors the kernel's three buffers, row shape, epsilon, and dispatch owners.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(
     e: &MetalEncoder,
     p: &PipelineRegistry,

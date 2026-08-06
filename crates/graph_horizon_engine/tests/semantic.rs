@@ -597,7 +597,7 @@ fn real_semantic_acceptance() {
                     )
                 }
             };
-        if let Err(_) = timing.add_case(stats) {
+        if timing.add_case(stats).is_err() {
             execution_ok = false;
         }
         markers[index] = marker;

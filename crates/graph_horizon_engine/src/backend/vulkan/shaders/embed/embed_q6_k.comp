@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola lookup embedding Q6_K.
+
 // Q6_K embedding lookup: dequantizes one row (`row`) of the Q6_K token_embd
 // tensor [vocab, embd] into the FP32 residual stream. The row is `embd`
 // contiguous weights = embd/256 Q6_K super-blocks at block index row*(embd/256).

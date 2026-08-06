@@ -8,13 +8,13 @@ definisce capability runtime, supporto prodotto o whitelist di modelli.
 
 ## Ambito e data
 
-Registro aggiornato il 5 agosto 2026. Conserva la qualifica della specifica
+Registro aggiornato il 6 agosto 2026. Conserva la qualifica della specifica
 `01-metal-backend` e l'esito revisionato della successiva campagna
 prestazionale.
 
-Gli artefatti locali di questa campagna sono in
-`/Users/emanuele/Documents/models`; il percorso è solo un input di validazione
-e non è un default del runtime.
+Gli artefatti locali di questa campagna provenivano da una directory modelli
+esterna e in sola lettura; quel percorso era solo un input di validazione e non
+è un default del runtime.
 
 L'evidenza distingue quattro piani:
 
@@ -109,8 +109,8 @@ otto endpoint. Verifica l'uguaglianza di tutti i 16 `local_ids`, rifiuta una
 differenza introdotta soltanto nel sedicesimo ID e non formula uguaglianza se il
 controllo o l'endpoint è esterno.
 
-La matrice reale è stata invocata senza sostituzioni con
-`/home/emanuele/Documenti/models` e il checkout oracle
+La matrice reale è stata invocata senza sostituzioni con una directory modelli
+locale e il checkout oracle
 `target/oracle/llama.cpp-13f2b28b`. Il checkout oracle è al commit esatto
 `13f2b28b098623391b1aacfd27995e1c8b7de9a9`; il binario pubblica però soltanto
 `version: 1 (13f2b28)`, mentre il runner richiede il prefisso fissato di nove
@@ -153,8 +153,8 @@ indicizzati; i test delle 74 tuple, dei casi external e del mismatch sul
 sedicesimo ID passano con Bash 3.2. Gli array indicizzati restano parte del
 contratto compatibile delle versioni Bash successive.
 
-La matrice reale è stata eseguita senza sostituzioni con
-`/Users/emanuele/Documents/models` e l'oracolo locale pinned. Tutte le 12 righe
+La matrice reale è stata eseguita senza sostituzioni con la directory modelli
+locale in sola lettura e l'oracolo locale pinned. Tutte le 12 righe
 CPU, le 12 Metal e le 12 Metal-hybrid `25/mixed` passano per i sei modelli e i
 due schemi KV. I quattro endpoint Metal-hybrid passano: `100/all-metal` f16 e
 int8 coincidono esattamente con Metal standalone, mentre `0/cpu-only` f16 e
@@ -247,10 +247,10 @@ al 5%.
 | 1 | Accoppiare i sottoblocchi low/high per eliminare divisione e branch | +1,40% | −1,38% | +0,82% | `reject`: obiettivi sotto 3% |
 | 2 | Srotolare ×4 il ciclo interno da 32 valori | −1,58% | +1,54% | +0,16% | `reject`: regressione prompt |
 | 3 | Calcolare una volta i puntatori base di pesi e attivazioni | +0,74% | −0,77% | +0,82% | `reject`: obiettivi sotto 3% |
-| 4 | Leggere le metadate Q4_K come tre parole allineate | non misurato | non misurato | non misurato | `reject`: parity fallita per estrazione byte errata |
+| 4 | Leggere i metadati Q4_K come tre parole allineate | non misurato | non misurato | non misurato | `reject`: parity fallita per estrazione byte errata |
 | 5 | Correggere le tre letture allineate con maschere a 8 bit | +2,79% | −2,78% | +1,97% | `reject`: obiettivi sotto 3% |
 | 6 | Conservare 32 byte quantizzati privati e riusarne il nibble alto | +7,72% | −7,17% | +3,62% | `interesting`: decode sotto 5% |
-| 7 | Combinare riuso dei byte e metadate allineate corrette | +8,19% | −7,62% | +4,61% | `interesting`: decode sotto 5% |
+| 7 | Combinare riuso dei byte e metadati allineati corretti | +8,19% | −7,62% | +4,61% | `interesting`: decode sotto 5% |
 | 8 | Aggiungere puntatori base alla variante combinata | +8,65% | −8,02% | +4,93% | `interesting`: decode sotto 5% |
 | 9 | Srotolare ×2 i due loop della variante combinata | −5,02% | +5,27% | −2,47% | `reject`: regressione di tutti i controlli |
 

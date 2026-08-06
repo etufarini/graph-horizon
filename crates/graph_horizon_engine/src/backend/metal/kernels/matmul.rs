@@ -10,6 +10,8 @@ use super::super::{
     pipeline::{Kernel, PipelineRegistry},
 };
 use color_eyre::eyre::{Result, eyre};
+// Mirrors the kernel's three buffers, two dimensions, output type, and owners.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(
     e: &MetalEncoder,
     p: &PipelineRegistry,

@@ -5,6 +5,8 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 
+// AGENTS deroga K: kernel numerico della sola attention prefill INT8.
+
 // INT8 variant of attention_prefill.comp: the N-query generalization of
 // attention_decode_int8.comp — 2D grid (q_heads, n), workgroup (h, i) handles
 // query row i (absolute position base+i) attending 0..=base+i, with the same

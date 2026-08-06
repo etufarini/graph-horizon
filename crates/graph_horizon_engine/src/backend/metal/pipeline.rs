@@ -114,9 +114,9 @@ impl PipelineRegistry {
             .newLibraryWithData_error(&data)
             .map_err(|_| eyre!("metal: pipeline library load failed"))?;
         let mut values = Vec::with_capacity(KERNELS.len());
-        for (_index, kernel) in KERNELS.into_iter().enumerate() {
+        for kernel in KERNELS {
             #[cfg(test)]
-            if fail_at == Some(_index) {
+            if fail_at == Some(values.len()) {
                 return Err(eyre!("metal: pipeline creation failed"));
             }
             let name = kernel.name();

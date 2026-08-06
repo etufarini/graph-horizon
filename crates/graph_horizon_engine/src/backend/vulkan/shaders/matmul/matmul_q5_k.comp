@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola operazione matmul Q5_K.
+
 // Q5_K matmul: y = W * a, batch 1. W is row-major [out_dim, in_dim], stored as
 // ggml Q5_K super-blocks (256 weights, 176 bytes), dequantized on the fly. One
 // invocation per output row; FP32 accumulation (matches the reference implementation), FP16 result.

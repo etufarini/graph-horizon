@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola proiezione logits F16.
+
 // Final logits projection: y = lm_head * x. Same shape as matmul_fp16 but the
 // output is FP32 (vocab-sized logits feed sampling/validation directly).
 layout(local_size_x = 64) in;

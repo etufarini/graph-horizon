@@ -67,9 +67,11 @@ A global mutex serializes generations on the single engine. A semaphore admits
 at most eight requests, including waiting requests; further requests receive
 `429` without waiting. Bodies and JSON are validated before occupying a slot.
 
-Generation runs in a blocking task and sends ready frames through a channel.
-The lock and permit are released as soon as `generate` ends. If the client drops
-the stream, the sink cancels decoding and releases resources.
+Generation runs in a blocking task and sends ready frames through a channel
+bounded to 32 entries. A slow client applies backpressure instead of allowing
+unbounded buffering; the lock and permit remain tied to that generation. If the
+client drops the stream, the closed receiver cancels decoding and releases the
+lock, permit, and request resources.
 
 ## Server Flags
 
@@ -86,6 +88,7 @@ KV, CPU, and placement options are described in
 ## Security
 
 - maximum body size of 4 MiB, enforced before full collection;
+- at most 32 queued SSE frames per admitted generation;
 - generic JSON errors without paths, stack traces, or OS details;
 - loopback bind by default;
 - no authentication, authorization, TLS, or per-identity rate limit;

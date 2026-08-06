@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { splitReasoning } from './reasoning';
+import { splitReasoning } from './reasoning.ts';
 
 test('empty and whitespace-only streams remain pending', () => {
   assert.deepEqual(splitReasoning('', true), { answer: '', pending: true });

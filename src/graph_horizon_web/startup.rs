@@ -21,7 +21,7 @@ pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
     assets.ensure_index()?;
     let context_limit = engine::config::context_tokens_from_args();
     let chat = engine::load_chat_engine(&model, context_limit)?;
-    let chat_config = ServerConfig::chat(config.max_tokens, false);
+    let chat_config = ServerConfig::chat(config.max_tokens);
     let state = ServerState::new(chat, chat_config);
     server::serve(config, assets, state).await
 }

@@ -1,5 +1,7 @@
 #version 450
 
+// AGENTS deroga K: kernel numerico della sola riduzione top-k parziale.
+
 // Per-workgroup partial top-k of the FP32 logits. One single-thread workgroup per
 // stripe (groups = the dispatch's workgroup count): workgroup `g` scans the
 // strided stripe g, g+groups, g+2*groups, ... keeping its own top-k under the

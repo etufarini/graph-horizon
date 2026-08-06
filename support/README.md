@@ -24,7 +24,7 @@ diversi.
 ## Prerequisiti
 
 - Rust/Cargo e dipendenze di build della piattaforma;
-- Node/npm per `install.sh`;
+- Node.js/npm 22.12 o successivo per `install.sh`;
 - loader/driver Vulkan per esecuzione Vulkan;
 - artefatti GGUF già acquisiti in sola lettura;
 - `curl`, `jq`, `stat` e `sha256sum` oppure `shasum -a 256`;
@@ -34,10 +34,9 @@ diversi.
 Il contratto degli artefatti e gli SHA registrati sono nel catalogo
 [`models.tsv`](models.tsv); gli esiti revisionati appartengono al
 [registro di validazione](../VALIDATION.md).
-Per la campagna corrente i modelli locali sono in
-`/Users/emanuele/Documents/models`, sempre passata esplicitamente con
-`--models-dir`; il checkout oracle è `/Users/emanuele/Documents/llama.cpp`,
-mentre il worktree disposable previsto è
+Per una campagna locale, la directory dei modelli va sempre passata
+esplicitamente come `--models-dir /path/to/models`; il checkout oracle principale
+può trovarsi in `/path/to/llama.cpp`, mentre il worktree disposable previsto è
 `target/oracle/llama.cpp-13f2b28b`. L'assenza di una
 risorsa esterna produce `external verification: <motivo preciso>`; non
 salta test sintetici.
@@ -54,7 +53,8 @@ accetta `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`; non esiste un
 default né un profilo runtime.
 
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
-una build Cargo `--locked`. Gli script npm attivi sono `dev`, `check` e `build`.
+una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
+`test` e `build`.
 La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
 prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso
@@ -154,7 +154,7 @@ La matrice completa si avvia con:
 
 ```sh
 support/testing/matrix-check.sh \
-  --models-dir /Users/emanuele/Documents/models \
+  --models-dir /path/to/models \
   --reference-server "$PWD/target/oracle/llama.cpp-13f2b28b/build/bin/llama-server"
 ```
 

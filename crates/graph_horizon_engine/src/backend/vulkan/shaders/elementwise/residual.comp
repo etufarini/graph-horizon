@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola somma residuale.
+
 // Residual add in place: x[i] = x[i] + y[i]. x is the residual stream — kept in
 // FP32 because the model accumulates massive activations that overflow FP16 in late
 // layers; y is the FP16 sub-block output (attention or MLP).

@@ -1,16 +1,36 @@
 /*
  * Chat client.
- * Single responsibility: POST a text-only chat request and delegate SSE parsing.
- * It never serializes tools, tool selection, workspace, confirmations, or
- * internal-channel controls.
+ * Single responsibility: load immutable context properties and POST admitted
+ * text-only chat requests while delegating SSE parsing.
  */
+import { parseRuntimeContext } from './context';
 import { readChatStream } from './stream';
-import type { GenerationStats, StreamDelta, WireMessage } from './types';
+import type { ContextConfigResult, GenerationStats, StreamDelta, WireMessage } from './types';
 
 const FAILED = 'Richiesta non riuscita';
 
+export async function loadRuntimeContext(signal: AbortSignal): Promise<ContextConfigResult> {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  signal.addEventListener('abort', abort, { once: true });
+  const timeout = setTimeout(abort, 3000);
+  try {
+    const response = await fetch('/props', { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, error: 'unavailable' };
+    }
+    return parseRuntimeContext(await response.json());
+  } catch {
+    return { ok: false, error: 'unavailable' };
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', abort);
+  }
+}
+
 export async function streamAssistant(
   messages: WireMessage[],
+  maxTokens: number,
   onDelta: (delta: StreamDelta) => void,
   onStats: (stats: GenerationStats) => void,
   signal: AbortSignal
@@ -22,7 +42,7 @@ export async function streamAssistant(
     },
     body: JSON.stringify({
       messages,
-      max_tokens: 1024,
+      max_tokens: maxTokens,
       stream: true
     }),
     signal

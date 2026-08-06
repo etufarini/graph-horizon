@@ -8,7 +8,14 @@ import { get, writable } from 'svelte/store';
 import { streamAssistant } from './client';
 import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
 import { parseChatFile } from './transfer';
-import type { ChatMessage, ChatSnapshot, GenerationStats, StreamDelta, WireMessage } from './types';
+import type {
+  ChatMessage,
+  ChatSnapshot,
+  GenerationStats,
+  RuntimeContext,
+  StreamDelta,
+  WireMessage
+} from './types';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
@@ -44,7 +51,7 @@ function createChatState() {
   const store = writable<ChatSnapshot>(emptySnapshot());
   let controller: AbortController | null = null;
 
-  async function send(text: string): Promise<void> {
+  async function send(text: string, context: RuntimeContext): Promise<void> {
     const prompt = text.trim();
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
@@ -65,7 +72,13 @@ function createChatState() {
     controller = new AbortController();
     const request = controller;
     try {
-      await streamAssistant(wireMessages(outgoing, current.systemPrompt), appendAssistant, setStats, request.signal);
+      await streamAssistant(
+        wireMessages(outgoing, current.systemPrompt),
+        context.maxTokens,
+        appendAssistant,
+        setStats,
+        request.signal
+      );
       store.update(snapshot => ({ ...snapshot, status: 'idle', error: null }));
     } catch (error) {
       const aborted =

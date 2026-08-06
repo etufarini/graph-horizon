@@ -1,21 +1,42 @@
 <script lang="ts">
   /*
    * Chat.svelte
-   * Single responsibility: compose the text-only chat page from transcript,
-   * status, system prompt, session actions, and composer. It does not wire
-   * tools, workspace controls, confirmations, or reasoning views. The first
-   * row remains the textual brand lockup.
+   * Single responsibility: compose the chat page and own its one-shot `/props`
+   * initialization so submission remains disabled without valid capacity.
    */
   import Composer from './Composer.svelte';
   import SessionActions from './SessionActions.svelte';
   import Status from './Status.svelte';
   import SystemPrompt from './SystemPrompt.svelte';
   import Transcript from './Transcript.svelte';
+  import { onDestroy, onMount } from 'svelte';
+  import { loadRuntimeContext } from '../chat/client';
   import { downloadChatFile } from '../chat/download';
   import { chat } from '../chat/state';
   import { serializeChat } from '../chat/transfer';
+  import type { RuntimeContext } from '../chat/types';
 
   let draft = '';
+  let runtimeContext: RuntimeContext | null = null;
+  let configurationError: string | null = null;
+  const contextController = new AbortController();
+
+  onMount(async () => {
+    const result = await loadRuntimeContext(contextController.signal);
+    if (contextController.signal.aborted) {
+      return;
+    }
+    if (result.ok) {
+      runtimeContext = result.context;
+    } else {
+      configurationError =
+        result.error === 'no-prompt-space'
+          ? 'max_tokens non lascia spazio al prompt'
+          : 'Configurazione del contesto non disponibile';
+    }
+  });
+
+  onDestroy(() => contextController.abort());
 
   $: streaming = $chat.status === 'streaming';
 
@@ -26,7 +47,10 @@
   async function send(): Promise<void> {
     const submitted = draft;
     draft = '';
-    await chat.send(submitted);
+    if (!runtimeContext) {
+      return;
+    }
+    await chat.send(submitted, runtimeContext);
     if ($chat.status === 'error' && submitted.trim()) {
       draft = submitted;
     }
@@ -57,11 +81,17 @@
 
   <Transcript messages={$chat.messages} {streaming} />
 
-  <Status status={$chat.status} error={$chat.error} stats={$chat.stats} {streamChars} />
+  <Status
+    status={configurationError ? 'error' : $chat.status}
+    error={configurationError ?? $chat.error}
+    stats={$chat.stats}
+    {streamChars}
+  />
 
   <Composer
     bind:value={draft}
     {streaming}
+    contextAvailable={runtimeContext !== null}
     on:send={send}
     on:stop={stop}
   />

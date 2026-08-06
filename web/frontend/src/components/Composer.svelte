@@ -1,9 +1,8 @@
 <script lang="ts">
   /*
    * Composer.svelte
-   * Single responsibility: present the branded text-entry surface and expose
-   * send/stop actions. It has no tool mode, workspace, confirmation, or
-   * reasoning controls.
+   * Single responsibility: present editable text and expose send only when
+   * runtime context is available, while retaining the existing stop action.
    */
   // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
   import logoUrl from '../../../../assets/graph-horizon-logo.svg';
@@ -11,12 +10,13 @@
 
   export let value = '';
   export let streaming = false;
+  export let contextAvailable = false;
 
   const dispatch = createEventDispatcher<{
     send: void;
     stop: void;
   }>();
-  $: canSend = value.trim().length > 0 && !streaming;
+  $: canSend = value.trim().length > 0 && !streaming && contextAvailable;
 
   function submit(): void {
     // Whitespace-only drafts cannot be sent; streaming never submits here

@@ -137,8 +137,10 @@ fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32
                 .map_err(|_| eyre!("{name} contains an invalid ID"))
         })
         .collect::<Result<Vec<_>>>()?;
-    if expected_len.is_some_and(|expected| ids.len() != expected) {
-        bail!("{name} must contain exactly {} IDs", expected_len.unwrap());
+    if let Some(expected) = expected_len
+        && ids.len() != expected
+    {
+        bail!("{name} must contain exactly {expected} IDs");
     }
     Ok(ids)
 }

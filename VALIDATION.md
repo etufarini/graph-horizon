@@ -491,6 +491,92 @@ Metal-hybrid con KV f16 e int8. Tutti i candidati numerici misurati hanno
 superato la parity prima del benchmark; soltanto il kernel attenzione
 standalone è mantenuto.
 
+## Proiezione Metal cooperativa a quattro lane — 6 agosto 2026
+
+L'indagine parte dal tree `9118138` sul branch
+`agent/prefill-decode-stall`. Hardware e toolchain sono MacBook Air `Mac16,13`,
+Apple M4 con GPU 10 core e 24 GB, macOS 26.3 (`25D125`), Xcode 26.2, Metal
+32023.864 e Rust 1.95.0. L'artefatto `3b-instruct` Q4_K_M è autenticato:
+2147023008 byte e SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+
+La configurazione primaria è Metal standalone, Cargo `release`, contesto 4096,
+KV f16, greedy, un warm-up e tre ripetizioni. Il target dichiarato prima delle
+modifiche è almeno 15,5 decode delta/s sul prompt canonico e almeno 8,0 delta/s
+dopo 1220 prompt token, senza regressioni oltre il 5% su prompt throughput o
+TTFT. Il primo obiettivo richiede circa +10% sulla baseline; il secondo +11,6%.
+
+### Baseline e ipotesi
+
+| Prompt / generazione | Prompt tok/s | CV prompt | TTFT ms | CV TTFT | Decode delta/s | CV decode |
+|---|---:|---:|---:|---:|---:|---:|
+| 14 / 32 | 38,23 | 3,45% | 366,47 | 3,49% | 14,09 | 1,04% |
+| 14 / 128 | 38,35 | 0,99% | 365,04 | 0,99% | 13,70 | 0,71% |
+| 308 / 32 | 60,69 | 0,43% | 5075,12 | 0,43% | 11,54 | 0,14% |
+| 1220 / 32 | 52,64 | 0,06% | 23175,69 | 0,06% | 7,17 | 0,06% |
+
+Il trace Metal revisionato nella sezione precedente aveva già separato il
+forward batch-1 dall'argmax e attribuito il residuo corto alle proiezioni. Il
+tree corrente legge circa 2,14 GB di pesi quantizzati per token: la baseline
+corta realizza quindi circa 30,2 GB/s effettivi, mentre il dimezzamento del
+decode fra 14 e 1220 prompt token mostra il secondo limite, la scansione KV.
+Un nuovo `Metal System Trace` non è stato usato come evidenza: `xctrace` ha
+terminato con exit 139 e prodotto un bundle privo del template.
+
+Nel kernel originale ogni thread produceva una riga e attraversava in serie gli
+otto gruppi Q4_K o i sedici gruppi Q6_K di ogni blocco. L'ipotesi mantenuta
+assegna una riga a quattro lane adiacenti: ciascuna visita gruppi disgiunti e le
+quattro somme FP32 vengono combinate con due shuffle SIMD. Formato dei pesi,
+layout, ownership, API, batch prefill e percorsi F16/Q5_K restano invariati. Il
+gate numerico ammette il nuovo ordine di riduzione; gli oracle GPU Q4_K/Q6_K e
+la parity reale greedy 16/16 devono passare prima del benchmark.
+
+### Risultati mantenuti
+
+| Tupla | Prima | Dopo | Variazione |
+|---|---:|---:|---:|
+| f16, 14 prompt, 32 delta — prompt tok/s | 38,23 | 41,19 | +7,7% |
+| f16, 14 prompt, 32 delta — TTFT ms | 366,47 | 339,89 | −7,3% |
+| f16, 14 prompt, 32 delta — decode delta/s | 14,09 | 18,87 | +33,9% |
+| f16, 14 prompt, 128 delta — decode delta/s | 13,70 | 18,04 | +31,7% |
+| f16, 308 prompt, 32 delta — decode delta/s | 11,54 | 14,16 | +22,7% |
+| f16, 1220 prompt, 32 delta — prompt tok/s | 52,64 | 52,94 | +0,6% |
+| f16, 1220 prompt, 32 delta — TTFT ms | 23175,69 | 23045,15 | −0,6% |
+| f16, 1220 prompt, 32 delta — decode delta/s | 7,17 | 8,16 | +13,8% |
+| int8, 14 prompt, 32 delta — decode delta/s | 14,21 | 18,89 | +32,9% |
+| hybrid 25%, f16 — decode delta/s | 2,42 | 2,42 | 0,0% |
+
+La tupla canonica candidata ha CV massimo 0,46%; la tupla lunga candidata ha
+CV massimo 0,04%. Sul controllo medio prompt throughput varia del −1,5% e TTFT
+del +1,5%; su int8 variano rispettivamente del −1,6% e +1,6%. Metal-hybrid 25%
+resta `mixed` con 24 layer CPU e 2 Metal: prompt varia del −0,5%, TTFT del
++0,3% e decode resta invariato. Tutti i controlli sono entro il 5%. Una misura
+finale dopo carico prolungato registra 38,74 prompt tok/s, 361,55 ms e 17,99
+decode delta/s: il guadagno decode resta +27,7%, ma viene riportata separatamente
+per non sostituire selettivamente la coppia A/B stabile.
+
+Il target corto viene superato di 3,37 delta/s; quello lungo di 0,16 delta/s.
+Lo stato terminale è `keep`: entrambi gli obiettivi superano il 5%, i CV
+obiettivo sono sotto il 5%, la correttezza passa e nessun controllo regredisce
+oltre il 5%. Il corto raggiunge circa 40,4 GB/s effettivi sui 2,14 GB di pesi
+per token. Il limite residuo resta la proiezione/dequantizzazione sul corto e si
+sposta progressivamente sulla scansione KV al crescere del contesto.
+
+### Esperimenti rimossi
+
+| Ipotesi isolata | Risultato canonico | Decisione |
+|---|---:|---|
+| Due lane per riga | 17,45 decode/s | corretta ma dominata dalle quattro lane; rimossa |
+| Otto lane per riga | 19,44 decode/s | controllo lungo: −11,4% prompt e +13,8% TTFT; `reject`, rimossa |
+| Nuovo Metal System Trace | exit 139, template assente | evidenza invalida, non usata |
+
+Le due geometrie rimosse superano gli oracle sintetici e la parity 16/16. La
+variante a otto lane migliora il corto, ma nella coppia lunga consecutiva passa
+da 7,13 a 8,01 decode delta/s mentre prompt scende da 52,14 a 46,20 tok/s e TTFT
+sale da 23409,04 a 26639,47 ms; i controlli invalidano il guadagno. Sedici o
+trentadue lane non sono stati provati perché Q4_K espone soltanto otto gruppi per
+blocco: aggiungerebbero lane senza lavoro riducendo gli output concorrenti.
+
 ## Esito della campagna prestazionale — 5 agosto 2026
 
 I valori seguenti restano evidenza storica revisionata della precedente

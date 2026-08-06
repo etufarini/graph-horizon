@@ -49,7 +49,6 @@ pub(crate) fn load<G: HybridDevice>(
             source,
             file,
             &WeightSelection::full(plan.block_count),
-            false,
         )?),
         HybridMode::Mixed => {
             let cpu = CpuBackend::load_selected(
@@ -72,7 +71,6 @@ pub(crate) fn load<G: HybridDevice>(
                     embedding: false,
                     tail: true,
                 },
-                true,
             )?;
             HybridBackends::Mixed { cpu, gpu }
         }
@@ -135,29 +133,6 @@ pub(crate) fn select_plan<G: HybridDevice>(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn selected_gpu_loader_receives_only_effective_mixed_placement() {
-        let source = include_str!("loader.rs");
-        let all_gpu = source
-            .split("HybridMode::AllGpu")
-            .nth(1)
-            .unwrap()
-            .split("HybridMode::Mixed")
-            .next()
-            .unwrap();
-        let mixed = source
-            .split("HybridMode::Mixed")
-            .nth(1)
-            .unwrap()
-            .split("HybridMode::CpuOnly")
-            .next()
-            .unwrap();
-        let cpu_only = source.split("HybridMode::CpuOnly").nth(1).unwrap();
-        assert!(all_gpu.contains("false,"));
-        assert!(mixed.contains("true,"));
-        assert!(!cpu_only.contains("G::load_selected"));
-    }
 
     #[test]
     fn unified_gross_is_checked_and_uses_the_smaller_limit() {

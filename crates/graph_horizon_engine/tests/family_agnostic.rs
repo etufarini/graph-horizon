@@ -152,7 +152,10 @@ fn hybrid_numeric_dispatch_uses_effective_placement() {
     let contract = fs::read_to_string(manifest().join("src/backend/hybrid/contract.rs"))
         .expect("hybrid device contract");
     assert_eq!(contract.matches("AGENTS deroga I").count(), 1);
-    assert!(contract.contains("mixed_placement: bool"));
+    assert!(!contract.contains("mixed_placement"));
+    let loader = fs::read_to_string(metal.join("loader.rs")).expect("Metal loader source");
+    assert!(loader.contains("selection.layers.start > 0"));
+    assert!(loader.contains("!selection.embedding && selection.tail"));
 }
 
 #[test]

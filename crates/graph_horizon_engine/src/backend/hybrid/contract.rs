@@ -2,7 +2,7 @@
  * graph_horizon_engine — hybrid device contract
  * Defines the single extension trait a GPU backend implements for generic
  * placement, selected loading, and one host-residual upload. Build features
- * control availability; the selected loader receives effective mixed placement.
+ * control availability; weight selection is the immutable ownership boundary.
  */
 
 // AGENTS deroga I: definizione del solo trait HybridDevice.
@@ -32,7 +32,6 @@ pub(crate) trait HybridDevice: Backend {
         source: &dyn WeightSource,
         gguf: &GgufFile,
         selection: &WeightSelection,
-        mixed_placement: bool,
     ) -> Result<Self>;
     fn buffer_bytes(buffer: &Self::Buffer) -> u64;
     fn upload_residual(&self, target: &Self::Buffer, bytes: &[u8]) -> Result<()>;

@@ -131,7 +131,6 @@ mod tests {
             _: &dyn WeightSource,
             _: &GgufFile,
             _: &WeightSelection,
-            _: bool,
         ) -> Result<Self> {
             bail!("unused test loader")
         }

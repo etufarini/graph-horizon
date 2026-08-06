@@ -146,7 +146,6 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         source: &dyn crate::backend::source::WeightSource,
         gguf: &crate::gguf::loader::GgufFile,
         selection: &crate::backend::source::WeightSelection,
-        _mixed_placement: bool,
     ) -> color_eyre::eyre::Result<Self> {
         VulkanBackend::load_selected(device, meta, source, gguf, selection)
     }

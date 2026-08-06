@@ -58,7 +58,6 @@ pub(crate) fn load(
         source,
         metadata,
         &WeightSelection::full(metadata.block_count),
-        false,
     )
 }
 
@@ -68,8 +67,10 @@ pub(crate) fn load_selected(
     source: &dyn WeightSource,
     metadata: &ModelMetadata,
     selection: &WeightSelection,
-    mixed_placement: bool,
 ) -> Result<MetalBackend> {
+    // A GPU suffix without embedding is the only selected ownership shape that
+    // crosses from CPU to Metal; full standalone/all-Metal ownership starts at 0.
+    let mixed_placement = selection.layers.start > 0 && !selection.embedding && selection.tail;
     let pipelines = super::pipeline::PipelineRegistry::load(&device)?;
     let weights = weights::load_selected(&device, file, source, selection)?;
     let (buffers, reduce, staging) = buffers::allocate(&device, metadata, weights)?;

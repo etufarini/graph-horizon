@@ -111,9 +111,8 @@ impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
         source: &dyn crate::backend::source::WeightSource,
         gguf: &crate::gguf::loader::GgufFile,
         selection: &crate::backend::source::WeightSelection,
-        mixed_placement: bool,
     ) -> color_eyre::eyre::Result<Self> {
-        loader::load_selected(device, gguf, source, meta, selection, mixed_placement)
+        loader::load_selected(device, gguf, source, meta, selection)
     }
 
     fn buffer_bytes(buffer: &Self::Buffer) -> u64 {

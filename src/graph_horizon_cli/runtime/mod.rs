@@ -1,8 +1,7 @@
 /*
  * Graph Horizon CLI Modules - Runtime
- * Single responsibility: expose chat-only streamed generation to the CLI. It
- * depends on HTTP/local providers and token helpers, and does not expose tool
- * modes, workspace state, or reasoning configuration.
+ * Single responsibility: expose provider-neutral chat messages, context
+ * admission values, and streamed generation to the CLI console.
 */
 
 use color_eyre::eyre::Result;
@@ -11,6 +10,7 @@ use tokio_stream::Stream;
 
 mod client;
 mod config;
+mod context;
 pub(crate) mod local;
 mod message;
 mod sse;
@@ -18,6 +18,7 @@ mod tokens;
 
 pub(crate) use client::stream_completion as generation_stream;
 pub(crate) use config::ClientConfig;
+pub(crate) use context::{CapacityError, ContextBudget, ContextUsage};
 pub(crate) use message::ChatMessage;
 pub(crate) use tokens::{Throughput, estimate_tokens, prune_to_limit, pruning_threshold, rate};
 

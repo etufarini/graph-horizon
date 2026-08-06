@@ -140,7 +140,7 @@ complete list accepted by the program.
 | `--model <path>` | none | GGUF for the local console, server, and Web UI |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Console HTTP provider |
 | `--context-tokens <n>` | local `min(32,768, GGUF maximum)` | Sets an exact explicit context |
-| `--max-tokens <n>` | CLI `2048`, server/web `1024` | CLI reserve; server default when a request omits it; bundled Web stays fixed at 1024 |
+| `--max-tokens <n>` | CLI `2048`, server `1024`, Web `4096` | Response limit; Web uses the configured value for admission and generation |
 | `--system-prompt <text>` | none | Console system prompt |
 | `--kv-quant <f16\|int8>` | `f16` | KV-cache format |
 | `--cpu-threads <n>` | automatic | Sets CPU workers |
@@ -210,8 +210,9 @@ The current reviewed evidence is in [VALIDATION.md](VALIDATION.md): the three
 Instruct rows are preserved from the historical pass, and the three Reasoning
 rows are current Plan 07 `qualified` results for the Rust API harness with
 `temperature=0.7`, `seed=0`, `max_tokens=4096`, KV `f16`, and Vulkan all-GPU.
-That run does not qualify the HTTP server path, which continues to use greedy
-sampling through the unchanged server configuration.
+The server now selects that sampling policy for a loaded Reasoning profile while
+keeping Instruct greedy. The harness remains the qualification authority because
+it additionally fixes context, KV, placement, and the semantic corpus.
 
 ## Documentation
 

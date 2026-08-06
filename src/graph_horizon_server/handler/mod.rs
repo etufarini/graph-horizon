@@ -42,7 +42,9 @@ pub(crate) async fn handle(
         // streaming SSE generation.
         Route::ChatCompletions => chat_completions(req, state).await,
         // Properties are immutable engine data and never consume chat permits.
-        Route::Properties => properties_response(state.chat.context_limit()),
+        Route::Properties => {
+            properties_response(state.chat.context_limit(), state.config.max_tokens)
+        }
         // Known paths, wrong method.
         Route::MethodNotAllowed => error_response(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -74,9 +76,9 @@ pub(crate) async fn chat_completions(
     pipeline::chat_completions(req, state).await
 }
 
-pub(crate) fn properties_response(context_limit: u32) -> Response<ResponseBody> {
-    let bytes =
-        serde_json::to_vec(&api::props::payload(context_limit)).unwrap_or_else(|_| b"{}".to_vec());
+pub(crate) fn properties_response(context_limit: u32, max_tokens: usize) -> Response<ResponseBody> {
+    let bytes = serde_json::to_vec(&api::props::payload(context_limit, max_tokens))
+        .unwrap_or_else(|_| b"{}".to_vec());
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/json")
@@ -123,8 +125,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn props_response_preserves_resolved_context() {
-        let response = properties_response(u32::MAX);
+    async fn props_response_preserves_resolved_capacity() {
+        let response = properties_response(u32::MAX, 4096);
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE).unwrap(),
@@ -135,7 +137,10 @@ mod tests {
         assert_eq!(
             serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
             serde_json::json!({
-                "default_generation_settings": { "n_ctx": u32::MAX }
+                "default_generation_settings": {
+                    "n_ctx": u32::MAX,
+                    "max_tokens": 4096
+                }
             })
         );
     }

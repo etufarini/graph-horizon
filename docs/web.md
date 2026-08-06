@@ -42,7 +42,7 @@ suite directly with Node's TypeScript stripping.
 | `GET /` | Serves `index.html` |
 | `GET /index.html` | Serves `index.html` |
 | `GET /assets/*` | Serves a built asset |
-| `GET /props` | Returns the loaded engine's positive context limit |
+| `GET /props` | Returns positive context and generation limits |
 | `POST /v1/chat/completions` | Streams chat with SSE |
 
 There is no SPA fallback for other paths and there are no workspace, tool, or
@@ -60,16 +60,17 @@ Every request uses `fetch` with:
 ```json
 {
   "messages": [],
-  "max_tokens": 1024,
+  "max_tokens": 4096,
   "stream": true
 }
 ```
 
 On page initialization the browser requests exact `/props` with a three-second
-timeout. Send remains disabled until a positive safe integer context is known.
-A failed, timed-out, malformed, non-integer, unsafe, or non-positive response
-shows `Configurazione del contesto non disponibile`; a window whose reserve
-leaves no prompt space shows `max_tokens non lascia spazio al prompt`.
+timeout. Send remains disabled until positive safe integer values for `n_ctx`
+and `max_tokens` are known. A failed, timed-out, malformed, non-integer, unsafe,
+or non-positive response shows `Configurazione del contesto non disponibile`; a
+window whose reserve leaves no prompt space shows `max_tokens non lascia spazio
+al prompt`.
 
 The browser consumes only `delta.content` and the `[DONE]` terminal sentinel.
 Usage frames are tolerated but do not drive presentation; missing or malformed
@@ -78,16 +79,19 @@ remain protocol errors. The stop button aborts the fetch and retains the active
 pair, including partial raw text, to preserve alternating history.
 
 `--provider` is ignored. `--context-tokens`, KV, threads, and placement configure
-the local engine. The UI always sends `max_tokens: 1024`, so the corresponding
-flag does not change requests from the included frontend.
+the local engine. Web `max_tokens` defaults to `4096`; `/props` propagates an
+explicit `--max-tokens` to both browser admission and every request body.
+Instruct sampling remains greedy, while a loaded Reasoning profile uses the
+qualified temperature `0.7` policy.
 
 ## Context And Generation Status
 
 The canonical estimate and capacity gate are defined in
-[context.md](context.md). The browser uses the fixed 1024-token reserve for both
-that gate and the request body. Idle occupancy includes the trimmed system
-prompt, every committed raw message, and the trimmed draft. Streaming occupancy
-includes the submitted user message and current partial raw assistant response.
+[context.md](context.md). The browser uses the positive `max_tokens` reported by
+`/props` for both that gate and the request body. Idle occupancy includes the
+trimmed system prompt, every committed raw message, and the trimmed draft.
+Streaming occupancy includes the submitted user message and current partial raw
+assistant response.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
 chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
@@ -120,10 +124,11 @@ During streaming, an incomplete possible opening prefix such as `[TH` remains
 hidden while it is undecided. A contradicting character immediately falls back
 to showing the entire raw response as an ordinary answer. If streaming ends on
 an incomplete prefix, that raw response is also ordinary. A recognized opening
-without a close displays all following text in THINK; after completion its empty
-final-answer position reads `Nessuna risposta`. Empty THINK remains a visible
-disclosure, and additional markers remain literal content. Lowercase, mixed-case,
-misplaced, and otherwise malformed markers are ordinary text, not runtime errors.
+without a close displays all following text in THINK; after completion its final
+position reads `Risposta incompleta`. Empty completed THINK still reads `Nessuna
+risposta`. Empty THINK remains a visible disclosure, and additional markers
+remain literal content. Lowercase, mixed-case, misplaced, and otherwise malformed
+markers are ordinary text, not runtime errors.
 
 Stopping a partial web turn retains its raw content and derives the same view on
 the next render. Browser memory and version-1 import/export likewise retain raw

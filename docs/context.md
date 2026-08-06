@@ -54,8 +54,9 @@ An explicit positive `--context-tokens` wins. Otherwise the local CLI uses the
 engine's resolved context, while HTTP CLI and Web read `GET /props` at
 `default_generation_settings.n_ctx`.
 
-The CLI reserve is configured `--max-tokens`; Web always uses 1024 for both
-admission and the request body.
+The CLI reserve is configured by `--max-tokens`. Web reads the wrapper's
+`default_generation_settings.max_tokens` and uses that same value for admission
+and the request body; its default is 4096.
 
 Without an override, HTTP CLI discovery failure exits before terminal setup.
 Web disables its composer and shows `Configurazione del contesto non disponibile`.

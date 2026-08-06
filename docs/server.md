@@ -6,7 +6,7 @@ contract, concurrency and security boundaries. It is model-family neutral.
 # Server Mode
 
 `--mode server` loads a supported model into the local engine and exposes a
-text-only OpenAI-compatible chat endpoint plus read-only context properties. It
+text-only OpenAI-compatible chat endpoint plus read-only capacity properties. It
 does not forward requests to external providers.
 
 ```sh
@@ -30,20 +30,23 @@ Concrete model support is defined in the
 
 ### `GET /props`
 
-This observational route returns only the engine-resolved positive context:
+This observational route returns the engine-resolved positive context and the
+configured generation limit:
 
 ```json
 {
   "default_generation_settings": {
-    "n_ctx": 32768
+    "n_ctx": 32768,
+    "max_tokens": 1024
   }
 }
 ```
 
-The public field is `default_generation_settings.n_ctx`. The response contains
-no model path, GGUF metadata, backend, memory, generation statistic, or internal
-error. It does not read a request body, acquire a chat permit or lock, allocate
-inference buffers, or start generation.
+The public fields are `default_generation_settings.n_ctx` and
+`default_generation_settings.max_tokens`. The response contains no model path,
+GGUF metadata, backend, memory, generation statistic, or internal error. It does
+not read a request body, acquire a chat permit or lock, allocate inference
+buffers, or start generation.
 
 ### `POST /v1/chat/completions`
 
@@ -56,7 +59,8 @@ The body reads only:
 `tools`, `tool_choice`, `tool`/`function` roles, `tool_calls`, `function_call`,
 and non-string content receive `400`. Unknown fields such as `model`,
 `temperature`, and `stream` are ignored to tolerate existing OpenAI clients and
-do not change execution. Sampling remains greedy.
+do not change execution. Sampling is selected from the loaded model profile:
+Instruct is greedy, while Reasoning uses the qualified temperature `0.7` policy.
 
 When `max_tokens` is absent, the server uses `--max-tokens`, whose server default
 is `1024`. A positive value in the request is retained even when it exceeds that

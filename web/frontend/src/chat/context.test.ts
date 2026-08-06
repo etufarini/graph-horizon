@@ -19,19 +19,25 @@ function user(content: string): WireMessage[] {
   return [{ role: 'user', content }];
 }
 
-test('properties accept only a positive safe integer and ignore extra fields', () => {
+test('properties accept positive safe capacity integers and ignore extra fields', () => {
   assert.deepEqual(
     parseRuntimeContext({
-      default_generation_settings: { n_ctx: 4096, ignored: true },
+      default_generation_settings: { n_ctx: 8192, max_tokens: 4096, ignored: true },
       model_path: 'ignored'
     }),
     {
       ok: true,
-      context: { contextLimit: 4096, maxTokens: 1024, safeTotalBudget: 3686 }
+      context: { contextLimit: 8192, maxTokens: 4096, safeTotalBudget: 7372 }
     }
   );
   for (const n_ctx of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx } }), {
+    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx, max_tokens: 1 } }), {
+      ok: false,
+      error: 'unavailable'
+    });
+  }
+  for (const max_tokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
+    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: 8192, max_tokens } }), {
       ok: false,
       error: 'unavailable'
     });
@@ -40,7 +46,7 @@ test('properties accept only a positive safe integer and ignore extra fields', (
 });
 
 test('reserve must leave prompt space', () => {
-  assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: 1138 } }), {
+  assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: 4096, max_tokens: 4096 } }), {
     ok: false,
     error: 'no-prompt-space'
   });

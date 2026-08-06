@@ -60,7 +60,9 @@ di assessment.
 La matrice revisionata corrente è nel [registro di validazione](../../VALIDATION.md):
 i tre Reasoning sono `qualified` nel run Piano 07, mentre i tre Instruct sono
 evidenza preservata. Questo qualifica il percorso API Rust configurabile usato
-dall'harness, non il server HTTP greedy.
+dall'harness. Il server seleziona gli stessi parametri di sampling per un profilo
+Reasoning, ma il gate completo resta dell'harness perché fissa anche contesto,
+KV, placement e corpus semantico.
 
 `Engine::placement()` fornisce il placement finale e il suo breakdown di
 memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la

@@ -8,7 +8,7 @@ use std::path::Path;
 
 use color_eyre::eyre::Result;
 
-use super::request::{EventSink, Request};
+use super::request::{EventSink, Request, SamplingParams};
 use crate::family::{self, mistral};
 use crate::kv_cache::scheme::KvQuant;
 
@@ -76,6 +76,10 @@ impl Engine {
         self.model.context_limit()
     }
 
+    pub fn default_sampling(&self) -> SamplingParams {
+        sampling_for_profile(self.model.tokenizer.uses_reasoning_profile())
+    }
+
     pub fn placement(&self) -> Option<PlacementReport> {
         #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
         {
@@ -118,6 +122,18 @@ impl Engine {
     }
 }
 
+fn sampling_for_profile(reasoning: bool) -> SamplingParams {
+    if reasoning {
+        // Keep the production Reasoning path identical to the qualified policy.
+        SamplingParams {
+            temperature: 0.7,
+            ..SamplingParams::greedy()
+        }
+    } else {
+        SamplingParams::greedy()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -128,5 +144,20 @@ mod tests {
         assert_eq!(config.context_tokens, None);
         assert_eq!(config.vram_weights_percent, None);
         assert_eq!(config.kv_quant, KvQuant::F16);
+    }
+
+    #[test]
+    fn sampling_defaults_follow_the_validated_chat_profile() {
+        let instruct = sampling_for_profile(false);
+        assert_eq!(instruct.temperature, 0.0);
+        assert_eq!(instruct.repeat_penalty, 1.0);
+
+        let reasoning = sampling_for_profile(true);
+        assert_eq!(reasoning.temperature, 0.7);
+        assert_eq!(reasoning.top_p, 1.0);
+        assert_eq!(reasoning.top_k, 0);
+        assert_eq!(reasoning.min_p, 0.0);
+        assert_eq!(reasoning.repeat_penalty, 1.0);
+        assert_eq!(reasoning.seed, 0);
     }
 }

@@ -5,27 +5,31 @@
  */
 import type { ContextAdmission, ContextConfigResult, ContextUsage, RuntimeContext, WireMessage } from './types';
 
-const MAX_TOKENS = 1024;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 
 export function parseRuntimeContext(payload: unknown): ContextConfigResult {
   if (!isRecord(payload) || !isRecord(payload.default_generation_settings)) {
     return { ok: false, error: 'unavailable' };
   }
-  const settings = payload.default_generation_settings;
-  const contextLimit = settings.n_ctx;
-  if (!Number.isSafeInteger(contextLimit) || (contextLimit as number) <= 0) {
+  const { n_ctx: contextLimit, max_tokens: maxTokens } = payload.default_generation_settings;
+  if (
+    !Number.isSafeInteger(contextLimit) ||
+    (contextLimit as number) <= 0 ||
+    !Number.isSafeInteger(maxTokens) ||
+    (maxTokens as number) <= 0
+  ) {
     return { ok: false, error: 'unavailable' };
   }
   const limit = contextLimit as number;
+  const generationLimit = maxTokens as number;
   // Quotient/remainder avoids overflowing a valid safe integer by multiplying it.
   const safeTotalBudget = Math.floor(limit / 10) * 9 + Math.floor(((limit % 10) * 9) / 10);
-  if (MAX_TOKENS >= safeTotalBudget) {
+  if (generationLimit >= safeTotalBudget) {
     return { ok: false, error: 'no-prompt-space' };
   }
   return {
     ok: true,
-    context: { contextLimit: limit, maxTokens: MAX_TOKENS, safeTotalBudget }
+    context: { contextLimit: limit, maxTokens: generationLimit, safeTotalBudget }
   };
 }
 

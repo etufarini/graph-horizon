@@ -33,9 +33,10 @@ pub(super) async fn handle(
         SharedRoute::ChatCompletions => {
             crate::graph_horizon_server::handler::chat_completions(req, chat).await
         }
-        SharedRoute::Properties => {
-            crate::graph_horizon_server::handler::properties_response(chat.chat.context_limit())
-        }
+        SharedRoute::Properties => crate::graph_horizon_server::handler::properties_response(
+            chat.chat.context_limit(),
+            chat.config.max_tokens,
+        ),
         SharedRoute::MethodNotAllowed => {
             error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
         }

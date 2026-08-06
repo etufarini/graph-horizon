@@ -30,7 +30,9 @@
       </details>
     {/if}
     {#if !reasoning.pending}
-      {#if !streaming && reasoning.answer.trim() === ''}
+      {#if reasoning.incomplete}
+        <p class="placeholder">Risposta incompleta</p>
+      {:else if !streaming && reasoning.answer.trim() === ''}
         <p class="placeholder">Nessuna risposta</p>
       {:else if reasoning.answer !== ''}
         <Markdown content={reasoning.answer} />

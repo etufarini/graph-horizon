@@ -34,11 +34,12 @@ struct WireMessage {
     content: String,
 }
 
-// Builds the text-only engine request from the validated body and server
-// limits. Server sampling is always greedy.
+// Builds the text-only engine request from the validated body, server limit, and
+// loaded model's immutable sampling policy.
 pub(crate) fn to_request(
     req: ChatCompletionRequest,
     cfg: &ServerConfig,
+    sampling: SamplingParams,
 ) -> Result<Request, ApiError> {
     if req.messages.is_empty() {
         return Err(ApiError::EmptyMessages);
@@ -65,7 +66,7 @@ pub(crate) fn to_request(
 
     Ok(Request {
         messages,
-        sampling: SamplingParams::greedy(),
+        sampling,
         max_tokens,
     })
 }
@@ -104,7 +105,7 @@ mod tests {
 
     fn parse(body: &str) -> Result<Request, ApiError> {
         let req: ChatCompletionRequest = serde_json::from_str(body).expect("valid json");
-        to_request(req, &cfg())
+        to_request(req, &cfg(), SamplingParams::greedy())
     }
 
     // LocalGenerateRequest implements neither Debug nor PartialEq, so the error
@@ -129,6 +130,24 @@ mod tests {
         )
         .unwrap();
         assert!(req.messages[0].role == Role::System);
+    }
+
+    #[test]
+    fn loaded_model_sampling_is_preserved() {
+        let req: ChatCompletionRequest = serde_json::from_str(
+            r#"{"temperature":0,"messages":[{"role":"user","content":"hi"}]}"#,
+        )
+        .unwrap();
+        let sampling = SamplingParams {
+            temperature: 0.7,
+            top_p: 1.0,
+            top_k: 0,
+            min_p: 0.0,
+            repeat_penalty: 1.0,
+            seed: 0,
+        };
+        let request = to_request(req, &cfg(), sampling).unwrap();
+        assert_eq!(request.sampling.temperature, 0.7);
     }
 
     #[test]

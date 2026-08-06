@@ -1,19 +1,19 @@
 <!--
-  Questo documento possiede il contratto della libreria, dei backend e della
-  memoria; i risultati operativi appartengono ai documenti di validazione.
+  This document owns the contract of the library, backends, and memory;
+  operational results belong in the validation documents.
 -->
 
 # graph_horizon_engine
 
-`graph_horizon_engine` è il runtime di inferenza text-to-text per
-`general.architecture=mistral3`. La sua API pubblica riceve messaggi chat,
-esegue prefill/decode e produce eventi incrementali senza dipendere da console,
-HTTP o Web UI.
+`graph_horizon_engine` is the text-to-text inference runtime for
+`general.architecture=mistral3`. Its public API accepts chat messages, runs
+prefill/decode, and produces incremental events without depending on a console,
+HTTP, or Web UI.
 
-## Feature backend
+## Backend features
 
-Il crate non seleziona un backend di default: il consumer abilita esattamente
-uno dei cinque profili.
+The crate does not select a backend by default: the consumer enables exactly
+one of the five profiles.
 
 ```sh
 cargo check -p graph_horizon_engine --no-default-features --features cpu
@@ -23,91 +23,92 @@ cargo check -p graph_horizon_engine --no-default-features --features metal
 cargo check -p graph_horizon_engine --no-default-features --features metal-hybrid
 ```
 
-- `cpu`: percorso completo e riferimento numerico portabile.
-- `vulkan`: modello interamente GPU; memoria insufficiente o device non
-  disponibile sono errori senza fallback.
-- `vulkan-hybrid`: CPU più Vulkan con piano immutabile all-GPU, mixed o CPU-only.
-- `metal`: modello interamente Metal su macOS arm64, senza fallback CPU.
-- `metal-hybrid`: CPU più Metal con capacità unificata e modalità all-Metal,
-  mixed o CPU-only.
+- `cpu`: complete path and portable numerical reference.
+- `vulkan`: entirely GPU-based model; insufficient memory or an unavailable
+  device are errors with no fallback.
+- `vulkan-hybrid`: CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan.
+- `metal`: entirely Metal-based model on macOS arm64, with no CPU fallback.
+- `metal-hybrid`: CPU plus Metal with unified capacity and all-Metal, mixed, or
+  CPU-only modes.
 
-Il piano hybrid è immutabile dopo il load. Solo il piano misto copia il residuo
-CPU→GPU, una volta per passaggio; la KV di ogni layer resta sul suo backend. Il
-report contiene modalità, split, conteggi layer e breakdown CPU/GPU di pesi, KV,
-scratch, fixed, staging, crossing e reserve.
+The hybrid plan is immutable after loading. Only the mixed plan copies the
+residual from CPU to GPU, once per pass; each layer's KV remains on its backend.
+The report contains the mode, split, layer counts, and CPU/GPU breakdown of
+weights, KV, scratch, fixed, staging, crossing, and reserve memory.
 
-### Qualifica semantica Reasoning
+### Semantic Reasoning qualification
 
-La qualifica semantica corrente è una policy separata e solo test: conserva i
-tre pass Instruct revisionati dal piano storico e invoca soltanto i tre profili
-Reasoning. Il runner usa il load `vulkan-hybrid` per osservare il placement, ma la
-generazione qualificante è valida solo con Vulkan all-GPU; `mixed`, `cpu-only` o
-risorse assenti diventano `external-verification` e non attivano fallback.
+The current semantic qualification is a separate, test-only policy: it retains
+the three Instruct passes reviewed under the historical plan and invokes only
+the three Reasoning profiles. The runner uses the `vulkan-hybrid` load to
+observe placement, but qualifying generation is valid only with all-GPU Vulkan;
+`mixed`, `cpu-only`, or missing resources become `external-verification` and do
+not activate a fallback.
 
-Il run Reasoning usa KV `f16`, `context=4096`, `max_tokens=4096`,
-`temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0` e
-`repeat_penalty=1`. Il corpus contiene solo i nove casi S01–S04 e S06–S10. Ogni
-caso viene tentato una volta; `context`, `max-tokens`, errori engine, marker
-Reasoning incompleti e miss semantici sono risultati terminali, non ragioni per
-retry, tuning, CPU fallback o oracle.
+The Reasoning run uses `f16` KV, `context=4096`, `max_tokens=4096`,
+`temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0`, and
+`repeat_penalty=1`. The corpus contains only the nine cases S01–S04 and S06–S10.
+Each case is attempted once; `context`, `max-tokens`, engine errors, incomplete
+Reasoning markers, and semantic misses are terminal results, not reasons for a
+retry, tuning, CPU fallback, or an oracle.
 
-La riga finale di un Reasoning può essere `qualified`, `not-qualified` o
-`external-verification`. Una matrice strutturalmente completa a sei righe è
-successo operativo del runner anche quando un modello non supera il gate
-semantico. Il runtime continua a emettere testo raw e non possiede questa policy
-di assessment.
+The final status of a Reasoning run can be `qualified`, `not-qualified`, or
+`external-verification`. A structurally complete six-row matrix is an
+operational success for the runner even when a model does not pass the semantic
+gate. The runtime continues to emit raw text and does not own this assessment
+policy.
 
-La matrice revisionata corrente è nel [registro di validazione](../../VALIDATION.md):
-i tre Reasoning sono `qualified` nel run Piano 07, mentre i tre Instruct sono
-evidenza preservata. Questo qualifica il percorso API Rust configurabile usato
-dall'harness. Il server seleziona gli stessi parametri di sampling per un profilo
-Reasoning, ma il gate completo resta dell'harness perché fissa anche contesto,
-KV, placement e corpus semantico.
+The current reviewed matrix is in the [validation log](../../VALIDATION.md):
+the three Reasoning profiles are `qualified` in the Plan 07 run, while the three
+Instruct profiles are retained evidence. This qualifies the configurable Rust
+API path used by the harness. The server selects the same sampling parameters
+for a Reasoning profile, but the complete gate remains owned by the harness
+because it also fixes the context, KV, placement, and semantic corpus.
 
-`Engine::placement()` fornisce il placement finale e il suo breakdown di
-memoria pianificata; non espone la VRAM grezza disponibile. Un errore dopo la
-selezione finale resta un failure senza retry o fallback. Il comando e il
-protocollo operativo sono nella [guida degli script](../../support/README.md).
+`Engine::placement()` provides the final placement and its planned memory
+breakdown; it does not expose the raw available VRAM. An error after final
+selection remains a failure with no retry or fallback. The command and
+operational protocol are in the [script guide](../../support/README.md).
 
-## Contratto Ministral
+## Ministral contract
 
-Il riconoscimento di architettura, tensori e quantizzazione è capability-based
-e non autentica un file tramite nome, directory, byte totali o `general.name`.
-Quest'ultimo seleziona soltanto la policy chat. I valori esatti e case-sensitive
-`ministral-3B-Reasoning-2512`, `ministral-8B-Reasoning-2512` e
-`ministral-14B-Reasoning-2512` abilitano il profilo privato Reasoning; ogni altro
-nome contenente `Reasoning` viene rifiutato prima dell'allocazione backend. La
-configurazione Instruct resta dimension-generic per 3B, 8B e 14B.
+Architecture, tensor, and quantization recognition is capability-based and does
+not authenticate a file by its name, directory, total byte size, or
+`general.name`. The latter selects only the chat policy. The exact,
+case-sensitive values `ministral-3B-Reasoning-2512`,
+`ministral-8B-Reasoning-2512`, and `ministral-14B-Reasoning-2512` enable the
+private Reasoning profile; any other name containing `Reasoning` is rejected
+before backend allocation. The Instruct configuration remains dimension-generic
+for 3B, 8B, and 14B.
 
-Il solo profilo GGUF pubblico è `Q4_K_M`: matrici Q4_K/Q6_K e ausiliari
-monodimensionali F32. Il parser conserva `GgmlType::Q8_0` per identificare e
-diagnosticare un file Q8, ma il gate E04 lo rifiuta prima dell'allocazione. Le
-sei righe reali di validazione sono evidenza riproducibile, non una whitelist.
-I valori fissati per Ministral 3 Instruct/Reasoning 2512 appartengono al modulo
-privato
-[`family/mistral/version.rs`](src/family/mistral/version.rs), che possiede anche
-il System prompt Reasoning della release.
+The only public GGUF profile is `Q4_K_M`: Q4_K/Q6_K matrices and
+one-dimensional F32 auxiliaries. The parser retains `GgmlType::Q8_0` to identify
+and diagnose a Q8 file, but the E04 gate rejects it before allocation. The six
+real validation rows are reproducible evidence, not a whitelist. The fixed
+values for Ministral 3 Instruct/Reasoning 2512 belong to the private
+[`family/mistral/version.rs`](src/family/mistral/version.rs) module, which also
+owns the release's Reasoning system prompt.
 
-Il backend mantiene attivazioni FP16, residuo/logits FP32 e formati numerici
-interni F16/Q4_K/Q5_K/Q6_K. Questa superficie interna non aggiunge profili
-Ministral pubblici.
+The backend maintains FP16 activations, FP32 residual/logits, and internal
+F16/Q4_K/Q5_K/Q6_K numerical formats. This internal surface does not add public
+Ministral profiles.
 
-## Facciata pubblica
+## Public facade
 
-La radice espone soltanto:
+The crate root exposes only:
 
 - engine/config/placement: `Engine`, `EngineConfig`, `BackendMemory`,
   `PlacementReport`;
-- chat ed eventi: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
+- chat and events: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
   `GenerationStats`, `EventSink`, `render_chat_prompt`;
-- ispezione Ministral/GGUF: `MistralConfig`, `TekkenTokenizer`,
+- Ministral/GGUF inspection: `MistralConfig`, `TekkenTokenizer`,
   `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
-- selezione KV: `KvQuant`;
-- `harness::throughput` con `BenchConfig`, `Stat`, `ThroughputReport` e `run`.
+- KV selection: `KvQuant`;
+- `harness::throughput` with `BenchConfig`, `Stat`, `ThroughputReport`, and `run`.
 
-Backend, sampling, layout KV, metadati allocativi e grafo restano interni.
-L'harness attivo misura esclusivamente lo stream pubblico dell'engine; non
-espone profiling di buffer o accessi privati al modello.
+Backends, sampling, KV layout, allocation metadata, and the graph remain
+internal. The active harness measures only the engine's public stream; it does
+not expose buffer profiling or private model access.
 
 ## Chat
 
@@ -121,7 +122,7 @@ let engine = Engine::new(
 let request = Request {
     messages: vec![Message {
         role: Role::User,
-        content: "Ciao".into(),
+        content: "Hello".into(),
     }],
     sampling: SamplingParams::greedy(),
     max_tokens: 128,
@@ -133,69 +134,69 @@ engine.generate(request, &mut |event| {
 # Ok::<(), color_eyre::Report>(())
 ```
 
-Una sequenza valida contiene al massimo un `System` iniziale, poi `User` e
-`Assistant` strettamente alternati, e termina con `User`. Il template è fisso:
-`tokenizer.chat_template` non viene eseguito. Nel profilo Reasoning, l'assenza
-di un `System` iniziale inserisce il System prompt fissato dalla release; un
-`System` esplicito, anche vuoto, lo sostituisce. Il contenuto del chiamante non
-viene interpretato come token speciale. I marker `[THINK]` e `[/THINK]`
-generati dal modello restano testo raw in `TextDelta`, senza un nuovo evento o
-canale pubblico.
+A valid sequence contains at most one initial `System` message, followed by
+strictly alternating `User` and `Assistant` messages, and ends with `User`. The
+template is fixed: `tokenizer.chat_template` is not executed. In the Reasoning
+profile, the absence of an initial `System` message inserts the system prompt
+fixed by the release; an explicit `System` message, even an empty one, replaces
+it. Caller-provided content is not interpreted as a special token. The
+`[THINK]` and `[/THINK]` markers generated by the model remain raw text in
+`TextDelta`, without a new public event or channel.
 
-Gli eventi pubblici sono:
+The public events are:
 
 - `TextDelta(String)`;
 - `Finished(GenerationStats)`;
 - `Error("generation failed")`.
 
-Ogni generazione emette un solo evento terminale. Se il sink restituisce
-`false`, l'esecuzione viene cancellata, le risorse sono liberate e non viene
-emesso alcun altro evento.
+Each generation emits exactly one terminal event. If the sink returns `false`,
+execution is cancelled, resources are released, and no further event is
+emitted.
 
-## Memoria e contesto
+## Memory and context
 
-`EngineConfig` accetta contesto, schema KV `f16|int8`, thread CPU e budget
-device. `EngineConfig.context_tokens = None` applica la policy del motore:
-`min(32.768, massimo contesto GGUF)`. `Some(N)` richiede invece esattamente
-`N`: ogni valore positivo fino al massimo GGUF è valido se entra nella memoria
-del backend e non viene troncato o ridotto. Il limite effettivo è restituito da
-`Engine::context_limit` alle superfici locali. Nei profili hybrid:
+`EngineConfig` accepts a context, an `f16|int8` KV scheme, CPU threads, and a
+device budget. `EngineConfig.context_tokens = None` applies the engine policy:
+`min(32,768, maximum GGUF context)`. `Some(N)` instead requests exactly `N`:
+every positive value up to the GGUF maximum is valid if it fits in backend
+memory and is neither truncated nor reduced. The effective limit is returned by
+`Engine::context_limit` to local surfaces. In hybrid profiles:
 
-- percentuale assente: selezione automatica dalla capacità disponibile;
-- percentuale `0`: CPU-only e nessuna inizializzazione device;
-- percentuale `100`: endpoint device-only (`all-gpu` o `all-metal`).
+- no percentage: automatic selection based on available capacity;
+- percentage `0`: CPU-only with no device initialization;
+- percentage `100`: device-only endpoint (`all-gpu` or `all-metal`).
 
-Vulkan usa RAM e VRAM separate; la RAM automatica è
-`floor(MemAvailable × 90 / 100)` su Linux e la riserva VRAM automatica è il
-maggiore tra 256 MiB e 5%.
-Metal usa memoria unificata: CPU e Metal competono nella stessa capacità
-derivata da memoria fisica e working set raccomandato. Errori di
-allocation, pipeline, kernel, transfer, readback o decoder dopo la scelta del
-piano non provocano retry.
+Vulkan uses separate RAM and VRAM; automatic RAM is
+`floor(MemAvailable × 90 / 100)` on Linux, and the automatic VRAM reserve is the
+greater of 256 MiB and 5%.
+Metal uses unified memory: CPU and Metal compete for the same capacity derived
+from physical memory and the recommended working set. Allocation, pipeline,
+kernel, transfer, readback, or decoder errors after plan selection do not cause
+a retry.
 
-## Verifiche
+## Verification
 
-La suite sintetica copre dimensioni 3B/8B/14B, il gate pubblico Q4_K_M,
-attivazioni FP16, residuo/logits FP32, formati numerici interni, KV f16/int8 e i
-tre placement hybrid. Test separati verificano che Q8 resti soltanto
-diagnosticabile e venga rifiutato.
+The synthetic suite covers 3B/8B/14B dimensions, the public Q4_K_M gate, FP16
+activations, FP32 residual/logits, internal numerical formats, f16/int8 KV, and
+the three hybrid placements. Separate tests verify that Q8 remains diagnosable
+only and is rejected.
 
-Le prove reali sono ignorate per default e non cercano fallback locali. Le
-risorse obbligatorie sono esplicite:
+Real-model tests are ignored by default and do not look for local fallbacks.
+Required resources are explicit:
 
-| Variabile | Uso test-only |
+| Variable | Test-only use |
 |---|---|
-| `GRAPH_HORIZON_MODEL` | singolo GGUF reale |
-| `GRAPH_HORIZON_MODEL_Q4_K_M` | artefatto Q4_K_M per la prova tokenizer |
-| `GRAPH_HORIZON_REFERENCE_CLI` | eseguibile oracle per token greedy |
-| `GRAPH_HORIZON_REFERENCE_TOKENIZE` | eseguibile oracle per tokenizzazione |
-| `GRAPH_HORIZON_REFERENCE_PROMPT_IDS` | vettore prompt Reasoning fornito dallo script |
-| `GRAPH_HORIZON_REFERENCE_COMPLETION_IDS` | 16 ID oracle forniti dallo script |
+| `GRAPH_HORIZON_MODEL` | single real GGUF |
+| `GRAPH_HORIZON_MODEL_Q4_K_M` | Q4_K_M artifact for the tokenizer test |
+| `GRAPH_HORIZON_REFERENCE_CLI` | oracle executable for greedy tokens |
+| `GRAPH_HORIZON_REFERENCE_TOKENIZE` | oracle executable for tokenization |
+| `GRAPH_HORIZON_REFERENCE_PROMPT_IDS` | Reasoning prompt vector supplied by the script |
+| `GRAPH_HORIZON_REFERENCE_COMPLETION_IDS` | 16 oracle IDs supplied by the script |
 
-`GRAPH_HORIZON_CONTEXT`, `GRAPH_HORIZON_KV` e, nella prova mixed,
-`GRAPH_HORIZON_VRAM_WEIGHTS_PERCENT` configurano la riga esterna senza individuare
-risorse. Le variabili `GRAPH_HORIZON_REFERENCE_*_IDS` sono interne allo script di
-parità e non sono configurazione runtime stabile.
+`GRAPH_HORIZON_CONTEXT`, `GRAPH_HORIZON_KV`, and, in the mixed test,
+`GRAPH_HORIZON_VRAM_WEIGHTS_PERCENT` configure the external row without locating
+resources. The `GRAPH_HORIZON_REFERENCE_*_IDS` variables are internal to the
+parity script and are not stable runtime configuration.
 
 ```sh
 GRAPH_HORIZON_MODEL="/path/model.gguf" GRAPH_HORIZON_CONTEXT=4096 GRAPH_HORIZON_KV=f16 \
@@ -205,6 +206,6 @@ GRAPH_HORIZON_REFERENCE_PROMPT_IDS="..." GRAPH_HORIZON_REFERENCE_COMPLETION_IDS=
   -- --ignored --nocapture --exact
 ```
 
-Le interfacce complete della matrice 74-righe e dell'accettazione semantica sono
-descritte nella [guida degli script](../../support/README.md); i risultati
-revisionati appartengono al [registro di validazione](../../VALIDATION.md).
+The complete interfaces of the 74-row matrix and semantic acceptance are
+described in the [script guide](../../support/README.md); reviewed results belong
+in the [validation log](../../VALIDATION.md).

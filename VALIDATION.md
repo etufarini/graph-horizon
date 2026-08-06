@@ -577,6 +577,76 @@ sale da 23409,04 a 26639,47 ms; i controlli invalidano il guadagno. Sedici o
 trentadue lane non sono stati provati perché Q4_K espone soltanto otto gruppi per
 blocco: aggiungerebbero lane senza lavoro riducendo gli output concorrenti.
 
+## Proiezione Metal a due righe per SIMD-group — 6 agosto 2026
+
+La campagna parte dal commit `d30593a` sul branch
+`agent/metal-projection-streaming`, sullo stesso MacBook Air M4, artefatto
+`3b-instruct` autenticato, Cargo `release`, contesto 4096 e protocollo con un
+warm-up e tre ripetizioni. La baseline è compilata dal commit esatto in un
+worktree detached e in un target Cargo isolato. L'obiettivo primario dichiarato
+è almeno 21,0 decode/s sul prompt canonico corto, +10,9% rispetto ai 18,93/s
+correnti, senza regressioni oltre il 5% sui controlli.
+
+### Ipotesi e invariante numerico
+
+Il kernel precedente assegnava quattro lane adiacenti a una riga Q4_K o Q6_K.
+Il candidato mantenuto assegna una SIMD-group a due righe adiacenti: Q4_K divide
+i blocchi di input fra quattro ottetti di lane, Q6_K fra lane pari e dispari.
+Ogni lane dequantizza gruppi packed, riusa la stessa porzione di attivazioni per
+entrambe le righe e conserva due somme FP32; una `simd_sum` produce ciascun
+output. La distribuzione deriva dal matvec Metal Q4_K/Q6_K MIT di `ggml`,
+adattato alle attivazioni FP16, ai buffer e all'output FP16/FP32 del backend.
+
+Restano invariati byte e layout GGUF, formati, loader, ownership, memoria,
+embedding/LM-head tied, API, dipendenze e matmul batched di prefill. F16 e Q5_K
+conservano il percorso scalare. Output dispari sono protetti dal bound della
+seconda riga; ogni blocco di input appartiene a una sola lane e soltanto lane
+zero scrive dopo la riduzione.
+
+### Risultati
+
+| Tupla | Baseline `d30593a` | Candidato | Variazione |
+|---|---:|---:|---:|
+| f16 corto — prompt tok/s | 41,18 | 40,69 | −1,2% |
+| f16 corto — TTFT ms | 339,99 | 344,09 | +1,2% |
+| f16 corto — decode/s | 18,93 | 21,17 | +11,8% |
+| f16 lungo caldo — prompt tok/s | 28,88 | 28,37 | −1,8% |
+| f16 lungo caldo — TTFT ms | 42253,05 | 43012,89 | +1,8% |
+| f16 lungo caldo — decode/s | 8,18 | 9,00 | +10,0% |
+| mixed 25% — prompt tok/s | 2,77 | 2,79 | +0,7% |
+| mixed 25% — TTFT ms | 5046,84 | 5017,59 | −0,6% |
+| mixed 25% — decode/s | 1,69 | 1,68 | −0,6% |
+
+La coppia corta ha CV massimo 0,43% sulla baseline e 1,15% sul candidato. Il
+target è superato di 0,17 decode/s; sui circa 2,14 GB letti per token il rate
+effettivo stimato passa da 40,5 a 45,3 GB/s. La coppia lunga viene acquisita
+dopo il carico termico degli esperimenti: i controlli restano entro il 2% e il
+decode medio migliora, ma il CV decode candidato è 5,22%, quindi non viene
+formulato un claim lungo. La coppia mixed è stabile e resta entro l'1%.
+
+Il controllo prestazionale int8 eseguito dopo la sequenza lunga è inutilizzabile
+per deriva termica: i CV variano dal 13,55% al 52,13%. Non viene sostituito con
+un claim selettivo; la correttezza int8 reale passa separatamente 16/16.
+
+Lo stato terminale è `keep`: l'obiettivo corto migliora dell'11,8% con CV sotto
+il 5%, prompt e TTFT corti non regrediscono oltre il 5%, i controlli lunghi e
+mixed non mostrano regressioni oltre il 5% e la correttezza passa. Rispetto al
+tree iniziale il kernel dense si riduce di sei righe e non introduce nuovi
+formati, file o stati persistenti.
+
+### Esperimenti rimossi
+
+| Ipotesi isolata | Decode corto | Decisione |
+|---|---:|---|
+| Trasporre blocchi in stream input-major | 18,73/s | −1,1%, `reject` |
+| Stream input-major più `uchar4`/`half4` | 18,55/s | −2,0%, `reject` |
+| `uchar4`/`half4` sul layout GGUF | 18,44/s | −2,6%, `reject` |
+
+Tutto il codice di layout, i formati streamed e il percorso embedding relativo
+sono stati rimossi. Passano 132 test Metal, Clippy Metal con `-D warnings`, gli
+oracle GPU non nulli Q4_K/Q6_K e le parity reali 16/16 per Metal f16, Metal int8
+e Metal-hybrid mixed.
+
 ## Attenzione Metal segmentata — 6 agosto 2026
 
 La campagna parte dal commit `a274883` sul branch

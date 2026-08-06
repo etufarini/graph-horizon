@@ -20,13 +20,9 @@ struct Candidate {
 
 pub(super) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
     let block_count = weights.layers.len();
-    let splits: Box<dyn Iterator<Item = usize>> = if input.gpu_enabled {
-        Box::new(0..=block_count)
-    } else {
-        Box::new(std::iter::once(block_count))
-    };
+    let first_split = if input.gpu_enabled { 0 } else { block_count };
     let mut base_fit = false;
-    for split in splits {
+    for split in first_split..=block_count {
         let candidate = candidate(weights, input, split)?;
         if candidate.cpu_base.total <= input.cpu_available
             && candidate.gpu_base.total <= input.gpu_available

@@ -407,7 +407,7 @@ fn hybrid_placement_contract() {
     let source = fs::read_to_string(manifest().join("src/backend/hybrid/placement/separate.rs"))
         .expect("hybrid placement source");
     for evidence in [
-        "0..=block_count",
+        "first_split..=block_count",
         "selects_all_gpu_mixed_one_layer_suffix_and_cpu_only",
         "context_failure_does_not_reduce_context",
         "model does not fit available RAM and VRAM",

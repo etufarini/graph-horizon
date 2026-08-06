@@ -12,13 +12,9 @@ use crate::backend::hybrid::{BackendBytes, HybridPlan};
 
 pub(super) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
     let blocks = weights.layers.len();
-    let splits: Box<dyn Iterator<Item = usize>> = if input.gpu_enabled {
-        Box::new(0..=blocks)
-    } else {
-        Box::new(std::iter::once(blocks))
-    };
+    let first_split = if input.gpu_enabled { 0 } else { blocks };
     let mut base_fit = false;
-    for split in splits {
+    for split in first_split..=blocks {
         let (cpu_base, gpu_base) = candidate(weights, input, split, false)?;
         if add(cpu_base.total, gpu_base.total)? <= input.cpu_available
             && gpu_base.weights <= input.gpu_weight_available

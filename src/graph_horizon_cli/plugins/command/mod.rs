@@ -10,7 +10,6 @@ use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use action::{export_command, import_command};
 
 mod action;
-mod args;
 mod completion;
 
 pub(crate) use completion::complete;

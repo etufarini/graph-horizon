@@ -15,7 +15,8 @@ support/testing/parity-ref-*.txt
 DECISIONS.md
 ref.oracle
 
-# local ablation report
+# local validation reports
 ABLATION_REPORT.md
+VALIDATION.md
 
 plans/

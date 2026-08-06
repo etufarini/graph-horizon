@@ -12,13 +12,21 @@ catalog="$project_dir/support/models.tsv"
 parity="$project_dir/support/testing/parity-check.sh"
 models_dir=""; reference_server=""; reference_port="18080"
 pass=0; external=0; failure=0
-declare -A row_status local_ids
+declare -a row_keys row_status local_ids
 
 usage_error() { printf 'matrix-check: %s\n' "$*" >&2; exit 2; }
 catalog_error() { printf 'matrix-check: catalog error: %s\n' "$*" >&2; exit 2; }
 summary() { printf 'summary: pass=%d external_verification=%d failure=%d total=%d\n' "$pass" "$external" "$failure" "$((pass + external + failure))"; }
 stop_failure() { printf '%s: failure: %s\n' "$1" "$2"; ((failure += 1)); summary; exit 1; }
 usage() { echo "usage: matrix-check.sh --models-dir DIR --reference-server PATH [--reference-port PORT]"; }
+find_row() {
+    local sought="$1" index
+    row_index=-1
+    for index in "${!row_keys[@]}"; do
+        if [[ "${row_keys[$index]}" == "$sought" ]]; then row_index="$index"; return 0; fi
+    done
+    return 1
+}
 
 while (($#)); do
     case "$1" in
@@ -96,15 +104,19 @@ run_parity() {
         fi
         if [[ -n "$control" ]]; then
             control_key="$id:$control:$kv::"
-            if [[ "${row_status[$control_key]:-}" == pass && "${local_ids[$control_key]}" != "$ids" ]]; then
-                stop_failure "$key" "homogeneous endpoint local ID mismatch"
+            if find_row "$control_key"; then
+                if [[ "${row_status[$row_index]}" == pass && "${local_ids[$row_index]}" != "$ids" ]]; then
+                    stop_failure "$key" "homogeneous endpoint local ID mismatch"
+                fi
             fi
         fi
-        row_status["$row_key"]="pass"; local_ids["$row_key"]="$ids"
+        row_index="${#row_keys[@]}"
+        row_keys[$row_index]="$row_key"; row_status[$row_index]="pass"; local_ids[$row_index]="$ids"
         printf '%s: %s\n' "$key" "$output"; ((pass += 1)); return
     fi
     if ((status == 0)) && [[ "$output" == "external verification: "* ]]; then
-        row_status["$row_key"]="external"
+        row_index="${#row_keys[@]}"
+        row_keys[$row_index]="$row_key"; row_status[$row_index]="external"; local_ids[$row_index]=""
         printf '%s: %s\n' "$key" "$output"; ((external += 1)); return
     fi
     stop_failure "$key" "parity row failed"

@@ -124,13 +124,52 @@ il 3B-Instruct richiesto dagli otto endpoint. Output esatto finale:
 summary: pass=1 external_verification=73 failure=0 total=74
 ```
 
-Nessun endpoint omogeneo era eseguibile in questa campagna, quindi non viene
-dichiarata uguaglianza locale. Restano da eseguire sul Mac M4 i test/check
-`metal` e `metal-hybrid` e gli endpoint Metal f16/int8; restano inoltre esterne
-le equivalenze Vulkan/CPU 3B-Instruct finché l'artefatto autenticato non è
-presente. La contabilità corretta a 32 righe può cambiare uno split limitato
-dalla capacità, ma percentuale, riserva, ordine dei candidati, piano immutabile
-e assenza di retry restano invariati. Questa campagna non formula alcun nuovo
+Nessun endpoint omogeneo era eseguibile nella campagna Linux, quindi quel run
+non dichiara uguaglianza locale.
+
+### Completamento macOS
+
+La qualifica successiva è stata eseguita sullo stesso candidato su MacBook Air
+`Mac16,13`, Apple M4 10 core, 24 GB, macOS 26.3 (`25D125`), Rust/Cargo 1.95.0
+e Metal 32023.864. Erano presenti i sei Q4_K_M autenticati e l'oracolo pinned
+`9973 (13f2b28b0)`; gli artefatti Q8 non erano presenti.
+
+I test e check `metal` e `metal-hybrid` terminano con exit 0. Le suite
+esercitano il device qualificato, incluse compilazione di tutte le pipeline,
+proiezioni batched, attenzione, riduzioni, lifecycle e i test di route
+`metal_matmul_route_depends_on_effective_placement_not_feature` e
+`metal_attention_route_depends_on_effective_placement_not_feature`:
+
+```text
+cargo test --locked -p graph_horizon_engine --no-default-features --features metal --lib
+cargo test --locked -p graph_horizon_engine --no-default-features --features metal-hybrid --lib
+cargo check --locked --workspace --no-default-features --features metal
+cargo check --locked --workspace --no-default-features --features metal-hybrid
+```
+
+Il runner sintetico ha inizialmente rilevato che `declare -A` non è supportato
+dal Bash 3.2 di macOS. La matrice conserva ora lo stesso stato effimero in array
+indicizzati; i test delle 74 tuple, dei casi external e del mismatch sul
+sedicesimo ID passano con Bash 3.2. Gli array indicizzati restano parte del
+contratto compatibile delle versioni Bash successive.
+
+La matrice reale è stata eseguita senza sostituzioni con
+`/Users/emanuele/Documents/models` e l'oracolo locale pinned. Tutte le 12 righe
+CPU, le 12 Metal e le 12 Metal-hybrid `25/mixed` passano per i sei modelli e i
+due schemi KV. I quattro endpoint Metal-hybrid passano: `100/all-metal` f16 e
+int8 coincidono esattamente con Metal standalone, mentre `0/cpu-only` f16 e
+int8 coincidono esattamente con CPU standalone per tutti i 16 `local_ids`. Le
+24 righe Vulkan principali e i quattro endpoint Vulkan sono external sul Mac;
+i sei rifiuti Q8 sono external perché gli artefatti non sono presenti. Output
+terminale osservato:
+
+```text
+summary: pass=40 external_verification=34 failure=0 total=74
+```
+
+La contabilità corretta a 32 righe può cambiare uno split limitato dalla
+capacità, ma percentuale, riserva, ordine dei candidati, piano immutabile e
+assenza di retry restano invariati. Questa campagna non formula alcun nuovo
 claim prestazionale.
 
 ## Ciclo di ottimizzazione CPU — 5 agosto 2026

@@ -313,8 +313,8 @@ mod tests {
 
     #[test]
     fn includes_system_prompt_in_the_count() {
-        // The system prompt is invisible in history but drives pruning, so it
-        // must contribute to the shown count. 8 system chars / 4 = 2.
+        // The system prompt is invisible in history but occupies context, so
+        // its eight characters must contribute to the stored character count.
         assert_eq!(conversation_characters(Some("sys text"), &[]), Some(8));
     }
 

@@ -21,8 +21,8 @@ pub(super) enum Commit {
 }
 
 // Applies a finished turn's outcome to the session state. On a completed or
-// errored turn it pushes the turn into history, recomputes the per-turn counts,
-// and refreshes the frozen token count so it updates in one frame. Quit and
+// errored turn it pushes the turn into history, then refreshes the checked
+// committed-character count in one frame. Quit and
 // Interrupted touch no state here: they only signal the loop, which keeps every
 // counter frozen at the previous turn's values.
 #[allow(clippy::too_many_arguments)]

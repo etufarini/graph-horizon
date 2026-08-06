@@ -5,16 +5,22 @@
  */
 
 use color_eyre::eyre::Result;
+#[cfg(feature = "metal")]
 use objc2_foundation::NSProcessInfo;
 
-use super::mem::{budget, buffers, weights};
+#[cfg(feature = "metal")]
+use super::mem::budget;
+use super::mem::{buffers, weights};
 use super::{Device, MetalBackend};
+#[cfg(feature = "metal")]
 use crate::backend::hybrid::weights::runtime::RuntimeShape;
 use crate::backend::source::{WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
+#[cfg(feature = "metal")]
 use crate::kv_cache::scheme::KvQuant;
 
+#[cfg(feature = "metal")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
     file: &GgufFile,
@@ -77,6 +83,7 @@ pub(crate) fn load_selected(
     })
 }
 
+#[cfg(feature = "metal")]
 fn standalone_percentage(percent: Option<u8>) -> Result<u8> {
     budget::validate_percentage(percent)
 }
@@ -88,6 +95,7 @@ mod tests {
     fn assert_send_sync<T: Send + Sync>() {}
 
     #[test]
+    #[cfg(feature = "metal")]
     fn zero_percentage_stops_at_the_first_configuration_gate() {
         assert_eq!(
             standalone_percentage(Some(0)).unwrap_err().to_string(),

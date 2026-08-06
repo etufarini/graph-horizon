@@ -35,20 +35,20 @@ pub(crate) struct MetalBackend {
     pub(crate) staging: MetalBuffer,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 pub(crate) fn reset_probe_count() {
     PROBE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 pub(crate) fn probe_count() -> usize {
     PROBE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 fn record_probe() {
     PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }

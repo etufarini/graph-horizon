@@ -12,13 +12,13 @@ use crate::backend::buffers::{Buffers, Scratch, WeightSet};
 use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::MemoryPlan;
 use crate::backend::vulkan::weights::upload_weights;
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 pub(super) fn create_buffers(
     dev: &Device,
     plan: &MemoryPlan,

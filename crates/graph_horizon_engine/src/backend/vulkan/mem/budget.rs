@@ -3,9 +3,9 @@
  * Owns VRAM discovery, reserve/weight caps, hybrid fallback and pure preflight.
 */
 
-// OnceLock backs the dial cache only in the single-backend builds; in hybrid
-// `weight_vram_percent()` is a const 100 and never caches.
-#[cfg(not(feature = "vulkan-hybrid"))]
+// Only the standalone profile owns these dials; hybrid placement receives its
+// validated percentage and reserve directly through the hybrid planner.
+#[cfg(feature = "vulkan")]
 use std::sync::OnceLock;
 
 use ash::vk;
@@ -45,7 +45,7 @@ fn parse_mem_available(text: &str) -> Option<u64> {
 
 // VRAM bytes held back before filling weights. Override wins; otherwise use
 // `max(256 MiB, 5% of total VRAM)`.
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
     override_mib
         .map(|m| m.saturating_mul(1024 * 1024))
@@ -53,24 +53,24 @@ pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
 }
 
 // Weight-percent dial, seeded once by `Engine::new` in single-backend builds.
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 static WEIGHTS_PERCENT: OnceLock<Option<u8>> = OnceLock::new();
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 static RESERVE_MIB: OnceLock<Option<u64>> = OnceLock::new();
 
 // Seeds the dial from the CLI value. See `WEIGHTS_PERCENT`.
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 pub(crate) fn set_weights_percent(percent: Option<u8>) {
     let _ = WEIGHTS_PERCENT.set(percent);
 }
 
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 pub(crate) fn set_reserve_mib(reserve_mib: Option<u64>) {
     let _ = RESERVE_MIB.set(reserve_mib);
 }
 
 // Resolves the dial: the seeded value (CLI-validated), else the default 100.
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 pub(super) fn weight_vram_percent() -> u8 {
     WEIGHTS_PERCENT
         .get()
@@ -80,27 +80,14 @@ pub(super) fn weight_vram_percent() -> u8 {
         .min(100)
 }
 
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 pub(super) fn configured_reserve_mib() -> Option<u64> {
     RESERVE_MIB.get().copied().flatten()
 }
 
-#[cfg(all(feature = "vulkan-hybrid", test))]
-pub(super) fn configured_reserve_mib() -> Option<u64> {
-    None
-}
-
-// In the hybrid build the dial is governed by the split runtime (which calls CPU
-// for offloaded layers), not by host-visible spill: the GPU side keeps every
-// weight it is given device-local, so here the cap is always 100% (no spill).
-#[cfg(all(feature = "vulkan-hybrid", test))]
-pub(super) fn weight_vram_percent() -> u8 {
-    100
-}
-
 // Byte-exact cap on weights kept resident in VRAM. The product is computed in
 // u128 so no plausible model overflows.
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 pub(super) fn weight_vram_budget(total_weights: u64, vram_for_weights: u64, pct: u8) -> u64 {
     let scaled = (pct as u128 * total_weights as u128 / 100) as u64;
     scaled.min(vram_for_weights)
@@ -137,7 +124,7 @@ pub(crate) fn vram_for_auto(dev: &Device) -> u64 {
 // context storage overflows, the requested context is rejected without reduction
 // (E17). Staging is the peak transient upload buffer. `percent` is a hard ceiling,
 // so pure Vulkan with 0% weights cannot load.
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn pure_preflight(
     device_vram: u64,
@@ -204,6 +191,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn budget_at_full_percent_is_historical_min() {
         // Inv-2: pct = 100 reproduces today's weight budget, min(total, vram).
         assert_eq!(weight_vram_budget(800, 1000, 100), 800); // model fits in VRAM
@@ -211,11 +199,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn budget_at_zero_percent_is_zero_weight_cap() {
         assert_eq!(weight_vram_budget(1000, 10_000, 0), 0);
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn budget_intermediate_floors_and_clamps() {
         assert_eq!(weight_vram_budget(1000, 10_000, 50), 500); // floor of fraction
         assert_eq!(weight_vram_budget(1001, 10_000, 50), 500); // floor (500.5 -> 500)
@@ -223,6 +213,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn budget_large_input_does_not_overflow() {
         let total = 200_000_000_000u64; // ~200 GB of weights
         assert_eq!(weight_vram_budget(total, u64::MAX, 100), total);
@@ -230,11 +221,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn pure_preflight_accepts_exact_fit() {
         pure_preflight(100, 10, 100, 50, 10, 0, 20, 10, 32).expect("exact fit");
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn error_matrix_e15_rejects_reserve_underflow() {
         let msg = pure_preflight(10, 11, 100, 1, 0, 0, 0, 0, 1)
             .unwrap_err()
@@ -246,6 +239,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn pure_preflight_rejects_weight_percent_cap_as_e15() {
         let msg = pure_preflight(100, 0, 50, 80, 0, 0, 0, 0, 1)
             .unwrap_err()
@@ -257,6 +251,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn pure_preflight_rejects_fixed_over_budget_as_e15() {
         let msg = pure_preflight(100, 0, 100, 70, 31, 0, 0, 0, 1)
             .unwrap_err()
@@ -268,6 +263,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn pure_preflight_rejects_peak_staging_over_budget_as_e15() {
         let msg = pure_preflight(100, 0, 100, 70, 10, 21, 0, 0, 1)
             .unwrap_err()
@@ -279,6 +275,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn error_matrix_e17_rejects_context_over_budget() {
         let msg = pure_preflight(100, 0, 100, 70, 10, 0, 15, 6, 4096)
             .unwrap_err()
@@ -290,6 +287,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn pure_preflight_arithmetic_overflow_is_reported() {
         let msg = pure_preflight(u64::MAX, 0, 100, u64::MAX, 1, 0, 0, 0, 1)
             .unwrap_err()
@@ -301,6 +299,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn reserve_bytes_override_and_default() {
         // Override wins (MiB → bytes), even when larger than VRAM.
         assert_eq!(reserve_bytes(8 << 30, Some(512)), 512 * 1024 * 1024);

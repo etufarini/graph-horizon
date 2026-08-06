@@ -106,9 +106,6 @@ unsafe fn f32_slice_to_f16(v: &[f32], dst: &mut [u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::super::buffer::{CpuBuffer, CpuFormat};
-    use super::*;
-
     // The SIMD F16C write path must be BIT-IDENTICAL to the scalar `f32_to_f16` over
     // a dense value sweep (normals, subnormals near the f16 min, values straddling
     // each rounding boundary, negatives, zeros). Skipped if the host lacks F16C.

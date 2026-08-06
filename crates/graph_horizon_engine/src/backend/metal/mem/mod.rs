@@ -4,6 +4,7 @@
  * Budget and weight representation remain in their focused sibling modules.
  */
 
+#[cfg(feature = "metal")]
 pub(crate) mod budget;
 pub(crate) mod buffer;
 pub(crate) mod buffers;

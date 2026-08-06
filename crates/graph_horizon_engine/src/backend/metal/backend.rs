@@ -12,53 +12,11 @@ use super::kernels;
 use super::{MetalBackend, MetalBuffer, MetalEncoder, MetalFormat};
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(test)]
-use crate::backend::source::WeightSource;
-#[cfg(test)]
-use crate::gguf::loader::GgufFile;
-#[cfg(test)]
-use crate::gguf::metadata::ModelMetadata;
 
 // AGENTS deroga I: singolo `impl Backend for MetalBackend` di delegatori sottili.
 impl Backend for MetalBackend {
     type Buffer = MetalBuffer;
     type Encoder = MetalEncoder;
-
-    #[cfg(test)]
-    fn load(
-        meta: &ModelMetadata,
-        source: &dyn WeightSource,
-        file: &GgufFile,
-        context: usize,
-    ) -> Result<Self> {
-        let q = meta.head_count * meta.head_dim;
-        let kv = meta.head_count_kv * meta.head_dim;
-        super::loader::load(
-            file,
-            source,
-            meta,
-            crate::backend::hybrid::weights::runtime::RuntimeShape {
-                block_count: meta.block_count,
-                embedding: meta.embedding_length,
-                q,
-                k: kv,
-                v: kv,
-                attention: q,
-                feed_forward: meta.feed_forward_length,
-                vocab: meta.vocab_size,
-                kv_heads: meta.head_count_kv,
-                key_length: meta.head_dim,
-                value_length: meta.head_dim,
-                cpu_prefill_rows: 4,
-                gpu_prefill_rows: 32,
-                mixed_prefill_rows: 4,
-            },
-            context,
-            crate::kv_cache::scheme::KvQuant::F16,
-            None,
-            None,
-        )
-    }
 
     fn buffers(&self) -> &Buffers<MetalBuffer> {
         &self.buffers

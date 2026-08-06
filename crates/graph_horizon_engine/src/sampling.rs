@@ -1,8 +1,7 @@
 /*
  * graph_horizon_engine — token sampling
- * Picks the next token from the raw logits given the sampling parameters and the
- * recently seen tokens (for the repeat penalty). The filters are applied in a
- * fixed, documented order:
+ * Picks the next token from raw logits and owns the small deterministic PRNG
+ * used by stochastic sampling. Filters are applied in a fixed, documented order:
  *   repeat penalty → temperature → top-k → top-p (nucleus) → min-p → sample.
  * With temperature 0 the function short-circuits to a deterministic argmax (the
  * greedy path the milestone validates against the reference implementation); with a temperature set
@@ -11,9 +10,31 @@
 */
 
 use crate::api::request::SamplingParams;
-// Re-exported inside the crate so graph callers keep one sampling namespace; the
-// PRNG implementation itself lives in `crate::rng`.
-pub(crate) use crate::rng::Rng;
+
+// Minimal xorshift64* state. A request owns one instance, so stochastic runs are
+// reproducible for the same seed and greedy runs pay no random-number cost.
+pub(crate) struct Rng {
+    state: u64,
+}
+
+impl Rng {
+    pub(crate) fn new(seed: u64) -> Rng {
+        // Xorshift would remain stuck at zero, so every seed maps to a non-zero state.
+        Rng {
+            state: (seed ^ 0x9E37_79B9_7F4A_7C15) | 1,
+        }
+    }
+
+    // Uniform in [0, 1) using the top 24 bits, which are exact in f32.
+    pub(crate) fn next_f32(&mut self) -> f32 {
+        let mut x = self.state;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.state = x;
+        (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 40) as f32 / (1u64 << 24) as f32
+    }
+}
 
 // Returns the chosen token id. `logits` is mutated in place (penalty/temperature
 // are applied to it). `recent` are the token ids the repeat penalty acts on.

@@ -12,7 +12,6 @@ mod family;
 mod gguf;
 pub mod harness;
 mod kv_cache;
-mod rng;
 mod runtime;
 mod sampling;
 

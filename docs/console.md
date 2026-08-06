@@ -20,7 +20,7 @@ HTTP provider.
 A completed non-empty turn enters model history as the raw user prompt and raw
 assistant response. An error or empty response remains visible but is not sent
 back to the model. Local commands produce notices that are excluded from
-context. No message is removed, truncated, or summarized to fit a request.
+context.
 
 Attachments are expanded only in the outgoing copy before admission. Their
 contents contribute to that request's estimate. If admission fails, the typed

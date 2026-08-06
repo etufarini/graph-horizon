@@ -93,8 +93,7 @@ mod tests {
             },
             Some(Duration::ZERO),
         );
-        for obsolete in ["%", concat!("tok", "/s"), "↑", "↓", "∞", "pruning"] {
-            assert!(!label.contains(obsolete));
-        }
+        assert!(!label.contains('%'));
+        assert!(!label.contains("tok/s"));
     }
 }

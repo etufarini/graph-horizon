@@ -65,8 +65,8 @@ input
 The view, model history, and export preserve the typed prompt. Attachment
 contents participate in the one request for which they are expanded, without
 replacing that raw prompt in committed history. Admission uses the shared
-[context-capacity contract](context.md) and never removes, truncates, or
-summarizes messages. Notices and failed turns do not enter the context. The TUI models only `system`, `user`, and
+[context-capacity contract](context.md) before provider invocation. Notices and
+failed turns do not enter the context. The TUI models only `system`, `user`, and
 `assistant` messages; tool calls and separate Reasoning channels are not part of
 its state. Raw assistant content, including Reasoning markers, remains the TUI
 context, history, and transcript representation. Only terminal conversation

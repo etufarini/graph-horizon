@@ -5,11 +5,9 @@ contract. Console and Web pages own presentation details and link back here.
 
 # Context Capacity And Admission
 
-Graph Horizon preserves every message supplied to a request: it never removes,
-truncates, summarizes, compresses, splits, or rewrites history to make it fit.
-A client sends the complete request or rejects it before generation or HTTP
-transport. The dependency-free estimate is approximate, not a tokenizer or a
-replacement for engine and provider validation.
+Graph Horizon applies the capacity gate to the complete assembled request before
+generation or HTTP transport. The dependency-free estimate is approximate, not
+a tokenizer or a replacement for engine and provider validation.
 
 ## Canonical Arithmetic
 

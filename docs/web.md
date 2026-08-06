@@ -156,7 +156,7 @@ This container differs from the JSON array used by TUI `/export` and `/import`.
 
 The chat body is limited to 4 MiB. HTTP and stream errors become short UI
 messages; parser, engine, and filesystem details are not shown. The Web gate
-never removes, truncates, or summarizes messages.
+rejects over-budget requests before transport.
 
 The current UI does not include multiple sessions, login, API keys, tool calling,
 a workspace, a separate Reasoning protocol/state channel, or advanced sampling

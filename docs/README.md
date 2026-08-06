@@ -23,7 +23,7 @@ belong in the [validation register](../VALIDATION.md).
 | [backend.md](backend.md) | CPU, Vulkan, Metal, hybrid placement, and KV cache |
 | [server.md](server.md) | Text-only HTTP server and SSE protocol |
 | [web.md](web.md) | Local web UI, assets, and available routes |
-| [context.md](context.md) | Shared context estimate, capacity admission, and preservation rules |
+| [context.md](context.md) | Shared context estimate and request admission rules |
 
 ## Console
 

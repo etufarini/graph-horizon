@@ -12,8 +12,7 @@ pub(super) struct PreparedRequest {
     pub(super) characters: usize,
 }
 
-// The returned vector is identical to the assembled vector: admission may
-// reject it, but never removes or rewrites any message to make it fit.
+// Assemble the exact provider payload before checking its context capacity.
 pub(super) fn assemble(
     system: Option<&str>,
     history: &[ChatTurn],
@@ -42,7 +41,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn admitted_request_preserves_every_message() {
+    fn assemble_includes_system_history_and_prompt() {
         let history = vec![ChatTurn::new(
             "raw".into(),
             "shown".into(),

@@ -1,13 +1,14 @@
 /*
  * Graph Horizon headless server - API (OpenAI wire vocabulary, shared root)
- * Single responsibility: expose chat API vocabulary and typed validation
- * errors. It depends on engine roles only for text-chat mapping and does not
- * model tools, workspace fields, or reasoning controls.
+ * Single responsibility: expose chat and properties wire vocabularies plus
+ * typed chat validation errors. It depends on engine roles only for text-chat
+ * mapping and does not model tools, workspace fields, or reasoning controls.
 */
 
 use graph_horizon_engine::Role;
 
 pub(super) mod chat;
+pub(super) mod props;
 
 // Typed validation error shared by both endpoints. handler.rs maps every variant
 // to a 400 with a generic message. The messages carry no internal detail: no

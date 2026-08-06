@@ -102,7 +102,7 @@ pub(crate) fn record<B: Backend>(
         hidden,
     );
     backend.residual_add(enc, &scratch.x, &scratch.proj, hidden);
-    mlp::record(backend, enc, cfg, layer);
+    mlp::record(backend, enc, cfg, layer, scratch, 1);
     Ok(())
 }
 

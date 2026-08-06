@@ -125,6 +125,6 @@ pub(super) fn record<B: Backend>(
         row_count,
     );
     backend.residual_add(enc, &scratch.x, &scratch.proj, hidden * row_count);
-    mlp::record_rows(backend, enc, cfg, layer, &scratch, row_count);
+    mlp::record(backend, enc, cfg, layer, &scratch, row_count);
     Ok(())
 }

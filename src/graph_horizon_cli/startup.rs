@@ -1,8 +1,7 @@
 /*
  * Graph Horizon CLI startup
- * Single responsibility: start the interactive text-chat console with the
- * validated app/runtime configuration. It depends on app engine loading and CLI
- * runtime modules, and does not initialize tools, workspaces, or reasoning.
+ * Single responsibility: resolve and validate CLI provider capacity before
+ * initializing the terminal, then start the interactive chat session.
  */
 
 use color_eyre::eyre::{Result, eyre};
@@ -11,7 +10,24 @@ use crate::app::{args, engine};
 
 use super::console::terminal_user_interface;
 use super::plugins::attachments::FileAuthority;
-use super::runtime::{ClientConfig, generation_stream, local, pruning_threshold};
+use super::runtime::{ClientConfig, ContextBudget, generation_stream, local, pruning_threshold};
+
+const CONTEXT_UNAVAILABLE: &str =
+    "limite di contesto non disponibile; specificare --context-tokens";
+const NO_PROMPT_SPACE: &str = "max_tokens non lascia spazio al prompt";
+
+fn context_budget(context_limit: Option<usize>, max_tokens: usize) -> Result<ContextBudget> {
+    let context_limit = context_limit.ok_or_else(|| eyre!(CONTEXT_UNAVAILABLE))?;
+    ContextBudget::new(context_limit, max_tokens).ok_or_else(|| eyre!(NO_PROMPT_SPACE))
+}
+
+async fn http_context_budget(config: &mut ClientConfig) -> Result<ContextBudget> {
+    config
+        .resolve_context_limit()
+        .await
+        .ok_or_else(|| eyre!(CONTEXT_UNAVAILABLE))?;
+    context_budget(config.context_limit, config.max_tokens)
+}
 
 pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Result<()> {
     let mut client_config = ClientConfig::from_args();
@@ -21,16 +37,15 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
     let max_tokens = client_config.max_tokens;
 
     // --provider local selects the in-process engine; anything else keeps the HTTP
-    // path. The local Engine is built BEFORE the terminal is initialized so a
-    // missing/invalid model fails cleanly at startup, and BEFORE the pruning threshold.
+    // path. Engine and capacity resolution both precede terminal initialization.
     if args::value("--provider").as_deref() == Some("local") {
         let model = model_path.clone().ok_or_else(|| {
             eyre!("--provider local requires --model to point to a mistral3 GGUF")
         })?;
         let chat = engine::load_chat_engine(&model, client_config.context_limit)?;
-        // Fill the context limit from the model (override still wins), without any
-        // network call, so pruning is sized correctly.
+        // The explicit override still wins over the engine-resolved limit.
         client_config.apply_local_context_limit(chat.context_limit());
+        let _budget = context_budget(client_config.context_limit, max_tokens)?;
         let threshold = pruning_threshold(client_config.context_limit, max_tokens);
         let context_limit = client_config.context_limit;
         let generate = local::provider(chat, max_tokens);
@@ -47,9 +62,8 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         ratatui::restore();
         result
     } else {
-        // HTTP path (unchanged): learn the context window from the provider when
-        // there is no --context-tokens override.
-        client_config.resolve_context_limit().await;
+        // HTTP discovery is mandatory unless an explicit override is present.
+        let _budget = http_context_budget(&mut client_config).await?;
         let threshold = pruning_threshold(client_config.context_limit, max_tokens);
         let context_limit = client_config.context_limit;
         let mut terminal = ratatui::init();
@@ -64,5 +78,31 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         .await;
         ratatui::restore();
         result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn remote_context_failure_is_startup_error() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        let mut config = ClientConfig {
+            base_url: format!("http://{address}/v1"),
+            system: None,
+            context_limit: None,
+            max_tokens: 128,
+        };
+
+        assert_eq!(
+            http_context_budget(&mut config)
+                .await
+                .unwrap_err()
+                .to_string(),
+            CONTEXT_UNAVAILABLE
+        );
     }
 }

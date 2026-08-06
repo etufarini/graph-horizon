@@ -1,8 +1,8 @@
 <script lang="ts">
   /*
    * Chat.svelte
-   * Single responsibility: compose the chat page and own its one-shot `/props`
-   * initialization so submission remains disabled without valid capacity.
+   * Single responsibility: own one-shot context initialization and compose
+   * transcript, exact draft occupancy, status, and capacity-gated submission.
    */
   import Composer from './Composer.svelte';
   import SessionActions from './SessionActions.svelte';
@@ -11,8 +11,9 @@
   import Transcript from './Transcript.svelte';
   import { onDestroy, onMount } from 'svelte';
   import { loadRuntimeContext } from '../chat/client';
+  import { contextUsage } from '../chat/context';
   import { downloadChatFile } from '../chat/download';
-  import { chat } from '../chat/state';
+  import { chat, wireMessages } from '../chat/state';
   import { serializeChat } from '../chat/transfer';
   import type { RuntimeContext } from '../chat/types';
 
@@ -39,10 +40,9 @@
   onDestroy(() => contextController.abort());
 
   $: streaming = $chat.status === 'streaming';
-
-  $: lastMessage = $chat.messages[$chat.messages.length - 1];
-  $: streamChars =
-    streaming && lastMessage?.role === 'assistant' ? lastMessage.content.length : 0;
+  $: usage = runtimeContext
+    ? contextUsage(wireMessages($chat.messages, $chat.systemPrompt, streaming ? '' : draft), runtimeContext)
+    : null;
 
   async function send(): Promise<void> {
     const submitted = draft;
@@ -82,10 +82,10 @@
   <Transcript messages={$chat.messages} {streaming} />
 
   <Status
-    status={configurationError ? 'error' : $chat.status}
     error={configurationError ?? $chat.error}
-    stats={$chat.stats}
-    {streamChars}
+    {usage}
+    generationStartedAt={$chat.generationStartedAt}
+    generationMs={$chat.generationMs}
   />
 
   <Composer

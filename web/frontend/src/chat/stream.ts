@@ -1,17 +1,15 @@
 /*
  * Chat stream parser.
- * Single responsibility: parse text/status/error SSE frames from the backend.
- * It treats tool or reasoning activity as a protocol error instead of exposing
- * it to the UI.
+ * Single responsibility: parse text and terminal SSE frames, ignoring usage
+ * presentation data while rejecting tool or separate-reasoning protocol data.
  */
-import type { GenerationStats, StreamDelta } from './types';
+import type { StreamDelta } from './types';
 
 const INTERRUPTED = 'Connessione interrotta';
 
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,
-  onDelta: (delta: StreamDelta) => void,
-  onStats: (stats: GenerationStats) => void
+  onDelta: (delta: StreamDelta) => void
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -25,7 +23,7 @@ export async function readChatStream(
     }
     buffer += decoder.decode(value, { stream: true });
     buffer = consumeLines(buffer, line => {
-      if (consumeDataLine(line, onDelta, onStats)) {
+      if (consumeDataLine(line, onDelta)) {
         doneSeen = true;
       }
     });
@@ -33,7 +31,7 @@ export async function readChatStream(
 
   buffer += decoder.decode();
   consumeLines(`${buffer}\n`, line => {
-    if (consumeDataLine(line, onDelta, onStats)) {
+    if (consumeDataLine(line, onDelta)) {
       doneSeen = true;
     }
   });
@@ -54,8 +52,7 @@ function consumeLines(buffer: string, consume: (line: string) => void): string {
 
 function consumeDataLine(
   line: string,
-  onDelta: (delta: StreamDelta) => void,
-  onStats: (stats: GenerationStats) => void
+  onDelta: (delta: StreamDelta) => void
 ): boolean {
   if (!line.startsWith('data:')) {
     return false;
@@ -79,25 +76,7 @@ function consumeDataLine(
     onDelta({ content: delta.content });
   }
 
-  const stats = parseUsage(parsed.usage);
-  if (stats) {
-    onStats(stats);
-  }
   return false;
-}
-
-function parseUsage(usage: unknown): GenerationStats | null {
-  if (typeof usage !== 'object' || usage === null || Array.isArray(usage)) {
-    return null;
-  }
-  const wire = usage as Record<string, unknown>;
-  const fields = ['prompt_tokens', 'completion_tokens', 'prefill_ms', 'decode_ms'];
-  const values = fields.map(field => wire[field]);
-  if (!values.every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)) {
-    return null;
-  }
-  const [promptTokens, completionTokens, prefillMs, decodeMs] = values as number[];
-  return { promptTokens, completionTokens, prefillMs, decodeMs };
 }
 
 function parseJson(data: string): any | null {

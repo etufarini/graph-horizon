@@ -5,7 +5,7 @@
  */
 import { parseRuntimeContext } from './context';
 import { readChatStream } from './stream';
-import type { ContextConfigResult, GenerationStats, StreamDelta, WireMessage } from './types';
+import type { ContextConfigResult, StreamDelta, WireMessage } from './types';
 
 const FAILED = 'Richiesta non riuscita';
 
@@ -32,7 +32,6 @@ export async function streamAssistant(
   messages: WireMessage[],
   maxTokens: number,
   onDelta: (delta: StreamDelta) => void,
-  onStats: (stats: GenerationStats) => void,
   signal: AbortSignal
 ): Promise<void> {
   const response = await fetch('/v1/chat/completions', {
@@ -52,5 +51,5 @@ export async function streamAssistant(
     throw new Error(FAILED);
   }
 
-  await readChatStream(response.body, onDelta, onStats);
+  await readChatStream(response.body, onDelta);
 }

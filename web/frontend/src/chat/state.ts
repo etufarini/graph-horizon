@@ -1,7 +1,7 @@
 /*
  * Chat state.
- * Single responsibility: own transcript mutations and reject exact outgoing
- * messages by capacity before creating a turn, controller, or chat transport.
+ * Single responsibility: own capacity-gated transcript mutations, transport
+ * rollback, stop behavior, and monotonic generation timing.
  */
 import { get, writable } from 'svelte/store';
 import { streamAssistant } from './client';
@@ -11,7 +11,6 @@ import { parseChatFile } from './transfer';
 import type {
   ChatMessage,
   ChatSnapshot,
-  GenerationStats,
   RuntimeContext,
   StreamDelta,
   WireMessage
@@ -26,7 +25,8 @@ function emptySnapshot(): ChatSnapshot {
     status: 'idle',
     error: null,
     systemPrompt: loadSystemPrompt(),
-    stats: null
+    generationStartedAt: null,
+    generationMs: null
   };
 }
 
@@ -80,36 +80,56 @@ function createChatState() {
     const user: ChatMessage = { id: nextId('user'), role: 'user', content: prompt };
     const assistant: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
     const outgoing = [...current.messages, user];
+    controller = new AbortController();
+    const request = controller;
+    const generationStartedAt = performance.now();
     store.set({
       ...current,
       messages: [...outgoing, assistant],
       status: 'streaming',
       error: null,
-      stats: null
+      generationStartedAt,
+      generationMs: null
     });
 
-    controller = new AbortController();
-    const request = controller;
     try {
       await streamAssistant(
         wire,
         context.maxTokens,
         appendAssistant,
-        setStats,
         request.signal
       );
-      store.update(snapshot => ({ ...snapshot, status: 'idle', error: null }));
+      const generationMs = performance.now() - generationStartedAt;
+      store.update(snapshot => ({
+        ...snapshot,
+        status: 'idle',
+        error: null,
+        generationStartedAt: null,
+        generationMs
+      }));
     } catch (error) {
       const aborted =
         request.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       if (aborted) {
         // Keep the stopped turn, including an empty or partial assistant message,
         // so every later request still sees an alternating transcript.
-        store.update(snapshot => ({ ...snapshot, status: 'idle', error: null, stats: null }));
+        store.update(snapshot => ({
+          ...snapshot,
+          status: 'idle',
+          error: null,
+          generationStartedAt: null,
+          generationMs: null
+        }));
       } else {
         removeTrailingTurn(user.id, assistant.id);
         const message = error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED;
-        store.update(snapshot => ({ ...snapshot, status: 'error', error: message, stats: null }));
+        store.update(snapshot => ({
+          ...snapshot,
+          status: 'error',
+          error: message,
+          generationStartedAt: null,
+          generationMs: null
+        }));
       }
     } finally {
       controller = null;
@@ -146,7 +166,8 @@ function createChatState() {
       status: 'idle',
       error: null,
       systemPrompt: result.payload.systemPrompt,
-      stats: null
+      generationStartedAt: null,
+      generationMs: null
     }));
     saveSystemPrompt(result.payload.systemPrompt);
   }
@@ -168,10 +189,6 @@ function createChatState() {
       // Roll back only the in-flight pair; completed history is immutable here.
       return { ...snapshot, messages: snapshot.messages.slice(0, -2) };
     });
-  }
-
-  function setStats(stats: GenerationStats): void {
-    store.update(snapshot => ({ ...snapshot, stats }));
   }
 
   function appendAssistant(delta: StreamDelta): void {

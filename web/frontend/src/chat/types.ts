@@ -1,7 +1,7 @@
 /*
  * Chat types.
- * Single responsibility: define browser chat, immutable context-capacity, and
- * monotonic timing state plus the text-only wire shapes.
+ * Single responsibility: define browser chat, immutable context-capacity,
+ * monotonic timing state, and text-only wire shapes.
  */
 export type Role = 'system' | 'user' | 'assistant';
 
@@ -44,20 +44,13 @@ export type ContextAdmission =
       safeTotalBudget: number;
     };
 
-// Retained until the transport/status replacement task removes its final users.
-export interface GenerationStats {
-  promptTokens: number;
-  completionTokens: number;
-  prefillMs: number;
-  decodeMs: number;
-}
-
 export interface ChatSnapshot {
   messages: ChatMessage[];
   status: ChatStatus;
   error: string | null;
   systemPrompt: string;
-  stats: GenerationStats | null;
+  generationStartedAt: number | null;
+  generationMs: number | null;
 }
 
 export interface StreamDelta {

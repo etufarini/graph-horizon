@@ -219,7 +219,7 @@ fn generate_with_prefill<B: Backend, C: Cancel>(
     }
     let owned = OwnedKv::new(&model.backend, &model.config, req, tracker)?;
     if batched {
-        prefill::prefill_with(
+        prefill::prefill(
             &model.backend,
             &model.config,
             owned.kv.as_ref().unwrap(),
@@ -554,8 +554,7 @@ pub(crate) mod numeric {
         )
         .unwrap();
         if batched {
-            prefill::prefill_with(&backend, cfg, &kv, prompt, prefill::CPU_ROWS, || Ok(()))
-                .unwrap();
+            prefill::prefill(&backend, cfg, &kv, prompt, prefill::CPU_ROWS, || Ok(())).unwrap();
         } else {
             for (pos, &token) in prompt.iter().enumerate() {
                 forward::token(&backend, cfg, &kv, token, pos).unwrap();

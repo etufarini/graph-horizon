@@ -1,12 +1,11 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - Dispatch
- * Single responsibility: handle retained chat slash commands and expand text
- * attachments before generation. It depends on CLI plugins and session state,
- * and does not dispatch tools, confirmations, workspace, or reasoning controls.
+ * Single responsibility: handle retained slash commands, reset imported
+ * context accounting, and expand attachments before generation.
  */
 
 use super::super::bump;
-use super::super::render::{ChatTurn, conversation_tokens};
+use super::super::render::{ChatTurn, conversation_characters};
 use super::super::scroll::ViewportState;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
@@ -29,7 +28,7 @@ pub(super) fn dispatch(
     viewport: &mut ViewportState,
     system: &mut Option<String>,
     history: &mut Vec<ChatTurn>,
-    token_count: &mut usize,
+    committed_characters: &mut Option<usize>,
     output_tokens: &mut usize,
     throughput: &mut Throughput,
     prompt: &str,
@@ -55,7 +54,7 @@ pub(super) fn dispatch(
             // no longer describe the restored state.
             *system = restored_system;
             *history = restored_history;
-            *token_count = conversation_tokens(system.as_deref(), history);
+            *committed_characters = conversation_characters(system.as_deref(), history);
             *output_tokens = 0;
             *throughput = Throughput::default();
             viewport.manual_scroll = None;
@@ -68,4 +67,24 @@ pub(super) fn dispatch(
     Ok(Dispatch::Proceed(attachments::attach_local_files(
         files, prompt,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph_horizon_cli::runtime::ChatMessage;
+
+    #[test]
+    fn import_recomputes_committed_characters() {
+        let history = vec![ChatTurn::new(
+            "shown".into(),
+            "shown".into(),
+            vec![
+                ChatMessage::user("😀".into()),
+                ChatMessage::assistant("reply".into()),
+            ],
+        )];
+
+        assert_eq!(conversation_characters(Some("sys"), &history), Some(9));
+    }
 }

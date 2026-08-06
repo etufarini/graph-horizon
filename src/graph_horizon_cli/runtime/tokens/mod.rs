@@ -6,9 +6,7 @@
  */
 
 mod estimate;
-mod prune;
 mod speed;
 
 pub(crate) use estimate::estimate_tokens;
-pub(crate) use prune::{prune_to_limit, pruning_threshold};
 pub(crate) use speed::{Throughput, rate};

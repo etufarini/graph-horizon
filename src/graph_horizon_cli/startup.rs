@@ -10,7 +10,7 @@ use crate::app::{args, engine};
 
 use super::console::terminal_user_interface;
 use super::plugins::attachments::FileAuthority;
-use super::runtime::{ClientConfig, ContextBudget, generation_stream, local, pruning_threshold};
+use super::runtime::{ClientConfig, ContextBudget, generation_stream, local};
 
 const CONTEXT_UNAVAILABLE: &str =
     "limite di contesto non disponibile; specificare --context-tokens";
@@ -45,36 +45,19 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         let chat = engine::load_chat_engine(&model, client_config.context_limit)?;
         // The explicit override still wins over the engine-resolved limit.
         client_config.apply_local_context_limit(chat.context_limit());
-        let _budget = context_budget(client_config.context_limit, max_tokens)?;
-        let threshold = pruning_threshold(client_config.context_limit, max_tokens);
-        let context_limit = client_config.context_limit;
+        let budget = context_budget(client_config.context_limit, max_tokens)?;
         let generate = local::provider(chat, max_tokens);
         let mut terminal = ratatui::init();
-        let result = terminal_user_interface(
-            &mut terminal,
-            system,
-            threshold,
-            context_limit,
-            &files,
-            generate,
-        )
-        .await;
+        let result = terminal_user_interface(&mut terminal, system, budget, &files, generate).await;
         ratatui::restore();
         result
     } else {
         // HTTP discovery is mandatory unless an explicit override is present.
-        let _budget = http_context_budget(&mut client_config).await?;
-        let threshold = pruning_threshold(client_config.context_limit, max_tokens);
-        let context_limit = client_config.context_limit;
+        let budget = http_context_budget(&mut client_config).await?;
         let mut terminal = ratatui::init();
-        let result = terminal_user_interface(
-            &mut terminal,
-            system,
-            threshold,
-            context_limit,
-            &files,
-            move |msgs| generation_stream(msgs, client_config.clone()),
-        )
+        let result = terminal_user_interface(&mut terminal, system, budget, &files, move |msgs| {
+            generation_stream(msgs, client_config.clone())
+        })
         .await;
         ratatui::restore();
         result

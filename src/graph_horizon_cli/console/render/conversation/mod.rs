@@ -7,7 +7,7 @@
 
 use ratatui::prelude::*;
 
-use crate::graph_horizon_cli::runtime::{ChatMessage, estimate_tokens};
+use crate::graph_horizon_cli::runtime::ChatMessage;
 
 use super::RenderContent;
 use answer::{push_answer, push_prompt, trim_trailing_blank};
@@ -40,23 +40,16 @@ impl ChatTurn {
     }
 }
 
-// Estimates the tokens of what occupies the model's context: the fixed system
-// prompt plus the user/assistant content committed to history. The system
-// prompt is included even though it is invisible in history, so the shown number
-// stays consistent with the pruning that the same prompt drives. The
-// in-progress prompt and
-// failed turns (no messages) are excluded, so the count stays still while
-// typing and streaming and only moves once a completed turn enters history.
-// Characters are summed first and divided once (see estimate_tokens) to avoid
-// the per-message truncation that would undercount many short messages.
-pub(crate) fn conversation_tokens(system: Option<&str>, history: &[ChatTurn]) -> usize {
-    let system_chars = system.map_or(0, |s| s.chars().count());
-    let history_chars: usize = history
+// Counts only raw messages that would be sent again. None records arithmetic
+// overflow so a later admission cannot mistake an unrepresentable count for a
+// small context.
+pub(crate) fn conversation_characters(system: Option<&str>, history: &[ChatTurn]) -> Option<usize> {
+    history
         .iter()
         .flat_map(|turn| turn.messages.iter())
         .map(ChatMessage::chars)
-        .sum();
-    estimate_tokens(system_chars + history_chars)
+        .chain(system.map(|text| text.chars().count()))
+        .try_fold(0_usize, usize::checked_add)
 }
 
 // Converts RenderContent into a flat list of terminal lines at the given width.
@@ -370,14 +363,14 @@ mod tests {
 
         // 11 + 2 = 13 chars / 4 = 3. Summing characters first matters: counting
         // per message ("hi" -> 0) would lose the short message and yield 2.
-        assert_eq!(conversation_tokens(None, &history), 3);
+        assert_eq!(conversation_characters(None, &history), Some(13));
     }
 
     #[test]
     fn includes_system_prompt_in_the_count() {
         // The system prompt is invisible in history but drives pruning, so it
         // must contribute to the shown count. 8 system chars / 4 = 2.
-        assert_eq!(conversation_tokens(Some("sys text"), &[]), 2);
+        assert_eq!(conversation_characters(Some("sys text"), &[]), Some(8));
     }
 
     // Flattens a styled line into plain text for assertions.

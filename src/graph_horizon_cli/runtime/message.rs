@@ -46,18 +46,9 @@ impl ChatMessage {
         Self::plain(ChatRole::Assistant, content)
     }
 
-    // Unicode character count of this message's content. Kept here so `content`
-    // stays private: callers sum these across messages and convert the total to
-    // a token estimate once, via estimate_tokens. Counting `chars()` (not bytes)
-    // keeps the figure stable across multi-byte UTF-8 input.
+    // Unicode scalar-value count of the private content sent on the wire.
     pub(crate) fn chars(&self) -> usize {
         self.content.chars().count()
-    }
-
-    // Whether this message is the protected system prompt. Lets the pruning
-    // logic identify the head message without reading the private `role` field.
-    pub(crate) fn is_system(&self) -> bool {
-        matches!(self.role, ChatRole::System)
     }
 
     // Converts into the engine's message type for the local inference path.

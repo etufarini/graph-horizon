@@ -1,11 +1,10 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - History
- * Single responsibility: commit a completed text-chat turn into history and
- * refresh token counters. It depends on render/runtime message types and does
- * not persist tools or a separate reasoning channel.
+ * Single responsibility: commit successful raw messages and refresh the
+ * checked character count while excluding failed or empty turns.
  */
 
-use super::super::render::{ChatTurn, conversation_tokens};
+use super::super::render::{ChatTurn, conversation_characters};
 use super::stream::StreamOutcome;
 use crate::graph_horizon_cli::runtime::{ChatMessage, Throughput, estimate_tokens};
 use color_eyre::eyre::Result;
@@ -33,7 +32,7 @@ pub(super) fn commit_turn(
     system: Option<&str>,
     prompt: String,
     expanded: String,
-    token_count: &mut usize,
+    committed_characters: &mut Option<usize>,
     output_tokens: &mut usize,
     throughput: &mut Throughput,
 ) -> Commit {
@@ -68,6 +67,6 @@ pub(super) fn commit_turn(
 
     // Refresh the count only now, reflecting the turn that just entered history,
     // so it updates in one frame instead of mid-stream.
-    *token_count = conversation_tokens(system, history);
+    *committed_characters = conversation_characters(system, history);
     Commit::Continued
 }

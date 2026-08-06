@@ -503,7 +503,7 @@ fn assert_placement(engine: &Engine, percentage: Option<u8>) {
             .expect("GRAPH_HORIZON_EXPECTED_MODE required for hybrid profiles");
         let placement = engine.placement().expect("hybrid placement report");
         assert_eq!(placement.mode, expected);
-        assert_eq!(percentage.is_some(), true);
+        assert!(percentage.is_some());
         if expected == "mixed" {
             assert!(placement.cpu_layers > 0 && placement.gpu_layers > 0);
         }

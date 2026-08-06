@@ -14,9 +14,7 @@
 use std::sync::Arc;
 
 use color_eyre::eyre::{Result, eyre};
-use graph_horizon_engine::{
-    Engine, Event, EventSink, Message as InferMessage, Request, SamplingParams,
-};
+use graph_horizon_engine::{Engine, Event, EventSink, Request, SamplingParams};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::{ChatMessage, Chunk, ChunkStream};
@@ -38,7 +36,7 @@ fn start(
     max_tokens: usize,
 ) -> Result<ChunkStream> {
     let req = Request {
-        messages: convert(messages),
+        messages: messages.into_iter().map(ChatMessage::into_engine).collect(),
         sampling: SamplingParams::greedy(),
         max_tokens,
     };
@@ -80,11 +78,4 @@ fn to_item(event: Event) -> Option<Result<Chunk>> {
         Event::Finished(_) => None,
         Event::Error(message) => Some(Err(eyre!(message))),
     }
-}
-
-// Pure type conversion from the CLI's ChatMessage to the engine's. The leading
-// system message (when present) is preserved at index 0; the engine renders the
-// template. Tool-call wire fields are not modelled in history.
-fn convert(messages: Vec<ChatMessage>) -> Vec<InferMessage> {
-    messages.into_iter().map(ChatMessage::into_engine).collect()
 }

@@ -67,7 +67,7 @@ pub(super) async fn fetch_context_limit(base_url: &str) -> Option<usize> {
 }
 
 // Streams a chat completion from the configured OpenAI-compatible endpoint, parsing SSE lines into Chunks.
-pub(super) async fn stream_completion(
+pub(crate) async fn stream_completion(
     messages: Vec<ChatMessage>,
     config: ClientConfig,
 ) -> Result<ChunkStream> {

@@ -2,12 +2,12 @@
 
 ## Summary
 
-The branch preserves its supported model family, backend matrix, and public API.
-The original ablation removed 132 Rust lines; the later repository-consistency
-pass added focused tests, bounded streaming, and single-operation kernel files.
-The current result is 18 lines above the pre-ablation baseline, with no new
-dependencies, a stricter source-structure gate, and a green warning-free matrix
-across all five supported profiles.
+The branch preserves its supported model family, backend matrix, public API, and
+test coverage. After the backend, family, and repository-consistency passes, the
+remaining-code pass removed three single-consumer or facade modules and 60 Rust
+lines. The current result is 42 lines below the pre-ablation baseline, with no
+new dependencies, a stricter source-structure gate, and a green warning-free
+matrix across all five supported profiles.
 
 ## Metrics (before → after)
 
@@ -15,10 +15,10 @@ across all five supported profiles.
 |---|---:|---:|---:|
 | Supported `--all-targets` builds | 5/5 green | 5/5 green | — |
 | Profiles with compiler warnings during build | 5/5 | 0/5 | -5 profiles |
-| Lines of Rust | 37,389 | 37,407 | +18 |
+| Lines of Rust | 37,389 | 37,347 | -42 |
 | Direct dependencies | 14 | 14 | 0 |
 | Total dependencies | 176 | 176 | 0 |
-| CPU release binary | 6,090,432 bytes | 6,090,384 bytes | -48 bytes |
+| CPU release binary | 6,090,432 bytes | 6,091,584 bytes | +1,152 bytes |
 | Passing tests (CPU / Vulkan / Vulkan hybrid / Metal / Metal hybrid) | 320 / 301 / 376 / 298 / 368 | 322 / 303 / 363 / 300 / 365 | -12 net, from profile applicability plus 10 new passes |
 | Test failures | 0 | 0 | 0 |
 
@@ -51,6 +51,20 @@ The bundled measurement script invokes Cargo without a backend feature, so its `
 | Frontend parser tests | not runnable from npm | 17 | +17 |
 | Test failures | 0 | 0 | 0 |
 
+### Remaining-code pass (37,407 → 37,347 LOC)
+
+| Metric | Before | After | Δ |
+|---|---:|---:|---:|
+| Supported `--all-targets` builds | 5/5 green | 5/5 green | — |
+| Profiles with compiler warnings during build | 0/5 | 0/5 | 0 |
+| Lines of Rust | 37,407 | 37,347 | -60 |
+| Rust source files | 239 | 236 | -3 |
+| Direct dependencies | 14 | 14 | 0 |
+| Total dependencies | 176 | 176 | 0 |
+| CPU release binary | 6,090,384 bytes | 6,091,584 bytes | +1,200 bytes |
+| Passing tests (CPU / Vulkan / Vulkan hybrid / Metal / Metal hybrid) | 322 / 303 / 363 / 300 / 365 | 322 / 303 / 363 / 300 / 365 | 0 |
+| Test failures | 0 | 0 | 0 |
+
 ## Changes
 
 ### Dead and inapplicable code
@@ -73,6 +87,11 @@ The bundled measurement script invokes Cargo without a backend feature, so its `
 - Replaced the single-row MLP wrapper plus `record_rows` implementation with one recorder whose row count is explicit at both decode and prefill call sites. (`11da177`)
 - Unified the identical byte fallback for unknown tokenizer symbols and literal structural spellings. Existing tests prove ordinary input still cannot emit structural IDs. (`f3bfd54`)
 - Bound the optional parity-vector length directly instead of testing it and then unwrapping it. The exact validation error remains unchanged. (`5d3cced`)
+- Moved the deterministic sampling PRNG into its sole domain, removed the separate `rng` module, and inlined the one-use raw draw into `next_f32`. Seed mapping, xorshift transition, multiplier, and selected bits remain identical. (`66d94fc`)
+- Re-exported the existing HTTP completion stream directly and inlined the local message conversion at request construction, deleting two one-call runtime delegators. (`c20abed`)
+- Moved the four-line command path parser into its only consumer and removed the `command/args.rs` micro-module. (`7ac8d29`)
+- Removed the server SSE facade and imported the shared serializer from its owning app module. All four server-facing serializer tests moved with it, so test coverage and counts are unchanged. (`2785519`)
+- Consumed the server model path directly instead of cloning a string that was never reused. Startup validation and error ordering are unchanged. (`b56f4c9`)
 
 ### Repository consistency and security
 
@@ -91,6 +110,7 @@ The bundled measurement script invokes Cargo without a backend feature, so its `
 
 - The Metal pipeline failpoint still uses the creation index, now read directly from the number of pipelines already created instead of retaining a production-only `enumerate()` index.
 - Existing public items were retained because removing them would change the library contract without explicit API-removal approval.
+- Nursery suggestions to replace explicit `pub(crate)` boundaries, add `const` to ordinary accessors, or rewrite direct matches as `map_or` were retained: they do not remove a responsibility and would make the repository's visibility or control-flow conventions less explicit.
 - Cohesive loader, session, and kernel boundaries retain their explicit arguments under narrow documented `too_many_arguments` allowances. Grouping them into duplicate configuration types would add indirection.
 - `OutputTensor` was retained instead of collapsing tied and dedicated weights into an unnamed `Option`; the enum makes both valid family states explicit.
 - `TextDecoder::finish` was retained as the consuming terminal boundary that documents intentional disposal of an incomplete UTF-8 suffix.

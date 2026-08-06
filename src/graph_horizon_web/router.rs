@@ -1,8 +1,7 @@
 /*
  * Graph Horizon web router
- * Single responsibility: route static assets and delegate chat requests to the
- * headless server pipeline. It depends on assets and graph_horizon_server state, and
- * exposes no tools, confirmations, workspace, or reasoning endpoints.
+ * Single responsibility: route static assets and delegate exact chat and
+ * `/props` requests to shared headless-server boundaries.
  */
 
 use std::convert::Infallible;
@@ -17,23 +16,48 @@ use crate::graph_horizon_server::{ResponseBody, ServerState};
 
 use super::assets::{AssetFile, Assets};
 
+#[derive(Debug, PartialEq, Eq)]
+enum SharedRoute {
+    ChatCompletions,
+    Properties,
+    MethodNotAllowed,
+    None,
+}
+
 pub(super) async fn handle(
     req: Request<Incoming>,
     assets: Arc<Assets>,
     chat: ServerState,
 ) -> Result<Response<ResponseBody>, Infallible> {
-    let response = match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") | (&Method::GET, "/index.html") => asset_response(assets.index()),
-        (&Method::GET, path) if path.starts_with("/assets/") => asset_response(assets.asset(path)),
-        (&Method::POST, "/v1/chat/completions") => {
+    let response = match shared_route(req.method(), req.uri().path()) {
+        SharedRoute::ChatCompletions => {
             crate::graph_horizon_server::handler::chat_completions(req, chat).await
         }
-        (_, "/v1/chat/completions") => {
+        SharedRoute::Properties => {
+            crate::graph_horizon_server::handler::properties_response(chat.chat.context_limit())
+        }
+        SharedRoute::MethodNotAllowed => {
             error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
         }
-        _ => error_response(StatusCode::NOT_FOUND, "not found"),
+        SharedRoute::None => match (req.method(), req.uri().path()) {
+            (&Method::GET, "/") | (&Method::GET, "/index.html") => asset_response(assets.index()),
+            (&Method::GET, path) if path.starts_with("/assets/") => {
+                asset_response(assets.asset(path))
+            }
+            _ => error_response(StatusCode::NOT_FOUND, "not found"),
+        },
     };
     Ok(response)
+}
+
+fn shared_route(method: &Method, path: &str) -> SharedRoute {
+    match (method, path) {
+        (&Method::POST, "/v1/chat/completions") => SharedRoute::ChatCompletions,
+        (_, "/v1/chat/completions") => SharedRoute::MethodNotAllowed,
+        (&Method::GET, "/props") => SharedRoute::Properties,
+        (_, "/props") => SharedRoute::MethodNotAllowed,
+        _ => SharedRoute::None,
+    }
 }
 
 fn asset_response(file: Option<AssetFile>) -> Response<ResponseBody> {
@@ -63,4 +87,26 @@ pub(super) fn full(bytes: impl Into<Bytes>) -> ResponseBody {
     Full::new(bytes.into())
         .map_err(|never| match never {})
         .boxed()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn web_router_delegates_exact_props_get() {
+        assert_eq!(
+            shared_route(&Method::GET, "/props"),
+            SharedRoute::Properties
+        );
+        assert_eq!(
+            shared_route(&Method::POST, "/props"),
+            SharedRoute::MethodNotAllowed
+        );
+        assert_eq!(shared_route(&Method::GET, "/props/"), SharedRoute::None);
+        assert_eq!(
+            shared_route(&Method::GET, "/assets/props.js"),
+            SharedRoute::None
+        );
+    }
 }

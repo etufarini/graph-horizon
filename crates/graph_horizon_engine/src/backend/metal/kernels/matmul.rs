@@ -29,13 +29,20 @@ pub(crate) fn encode(
         MetalFormat::Q6K => 3,
         other => return Err(eyre!("metal: unsupported weight format '{other:?}'")),
     };
+    let threads = if matches!(format, 1 | 3) {
+        (output as usize)
+            .checked_mul(4)
+            .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?
+    } else {
+        output as usize
+    };
     dispatch::encode(
         e,
         p,
         Kernel::Matmul,
         &[a, w, out],
         &super::u32s(&[input, output, format, u32::from(fp32)]),
-        [output as usize, 1, 1],
+        [threads, 1, 1],
     )
 }
 

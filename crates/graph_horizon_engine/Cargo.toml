@@ -3,6 +3,10 @@ name = "graph_horizon_engine"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.cargo-machete]
+# cargo-machete does not inspect build.rs, where this dependency is consumed.
+ignored = ["shaderc"]
+
 [features]
 # Independent public profiles; backend/mod.rs enforces that exactly one is
 # selected. Hybrid profiles gate their concrete dependencies directly.

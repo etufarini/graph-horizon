@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — Metal Backend trait implementation
  * Contains one thin `impl Backend` delegating ownership, command lifecycle,
- * readback, and operation dispatch. Algorithms and loading remain outside.
+ * readback, and operation dispatch. Features control availability; immutable
+ * effective placement reaches only Metal's two approved operation exceptions.
  */
 
 use color_eyre::eyre::Result;
@@ -11,51 +12,11 @@ use super::kernels;
 use super::{MetalBackend, MetalBuffer, MetalEncoder, MetalFormat};
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(test)]
-use crate::backend::source::WeightSource;
-#[cfg(test)]
-use crate::gguf::loader::GgufFile;
-#[cfg(test)]
-use crate::gguf::metadata::ModelMetadata;
 
 // AGENTS deroga I: singolo `impl Backend for MetalBackend` di delegatori sottili.
 impl Backend for MetalBackend {
     type Buffer = MetalBuffer;
     type Encoder = MetalEncoder;
-
-    #[cfg(test)]
-    fn load(
-        meta: &ModelMetadata,
-        source: &dyn WeightSource,
-        file: &GgufFile,
-        context: usize,
-    ) -> Result<Self> {
-        let q = meta.head_count * meta.head_dim;
-        let kv = meta.head_count_kv * meta.head_dim;
-        super::loader::load(
-            file,
-            source,
-            meta,
-            crate::backend::hybrid::weights::runtime::RuntimeShape {
-                block_count: meta.block_count,
-                embedding: meta.embedding_length,
-                q,
-                k: kv,
-                v: kv,
-                attention: q,
-                feed_forward: meta.feed_forward_length,
-                vocab: meta.vocab_size,
-                kv_heads: meta.head_count_kv,
-                key_length: meta.head_dim,
-                value_length: meta.head_dim,
-                prefill_rows: 1,
-            },
-            context,
-            crate::kv_cache::scheme::KvQuant::F16,
-            None,
-            None,
-        )
-    }
 
     fn buffers(&self) -> &Buffers<MetalBuffer> {
         &self.buffers
@@ -183,6 +144,7 @@ impl Backend for MetalBackend {
             in_dim,
             out_dim,
             rows,
+            self.mixed_placement,
         );
     }
 
@@ -286,6 +248,7 @@ impl Backend for MetalBackend {
             position,
             1,
             layer,
+            self.mixed_placement,
         );
     }
 
@@ -310,6 +273,7 @@ impl Backend for MetalBackend {
             base,
             n,
             layer,
+            self.mixed_placement,
         );
     }
 }

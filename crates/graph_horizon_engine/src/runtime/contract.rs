@@ -20,9 +20,6 @@ pub(crate) trait LayeredGraph: Sized {
     where
         B: 'a;
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    const BATCH_ROWS: usize;
-
     fn shape(config: &Self::Config) -> RuntimeShape;
 
     fn token<B: Backend>(
@@ -55,10 +52,15 @@ pub(crate) trait LayeredGraph: Sized {
         config: &Self::Config,
         kv: &Kv<B::Buffer>,
         prompt: &[u32],
+        row_capacity: usize,
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()>;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    fn batch<'a, B: Backend>(backend: &'a B, config: &Self::Config) -> Result<Self::Batch<'a, B>>;
+    fn batch<'a, B: Backend>(
+        backend: &'a B,
+        config: &Self::Config,
+        row_capacity: usize,
+    ) -> Result<Self::Batch<'a, B>>;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer;
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

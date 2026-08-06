@@ -97,8 +97,17 @@ pub(crate) fn session<'a, G: LayeredGraph>(
 ) -> Result<SelectedSession<'a, G>> {
     #[cfg(any(feature = "cpu", feature = "vulkan", feature = "metal"))]
     {
+        #[cfg(feature = "cpu")]
+        let row_capacity = shape.cpu_prefill_rows;
+        #[cfg(any(feature = "vulkan", feature = "metal"))]
+        let row_capacity = shape.gpu_prefill_rows;
         crate::runtime::homogeneous::HomogeneousSession::new(
-            backend, config, shape, context, scheme,
+            backend,
+            config,
+            shape,
+            row_capacity,
+            context,
+            scheme,
         )
     }
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

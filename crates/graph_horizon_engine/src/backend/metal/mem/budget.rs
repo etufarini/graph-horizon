@@ -30,7 +30,8 @@ impl MemoryPlan {
         context: usize,
         scheme: KvQuant,
     ) -> Result<Self> {
-        let runtime = RuntimeBytes::new(shape, context, scheme).map_err(|_| arithmetic())?;
+        let runtime = RuntimeBytes::new(shape, context, scheme, shape.gpu_prefill_rows)
+            .map_err(|_| arithmetic())?;
         let mut weights = 0u64;
         let mut staging = STAGING_BYTES;
         for tensor in source.tensors() {

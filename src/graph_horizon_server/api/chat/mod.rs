@@ -9,12 +9,10 @@ use graph_horizon_engine::{Event, Message, Request, SamplingParams};
 use serde::Deserialize;
 
 use super::{ApiError, role_from_str};
+use crate::app::sse::{Delta, delta_line};
 use crate::graph_horizon_server::ServerConfig;
-use sse::{Delta, delta_line};
 
-mod sse;
-
-pub(crate) use sse::{done_line, final_line, usage_line};
+pub(crate) use crate::app::sse::{done_line, final_line, usage_line};
 
 // The OpenAI subset we accept. Unknown fields (`model`, `temperature`, `stream`,
 // …) are ignored by design — no `deny_unknown_fields` — so clients sending the
@@ -61,7 +59,7 @@ pub(crate) fn to_request(
     // default; the provided value is otherwise the sole generation cap.
     let max_tokens = match req.max_tokens {
         Some(n) if n <= 0 => return Err(ApiError::InvalidMaxTokens),
-        Some(n) => n as usize,
+        Some(n) => usize::try_from(n).map_err(|_| ApiError::InvalidMaxTokens)?,
         None => cfg.max_tokens,
     };
 

@@ -1,10 +1,10 @@
 /*
  * graph_horizon_engine — final Ministral request lifecycle
- * Renders one text chat, drives a neutral request session, streams UTF-8 deltas,
- * and normalizes cancellation or failure into at most one terminal event.
+ * Renders one text chat, constructs and drives its neutral request session,
+ * streams UTF-8 deltas, and normalizes cancellation or failure into at most one
+ * terminal event.
  */
 
-mod session;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -12,9 +12,11 @@ use color_eyre::eyre::Result;
 
 use super::RuntimeModel;
 use super::decode::TextDecoder;
+use super::graph::MistralGraph;
 use super::template;
 use crate::api::event::{GenerationStats, Terminal};
 use crate::api::request::{EventSink, Request};
+use crate::backend::selection;
 use crate::runtime::RuntimeSession;
 use crate::sampling::{self, Rng};
 
@@ -33,7 +35,13 @@ fn execute(
     terminal: &mut Terminal<'_>,
 ) -> Result<Option<GenerationStats>> {
     let prompt = template::render(&request.messages, &model.tokenizer, model.context)?;
-    let session = session::new(model)?;
+    let session = selection::session::<MistralGraph>(
+        &model.backend,
+        &model.config,
+        model.shape(),
+        model.context,
+        model.scheme,
+    )?;
     drive(model, request, &prompt, &session, terminal)
 }
 

@@ -14,8 +14,6 @@ use crate::api::message::{Message, Role};
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::hybrid::HybridMode;
 use crate::backend::selection;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-use crate::runtime::contract::LayeredGraph;
 use crate::runtime::contract::RuntimeSession;
 
 pub const USER_CONTENT: &str = "Quanto fa 17 × 19?";
@@ -78,7 +76,7 @@ pub(crate) fn validate(
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     let expected_crossings = match selection::placement(&model.backend).map(|plan| plan.mode) {
         Some(HybridMode::Mixed) => {
-            prompt.len().div_ceil(MistralGraph::BATCH_ROWS) + TOKEN_COUNT - 1
+            prompt.len().div_ceil(model.shape().mixed_prefill_rows) + TOKEN_COUNT - 1
         }
         _ => 0,
     };
@@ -139,8 +137,10 @@ fn parse(name: &str, value: &str, expected_len: Option<usize>) -> Result<Vec<u32
                 .map_err(|_| eyre!("{name} contains an invalid ID"))
         })
         .collect::<Result<Vec<_>>>()?;
-    if expected_len.is_some_and(|expected| ids.len() != expected) {
-        bail!("{name} must contain exactly {} IDs", expected_len.unwrap());
+    if let Some(expected) = expected_len
+        && ids.len() != expected
+    {
+        bail!("{name} must contain exactly {expected} IDs");
     }
     Ok(ids)
 }

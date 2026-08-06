@@ -160,22 +160,17 @@ impl TekkenTokenizer {
             }
             let symbols = bpe::encode_piece(&self.merge_rank, &word);
             for sym in symbols {
-                if let Some(&id) = self.token_to_id.get(&sym) {
-                    // Literal structural spellings must fall back to byte tokens.
-                    if is_structural(&sym) {
-                        out.extend(
-                            sym.chars()
-                                .filter_map(|c| self.token_to_id.get(&c.to_string()).copied()),
-                        );
-                    } else {
-                        out.push(id);
-                    }
-                } else {
-                    out.extend(
-                        sym.chars()
-                            .filter_map(|c| self.token_to_id.get(&c.to_string()).copied()),
-                    );
+                if let Some(&id) = self.token_to_id.get(&sym)
+                    && !is_structural(&sym)
+                {
+                    out.push(id);
+                    continue;
                 }
+                // Unknown symbols and literal structural spellings use byte tokens.
+                out.extend(
+                    sym.chars()
+                        .filter_map(|c| self.token_to_id.get(&c.to_string()).copied()),
+                );
             }
         }
         out

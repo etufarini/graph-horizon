@@ -8,13 +8,13 @@ definisce capability runtime, supporto prodotto o whitelist di modelli.
 
 ## Ambito e data
 
-Registro aggiornato il 5 agosto 2026. Conserva la qualifica della specifica
+Registro aggiornato il 6 agosto 2026. Conserva la qualifica della specifica
 `01-metal-backend` e l'esito revisionato della successiva campagna
 prestazionale.
 
-Gli artefatti locali di questa campagna sono in
-`/Users/emanuele/Documents/models`; il percorso è solo un input di validazione
-e non è un default del runtime.
+Gli artefatti locali di questa campagna provenivano da una directory modelli
+esterna e in sola lettura; quel percorso era solo un input di validazione e non
+è un default del runtime.
 
 L'evidenza distingue quattro piani:
 
@@ -48,7 +48,7 @@ non caricabile. L'evidenza storica registra sei rifiuti Q8; nella
 rivalidazione più recente gli artefatti Q8 non erano disponibili e sono stati
 registrati come verifiche esterne, senza riabilitare il formato.
 
-La matrice finale contiene 70 righe: sei rifiuti Q8, 60 righe Q4_K_M (sei
+La matrice storica precedente conteneva 70 righe: sei rifiuti Q8, 60 righe Q4_K_M (sei
 modelli × cinque profili × due KV) e quattro endpoint 3B-Instruct
 Metal-hybrid. Ogni riga usa contesto 4096, prompt token IDs identici all'oracolo
 e 16 token teacher-forced; ogni token oracle deve essere nel top-two locale
@@ -69,6 +69,108 @@ eseguita che soddisfa tutti i gate; `failure` indica una riga tentata con errore
 di protocollo, lifecycle, prompt o numerica; `external_verification` indica un
 prerequisito autenticato, device, tool o capacità assente e non conta come pass.
 Le tre quantità devono sommare esattamente al totale fissato.
+
+## Composizione numerica hybrid — 6 agosto 2026
+
+Revisione di base `f25923bf87c9c98c9a3c80e13ab25c4d17cd7364`; candidato
+nel branch `agent/hybrid-numeric-composition` (il commit che contiene questo
+record). Host Linux x86_64, kernel 7.0.0-28, Rust/Cargo 1.95.0, CPU AMD Ryzen 7
+3800X e AMD Radeon RX 5500 XT con RADV Mesa 26.0.3. Il Mac Apple M4 qualificato
+non era disponibile: `external verification: qualified Metal host unavailable`.
+
+L'audit architetturale conferma tre sole famiglie numeriche — CPU, Vulkan e
+Metal — e due profili pubblici di composizione. `AllGpu` usa 32 righe, `CpuOnly`
+quattro e `Mixed` quattro per entrambi gli owner. I dispatcher Metal matmul e
+attention non contengono condizioni `feature = "metal-hybrid"`; ricevono il
+fatto immutabile `mixed_placement`. Le liste di deroga K/I sono invariate e
+`source_structure` non trova orchestrazione oltre 200 righe produttive.
+
+Comandi locali completati con exit 0:
+
+```text
+cargo fmt --check
+cargo test --locked --workspace --no-default-features --features cpu
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic source_structure -- --exact
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic hybrid_numeric_dispatch_uses_effective_placement -- --exact
+cargo test --locked -p graph_horizon_engine --no-default-features --features cpu --test family_agnostic docs_contract -- --exact
+cargo test --locked --no-default-features --features cpu support_scripts
+bash -n support/testing/matrix-check.sh
+bash -n support/testing/parity-check.sh
+cargo test --locked -p graph_horizon_engine --no-default-features --features vulkan --lib
+cargo test --locked -p graph_horizon_engine --no-default-features --features vulkan-hybrid --lib
+cargo check --locked --workspace --no-default-features --features cpu
+cargo check --locked --workspace --no-default-features --features vulkan
+cargo check --locked --workspace --no-default-features --features vulkan-hybrid
+git diff --check
+```
+
+Il runner sintetico osserva esattamente sei rifiuti Q8, 60 righe principali e
+otto endpoint. Verifica l'uguaglianza di tutti i 16 `local_ids`, rifiuta una
+differenza introdotta soltanto nel sedicesimo ID e non formula uguaglianza se il
+controllo o l'endpoint è esterno.
+
+La matrice reale è stata invocata senza sostituzioni con una directory modelli
+locale e il checkout oracle
+`target/oracle/llama.cpp-13f2b28b`. Il checkout oracle è al commit esatto
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`; il binario pubblica però soltanto
+`version: 1 (13f2b28)`, mentre il runner richiede il prefisso fissato di nove
+caratteri, e classifica quindi le dieci righe 3B-Reasoning come
+`external verification: unsupported llama.cpp revision`. Dei modelli catalogati
+era presente soltanto il 3B-Reasoning Q4_K_M e il relativo Q8: quel rifiuto Q8 è
+l'unico pass. Mancavano gli altri cinque Q8 e gli altri cinque Q4_K_M, incluso
+il 3B-Instruct richiesto dagli otto endpoint. Output esatto finale:
+
+```text
+summary: pass=1 external_verification=73 failure=0 total=74
+```
+
+Nessun endpoint omogeneo era eseguibile nella campagna Linux, quindi quel run
+non dichiara uguaglianza locale.
+
+### Completamento macOS
+
+La qualifica successiva è stata eseguita sullo stesso candidato su MacBook Air
+`Mac16,13`, Apple M4 10 core, 24 GB, macOS 26.3 (`25D125`), Rust/Cargo 1.95.0
+e Metal 32023.864. Erano presenti i sei Q4_K_M autenticati e l'oracolo pinned
+`9973 (13f2b28b0)`; gli artefatti Q8 non erano presenti.
+
+I test e check `metal` e `metal-hybrid` terminano con exit 0. Le suite
+esercitano il device qualificato, incluse compilazione di tutte le pipeline,
+proiezioni batched, attenzione, riduzioni, lifecycle e i test di route
+`metal_matmul_route_depends_on_effective_placement_not_feature` e
+`metal_attention_route_depends_on_effective_placement_not_feature`:
+
+```text
+cargo test --locked -p graph_horizon_engine --no-default-features --features metal --lib
+cargo test --locked -p graph_horizon_engine --no-default-features --features metal-hybrid --lib
+cargo check --locked --workspace --no-default-features --features metal
+cargo check --locked --workspace --no-default-features --features metal-hybrid
+```
+
+Il runner sintetico ha inizialmente rilevato che `declare -A` non è supportato
+dal Bash 3.2 di macOS. La matrice conserva ora lo stesso stato effimero in array
+indicizzati; i test delle 74 tuple, dei casi external e del mismatch sul
+sedicesimo ID passano con Bash 3.2. Gli array indicizzati restano parte del
+contratto compatibile delle versioni Bash successive.
+
+La matrice reale è stata eseguita senza sostituzioni con la directory modelli
+locale in sola lettura e l'oracolo locale pinned. Tutte le 12 righe
+CPU, le 12 Metal e le 12 Metal-hybrid `25/mixed` passano per i sei modelli e i
+due schemi KV. I quattro endpoint Metal-hybrid passano: `100/all-metal` f16 e
+int8 coincidono esattamente con Metal standalone, mentre `0/cpu-only` f16 e
+int8 coincidono esattamente con CPU standalone per tutti i 16 `local_ids`. Le
+24 righe Vulkan principali e i quattro endpoint Vulkan sono external sul Mac;
+i sei rifiuti Q8 sono external perché gli artefatti non sono presenti. Output
+terminale osservato:
+
+```text
+summary: pass=40 external_verification=34 failure=0 total=74
+```
+
+La contabilità corretta a 32 righe può cambiare uno split limitato dalla
+capacità, ma percentuale, riserva, ordine dei candidati, piano immutabile e
+assenza di retry restano invariati. Questa campagna non formula alcun nuovo
+claim prestazionale.
 
 ## Ciclo di ottimizzazione CPU — 5 agosto 2026
 
@@ -145,10 +247,10 @@ al 5%.
 | 1 | Accoppiare i sottoblocchi low/high per eliminare divisione e branch | +1,40% | −1,38% | +0,82% | `reject`: obiettivi sotto 3% |
 | 2 | Srotolare ×4 il ciclo interno da 32 valori | −1,58% | +1,54% | +0,16% | `reject`: regressione prompt |
 | 3 | Calcolare una volta i puntatori base di pesi e attivazioni | +0,74% | −0,77% | +0,82% | `reject`: obiettivi sotto 3% |
-| 4 | Leggere le metadate Q4_K come tre parole allineate | non misurato | non misurato | non misurato | `reject`: parity fallita per estrazione byte errata |
+| 4 | Leggere i metadati Q4_K come tre parole allineate | non misurato | non misurato | non misurato | `reject`: parity fallita per estrazione byte errata |
 | 5 | Correggere le tre letture allineate con maschere a 8 bit | +2,79% | −2,78% | +1,97% | `reject`: obiettivi sotto 3% |
 | 6 | Conservare 32 byte quantizzati privati e riusarne il nibble alto | +7,72% | −7,17% | +3,62% | `interesting`: decode sotto 5% |
-| 7 | Combinare riuso dei byte e metadate allineate corrette | +8,19% | −7,62% | +4,61% | `interesting`: decode sotto 5% |
+| 7 | Combinare riuso dei byte e metadati allineati corretti | +8,19% | −7,62% | +4,61% | `interesting`: decode sotto 5% |
 | 8 | Aggiungere puntatori base alla variante combinata | +8,65% | −8,02% | +4,93% | `interesting`: decode sotto 5% |
 | 9 | Srotolare ×2 i due loop della variante combinata | −5,02% | +5,27% | −2,47% | `reject`: regressione di tutti i controlli |
 

@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
+// AGENTS deroga K: kernel numerico della sola attivazione fused SiLU-mul.
+
 // Fused SiLU(gate) ⊙ up: o[i] = f16( f16(silu(gate[i])) * up[i] ). One dispatch
 // replacing silu.comp + mul.comp. Bit-exactness requirement: the silu intermediate
 // must be rounded to FP16 before the product, EXACTLY as the two-kernel path does

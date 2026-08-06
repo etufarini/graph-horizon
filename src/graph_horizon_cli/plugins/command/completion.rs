@@ -5,7 +5,6 @@
  * tools, confirmations, profiles, workspace, or reasoning commands.
  */
 
-use super::args::path_arg;
 use super::{COMMANDS, parse};
 use crate::graph_horizon_cli::plugins::attachments::{self, FileAuthority};
 use crate::graph_horizon_cli::plugins::completion::completion_tail;
@@ -27,6 +26,12 @@ pub(crate) fn complete(files: &FileAuthority, prompt: &str) -> (Option<String>, 
         Some(_) => (None, Vec::new()),
         None => (complete_name(prompt), name_matches(prompt)),
     }
+}
+
+// Extracts the single trailing path argument after its separating whitespace.
+fn path_arg(rest: &str) -> Option<&str> {
+    let arg = rest.strip_prefix(char::is_whitespace)?.trim_start();
+    (!arg.contains(char::is_whitespace)).then_some(arg)
 }
 
 // Completion tail for a partially typed command name ("/imp" -> "ort"), using the

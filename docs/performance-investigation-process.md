@@ -105,6 +105,18 @@ Correctness failure or a control regression over 5% is `reject` regardless of
 the target gain. A result at or above 5% does not bypass stability or control
 gates.
 
+## Mixed Operation Variants
+
+A proposed variant used only under effective `Mixed` placement must declare its
+correctness gate, objective, variability limit, and controls before code is
+measured. It may remain in production only when those predeclared gates produce
+the terminal state `keep`. The Cargo composition profile is not a dispatch
+input, and one retained exception belongs to one operation only.
+
+If the terminal state is `interesting`, `reject`, or `not_verified`, remove the
+candidate code before completing the change. Its bounded evidence may remain in
+the validation or decision record, clearly labeled with that terminal state.
+
 ## Prerequisite And Tuple Failures
 
 Apply these conditions before interpreting performance:
@@ -139,7 +151,7 @@ different artifact.
 
 ## Release Qualification Boundary
 
-The 70-row correctness matrix is outside iterative performance Definition of
+The 74-row correctness matrix is outside iterative performance Definition of
 Done. Run it only for release qualification or for a change to a shared backend
 contract, public artifact compatibility, family-wide numeric behavior, KV
 layout, or placement policy. Do not run it merely because one selected

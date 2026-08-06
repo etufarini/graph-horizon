@@ -12,6 +12,7 @@ use color_eyre::eyre::{Result, bail};
 use crate::backend::Backend;
 use crate::backend::buffers::{Buffers, LayerWeights, Scratch, WeightSet};
 use crate::backend::rope::{RopeRole, Yarn};
+#[cfg(any(feature = "cpu", feature = "vulkan"))]
 use crate::backend::source::WeightSource;
 use crate::family::mistral::MistralConfig;
 use crate::family::mistral::graph::forward;
@@ -19,7 +20,9 @@ use crate::family::mistral::version::{
     ATTENTION_WIDTH, HEAD_COUNT, K_WIDTH, KEY_LENGTH, KV_HEAD_COUNT, MAX_CONTEXT, Q_WIDTH,
     REFERENCE_ROWS, ROPE_DIMENSION, V_WIDTH, VALUE_LENGTH,
 };
+#[cfg(any(feature = "cpu", feature = "vulkan"))]
 use crate::gguf::loader::GgufFile;
+#[cfg(any(feature = "cpu", feature = "vulkan"))]
 use crate::gguf::metadata::ModelMetadata;
 use crate::kv_cache::scheme::KvQuant;
 use crate::kv_cache::{self, Kv};
@@ -157,6 +160,7 @@ impl Backend for ShapeBackend {
     type Buffer = ShapeBuffer;
     type Encoder = ShapeEncoder;
 
+    #[cfg(any(feature = "cpu", feature = "vulkan"))]
     fn load(
         _meta: &ModelMetadata,
         _ws: &dyn WeightSource,

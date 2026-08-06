@@ -1,8 +1,8 @@
 /*
  * graph_horizon_engine — hybrid device contract
  * Defines the single extension trait a GPU backend implements for generic
- * placement, selected loading, and one host-residual upload. It owns no family
- * graph, tokenizer, sampling, placement arithmetic, or request lifecycle.
+ * placement, selected loading, and one host-residual upload. Build features
+ * control availability; weight selection is the immutable ownership boundary.
  */
 
 // AGENTS deroga I: definizione del solo trait HybridDevice.

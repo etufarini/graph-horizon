@@ -95,9 +95,9 @@ fn parse_kv_quant(raw: Option<&str>) -> Result<KvQuant, String> {
     }
 }
 
-fn parse_max_tokens(raw: Option<&str>) -> Result<usize, String> {
+fn parse_max_tokens(raw: Option<&str>, default: usize) -> Result<usize, String> {
     match raw {
-        None => Ok(2048),
+        None => Ok(default),
         Some(s) => match s.parse::<usize>() {
             Ok(n) => Ok(n),
             _ => Err(format!(
@@ -107,8 +107,11 @@ fn parse_max_tokens(raw: Option<&str>) -> Result<usize, String> {
     }
 }
 
-pub(crate) fn max_tokens_from_args() -> usize {
-    or_exit(parse_max_tokens(args::value("--max-tokens").as_deref()))
+pub(crate) fn max_tokens_from_args(default: usize) -> usize {
+    or_exit(parse_max_tokens(
+        args::value("--max-tokens").as_deref(),
+        default,
+    ))
 }
 
 // Prints the usage error to stderr + the help, then exits non-zero (no load started).
@@ -198,10 +201,11 @@ mod tests {
 
     #[test]
     fn max_tokens_validation() {
-        assert_eq!(parse_max_tokens(None), Ok(2048));
-        assert_eq!(parse_max_tokens(Some("0")), Ok(0));
-        assert_eq!(parse_max_tokens(Some("128")), Ok(128));
-        assert!(parse_max_tokens(Some("x")).is_err());
-        assert!(parse_max_tokens(Some("-1")).is_err());
+        assert_eq!(parse_max_tokens(None, 2048), Ok(2048));
+        assert_eq!(parse_max_tokens(None, 1024), Ok(1024));
+        assert_eq!(parse_max_tokens(Some("0"), 2048), Ok(0));
+        assert_eq!(parse_max_tokens(Some("128"), 2048), Ok(128));
+        assert!(parse_max_tokens(Some("x"), 2048).is_err());
+        assert!(parse_max_tokens(Some("-1"), 2048).is_err());
     }
 }

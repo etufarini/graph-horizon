@@ -282,6 +282,7 @@ mod tests {
                 INPUT as u32,
                 OUTPUT as u32,
                 ROWS as u32,
+                false,
             )?;
             encoder.submit()?;
 
@@ -345,7 +346,9 @@ mod tests {
             cache_bytes,
             1,
         )?;
-        attention::encode(&encoder, &pipelines, &attended, &query, &kv, 1, 0, 1, 0)?;
+        attention::encode(
+            &encoder, &pipelines, &attended, &query, &kv, 1, 0, 1, 0, false,
+        )?;
         encoder.submit()?;
         assert_eq!(halfs(&attended, 3)?, vec![2., 4., 6.]);
 
@@ -365,7 +368,9 @@ mod tests {
             cache_bytes,
             1,
         )?;
-        attention::encode(&encoder, &pipelines, &attended, &query, &kv, 1, 1, 1, 0)?;
+        attention::encode(
+            &encoder, &pipelines, &attended, &query, &kv, 1, 1, 1, 0, false,
+        )?;
         encoder.submit()?;
         let first_weight = (1.0_f32 / 3.0_f32.sqrt()).exp();
         let denominator = first_weight + 1.0;

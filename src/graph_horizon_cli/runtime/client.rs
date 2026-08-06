@@ -67,7 +67,7 @@ pub(super) async fn fetch_context_limit(base_url: &str) -> Option<usize> {
 }
 
 // Streams a chat completion from the configured OpenAI-compatible endpoint, parsing SSE lines into Chunks.
-pub(super) async fn stream_completion(
+pub(crate) async fn stream_completion(
     messages: Vec<ChatMessage>,
     config: ClientConfig,
 ) -> Result<ChunkStream> {
@@ -108,10 +108,13 @@ pub(super) async fn stream_completion(
             buffer.extend_from_slice(&bytes);
 
             while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                // A complete line is valid UTF-8; lossy decoding is safe here.
-                let line = String::from_utf8_lossy(&buffer[..pos])
-                    .trim_end_matches('\r')
-                    .to_string();
+                let line = match std::str::from_utf8(&buffer[..pos]) {
+                    Ok(line) => line.trim_end_matches('\r').to_string(),
+                    Err(_) => {
+                        let _ = tx.send(Err(eyre!("provider returned invalid UTF-8"))).await;
+                        return;
+                    }
+                };
                 buffer.drain(..=pos);
 
                 if sse::handle_sse_line(&line, &tx).await {
@@ -124,9 +127,13 @@ pub(super) async fn stream_completion(
         // provider that closes the connection without a [DONE] sentinel). Flush
         // whatever remains so the last content token isn't silently dropped.
         if !buffer.is_empty() {
-            let line = String::from_utf8_lossy(&buffer)
-                .trim_end_matches('\r')
-                .to_string();
+            let line = match std::str::from_utf8(&buffer) {
+                Ok(line) => line.trim_end_matches('\r').to_string(),
+                Err(_) => {
+                    let _ = tx.send(Err(eyre!("provider returned invalid UTF-8"))).await;
+                    return;
+                }
+            };
             let _ = sse::handle_sse_line(&line, &tx).await;
         }
     });
@@ -184,6 +191,40 @@ mod tests {
         let mut stream = stream_completion(Vec::new(), config).await.unwrap();
         let chunk = stream.next().await.unwrap().unwrap();
         assert_eq!(chunk.response, "last");
+        assert!(stream.next().await.is_none());
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_invalid_utf8_sse_lines() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let _ = socket.read(&mut request).await.unwrap();
+
+            let body = b"data: \xff\n";
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(headers.as_bytes()).await.unwrap();
+            socket.write_all(body).await.unwrap();
+        });
+
+        let config = ClientConfig {
+            base_url: format!("http://{address}/v1"),
+            system: None,
+            context_limit: None,
+            max_tokens: 1,
+        };
+        let mut stream = stream_completion(Vec::new(), config).await.unwrap();
+        let error = match stream.next().await.unwrap() {
+            Ok(_) => panic!("invalid UTF-8 was accepted"),
+            Err(error) => error.to_string(),
+        };
+        assert_eq!(error, "provider returned invalid UTF-8");
         assert!(stream.next().await.is_none());
         server.await.unwrap();
     }

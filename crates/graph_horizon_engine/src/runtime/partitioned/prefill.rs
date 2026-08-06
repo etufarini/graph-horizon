@@ -17,12 +17,22 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
     before_batch: &mut dyn FnMut() -> Result<()>,
 ) -> Result<()> {
     match (session.backends, session.state.as_ref()) {
-        (HybridBackends::AllGpu(backend), Some(KvState::AllGpu(kv))) => {
-            G::prefill(backend, session.config, kv, prompt, before_batch)
-        }
-        (HybridBackends::CpuOnly(backend), Some(KvState::CpuOnly(kv))) => {
-            G::prefill(backend, session.config, kv, prompt, before_batch)
-        }
+        (HybridBackends::AllGpu(backend), Some(KvState::AllGpu(kv))) => G::prefill(
+            backend,
+            session.config,
+            kv,
+            prompt,
+            session.shape.gpu_prefill_rows,
+            before_batch,
+        ),
+        (HybridBackends::CpuOnly(backend), Some(KvState::CpuOnly(kv))) => G::prefill(
+            backend,
+            session.config,
+            kv,
+            prompt,
+            session.shape.cpu_prefill_rows,
+            before_batch,
+        ),
         (
             HybridBackends::Mixed { cpu, gpu },
             Some(KvState::Mixed {
@@ -33,12 +43,13 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             if prompt.is_empty() {
                 bail!("runtime: empty prompt");
             }
-            let cpu_batch = G::batch(cpu, session.config)?;
-            let gpu_batch = G::batch(gpu, session.config)?;
-            for (batch_index, tokens) in prompt.chunks(G::BATCH_ROWS).enumerate() {
+            let rows = session.shape.mixed_prefill_rows;
+            let cpu_batch = G::batch(cpu, session.config, rows)?;
+            let gpu_batch = G::batch(gpu, session.config, rows)?;
+            for (batch_index, tokens) in prompt.chunks(rows).enumerate() {
                 before_batch()?;
                 let base = batch_index
-                    .checked_mul(G::BATCH_ROWS)
+                    .checked_mul(rows)
                     .ok_or_else(|| eyre!("hybrid residual crossing overflow"))?;
                 G::record_batch(
                     cpu,

@@ -1,8 +1,8 @@
 /*
  * graph_horizon_engine — final source and family boundary audit
  * Statically enforces the exact K/I exemption lists, the 200 productive-line
- * orchestration limit, the Reasoning documentation contract, and absence of
- * obsolete family/backend domains. Tiny synthetic GGUFs exercise the sole
+ * orchestration limit, placement-based numeric dispatch, the documentation
+ * contract, and absence of obsolete domains. Tiny GGUFs exercise the sole
  * mistral3 architecture gate.
  */
 
@@ -30,15 +30,15 @@ fn repository() -> PathBuf {
         .to_path_buf()
 }
 
-fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
+fn collect(dir: &Path, extension: &str, out: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            collect(&path, out);
-        } else if path.extension().and_then(|value| value.to_str()) == Some("rs") {
+            collect(&path, extension, out);
+        } else if path.extension().and_then(|value| value.to_str()) == Some(extension) {
             out.push(path);
         }
     }
@@ -46,20 +46,43 @@ fn collect(dir: &Path, out: &mut Vec<PathBuf>) {
 
 fn productive_lines(path: &Path) -> usize {
     let text = fs::read_to_string(path).expect("read source");
-    let mut in_test = false;
-    text.lines()
-        .filter(|line| {
-            let line = line.trim();
-            if line.starts_with("#[cfg(test)]") {
-                in_test = true;
+    let lines = text.lines().collect::<Vec<_>>();
+    let mut productive = 0;
+    let mut index = 0;
+    while index < lines.len() {
+        if lines[index] == "#[cfg(test)]" || lines[index].starts_with("#[cfg(all(test,") {
+            // Rustfmt leaves top-level items unindented. Skip the complete
+            // test-only item, including any additional attributes, without
+            // hiding production items that follow it.
+            index += 1;
+            while index < lines.len()
+                && (lines[index].trim().is_empty() || lines[index].starts_with("#["))
+            {
+                index += 1;
             }
-            !in_test
-                && !line.is_empty()
-                && !line.starts_with("//")
-                && !line.starts_with("/*")
-                && !line.starts_with('*')
-        })
-        .count()
+            let block = lines
+                .get(index)
+                .is_some_and(|line| line.contains('{') && !line.trim_end().ends_with(';'));
+            while index < lines.len() {
+                let line = lines[index];
+                index += 1;
+                if (block && line.starts_with('}')) || (!block && line.trim_end().ends_with(';')) {
+                    break;
+                }
+            }
+            continue;
+        }
+        let line = lines[index].trim();
+        if !line.is_empty()
+            && !line.starts_with("//")
+            && !line.starts_with("/*")
+            && !line.starts_with('*')
+        {
+            productive += 1;
+        }
+        index += 1;
+    }
+    productive
 }
 
 #[test]
@@ -76,8 +99,13 @@ fn source_structure() {
         "src/backend/cpu/kernels/attention/mod.rs",
         "src/backend/cpu/kernels/attention/read_q.rs",
         "src/backend/cpu/kernels/attention/simd.rs",
+        "src/backend/cpu/kernels/attention/write.rs",
         "src/backend/cpu/kernels/attention/write_q.rs",
-        "src/backend/cpu/kernels/elementwise.rs",
+        "src/backend/cpu/kernels/elementwise/activation.rs",
+        "src/backend/cpu/kernels/elementwise/embedding.rs",
+        "src/backend/cpu/kernels/elementwise/normalization.rs",
+        "src/backend/cpu/kernels/elementwise/residual.rs",
+        "src/backend/cpu/kernels/elementwise/rope.rs",
         "src/backend/cpu/kernels/matmul/mod.rs",
         "src/backend/cpu/kernels/matmul/q4k.rs",
         "src/backend/cpu/kernels/matmul/q4k_simd.rs",
@@ -85,14 +113,14 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q5k_simd.rs",
         "src/backend/cpu/kernels/matmul/q6k.rs",
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
-        "src/backend/vulkan/kernels/attention.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
         "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
     ];
     let mut files = Vec::new();
-    collect(&manifest().join("src"), &mut files);
+    collect(&manifest().join("src"), "rs", &mut files);
+    files.push(manifest().join("build.rs"));
     let mut marked_i = Vec::new();
     let mut marked_k = Vec::new();
     let mut over = Vec::new();
@@ -103,10 +131,14 @@ fn source_structure() {
             .to_string_lossy()
             .replace('\\', "/");
         let text = fs::read_to_string(&path).expect("read source");
-        if text.contains("AGENTS deroga I") {
+        let i_markers = text.matches("AGENTS deroga I:").count();
+        let k_markers = text.matches("AGENTS deroga K:").count();
+        assert!(i_markers <= 1, "multiple category-I markers: {relative}");
+        assert!(k_markers <= 1, "multiple category-K markers: {relative}");
+        if i_markers == 1 {
             marked_i.push(relative.clone());
         }
-        if text.contains("AGENTS deroga K") {
+        if k_markers == 1 {
             marked_k.push(relative.clone());
         }
         if !I.contains(&relative.as_str())
@@ -125,11 +157,73 @@ fn source_structure() {
     expected_k.sort();
     assert_eq!(marked_i, expected_i, "category-I marker list changed");
     assert_eq!(marked_k, expected_k, "category-K marker list changed");
+
+    let root = repository();
+    let mut root_sources = Vec::new();
+    collect(&root.join("src"), "rs", &mut root_sources);
+    collect(&root.join("examples"), "rs", &mut root_sources);
+    for path in root_sources {
+        let relative = path
+            .strip_prefix(&root)
+            .expect("source under repository")
+            .to_string_lossy()
+            .replace('\\', "/");
+        if relative != "src/support_scripts.rs" && productive_lines(&path) > 200 {
+            over.push(format!("{relative}: {}", productive_lines(&path)));
+        }
+    }
     assert!(
         over.is_empty(),
         "orchestration over 200 lines:\n{}",
         over.join("\n")
     );
+
+    let mut shaders = Vec::new();
+    collect(
+        &manifest().join("src/backend/metal/shaders"),
+        "metal",
+        &mut shaders,
+    );
+    collect(
+        &manifest().join("src/backend/vulkan/shaders"),
+        "comp",
+        &mut shaders,
+    );
+    for path in shaders {
+        let text = fs::read_to_string(&path).expect("read shader");
+        assert_eq!(
+            text.matches("AGENTS deroga K:").count(),
+            1,
+            "shader must declare category K exactly once: {}",
+            path.display()
+        );
+    }
+}
+
+#[test]
+fn hybrid_numeric_dispatch_uses_effective_placement() {
+    let metal = manifest().join("src/backend/metal");
+    for relative in ["kernels/matmul.rs", "kernels/attention.rs"] {
+        let source = fs::read_to_string(metal.join(relative)).expect("Metal dispatcher source");
+        assert!(
+            !source.contains("feature = \"metal-hybrid\""),
+            "{relative} dispatches numerically from a Cargo profile"
+        );
+        assert!(
+            source.contains("mixed_placement"),
+            "{relative} does not use effective placement"
+        );
+    }
+    let backend = fs::read_to_string(metal.join("backend.rs")).expect("Metal backend delegator");
+    assert_eq!(backend.matches("AGENTS deroga I").count(), 1);
+    assert_eq!(backend.matches("self.mixed_placement").count(), 3);
+    let contract = fs::read_to_string(manifest().join("src/backend/hybrid/contract.rs"))
+        .expect("hybrid device contract");
+    assert_eq!(contract.matches("AGENTS deroga I").count(), 1);
+    assert!(!contract.contains("mixed_placement"));
+    let loader = fs::read_to_string(metal.join("loader.rs")).expect("Metal loader source");
+    assert!(loader.contains("selection.layers.start > 0"));
+    assert!(loader.contains("!selection.embedding && selection.tail"));
 }
 
 #[test]
@@ -266,6 +360,15 @@ fn docs_contract() {
     assert!(engine_flat.contains("`GgmlType::Q8_0`"));
     assert!(backend_flat.contains("Build Backends"));
     assert!(backend_flat.contains("The library crate has no default feature"));
+    assert!(
+        backend_flat.contains("exactly three numeric backend families: CPU, Vulkan, and Metal")
+    );
+    assert!(backend_flat.contains("public composition profiles, not numeric backend families"));
+    assert!(
+        backend_flat.contains(
+            "Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split"
+        )
+    );
     assert!(config_flat.contains("`--context-tokens` requests exactly"));
     assert!(config_flat.contains("GET /props"));
     assert!(ownership.contains("family/mistral/version.rs"));
@@ -286,6 +389,20 @@ fn docs_contract() {
     assert!(ownership.contains("family/mistral/tokenizer/profile.rs"));
     assert!(ownership.contains("family/mistral/parity.rs"));
     assert!(support_flat.contains("parity-check.sh --models-dir DIR --model-id ID"));
+    assert!(support_flat.contains("Tenta 74 righe seriali"));
+    assert!(support_flat.contains("sequenza completa di 16 `local_ids`"));
+    let addition = fs::read_to_string(root.join("docs/backend-addition-process.md"))
+        .expect("backend addition process");
+    assert!(addition.contains("must not select a numeric operation variant"));
+    assert!(addition.contains("local to one operation"));
+    let performance = fs::read_to_string(root.join("docs/performance-investigation-process.md"))
+        .expect("performance process");
+    let performance_flat = performance.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(performance.contains("terminal state `keep`"));
+    assert!(
+        performance_flat
+            .contains("`interesting`, `reject`, or `not_verified`, remove the candidate code")
+    );
     for prerequisite in ["`curl`", "`jq`", "`sha256sum`", "`13f2b28b0`"] {
         assert!(
             support.contains(prerequisite),
@@ -295,6 +412,7 @@ fn docs_contract() {
     assert!(
         validation.contains("summary: qualified=6 not_qualified=0 external_verification=0 total=6")
     );
+    assert!(validation.contains("summary: pass=1 external_verification=73 failure=0 total=74"));
     for model in ["3b-reasoning", "8b-reasoning", "14b-reasoning"] {
         assert!(
             validation.contains(&format!(
@@ -357,7 +475,7 @@ fn hybrid_placement_contract() {
     let source = fs::read_to_string(manifest().join("src/backend/hybrid/placement/separate.rs"))
         .expect("hybrid placement source");
     for evidence in [
-        "0..=block_count",
+        "first_split..=block_count",
         "selects_all_gpu_mixed_one_layer_suffix_and_cpu_only",
         "context_failure_does_not_reduce_context",
         "model does not fit available RAM and VRAM",
@@ -453,7 +571,7 @@ fn assert_placement(engine: &Engine, percentage: Option<u8>) {
             .expect("GRAPH_HORIZON_EXPECTED_MODE required for hybrid profiles");
         let placement = engine.placement().expect("hybrid placement report");
         assert_eq!(placement.mode, expected);
-        assert_eq!(percentage.is_some(), true);
+        assert!(percentage.is_some());
         if expected == "mixed" {
             assert!(placement.cpu_layers > 0 && placement.gpu_layers > 0);
         }

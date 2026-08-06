@@ -5,6 +5,8 @@
  */
 
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+mod input;
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod separate;
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 mod unified;
@@ -40,7 +42,9 @@ pub(crate) enum BudgetInput {
 }
 
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-pub(crate) use separate::PlacementInput;
+pub(crate) use input::PlacementInput;
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+pub(crate) use input::build;
 
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) fn select(

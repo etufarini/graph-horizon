@@ -14,7 +14,7 @@ use super::plugins::attachments::FileAuthority;
 use super::runtime::{ClientConfig, generation_stream, local, pruning_threshold};
 
 pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Result<()> {
-    let mut client_config = ClientConfig::from_env();
+    let mut client_config = ClientConfig::from_args();
     // A prior conversation is restored later, in-session, via /import, so startup
     // always begins from a fresh history; the system prompt is read out here.
     let system = client_config.system.clone();

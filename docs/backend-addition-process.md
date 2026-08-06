@@ -121,6 +121,13 @@ Start with the simplest correct path. Add batching, fusion, SIMD, subgroup, or
 device-specific kernels only after a scalar, unfused, or host oracle exists.
 Optimized paths must retain a deterministic way to test the reference result.
 
+Cargo feature and build-profile conditions gate availability, dependencies,
+and loaders; they must not select a numeric operation variant. A placement
+exception must be local to one operation, selected from immutable effective
+`Mixed` placement, and backed by a terminal `keep` result from the
+[performance investigation process](performance-investigation-process.md).
+Backend-wide or profile-wide numeric exceptions are prohibited.
+
 ## Phase 5: Integrate Loading And Combined Modes
 
 Load only explicitly supported weight formats. Unsupported formats fail during
@@ -176,6 +183,9 @@ trigger an implicit smaller-context or different-backend retry.
 
 Combined modes require all-device, all-host when supported, and true mixed rows
 with positive work on both sides. Record requested and final placement.
+Homogeneous endpoints must match the corresponding standalone numeric backend;
+the public composition-profile name does not authorize different batching or
+operation dispatch.
 
 ## Phase 8: Measure Performance
 

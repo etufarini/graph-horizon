@@ -44,7 +44,7 @@ profiles are listed in the
 | `--context-tokens <n>` | engine policy or HTTP detection | Explicit context, integer `>= 1` |
 | `--system-prompt <text>` | none | TUI-only system prompt |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Base URL for the TUI HTTP provider |
-| `--max-tokens <n>` | TUI `2048`; server/web `1024` | Default maximum generation, integer `>= 0` |
+| `--max-tokens <n>` | TUI `2048`; server/web `1024` | TUI maximum; server/web request default, integer `>= 0` |
 | `--vram-weights-percent <n>` | automatic | Explicit `0..=100` weight-placement limit |
 | `--vram-reserve-mib <n>` | engine policy | Non-negative VRAM reserve; part of the hybrid automatic plan |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |

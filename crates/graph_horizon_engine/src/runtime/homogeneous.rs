@@ -18,6 +18,7 @@ pub(crate) struct HomogeneousSession<'a, B: Backend, G: LayeredGraph> {
     backend: &'a B,
     config: &'a G::Config,
     kv: Option<Kv<B::Buffer>>,
+    row_capacity: usize,
     graph: PhantomData<G>,
 }
 
@@ -26,6 +27,7 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
         backend: &'a B,
         config: &'a G::Config,
         shape: RuntimeShape,
+        row_capacity: usize,
         context: usize,
         scheme: KvQuant,
     ) -> Result<Self> {
@@ -42,6 +44,7 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
             backend,
             config,
             kv: Some(kv),
+            row_capacity,
             graph: PhantomData,
         })
     }
@@ -55,7 +58,14 @@ impl<B: Backend, G: LayeredGraph> RuntimeSession for HomogeneousSession<'_, B, G
     type Graph = G;
 
     fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()> {
-        G::prefill(self.backend, self.config, self.kv(), prompt, before)
+        G::prefill(
+            self.backend,
+            self.config,
+            self.kv(),
+            prompt,
+            self.row_capacity,
+            before,
+        )
     }
 
     fn token(&self, token: u32, position: usize) -> Result<()> {

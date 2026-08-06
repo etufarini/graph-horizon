@@ -17,14 +17,14 @@ diversi.
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
-| `testing/matrix-check.sh` | sei Q8, 60 righe principali e quattro endpoint |
+| `testing/matrix-check.sh` | sei Q8, 60 righe principali e otto endpoint hybrid |
 | `testing/semantic-check.sh` | matrice terminale di qualifica semantica Reasoning |
 | `testing/run-graph-horizon.sh` | avvio esplicito della console locale |
 
 ## Prerequisiti
 
 - Rust/Cargo e dipendenze di build della piattaforma;
-- Node/npm per `install.sh`;
+- Node.js/npm 22.12 o successivo per `install.sh`;
 - loader/driver Vulkan per esecuzione Vulkan;
 - artefatti GGUF già acquisiti in sola lettura;
 - `curl`, `jq`, `stat` e `sha256sum` oppure `shasum -a 256`;
@@ -34,10 +34,9 @@ diversi.
 Il contratto degli artefatti e gli SHA registrati sono nel catalogo
 [`models.tsv`](models.tsv); gli esiti revisionati appartengono al
 [registro di validazione](../VALIDATION.md).
-Per la campagna corrente i modelli locali sono in
-`/Users/emanuele/Documents/models`, sempre passata esplicitamente con
-`--models-dir`; il checkout oracle è `/Users/emanuele/Documents/llama.cpp`,
-mentre il worktree disposable previsto è
+Per una campagna locale, la directory dei modelli va sempre passata
+esplicitamente come `--models-dir /path/to/models`; il checkout oracle principale
+può trovarsi in `/path/to/llama.cpp`, mentre il worktree disposable previsto è
 `target/oracle/llama.cpp-13f2b28b`. L'assenza di una
 risorsa esterna produce `external verification: <motivo preciso>`; non
 salta test sintetici.
@@ -54,7 +53,8 @@ accetta `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`; non esiste un
 default né un profilo runtime.
 
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
-una build Cargo `--locked`. Gli script npm attivi sono `dev`, `check` e `build`.
+una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
+`test` e `build`.
 La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
 prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso
@@ -154,14 +154,18 @@ La matrice completa si avvia con:
 
 ```sh
 support/testing/matrix-check.sh \
-  --models-dir /Users/emanuele/Documents/models \
+  --models-dir /path/to/models \
   --reference-server "$PWD/target/oracle/llama.cpp-13f2b28b/build/bin/llama-server"
 ```
 
-Tenta 70 righe seriali. Le righe hybrid principali
-usano 25%/mixed; i quattro endpoint 3B-Instruct usano 100/all-metal e
-0/cpu-only. Continua solo dopo `external verification` e si ferma al primo
-fallimento reale.
+Tenta 74 righe seriali: sei rifiuti Q8, 60 righe principali e otto endpoint
+3B-Instruct. Le righe hybrid principali usano 25%/mixed. Gli endpoint Vulkan e
+Metal usano f16/int8 con 100/all-gpu o 100/all-metal e 0/cpu-only. Per ogni KV,
+la sequenza completa di 16 `local_ids` dell'endpoint omogeneo deve essere
+identica a quella del backend standalone corrispondente. Un controllo o endpoint
+non disponibile resta `external verification`, non produce un claim di
+uguaglianza e non impedisce le righe indipendenti; una differenza ferma subito la
+matrice con failure.
 
 Ogni path modello viene passato come un singolo argomento quotato. Valori enum e
 numerici sono validati prima di invocare Cargo o il binario. Gli script non usano

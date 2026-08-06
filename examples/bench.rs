@@ -71,7 +71,7 @@ fn run() -> Result<(), BenchFailure> {
         let value = pair.get(1).ok_or(usage(message))?;
         match flag.as_str() {
             "--context" => context = Some(number(value, 1, usize::MAX, message)?),
-            "--kv" => kv = Some(KvQuant::parse(&value).ok_or(usage(message))?),
+            "--kv" => kv = Some(KvQuant::parse(value).ok_or(usage(message))?),
             "--weights-percent" => weights_percent = Some(number(value, 0, 100, message)? as u8),
             "--prompt" if !value.is_empty() => prompt = value.clone(),
             "--prompt" => return Err(usage(message)),

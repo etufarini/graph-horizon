@@ -2,8 +2,8 @@
  * graph_horizon_engine — Vulkan module boundary
  * Owns the concrete backend state and exposes the Vulkan domains for
  * initialization, memory, execution, pipelines, and kernels. Loading and trait
- * delegation stay in their dedicated modules; hybrid policy stays in the
- * feature-gated Mistral domain.
+ * delegation stay in their dedicated modules. Features control availability;
+ * effective hybrid placement does not select a Vulkan numeric variant.
  */
 
 #![deny(clippy::undocumented_unsafe_blocks)]

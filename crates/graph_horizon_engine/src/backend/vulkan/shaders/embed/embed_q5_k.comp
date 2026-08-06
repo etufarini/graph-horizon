@@ -1,5 +1,7 @@
 #version 450
 
+// AGENTS deroga K: kernel numerico della sola lookup embedding Q5_K.
+
 // Q5_K embedding lookup: dequantizes one row (`row`) of a Q5_K token_embd tensor
 // [vocab, embd] into the FP32 residual stream. The row is `embd` contiguous weights
 // = embd/256 Q5_K super-blocks (176 bytes each) at block index row*(embd/256). One

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Runs the exact six Q8 rejections, 60 main parity rows, and four Metal-hybrid
-# endpoints. It owns sequential child processes, continues unavailable rows,
-# stops at the first genuine failure, and never substitutes any tuple value.
+# Runs six Q8 rejections, 60 main parity rows, and eight homogeneous hybrid
+# endpoints. It retains successful local ID sequences in memory, compares each
+# endpoint with its standalone control, and never substitutes a tuple value.
 
 set -euo pipefail
 export LC_ALL=C
@@ -12,12 +12,21 @@ catalog="$project_dir/support/models.tsv"
 parity="$project_dir/support/testing/parity-check.sh"
 models_dir=""; reference_server=""; reference_port="18080"
 pass=0; external=0; failure=0
+declare -a row_keys row_status local_ids
 
 usage_error() { printf 'matrix-check: %s\n' "$*" >&2; exit 2; }
 catalog_error() { printf 'matrix-check: catalog error: %s\n' "$*" >&2; exit 2; }
 summary() { printf 'summary: pass=%d external_verification=%d failure=%d total=%d\n' "$pass" "$external" "$failure" "$((pass + external + failure))"; }
 stop_failure() { printf '%s: failure: %s\n' "$1" "$2"; ((failure += 1)); summary; exit 1; }
 usage() { echo "usage: matrix-check.sh --models-dir DIR --reference-server PATH [--reference-port PORT]"; }
+find_row() {
+    local sought="$1" index
+    row_index=-1
+    for index in "${!row_keys[@]}"; do
+        if [[ "${row_keys[$index]}" == "$sought" ]]; then row_index="$index"; return 0; fi
+    done
+    return 1
+}
 
 while (($#)); do
     case "$1" in
@@ -75,8 +84,9 @@ for index in "${!model_ids[@]}"; do
 done
 
 run_parity() {
-    local id="$1" backend="$2" kv="$3" percent="${4:-}" mode="${5:-}"
-    local key="parity model_id=$id backend=$backend kv=$kv" output status
+    local id="$1" backend="$2" kv="$3" percent="${4:-}" mode="${5:-}" control="${6:-}"
+    local key="parity model_id=$id backend=$backend kv=$kv" row_key output status ids control_key
+    row_key="$id:$backend:$kv:$percent:$mode"
     local arguments=(--models-dir "$models_dir" --model-id "$id" --backend "$backend" --kv "$kv"
         --reference-server "$reference_server" --reference-port "$reference_port")
     if [[ -n "$percent" ]]; then
@@ -86,8 +96,29 @@ run_parity() {
     set +e
     output="$("$parity" "${arguments[@]}" 2>&1)"; status=$?
     set -e
-    if ((status == 0)) && [[ "$output" == pass:* ]]; then printf '%s: %s\n' "$key" "$output"; ((pass += 1)); return; fi
-    if ((status == 0)) && [[ "$output" == "external verification: "* ]]; then printf '%s: %s\n' "$key" "$output"; ((external += 1)); return; fi
+    if ((status == 0)) && [[ "$output" == pass:* ]]; then
+        if [[ "$output" =~ (^|[[:space:]])local_ids=([0-9]+(,[0-9]+){15})($|[[:space:]]) ]]; then
+            ids="${BASH_REMATCH[2]}"
+        else
+            stop_failure "$key" "malformed local ID sequence"
+        fi
+        if [[ -n "$control" ]]; then
+            control_key="$id:$control:$kv::"
+            if find_row "$control_key"; then
+                if [[ "${row_status[$row_index]}" == pass && "${local_ids[$row_index]}" != "$ids" ]]; then
+                    stop_failure "$key" "homogeneous endpoint local ID mismatch"
+                fi
+            fi
+        fi
+        row_index="${#row_keys[@]}"
+        row_keys[$row_index]="$row_key"; row_status[$row_index]="pass"; local_ids[$row_index]="$ids"
+        printf '%s: %s\n' "$key" "$output"; ((pass += 1)); return
+    fi
+    if ((status == 0)) && [[ "$output" == "external verification: "* ]]; then
+        row_index="${#row_keys[@]}"
+        row_keys[$row_index]="$row_key"; row_status[$row_index]="external"; local_ids[$row_index]=""
+        printf '%s: %s\n' "$key" "$output"; ((external += 1)); return
+    fi
     stop_failure "$key" "parity row failed"
 }
 
@@ -101,8 +132,14 @@ for id in "${model_ids[@]}"; do
         done
     done
 done
-for mode_percent in all-metal:100 cpu-only:0; do
-    mode="${mode_percent%:*}"; percent="${mode_percent#*:}"
-    for kv in f16 int8; do run_parity 3b-instruct metal-hybrid "$kv" "$percent" "$mode"; done
+for endpoint in vulkan-hybrid:vulkan:all-gpu metal-hybrid:metal:all-metal; do
+    IFS=: read -r backend control all_mode <<<"$endpoint"
+    for mode_percent in "$all_mode:100" cpu-only:0; do
+        mode="${mode_percent%:*}"; percent="${mode_percent#*:}"
+        if [[ "$mode" == cpu-only ]]; then control=cpu; fi
+        for kv in f16 int8; do
+            run_parity 3b-instruct "$backend" "$kv" "$percent" "$mode" "$control"
+        done
+    done
 done
 summary

@@ -5,6 +5,8 @@
 #extension GL_KHR_shader_subgroup_basic : require
 #extension GL_KHR_shader_subgroup_arithmetic : require
 
+// AGENTS deroga K: kernel numerico della sola scrittura KV INT8.
+
 // INT8 per-token asymmetric quantize-on-write: mirrors kv_cache/int8.rs
 // BIT-EXACTLY (I3). One workgroup per (token, kv_head) vector; the workgroup
 // quantizes the vector for K and then for V. Per vector: min/max reduced in

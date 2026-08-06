@@ -18,7 +18,7 @@ text messages only, without tool calling or a separate reasoning channel.
 
 ## Requirements
 
-- Git, Rust/Cargo, and Node.js/npm;
+- Git, Rust/Cargo, and Node.js/npm 22.12 or newer;
 - platform build dependencies;
 - a Vulkan loader and driver for `vulkan` and `vulkan-hybrid`;
 - macOS arm64 plus Xcode command-line `metal` and `metallib` tools for Metal;
@@ -29,8 +29,8 @@ The installer builds from source and does not download models.
 ## Installation
 
 ```sh
-git clone https://github.com/etufarini/graph-horizon.git
-cd graph-horizon
+git clone https://github.com/etufarini/gh-zero-engine-ministral3.git
+cd gh-zero-engine-ministral3
 ./support/install.sh --backend cpu
 ```
 
@@ -93,7 +93,8 @@ graph-horizon --mode server --model "/path/to/model.gguf" \
   --host 127.0.0.1 --port 8080
 ```
 
-It exposes `POST /v1/chat/completions` and `GET /props`.
+It exposes only `POST /v1/chat/completions`; this local server does not implement
+the external-provider `/props` discovery route.
 
 ### Web UI
 
@@ -123,7 +124,7 @@ complete list accepted by the program.
 | `--model <path>` | none | GGUF for the local console, server, and Web UI |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Console HTTP provider |
 | `--context-tokens <n>` | local `min(32,768, GGUF maximum)` | Sets an exact explicit context |
-| `--max-tokens <n>` | CLI `2048`, server/web `1024` | Limits the response |
+| `--max-tokens <n>` | CLI `2048`, server/web `1024` | CLI limit; server default when the request omits `max_tokens` |
 | `--system-prompt <text>` | none | Console system prompt |
 | `--kv-quant <f16\|int8>` | `f16` | KV-cache format |
 | `--cpu-threads <n>` | automatic | Sets CPU workers |

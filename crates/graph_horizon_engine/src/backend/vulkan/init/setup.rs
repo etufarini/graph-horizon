@@ -13,9 +13,9 @@ use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::kernels::reduce;
 use crate::backend::vulkan::loader;
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::budget::device_budget;
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::plan;
 use crate::backend::vulkan::pipeline::PipelineRegistry;
 use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
@@ -25,7 +25,7 @@ use crate::gguf::metadata::ModelMetadata;
 // Shared full-backend bootstrap. Partial hybrid loads use `load_selected`,
 // which bypasses this all-weight memory plan after immutable placement.
 impl VulkanBackend {
-    #[cfg(any(test, not(feature = "vulkan-hybrid")))]
+    #[cfg(feature = "vulkan")]
     pub(in crate::backend::vulkan) fn load_inner(
         dev: Device,
         meta: &ModelMetadata,
@@ -119,19 +119,14 @@ impl VulkanBackend {
     }
 }
 
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 fn placement_budget(dev: &Device) -> crate::backend::vulkan::mem::memory::Budget {
     let mut budget = device_budget(dev);
     budget.vram = selected_vram_budget(budget.vram, dev.free_vram());
     budget
 }
 
-#[cfg(all(feature = "vulkan-hybrid", test))]
-fn placement_budget(dev: &Device) -> crate::backend::vulkan::mem::memory::Budget {
-    device_budget(dev)
-}
-
-#[cfg(not(feature = "vulkan-hybrid"))]
+#[cfg(feature = "vulkan")]
 fn selected_vram_budget(total: u64, current: Option<u64>) -> u64 {
     current.unwrap_or(total)
 }
@@ -197,20 +192,6 @@ impl VulkanBackend {
         };
         Self::finish(dev, reg, buf, logits_host)
     }
-
-    #[cfg(test)]
-    pub(crate) fn replace_test_buffers(
-        &mut self,
-        buffers: crate::backend::buffers::Buffers<GpuBuffer>,
-        vocab: usize,
-    ) -> Result<()> {
-        let host = GpuBuffer::alloc(&self.dev, vocab as u64 * 4, true)?;
-        loader::destroy_buffers(&self.dev, &self.buf);
-        self.logits_host.destroy(&self.dev);
-        self.buf = buffers;
-        self.logits_host = host;
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -273,7 +254,7 @@ impl Drop for VulkanBackend {
 
 #[cfg(test)]
 mod tests {
-    #[cfg(not(feature = "vulkan-hybrid"))]
+    #[cfg(feature = "vulkan")]
     #[test]
     fn pure_vulkan_prefers_current_memory_budget_when_available() {
         assert_eq!(super::selected_vram_budget(1000, Some(400)), 400);

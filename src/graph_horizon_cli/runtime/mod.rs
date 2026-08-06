@@ -16,6 +16,7 @@ mod message;
 mod sse;
 mod tokens;
 
+pub(crate) use client::stream_completion as generation_stream;
 pub(crate) use config::ClientConfig;
 pub(crate) use message::ChatMessage;
 pub(crate) use tokens::{Throughput, estimate_tokens, prune_to_limit, pruning_threshold, rate};
@@ -27,13 +28,6 @@ pub(crate) struct Chunk {
 
 // Public API for the runtime module: a stream of Chunks representing the model's response as it arrives.
 pub(crate) type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk>> + Send>>;
-
-pub(crate) async fn generation_stream(
-    messages: Vec<ChatMessage>,
-    config: ClientConfig,
-) -> Result<ChunkStream> {
-    client::stream_completion(messages, config).await
-}
 
 // Returns the response text from a chunk, or None if it is absent or empty.
 pub(crate) fn response(chunk: &Chunk) -> Option<&str> {

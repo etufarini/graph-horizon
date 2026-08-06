@@ -63,6 +63,8 @@ impl<'a, D: HybridDevice, G: LayeredGraph> PartitionedSession<'a, D, G> {
         })
     }
 
+    // The call mirrors one graph token across two backends and their two KV owners.
+    #[allow(clippy::too_many_arguments)]
     fn mixed_token(
         cpu: &CpuBackend,
         gpu: &D,

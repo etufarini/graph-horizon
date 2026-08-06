@@ -36,7 +36,7 @@ pub(in crate::backend::vulkan) fn classify_unavailable(err: &Report) -> Option<U
     }
 }
 
-#[cfg(any(test, not(feature = "vulkan-hybrid")))]
+#[cfg(feature = "vulkan")]
 pub(in crate::backend::vulkan) fn pure_loader_unavailable(err: Report) -> Report {
     let _unavailable = classify_unavailable(&err);
     eyre!("Vulkan backend is unavailable")
@@ -99,6 +99,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan")]
     fn error_matrix_e14_maps_unavailable_initialization() {
         let err = super::pure_loader_unavailable(eyre!("vulkan: no device with a compute queue"));
         assert_eq!(err.to_string(), "Vulkan backend is unavailable");

@@ -38,7 +38,10 @@ decoding stops and no further events are emitted.
 
 ## Build Backends
 
-The backend is selected at build time, not with a runtime flag:
+The build profile is selected at build time, not with a runtime flag. There are
+exactly three numeric backend families: CPU, Vulkan, and Metal.
+`vulkan-hybrid` and `metal-hybrid` are public composition profiles, not numeric
+backend families:
 
 | Feature | Execution | Main Policy |
 |---|---|---|
@@ -76,11 +79,32 @@ assigns a contiguous prefix of layers to the CPU and the suffix to the GPU; each
 layer's KV remains on its owning backend. Activations cross the boundary once per
 pass.
 
+The effective placement, rather than the Cargo profile name, selects batching
+and numeric dispatch:
+
+| Effective placement | Prefill rows | Numeric execution |
+|---|---:|---|
+| CPU standalone or `CpuOnly` | 4 | CPU |
+| Vulkan standalone or `AllGpu` | 32 | Vulkan |
+| Metal standalone or `AllGpu` (`all-metal`) | 32 | Metal |
+| Vulkan or Metal `Mixed` | 4 | CPU prefix, one crossing, GPU suffix |
+
+Feature conditions control availability, dependencies, and loading. They do not
+select operation variants. Metal stores the immutable `Mixed` fact and applies
+only the two qualified operation-local exceptions: per-row matmul and serial
+attention. Vulkan uses the same kernels for homogeneous and mixed placement.
+Weights and KV stay with the backend that owns each layer.
+
 `--vram-weights-percent` sets an explicit limit from `0` to `100`; when absent,
 hybrid calculates placement from available resources. `--vram-reserve-mib`
 withholds VRAM from the budget and participates in the hybrid automatic plan.
 `Engine::placement()` exposes the final decision and planned CPU/GPU memory
 breakdown.
+
+Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split.
+The requested percentage, reserve, candidate order, immutable result, and
+no-retry behavior remain unchanged; the runtime never reduces context or
+replans after an allocation or execution error.
 
 Vulkan owns device memory and explicit transfer/staging buffers. Metal uses
 shared/private storage as required by CPU visibility, one command queue, and

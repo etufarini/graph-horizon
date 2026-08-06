@@ -12,13 +12,9 @@ use crate::backend::hybrid::{BackendBytes, HybridPlan};
 
 pub(super) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
     let blocks = weights.layers.len();
-    let splits: Box<dyn Iterator<Item = usize>> = if input.gpu_enabled {
-        Box::new(0..=blocks)
-    } else {
-        Box::new(std::iter::once(blocks))
-    };
+    let first_split = if input.gpu_enabled { 0 } else { blocks };
     let mut base_fit = false;
-    for split in splits {
+    for split in first_split..=blocks {
         let (cpu_base, gpu_base) = candidate(weights, input, split, false)?;
         if add(cpu_base.total, gpu_base.total)? <= input.cpu_available
             && gpu_base.weights <= input.gpu_weight_available
@@ -65,11 +61,10 @@ fn candidate(
         0
     };
     let crossing = if mixed { input.crossing } else { 0 };
-    let gpu_scratch = if split < blocks {
-        input
-            .gpu_scratch
-            .checked_sub(crossing)
-            .ok_or_else(overflow)?
+    let gpu_scratch = if mixed {
+        input.gpu_mixed_scratch
+    } else if split < blocks {
+        input.gpu_all_scratch
     } else {
         0
     };
@@ -187,7 +182,8 @@ mod tests {
             cpu_scratch: 20,
             cpu_fixed: 4,
             gpu_host_fixed: 0,
-            gpu_scratch: 20,
+            gpu_all_scratch: 20,
+            gpu_mixed_scratch: 20,
             gpu_fixed: 4,
             gpu_staging: 3,
             gpu_reserve: 1,
@@ -241,10 +237,50 @@ mod tests {
             "context 4096 does not fit the selected backend; context was not reduced"
         );
         let mut overflow = input(u64::MAX, u64::MAX);
-        overflow.gpu_scratch = u64::MAX;
+        overflow.gpu_all_scratch = u64::MAX;
         assert_eq!(
             select(&weights(), overflow).unwrap_err().to_string(),
             "hybrid placement arithmetic overflow"
         );
+    }
+
+    #[test]
+    fn unified_candidates_use_mode_specific_prefill_bytes() {
+        let mut facts = input(u64::MAX, u64::MAX);
+        facts.cpu_scratch = 4;
+        facts.gpu_all_scratch = 32;
+        facts.gpu_mixed_scratch = 4;
+        facts.crossing = 7;
+
+        let (all_cpu, all_gpu) = candidate(&weights(), facts, 0, true).unwrap();
+        assert_eq!(all_cpu.scratch, 0);
+        assert_eq!(all_gpu.scratch, 32);
+        assert_eq!(all_gpu.crossing, 0);
+        let (mixed_cpu, mixed_gpu) = candidate(&weights(), facts, 1, true).unwrap();
+        assert_eq!(mixed_cpu.scratch, 4);
+        assert_eq!(mixed_gpu.scratch, 4);
+        assert_eq!(mixed_gpu.crossing, 7);
+        let (cpu, no_gpu) = candidate(&weights(), facts, 3, true).unwrap();
+        assert_eq!(cpu.scratch, 4);
+        assert_eq!(no_gpu.total, 0);
+
+        let mut exact = facts;
+        exact.cpu_available = add(all_cpu.total, all_gpu.total).unwrap();
+        exact.gpu_available = exact.cpu_available;
+        assert_eq!(select(&weights(), exact).unwrap().mode, HybridMode::AllGpu);
+        exact.cpu_available -= 1;
+        exact.gpu_available -= 1;
+        assert_ne!(select(&weights(), exact).unwrap().mode, HybridMode::AllGpu);
+
+        let mut cpu_exact = facts;
+        cpu_exact.gpu_enabled = false;
+        cpu_exact.gpu_available = 0;
+        cpu_exact.cpu_available = cpu.total;
+        assert_eq!(
+            select(&weights(), cpu_exact).unwrap().mode,
+            HybridMode::CpuOnly
+        );
+        cpu_exact.cpu_available -= 1;
+        assert!(select(&weights(), cpu_exact).is_err());
     }
 }

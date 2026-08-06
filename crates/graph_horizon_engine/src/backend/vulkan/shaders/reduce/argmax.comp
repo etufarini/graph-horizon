@@ -1,5 +1,7 @@
 #version 450
 
+// AGENTS deroga K: kernel numerico della sola riduzione argmax.
+
 // Argmax over the FP32 logits, single-workgroup reduction. Each thread scans a
 // strided stripe keeping its local (max value, lowest index at that value), then
 // a shared-memory tree-reduction combines them. Tiebreak (identical to

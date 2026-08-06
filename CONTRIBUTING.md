@@ -14,7 +14,7 @@ risk. Every build selects exactly one profile—`cpu`, `vulkan`,
 
 ```sh
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --no-default-features --features cpu
+cargo clippy --workspace --all-targets --no-default-features --features cpu -- -D warnings
 cargo test --workspace --no-default-features --features cpu
 ```
 
@@ -22,10 +22,11 @@ Repeat Clippy and tests for every affected profile. A missing device,
 toolchain, authenticated model, or pinned oracle is `external verification`;
 an assertion, comparison, placement, or lifecycle mismatch is a failure.
 
-Orchestration stays under 200 productive lines. Only a single-operation dense
-numeric kernel may declare `// AGENTS deroga K: <nota>`; only one trait
-definition or one thin delegating `impl Trait` block may declare
-`// AGENTS deroga I: <nota>`.
+Orchestration stays under 200 productive lines. Every category-K file must be a
+single-operation dense numeric kernel and declare exactly one
+`// AGENTS deroga K: <nota>` marker. Every category-I file must contain only one
+trait definition or one thin delegating `impl Trait` block and declare exactly
+one `// AGENTS deroga I: <nota>` marker.
 
 New backends implement the neutral runtime contracts; new model families do not
 add backend-pair modules. Never reduce context, change placement, or retry a

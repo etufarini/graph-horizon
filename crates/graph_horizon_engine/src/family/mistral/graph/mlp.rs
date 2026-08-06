@@ -14,15 +14,6 @@ pub(crate) fn record<B: Backend>(
     enc: &B::Encoder,
     cfg: &MistralConfig,
     layer: &LayerWeights<B::Buffer>,
-) {
-    record_rows(backend, enc, cfg, layer, &backend.buffers().scratch, 1);
-}
-
-pub(crate) fn record_rows<B: Backend>(
-    backend: &B,
-    enc: &B::Encoder,
-    cfg: &MistralConfig,
-    layer: &LayerWeights<B::Buffer>,
     scratch: &Scratch<B::Buffer>,
     rows: u32,
 ) {

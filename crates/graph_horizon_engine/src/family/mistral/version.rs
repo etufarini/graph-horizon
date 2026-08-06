@@ -51,7 +51,7 @@ mod tests {
     fn versioned_contract_has_the_approved_release_rows() {
         assert_eq!(RELEASE, "Ministral 3 Instruct and Reasoning 2512");
         assert_eq!(MAX_CONTEXT, 262_144);
-        assert!(DEFAULT_CONTEXT <= MAX_CONTEXT);
+        const { assert!(DEFAULT_CONTEXT <= MAX_CONTEXT) };
         assert_eq!(
             REFERENCE_ROWS,
             [

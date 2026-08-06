@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — native Metal backend namespace
- * Wires the statically selected Metal implementation on qualified Apple hosts.
- * Resource ownership, execution, memory, and kernels live in focused children.
+ * Wires the statically available Metal implementation on qualified Apple hosts.
+ * Effective placement is immutable backend state for two operation exceptions;
+ * resource ownership, execution, memory, and kernels live in focused children.
  */
 
 #![deny(clippy::undocumented_unsafe_blocks)]
@@ -23,6 +24,7 @@ pub(crate) use mem::buffer::{MetalBuffer, MetalFormat};
 use crate::backend::buffers::Buffers;
 
 pub(crate) struct MetalBackend {
+    mixed_placement: bool,
     pub(crate) device: Device,
     pub(crate) pipelines: pipeline::PipelineRegistry,
     pub(crate) buffers: Buffers<MetalBuffer>,
@@ -33,20 +35,20 @@ pub(crate) struct MetalBackend {
     pub(crate) staging: MetalBuffer,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 pub(crate) fn reset_probe_count() {
     PROBE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 pub(crate) fn probe_count() -> usize {
     PROBE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "metal-hybrid"))]
 fn record_probe() {
     PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }

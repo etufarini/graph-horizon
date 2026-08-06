@@ -19,7 +19,8 @@ outside loopback explicitly exposes the service to the network.
 
 ## Frontend Build
 
-The frontend uses Svelte, Vite, and TypeScript. The installer automatically runs:
+The frontend uses Node.js 22.12 or newer, Svelte, Vite, and TypeScript. The
+installer automatically runs:
 
 ```sh
 cd web/frontend
@@ -30,8 +31,9 @@ npm run build
 With `cargo run`, assets must already exist in `web/frontend/dist`. If
 `index.html` is missing, startup terminates with `web frontend build missing`.
 
-`npm run dev`, `npm run check`, and `npm run build` are available for frontend
-development.
+`npm run dev`, `npm run check`, `npm test`, and `npm run build` are available
+for frontend development. `npm test` runs the display-only Reasoning parser
+suite directly with Node's TypeScript stripping.
 
 ## Routes
 

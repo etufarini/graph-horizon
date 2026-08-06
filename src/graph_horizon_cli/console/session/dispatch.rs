@@ -9,7 +9,6 @@ use super::super::render::{ChatTurn, conversation_characters};
 use super::super::scroll::ViewportState;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
-use crate::graph_horizon_cli::runtime::Throughput;
 use color_eyre::eyre::Result;
 
 // Outcome of dispatching one prompt back to the session loop.
@@ -29,8 +28,7 @@ pub(super) fn dispatch(
     system: &mut Option<String>,
     history: &mut Vec<ChatTurn>,
     committed_characters: &mut Option<usize>,
-    output_tokens: &mut usize,
-    throughput: &mut Throughput,
+    duration: &mut Option<std::time::Duration>,
     prompt: &str,
     files: &FileAuthority,
 ) -> Result<Dispatch> {
@@ -50,13 +48,12 @@ pub(super) fn dispatch(
             history: restored_history,
         }) => {
             // /import replaces the whole conversation: swap the system prompt and
-            // history, then reset the per-turn token and throughput readouts that
-            // no longer describe the restored state.
+            // history, then clear the prior generation duration because it no
+            // longer describes the restored session.
             *system = restored_system;
             *history = restored_history;
             *committed_characters = conversation_characters(system.as_deref(), history);
-            *output_tokens = 0;
-            *throughput = Throughput::default();
+            *duration = None;
             viewport.manual_scroll = None;
             bump(content_revision);
             return Ok(Dispatch::Handled);

@@ -14,13 +14,11 @@ mod context;
 pub(crate) mod local;
 mod message;
 mod sse;
-mod tokens;
 
 pub(crate) use client::stream_completion as generation_stream;
 pub(crate) use config::ClientConfig;
-pub(crate) use context::{CapacityError, ContextBudget};
+pub(crate) use context::{CapacityError, ContextBudget, ContextUsage};
 pub(crate) use message::ChatMessage;
-pub(crate) use tokens::{Throughput, estimate_tokens, rate};
 
 // A single assistant text chunk.
 pub(crate) struct Chunk {

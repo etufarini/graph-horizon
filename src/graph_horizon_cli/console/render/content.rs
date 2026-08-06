@@ -1,12 +1,13 @@
 /*
  * Graph Horizon CLI Modules - Console - Render - Content
- * Single responsibility: describe one text-chat frame for line building and
- * drawing. It carries input/output state only and does not model shell
- * confirmations, tools, workspace, or separate reasoning views.
+ * Single responsibility: describe one text-chat frame plus its current
+ * capacity and monotonic-duration presentation state.
  */
 
-use super::{ChatTurn, TokenStatus};
-use crate::graph_horizon_cli::runtime::Throughput;
+use std::time::Duration;
+
+use super::ChatTurn;
+use crate::graph_horizon_cli::runtime::{CapacityError, ContextUsage};
 
 // Snapshot of content to be rendered in a single frame.
 pub(crate) struct RenderContent<'a> {
@@ -20,21 +21,9 @@ pub(crate) struct RenderContent<'a> {
     pub(crate) suggestion_scroll: usize,
     pub(crate) resp: &'a str,
     pub(super) loading: bool,
-    // Drives the token indicator: the "pruning off" label and the grey/orange
-    // count, computed once per turn by the session (see TokenStatus).
-    pub(super) status: TokenStatus,
-    // Pre-computed by the session once per turn; the count is frozen between
-    // turns, so passing it in avoids recomputing it on every rendered frame.
-    pub(super) token_count: usize,
-    // Token/s rates shown left of the count: updated live by the streaming phase
-    // and frozen by the session between turns, plumbed exactly like token_count.
-    pub(super) throughput: Throughput,
-    // Per-turn output-token estimate shown right of the speed. It is recomputed
-    // from accumulated assistant text while streaming and frozen between turns.
-    pub(super) output_tokens: usize,
-    // Raw context window, constant for the whole run. Drives the bottom-left
-    // pruning reference; None (no limit) leaves the left side empty.
-    pub(super) context_limit: Option<usize>,
+    pub(super) usage: ContextUsage,
+    pub(super) duration: Option<Duration>,
+    pub(super) capacity_error: Option<CapacityError>,
 }
 
 impl<'a> RenderContent<'a> {
@@ -47,11 +36,9 @@ impl<'a> RenderContent<'a> {
         caret: usize,
         suggestions: &'a [String],
         suggestion_scroll: usize,
-        status: TokenStatus,
-        token_count: usize,
-        throughput: Throughput,
-        output_tokens: usize,
-        context_limit: Option<usize>,
+        usage: ContextUsage,
+        duration: Option<Duration>,
+        capacity_error: Option<CapacityError>,
     ) -> Self {
         Self {
             history,
@@ -62,25 +49,19 @@ impl<'a> RenderContent<'a> {
             suggestion_scroll,
             resp: "",
             loading: false,
-            status,
-            token_count,
-            throughput,
-            output_tokens,
-            context_limit,
+            usage,
+            duration,
+            capacity_error,
         }
     }
 
     // Constructs a content snapshot for the streaming/output phase.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn output(
         history: &'a [ChatTurn],
         prompt: &'a str,
         resp: &'a str,
-        status: TokenStatus,
-        token_count: usize,
-        throughput: Throughput,
-        output_tokens: usize,
-        context_limit: Option<usize>,
+        usage: ContextUsage,
+        duration: Duration,
     ) -> Self {
         Self {
             history,
@@ -91,11 +72,9 @@ impl<'a> RenderContent<'a> {
             suggestion_scroll: 0,
             resp,
             loading: resp.is_empty(),
-            status,
-            token_count,
-            throughput,
-            output_tokens,
-            context_limit,
+            usage,
+            duration: Some(duration),
+            capacity_error: None,
         }
     }
 

@@ -15,4 +15,4 @@ pub(crate) use cache::RenderCache;
 pub(crate) use content::RenderContent;
 pub(crate) use conversation::{ChatTurn, SUGGESTION_THRESHOLD, conversation_characters};
 pub(crate) use draw::draw_viewport;
-pub(crate) use status::{SectionStyle, TokenStatus, format_span};
+pub(crate) use status::{SectionStyle, format_span};

@@ -7,7 +7,7 @@
 use serde::Serialize;
 
 #[derive(Serialize)]
-pub(super) struct Properties {
+pub(crate) struct Properties {
     default_generation_settings: GenerationSettings,
 }
 
@@ -16,7 +16,7 @@ struct GenerationSettings {
     n_ctx: u32,
 }
 
-pub(super) fn payload(context_limit: u32) -> Properties {
+pub(crate) fn payload(context_limit: u32) -> Properties {
     Properties {
         default_generation_settings: GenerationSettings {
             n_ctx: context_limit,

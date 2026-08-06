@@ -1,7 +1,7 @@
 /*
  * Graph Horizon headless server handler
- * Receives raw hyper requests and routes them to the chat pipeline.
- * It owns the shared response body type and delegates validation/inference work.
+ * Receives raw Hyper requests, routes chat and exact `/props` requests, and
+ * builds the fixed properties response without entering chat admission.
  */
 
 use std::convert::Infallible;
@@ -9,9 +9,9 @@ use std::convert::Infallible;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
-use hyper::{Method, Request, Response, StatusCode};
+use hyper::{Method, Request, Response, StatusCode, header};
 
-use super::ServerState;
+use super::{ServerState, api};
 use error::error_response;
 
 mod body;
@@ -21,6 +21,7 @@ mod pipeline;
 #[derive(Debug, PartialEq, Eq)]
 enum Route {
     ChatCompletions,
+    Properties,
     MethodNotAllowed,
     NotFound,
 }
@@ -40,6 +41,8 @@ pub(crate) async fn handle(
         // The real chat path: body cap → parse → validate → admission → lock →
         // streaming SSE generation.
         Route::ChatCompletions => chat_completions(req, state).await,
+        // Properties are immutable engine data and never consume chat permits.
+        Route::Properties => properties_response(state.chat.context_limit()),
         // Known paths, wrong method.
         Route::MethodNotAllowed => error_response(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -58,6 +61,8 @@ fn route(method: &Method, path: &str) -> Route {
     match (method, path) {
         (&Method::POST, "/v1/chat/completions") => Route::ChatCompletions,
         (_, "/v1/chat/completions") => Route::MethodNotAllowed,
+        (&Method::GET, "/props") => Route::Properties,
+        (_, "/props") => Route::MethodNotAllowed,
         _ => Route::NotFound,
     }
 }
@@ -67,6 +72,16 @@ pub(crate) async fn chat_completions(
     state: ServerState,
 ) -> Response<ResponseBody> {
     pipeline::chat_completions(req, state).await
+}
+
+pub(crate) fn properties_response(context_limit: u32) -> Response<ResponseBody> {
+    let bytes =
+        serde_json::to_vec(&api::props::payload(context_limit)).unwrap_or_else(|_| b"{}".to_vec());
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(full(bytes))
+        .expect("a response from static headers and a valid body is always valid")
 }
 
 // Wraps fixed bytes into the unified boxed body. Full is infallible, so its
@@ -80,6 +95,7 @@ fn full(bytes: impl Into<Bytes>) -> ResponseBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt;
 
     #[test]
     fn removed_embeddings_route_is_standard_not_found() {
@@ -96,6 +112,31 @@ mod tests {
         assert_eq!(
             route(&Method::GET, "/v1/chat/completions"),
             Route::MethodNotAllowed
+        );
+    }
+
+    #[test]
+    fn props_route_is_get_only() {
+        assert_eq!(route(&Method::GET, "/props"), Route::Properties);
+        assert_eq!(route(&Method::POST, "/props"), Route::MethodNotAllowed);
+        assert_eq!(route(&Method::GET, "/props/"), Route::NotFound);
+    }
+
+    #[tokio::test]
+    async fn props_response_preserves_resolved_context() {
+        let response = properties_response(u32::MAX);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "application/json"
+        );
+
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap(),
+            serde_json::json!({
+                "default_generation_settings": { "n_ctx": u32::MAX }
+            })
         );
     }
 }

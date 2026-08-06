@@ -425,6 +425,101 @@ mod tests {
     }
 
     #[test]
+    fn segmented_attention_matches_serial_for_both_kv_schemes() -> Result<()> {
+        const CONTEXT: usize = 512;
+        const DIM: usize = 128;
+
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let keys: Vec<f32> = (0..CONTEXT * DIM)
+            .map(|index| ((index * 17 % 31) as f32 - 15.0) / 32.0)
+            .collect();
+        let values: Vec<f32> = (0..CONTEXT * DIM)
+            .map(|index| ((index * 11 % 29) as f32 - 14.0) / 24.0)
+            .collect();
+        let query: Vec<f32> = (0..DIM)
+            .map(|index| ((index * 7 % 19) as f32 - 9.0) / 16.0)
+            .collect();
+        let key_input = buffer(&device, &keys, MetalFormat::F16)?;
+        let value_input = buffer(&device, &values, MetalFormat::F16)?;
+        let query = buffer(&device, &query, MetalFormat::F16)?;
+
+        for &scheme in KvQuant::ALL {
+            let kv = Kv {
+                k: MetalBuffer::allocate(
+                    &device,
+                    layout::buffer_bytes(scheme, KvRole::Key, 1, CONTEXT, 1, DIM),
+                    MetalFormat::Raw,
+                )?,
+                v: MetalBuffer::allocate(
+                    &device,
+                    layout::buffer_bytes(scheme, KvRole::Value, 1, CONTEXT, 1, DIM),
+                    MetalFormat::Raw,
+                )?,
+                scheme,
+                block_count: 1,
+                context: CONTEXT,
+                kv_heads: 1,
+                head_dim: DIM,
+                value_dim: DIM,
+            };
+            let segmented = MetalBuffer::allocate(&device, (DIM * 2) as u64, MetalFormat::F16)?;
+            let serial = MetalBuffer::allocate(&device, (DIM * 2) as u64, MetalFormat::F16)?;
+            let encoder = MetalEncoder::begin(&device)?;
+            kv_write::encode(
+                &encoder,
+                &pipelines,
+                &kv,
+                &key_input,
+                &value_input,
+                0,
+                0,
+                kv.meta_base_for(KvRole::Key),
+                kv.meta_base_for(KvRole::Value),
+                CONTEXT as u32,
+            )?;
+            attention::encode(
+                &encoder,
+                &pipelines,
+                &segmented,
+                &query,
+                &kv,
+                1,
+                (CONTEXT - 1) as u32,
+                1,
+                0,
+                false,
+            )?;
+            attention::encode(
+                &encoder,
+                &pipelines,
+                &serial,
+                &query,
+                &kv,
+                1,
+                (CONTEXT - 1) as u32,
+                1,
+                0,
+                true,
+            )?;
+            encoder.submit()?;
+
+            for (index, (got, want)) in halfs(&segmented, DIM)?
+                .into_iter()
+                .zip(halfs(&serial, DIM)?)
+                .enumerate()
+            {
+                assert!(got.is_finite());
+                assert!(
+                    (got - want).abs() <= 0.02,
+                    "{scheme:?} value {index}: got {got}, want {want}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn elementwise_rope_and_int8_zero_vector_edges_are_finite() -> Result<()> {
         use crate::backend::rope::{RopeRole, Yarn};
 

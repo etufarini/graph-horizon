@@ -30,8 +30,14 @@ pub(crate) fn encode(
         other => return Err(eyre!("metal: unsupported weight format '{other:?}'")),
     };
     let threads = if matches!(format, 1 | 3) {
+        // The paired-row kernel's lane partition and reductions require one
+        // complete 32-lane Apple SIMD-group per output pair.
+        if p.get(Kernel::Matmul).width != 32 {
+            return Err(eyre!("metal: quantized projection requires 32 threads"));
+        }
         (output as usize)
-            .checked_mul(4)
+            .div_ceil(2)
+            .checked_mul(32)
             .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?
     } else {
         output as usize

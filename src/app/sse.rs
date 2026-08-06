@@ -154,4 +154,46 @@ mod tests {
     fn done_line_is_exact() {
         assert_eq!(done_line(), "data: [DONE]\n\n");
     }
+
+    #[test]
+    fn server_final_line_carries_stop() {
+        let line = final_line();
+        let json: serde_json::Value =
+            serde_json::from_str(line.trim_start_matches("data: ").trim_end()).unwrap();
+        assert_eq!(json["choices"][0]["finish_reason"], "stop");
+    }
+
+    #[test]
+    fn server_done_line_is_exact() {
+        assert_eq!(done_line(), "data: [DONE]\n\n");
+    }
+
+    #[test]
+    fn server_usage_line_carries_exact_stats() {
+        let line = usage_line(&GenerationStats {
+            prompt_tokens: 128,
+            completion_tokens: 42,
+            prefill_ms: 400,
+            decode_ms: 875,
+        });
+        assert!(line.starts_with("data: "));
+        assert!(line.ends_with("\n\n"));
+        let json: serde_json::Value =
+            serde_json::from_str(line.trim_start_matches("data: ").trim_end()).unwrap();
+        assert_eq!(json["usage"]["prompt_tokens"], 128);
+        assert_eq!(json["usage"]["completion_tokens"], 42);
+        assert_eq!(json["usage"]["prefill_ms"], 400);
+        assert_eq!(json["usage"]["decode_ms"], 875);
+        assert_eq!(json["usage"].as_object().unwrap().len(), 4);
+        assert!(json["choices"][0]["finish_reason"].is_null());
+    }
+
+    #[test]
+    fn server_delta_and_final_lines_have_no_usage_key() {
+        let delta = delta_line(Delta {
+            content: Some("ciao".to_string()),
+        });
+        assert!(!delta.contains("\"usage\""));
+        assert!(!final_line().contains("\"usage\""));
+    }
 }

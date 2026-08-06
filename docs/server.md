@@ -5,9 +5,9 @@ contract, concurrency and security boundaries. It is model-family neutral.
 
 # Server Mode
 
-`--mode server` loads a supported model into the local engine and exposes one
-text-only, OpenAI-compatible endpoint. It does not forward requests to external
-providers.
+`--mode server` loads a supported model into the local engine and exposes a
+text-only OpenAI-compatible chat endpoint plus read-only context properties. It
+does not forward requests to external providers.
 
 ```sh
 graph-horizon --mode server --model /path/to/model.gguf \
@@ -26,7 +26,24 @@ allocation errors therefore surface before the first request.
 Concrete model support is defined in the
 [crate README](../crates/graph_horizon_engine/README.md).
 
-## Route
+## Routes
+
+### `GET /props`
+
+This observational route returns only the engine-resolved positive context:
+
+```json
+{
+  "default_generation_settings": {
+    "n_ctx": 32768
+  }
+}
+```
+
+The public field is `default_generation_settings.n_ctx`. The response contains
+no model path, GGUF metadata, backend, memory, generation statistic, or internal
+error. It does not read a request body, acquire a chat permit or lock, allocate
+inference buffers, or start generation.
 
 ### `POST /v1/chat/completions`
 
@@ -45,21 +62,28 @@ When `max_tokens` is absent, the server uses `--max-tokens`, whose server defaul
 is `1024`. A positive value in the request is retained even when it exceeds that
 default: the flag is not a global ceiling.
 
-Every other route receives `404`; a different method on
-`/v1/chat/completions` receives `405`. The server does not expose `/props`.
+A different method on either exact public route receives the existing
+client-safe `405` JSON error. `/props/` and every other unknown route receive
+`404`; no prefix or trailing-slash normalization is applied.
+
+The server does not add a capacity preflight to chat requests from external API
+clients. CLI and Web admission are client-side; the engine remains the final
+validation boundary for direct calls.
 
 ## SSE Streaming
 
 A successful response uses `Content-Type: text/event-stream` and produces:
 
 1. zero or more `chat.completion.chunk` frames with `delta.content`;
-2. a `usage` frame with token counts and prefill/decode timings;
+2. a `usage` frame with numeric `prompt_tokens`, `completion_tokens`,
+   `prefill_ms`, and `decode_ms`;
 3. a frame with `finish_reason: "stop"`;
 4. `data: [DONE]`.
 
 There is no `delta.reasoning_content`. If the engine fails after opening the
 stream, the server sends a generic error and `[DONE]`, without usage or internal
-details.
+details. The CLI and browser measure total client-perceived duration
+independently; removing rate presentation does not change these SSE fields.
 
 ## Concurrency And Cancellation
 

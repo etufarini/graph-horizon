@@ -1,11 +1,11 @@
 /*
  * Chat state.
- * Single responsibility: own transcript, draft submission lifecycle, stop,
- * import/export application, system prompt, and generation stats. It depends on
- * the text-only client/transfer modules and exposes no tools or reasoning state.
+ * Single responsibility: own transcript mutations and reject exact outgoing
+ * messages by capacity before creating a turn, controller, or chat transport.
  */
 import { get, writable } from 'svelte/store';
 import { streamAssistant } from './client';
+import { admitMessages } from './context';
 import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
 import { parseChatFile } from './transfer';
 import type {
@@ -35,11 +35,19 @@ function nextId(role: string): string {
   return `${role}-${Date.now()}-${random}`;
 }
 
-function wireMessages(messages: ChatMessage[], systemPrompt: string): WireMessage[] {
+export function wireMessages(
+  messages: ChatMessage[],
+  systemPrompt: string,
+  draft = ''
+): WireMessage[] {
   const wire: WireMessage[] = messages.map(message => ({
     role: message.role,
     content: message.content
   }));
+  const trimmedDraft = draft.trim();
+  if (trimmedDraft) {
+    wire.push({ role: 'user', content: trimmedDraft });
+  }
   const trimmed = systemPrompt.trim();
   if (trimmed) {
     wire.unshift({ role: 'system', content: trimmed });
@@ -58,6 +66,17 @@ function createChatState() {
       return;
     }
 
+    const wire = wireMessages(current.messages, current.systemPrompt, prompt);
+    const admission = admitMessages(wire, context);
+    if (!admission.ok) {
+      store.set({
+        ...current,
+        status: 'error',
+        error: `Contesto insufficiente: ~${admission.estimatedTokens} token + ${admission.maxTokens} riservati superano il budget sicuro di ${admission.safeTotalBudget} token`
+      });
+      return;
+    }
+
     const user: ChatMessage = { id: nextId('user'), role: 'user', content: prompt };
     const assistant: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
     const outgoing = [...current.messages, user];
@@ -73,7 +92,7 @@ function createChatState() {
     const request = controller;
     try {
       await streamAssistant(
-        wireMessages(outgoing, current.systemPrompt),
+        wire,
         context.maxTokens,
         appendAssistant,
         setStats,

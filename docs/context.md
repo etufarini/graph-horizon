@@ -5,23 +5,18 @@ contract. Console and Web pages own presentation details and link back here.
 
 # Context Capacity And Admission
 
-Graph Horizon preserves every message supplied to a request. It never removes,
-truncates, summarizes, compresses, splits, or rewrites conversation history to
-make a request fit. A client either sends the complete assembled request or
-rejects it before local generation or HTTP transport.
-
-The estimate is deliberately dependency-free and approximate. It is not a
-tokenizer and does not replace the engine or provider's exact validation.
+Graph Horizon preserves every message supplied to a request: it never removes,
+truncates, summarizes, compresses, splits, or rewrites history to make it fit.
+A client sends the complete request or rejects it before generation or HTTP
+transport. The dependency-free estimate is approximate, not a tokenizer or a
+replacement for engine and provider validation.
 
 ## Canonical Arithmetic
 
-The values are:
-
-- `context_limit`: the positive effective model window in tokens;
-- `max_tokens`: the reserved response capacity;
-- `estimated_messages`: the estimated occupancy of messages only;
-- `safe_total_budget`: the context window after the 10% safety margin;
-- `required_budget`: message occupancy plus the response reserve.
+`context_limit` is the positive effective model window; `max_tokens` is the
+response reserve; `estimated_messages` is message occupancy;
+`safe_total_budget` is the window after the 10% margin; and `required_budget`
+is occupancy plus reserve.
 
 Both clients use exactly these formulas:
 
@@ -33,62 +28,49 @@ required_budget = estimated_messages + max_tokens
 admitted = required_budget <= safe_total_budget
 ```
 
-Characters are summed before the single division. Rust counts Unicode scalar
-values with `chars()`; JavaScript iterates strings by Unicode code point rather
-than UTF-16 code unit. All additions, percentage calculations, and budget
-calculations are checked. An overflow is rejected as out of budget.
-
-The equality boundary is admitted. `max_tokens` participates in admission but
-is not included in the displayed occupancy.
+Characters are summed before the single division. Rust uses `chars()` and
+JavaScript iterates by Unicode code point, not UTF-16 code unit. Arithmetic is
+checked; overflow is rejected as out of budget. Equality is admitted.
+`max_tokens` participates in admission but not displayed occupancy.
 
 ## Included Messages
 
 The estimate covers the exact content a surface would send:
 
-- the trimmed Web system prompt or the configured CLI system prompt;
-- every committed raw user and assistant message, including raw Reasoning
-  markers in assistant content;
-- the current trimmed Web draft while idle;
-- the current raw CLI draft while editing;
-- the attachment-expanded CLI prompt after submission and before admission;
-- the submitted user message and partial raw assistant response while streaming.
+- the Web's trimmed or CLI's configured system prompt;
+- every committed raw user and assistant message, including Reasoning markers;
+- the trimmed Web or raw CLI draft while idle;
+- the attachment-expanded CLI prompt between submission and admission;
+- the submitted user and partial raw assistant messages while streaming.
 
-Failed CLI turns and rolled-back Web transport errors have no model messages and
-remain outside occupancy. A stopped Web partial pair remains in browser history
-and therefore stays included. An imported oversized conversation is retained;
-only its next attempted submission is rejected.
+Failed CLI turns and rolled-back Web transport errors remain outside occupancy.
+A stopped Web partial pair remains in history and stays included. Imported
+oversized history is retained; only its next submission is rejected.
 
-CLI attachment expansion affects the submitted request estimate. A rejection
-restores the original typed spelling, and a successful turn commits that raw
-spelling rather than embedded file contents.
+CLI attachments affect the submitted estimate. Rejection restores the original
+spelling; success commits that spelling rather than embedded file contents.
 
 ## Context Discovery And Reserves
 
-An explicit positive `--context-tokens` always wins. The local CLI otherwise
-uses the loaded engine's resolved context. The HTTP CLI and bundled Web UI read
-`GET /props`, whose public value is
+An explicit positive `--context-tokens` wins. Otherwise the local CLI uses the
+engine's resolved context, while HTTP CLI and Web read `GET /props` at
 `default_generation_settings.n_ctx`.
 
-The CLI reserve is its configured `--max-tokens`. The bundled Web UI always
-uses 1024 tokens for both admission and the request body.
+The CLI reserve is configured `--max-tokens`; Web always uses 1024 for both
+admission and the request body.
 
-The HTTP CLI exits before terminal initialization when context discovery is
-unavailable, unless an explicit override was supplied. The Web composer remains
-disabled and shows `Configurazione del contesto non disponibile`. When the
-reserve leaves no prompt capacity, both surfaces report
-`max_tokens non lascia spazio al prompt`.
+Without an override, HTTP CLI discovery failure exits before terminal setup.
+Web disables its composer and shows `Configurazione del contesto non disponibile`.
+With no prompt capacity, both report `max_tokens non lascia spazio al prompt`.
 
-An out-of-budget rejection reports estimated message tokens, reserved response
-tokens, and the safe budget. It preserves CLI input, Web draft, conversation
-state, and the previous successful generation duration because no generation
-started.
+An admission rejection reports estimate, reserve, and safe budget. It preserves
+CLI input, Web draft, conversation, and the previous successful duration.
 
 ## Presentation Edge Cases
 
-Empty message occupancy is zero. The CLI displays occupied and limit counts but
-no percentage or progress bar. The Web UI displays
-`ceil(estimated_messages * 100 / context_limit)` as text: it may exceed 100%,
-while the accessible graphical value and fill remain clamped to 100.
+Empty occupancy is zero. CLI shows counts without a percentage or bar. Web text
+uses `ceil(estimated_messages * 100 / context_limit)` and may exceed 100%; its
+accessible graphical value and fill are clamped to 100.
 
 See [console.md](console.md) for the terminal label and [web.md](web.md) for the
 browser bar, colors, and timing presentation.

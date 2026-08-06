@@ -23,6 +23,7 @@ belong in the [validation register](../VALIDATION.md).
 | [backend.md](backend.md) | CPU, Vulkan, Metal, hybrid placement, and KV cache |
 | [server.md](server.md) | Text-only HTTP server and SSE protocol |
 | [web.md](web.md) | Local web UI, assets, and available routes |
+| [context.md](context.md) | Shared context estimate, capacity admission, and preservation rules |
 
 ## Console
 
@@ -30,7 +31,6 @@ belong in the [validation register](../VALIDATION.md).
 |---|---|
 | [console.md](console.md) | TUI session, keyboard controls, rendering, and status bar |
 | [commands.md](commands.md) | Slash commands, transcripts, and local attachments |
-| [pruning.md](pruning.md) | Context estimation and removal of the oldest turns |
 
 ## Development And Validation
 

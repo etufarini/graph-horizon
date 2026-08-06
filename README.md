@@ -93,8 +93,9 @@ graph-horizon --mode server --model "/path/to/model.gguf" \
   --host 127.0.0.1 --port 8080
 ```
 
-It exposes only `POST /v1/chat/completions`; this local server does not implement
-the external-provider `/props` discovery route.
+It exposes `POST /v1/chat/completions` and read-only `GET /props` context
+discovery. Direct API clients keep the existing chat contract; capacity
+preflight belongs to the included CLI and Web clients.
 
 ### Web UI
 
@@ -113,6 +114,21 @@ Without `--provider local`, the console uses an HTTP provider:
 graph-horizon --base-url "http://127.0.0.1:8080/v1"
 ```
 
+The integrated server is discovered automatically through `/props`. For an
+external provider that does not expose that route, supply its known positive
+window explicitly:
+
+```sh
+graph-horizon --base-url "https://provider.example/v1" --context-tokens 32768
+```
+
+Requests preserve every message and are rejected locally when complete history
+plus the response reserve exceeds the safe capacity. The CLI status is compact,
+for example `ctx ~5.2k/32.8k tok gen 12.4s`, with no percentage or progress bar.
+The Web UI shows an accessible `Contesto 63%` bar and `Generazione 12.4s`.
+See the [context capacity contract](docs/context.md) for exact admission and
+prompt-preservation behavior.
+
 ## Runtime configuration
 
 Runtime configuration uses flags only. Run `graph-horizon --help` for the
@@ -124,7 +140,7 @@ complete list accepted by the program.
 | `--model <path>` | none | GGUF for the local console, server, and Web UI |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Console HTTP provider |
 | `--context-tokens <n>` | local `min(32,768, GGUF maximum)` | Sets an exact explicit context |
-| `--max-tokens <n>` | CLI `2048`, server/web `1024` | CLI limit; server default when the request omits `max_tokens` |
+| `--max-tokens <n>` | CLI `2048`, server/web `1024` | CLI reserve; server default when a request omits it; bundled Web stays fixed at 1024 |
 | `--system-prompt <text>` | none | Console system prompt |
 | `--kv-quant <f16\|int8>` | `f16` | KV-cache format |
 | `--cpu-threads <n>` | automatic | Sets CPU workers |

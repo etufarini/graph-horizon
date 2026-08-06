@@ -24,7 +24,7 @@ impl WebConfig {
             // Keep the raw port string so invalid values fail at bind time.
             port: args::value("--port").unwrap_or_else(|| "8080".to_string()),
             asset_root: PathBuf::from("web/frontend/dist"),
-            max_tokens: crate::app::engine::config::max_tokens_from_args(4096),
+            max_tokens: crate::app::engine::config::max_tokens_from_args(1024),
         }
     }
 }

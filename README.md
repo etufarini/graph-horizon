@@ -140,7 +140,7 @@ complete list accepted by the program.
 | `--model <path>` | none | GGUF for the local console, server, and Web UI |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Console HTTP provider |
 | `--context-tokens <n>` | local `min(32,768, GGUF maximum)` | Sets an exact explicit context |
-| `--max-tokens <n>` | CLI `2048`, server `1024`, Web `4096` | Response limit; Web uses the configured value for admission and generation |
+| `--max-tokens <n>` | CLI `2048`, server `1024`, Web `1024` | Response limit; Web uses the configured value for admission and generation |
 | `--system-prompt <text>` | none | Console system prompt |
 | `--kv-quant <f16\|int8>` | `f16` | KV-cache format |
 | `--cpu-threads <n>` | automatic | Sets CPU workers |

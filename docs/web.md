@@ -60,7 +60,7 @@ Every request uses `fetch` with:
 ```json
 {
   "messages": [],
-  "max_tokens": 4096,
+  "max_tokens": 1024,
   "stream": true
 }
 ```
@@ -79,7 +79,7 @@ remain protocol errors. The stop button aborts the fetch and retains the active
 pair, including partial raw text, to preserve alternating history.
 
 `--provider` is ignored. `--context-tokens`, KV, threads, and placement configure
-the local engine. Web `max_tokens` defaults to `4096`; `/props` propagates an
+the local engine. Web `max_tokens` defaults to `1024`; `/props` propagates an
 explicit `--max-tokens` to both browser admission and every request body.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 qualified temperature `0.7` policy.

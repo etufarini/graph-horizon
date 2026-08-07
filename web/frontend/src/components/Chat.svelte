@@ -78,9 +78,6 @@
 
   <SessionActions
     importDisabled={streaming}
-    confirmBeforeImport={messages.length > 0}
-    hasMessages={messages.length > 0}
-    on:reset={() => chat.newChat()}
     on:export={() => downloadChatFile(serializeChat(messages, $chat.systemPrompt))}
     on:import={event => chat.importChat(event.detail)}
   />

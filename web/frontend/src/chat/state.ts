@@ -7,14 +7,16 @@ import { get, writable } from 'svelte/store';
 import { streamAssistant } from './client';
 import { admitMessages } from './context';
 import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
+import {
+  appendAssistant as appendAssistantContent,
+  hydrateTranscript,
+  removeTrailingTurn,
+  wireMessages
+} from './transcript';
 import { parseChatFile } from './transfer';
-import type {
-  ChatMessage,
-  ChatSnapshot,
-  RuntimeContext,
-  StreamDelta,
-  WireMessage
-} from './types';
+import type { ChatSnapshot, RuntimeContext, StreamDelta } from './types';
+
+export { wireMessages } from './transcript';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
@@ -28,31 +30,6 @@ function emptySnapshot(): ChatSnapshot {
     generationStartedAt: null,
     generationMs: null
   };
-}
-
-function nextId(role: string): string {
-  const random = crypto.randomUUID?.() ?? Math.random().toString(16).slice(2);
-  return `${role}-${Date.now()}-${random}`;
-}
-
-export function wireMessages(
-  messages: ChatMessage[],
-  systemPrompt: string,
-  draft = ''
-): WireMessage[] {
-  const wire: WireMessage[] = messages.map(message => ({
-    role: message.role,
-    content: message.content
-  }));
-  const trimmedDraft = draft.trim();
-  if (trimmedDraft) {
-    wire.push({ role: 'user', content: trimmedDraft });
-  }
-  const trimmed = systemPrompt.trim();
-  if (trimmed) {
-    wire.unshift({ role: 'system', content: trimmed });
-  }
-  return wire;
 }
 
 function createChatState() {
@@ -77,8 +54,10 @@ function createChatState() {
       return;
     }
 
-    const user: ChatMessage = { id: nextId('user'), role: 'user', content: prompt };
-    const assistant: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
+    const [user, assistant] = hydrateTranscript([
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '' }
+    ]);
     const outgoing = [...current.messages, user];
     controller = new AbortController();
     const request = controller;
@@ -121,7 +100,10 @@ function createChatState() {
           generationMs: null
         }));
       } else {
-        removeTrailingTurn(user.id, assistant.id);
+        store.update(snapshot => ({
+          ...snapshot,
+          messages: removeTrailingTurn(snapshot.messages, user.id, assistant.id)
+        }));
         const message = error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED;
         store.update(snapshot => ({
           ...snapshot,
@@ -155,11 +137,7 @@ function createChatState() {
       store.update(snapshot => ({ ...snapshot, status: 'error', error: message }));
       return;
     }
-    const messages: ChatMessage[] = result.payload.messages.map(message => ({
-      id: nextId(message.role),
-      role: message.role,
-      content: message.content
-    }));
+    const messages = hydrateTranscript(result.payload.messages);
     store.update(snapshot => ({
       ...snapshot,
       messages,
@@ -172,35 +150,10 @@ function createChatState() {
     saveSystemPrompt(result.payload.systemPrompt);
   }
 
-  function removeTrailingTurn(userId: string, assistantId: string): void {
-    store.update(snapshot => {
-      const user = snapshot.messages[snapshot.messages.length - 2];
-      const assistant = snapshot.messages[snapshot.messages.length - 1];
-      if (
-        !user ||
-        user.role !== 'user' ||
-        user.id !== userId ||
-        !assistant ||
-        assistant.role !== 'assistant' ||
-        assistant.id !== assistantId
-      ) {
-        return snapshot;
-      }
-      // Roll back only the in-flight pair; completed history is immutable here.
-      return { ...snapshot, messages: snapshot.messages.slice(0, -2) };
-    });
-  }
-
   function appendAssistant(delta: StreamDelta): void {
     store.update(snapshot => ({
       ...snapshot,
-      messages: snapshot.messages.map((message, index) => {
-        const isLast = index === snapshot.messages.length - 1;
-        if (!isLast || message.role !== 'assistant') {
-          return message;
-        }
-        return { ...message, content: message.content + delta.content };
-      })
+      messages: appendAssistantContent(snapshot.messages, delta.content)
     }));
   }
 

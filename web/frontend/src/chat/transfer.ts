@@ -1,14 +1,13 @@
 /*
- * Chat transfer format.
- * Single responsibility: serialize and validate imported/exported text-chat
- * transcripts. It is pure data code and rejects unsupported or incomplete turn
- * sequences before state replacement.
+ * Versioned chat-file transfer: owns pretty JSON and system-prompt schema while
+ * delegating the shared complete-turn invariant to the pure transcript module.
  */
-import type { ChatMessage } from './types';
+import { validateTranscript } from './transcript.ts';
+import type { ChatMessage, TranscriptMessage } from './types';
 
 export interface ChatTransferPayload {
   systemPrompt: string;
-  messages: { role: 'user' | 'assistant'; content: string }[];
+  messages: TranscriptMessage[];
 }
 
 export type ChatParseError = 'invalid-json' | 'invalid-format';
@@ -41,33 +40,10 @@ export function parseChatFile(text: string): ChatParseResult {
     return { ok: false, error: 'invalid-format' };
   }
   const file = root as Record<string, unknown>;
-  if (file.version !== 1 || typeof file.systemPrompt !== 'string' || !Array.isArray(file.messages)) {
+  if (file.version !== 1 || typeof file.systemPrompt !== 'string') {
     return { ok: false, error: 'invalid-format' };
   }
-
-  const messages: ChatTransferPayload['messages'] = [];
-  for (const entry of file.messages) {
-    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-      return { ok: false, error: 'invalid-format' };
-    }
-    const message = entry as Record<string, unknown>;
-    if (message.role !== 'user' && message.role !== 'assistant') {
-      return { ok: false, error: 'invalid-format' };
-    }
-    // Imported history must remain valid for the next request: complete turns
-    // start with the user and alternate strictly through the assistant reply.
-    const expectedRole = messages.length % 2 === 0 ? 'user' : 'assistant';
-    if (message.role !== expectedRole) {
-      return { ok: false, error: 'invalid-format' };
-    }
-    if (typeof message.content !== 'string') {
-      return { ok: false, error: 'invalid-format' };
-    }
-    messages.push({ role: message.role, content: message.content });
-  }
-  if (messages.length % 2 !== 0) {
-    return { ok: false, error: 'invalid-format' };
-  }
-
+  const messages = validateTranscript(file.messages);
+  if (messages === null) return { ok: false, error: 'invalid-format' };
   return { ok: true, payload: { systemPrompt: file.systemPrompt, messages } };
 }

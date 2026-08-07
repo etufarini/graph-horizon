@@ -16,6 +16,19 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   for(uint t=0;t<=pos;t++){uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;for(uint d=0;d<p.dim;d++)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;for(uint d=0;d<p.dim;d++)acc[d]=acc[d]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));m=nm;}
   for(uint d=0;d<p.dim;d++)out[qb+d]=half(acc[d]/l);return;
  }
+ if(p.mode==4){
+  // Four query rows and the four GQA heads sharing one KV head reuse each
+  // K/V tile. Every thread participates in both barriers before tile reuse.
+  threadgroup half tk[32*128],tv[32*128];uint local=group*32+lane,row0=(id/p.kvh)*4,kh=id%p.kvh,row=row0+group,h=kh*4+(lane>>3),sub=lane&7,pos=p.base+row,qb=(row*p.qh+h)*128;float m=-INFINITY,l=0.0f,acc[16];
+  for(uint part=0;part<16;part++)acc[part]=0.0f;
+  for(uint tile=0;tile<=p.base+row0+3;tile+=32){
+   for(uint index=local;index<32*128;index+=128){uint t=tile+index/128,d=index%128;if(t<p.context){uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*128+d;tk[index]=((device const half*)k)[b];tv[index]=((device const half*)v)[b];}else{tk[index]=half(0.0h);tv[index]=half(0.0h);}}
+   threadgroup_barrier(mem_flags::mem_threadgroup);
+   for(uint offset=0;offset<32&&tile+offset<=pos;offset++){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=float(q[qb+d])*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
+   threadgroup_barrier(mem_flags::mem_threadgroup);
+  }
+  for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half(acc[part]/l);}return;
+ }
  if(id>=total)return;uint row=id/p.qh,h=id%p.qh,pos=p.base+row,kh=h/(p.qh/p.kvh),qb=(row*p.qh+h)*p.dim;
  if(p.mode==3){
   // Two SIMD-groups retain the established accumulator width while eight

@@ -305,62 +305,63 @@ mod tests {
     #[test]
     fn q4_and_q6_batched_projection_matches_sequential_rows() -> Result<()> {
         const INPUT: usize = 512;
-        const OUTPUT: usize = 32;
-        const ROWS: usize = 3;
+        const OUTPUT: usize = 96;
         let device = Device::acquire()?;
         let pipelines = PipelineRegistry::load(&device)?;
-        let source: Vec<f32> = (0..ROWS * INPUT)
-            .map(|index| ((index * 7) % 41) as f32 / 16. - 20. / 16.)
-            .collect();
-        let input = buffer(&device, &source, MetalFormat::F16)?;
+        for rows in [3usize, 32] {
+            let source: Vec<f32> = (0..rows * INPUT)
+                .map(|index| ((index * 7) % 41) as f32 / 16. - 20. / 16.)
+                .collect();
+            let input = buffer(&device, &source, MetalFormat::F16)?;
 
-        for format in [MetalFormat::Q4K, MetalFormat::Q6K] {
-            let bytes = quant_fixture(format, OUTPUT, INPUT);
-            let weights = MetalBuffer::allocate(&device, bytes.len() as u64, format)?;
-            weights.write(&bytes)?;
-            let batched =
-                MetalBuffer::allocate(&device, (ROWS * OUTPUT * 2) as u64, MetalFormat::F16)?;
-            let sequential =
-                MetalBuffer::allocate(&device, (ROWS * OUTPUT * 2) as u64, MetalFormat::F16)?;
+            for format in [MetalFormat::Q4K, MetalFormat::Q6K] {
+                let bytes = quant_fixture(format, OUTPUT, INPUT);
+                let weights = MetalBuffer::allocate(&device, bytes.len() as u64, format)?;
+                weights.write(&bytes)?;
+                let batched =
+                    MetalBuffer::allocate(&device, (rows * OUTPUT * 2) as u64, MetalFormat::F16)?;
+                let sequential =
+                    MetalBuffer::allocate(&device, (rows * OUTPUT * 2) as u64, MetalFormat::F16)?;
 
-            let encoder = MetalEncoder::begin(&device)?;
-            matmul::encode_batched(
-                &encoder,
-                &pipelines,
-                &batched,
-                &input,
-                &weights,
-                INPUT as u32,
-                OUTPUT as u32,
-                ROWS as u32,
-                false,
-            )?;
-            encoder.submit()?;
-
-            let encoder = MetalEncoder::begin(&device)?;
-            for row in 0..ROWS {
-                matmul::encode(
+                let encoder = MetalEncoder::begin(&device)?;
+                matmul::encode_batched(
                     &encoder,
                     &pipelines,
-                    &sequential.view((row * OUTPUT * 2) as u64, (OUTPUT * 2) as u64)?,
-                    &input.view((row * INPUT * 2) as u64, (INPUT * 2) as u64)?,
+                    &batched,
+                    &input,
                     &weights,
                     INPUT as u32,
                     OUTPUT as u32,
-                    false,
+                    rows as u32,
                     false,
                 )?;
-            }
-            encoder.submit()?;
+                encoder.submit()?;
 
-            let batched = halfs(&batched, ROWS * OUTPUT)?;
-            let sequential = halfs(&sequential, ROWS * OUTPUT)?;
-            for (index, (got, want)) in batched.into_iter().zip(sequential).enumerate() {
-                assert!(got.is_finite());
-                assert!(
-                    (got - want).abs() <= 0.05,
-                    "{format:?} value {index}: got {got}, want {want}"
-                );
+                let encoder = MetalEncoder::begin(&device)?;
+                for row in 0..rows {
+                    matmul::encode(
+                        &encoder,
+                        &pipelines,
+                        &sequential.view((row * OUTPUT * 2) as u64, (OUTPUT * 2) as u64)?,
+                        &input.view((row * INPUT * 2) as u64, (INPUT * 2) as u64)?,
+                        &weights,
+                        INPUT as u32,
+                        OUTPUT as u32,
+                        false,
+                        false,
+                    )?;
+                }
+                encoder.submit()?;
+
+                let batched = halfs(&batched, rows * OUTPUT)?;
+                let sequential = halfs(&sequential, rows * OUTPUT)?;
+                for (index, (got, want)) in batched.into_iter().zip(sequential).enumerate() {
+                    assert!(got.is_finite());
+                    assert!(
+                        (got - want).abs() <= 0.05,
+                        "{format:?} rows {rows} value {index}: got {got}, want {want}"
+                    );
+                }
             }
         }
         Ok(())
@@ -569,6 +570,100 @@ mod tests {
                     );
                 }
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn tiled_prefill_attention_matches_serial() -> Result<()> {
+        const CONTEXT: usize = 544;
+        const BASE: usize = 512;
+        const ROWS: usize = 32;
+        const QUERY_HEADS: usize = 4;
+        const DIM: usize = 128;
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let keys: Vec<f32> = (0..CONTEXT * DIM)
+            .map(|index| ((index * 17 % 31) as f32 - 15.0) / 32.0)
+            .collect();
+        let values: Vec<f32> = (0..CONTEXT * DIM)
+            .map(|index| ((index * 11 % 29) as f32 - 14.0) / 24.0)
+            .collect();
+        let queries: Vec<f32> = (0..ROWS * QUERY_HEADS * DIM)
+            .map(|index| ((index * 7 % 19) as f32 - 9.0) / 16.0)
+            .collect();
+        let key_input = buffer(&device, &keys, MetalFormat::F16)?;
+        let value_input = buffer(&device, &values, MetalFormat::F16)?;
+        let query = buffer(&device, &queries, MetalFormat::F16)?;
+        let kv = Kv {
+            k: MetalBuffer::allocate(
+                &device,
+                layout::buffer_bytes(KvQuant::F16, KvRole::Key, 1, CONTEXT, 1, DIM),
+                MetalFormat::Raw,
+            )?,
+            v: MetalBuffer::allocate(
+                &device,
+                layout::buffer_bytes(KvQuant::F16, KvRole::Value, 1, CONTEXT, 1, DIM),
+                MetalFormat::Raw,
+            )?,
+            scheme: KvQuant::F16,
+            block_count: 1,
+            context: CONTEXT,
+            kv_heads: 1,
+            head_dim: DIM,
+            value_dim: DIM,
+        };
+        let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
+        let tiled = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+        let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+        let encoder = MetalEncoder::begin(&device)?;
+        kv_write::encode(
+            &encoder,
+            &pipelines,
+            &kv,
+            &key_input,
+            &value_input,
+            0,
+            0,
+            kv.meta_base_for(KvRole::Key),
+            kv.meta_base_for(KvRole::Value),
+            CONTEXT as u32,
+        )?;
+        attention::encode(
+            &encoder,
+            &pipelines,
+            &tiled,
+            &query,
+            &kv,
+            QUERY_HEADS as u32,
+            BASE as u32,
+            ROWS as u32,
+            0,
+            false,
+        )?;
+        attention::encode(
+            &encoder,
+            &pipelines,
+            &serial,
+            &query,
+            &kv,
+            QUERY_HEADS as u32,
+            BASE as u32,
+            ROWS as u32,
+            0,
+            true,
+        )?;
+        encoder.submit()?;
+        for (index, (got, want)) in halfs(&tiled, ROWS * QUERY_HEADS * DIM)?
+            .into_iter()
+            .zip(halfs(&serial, ROWS * QUERY_HEADS * DIM)?)
+            .enumerate()
+        {
+            assert!(got.is_finite());
+            assert!(
+                (got - want).abs() <= 0.02,
+                "tiled value {index}: got {got}, want {want}"
+            );
         }
         Ok(())
     }

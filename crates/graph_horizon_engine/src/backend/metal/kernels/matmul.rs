@@ -91,8 +91,8 @@ pub(crate) fn encode_batched(
     // The cooperative path is retained only where its A/B control passed;
     // an effective Mixed suffix keeps the stable per-row execution order.
     if cooperative(mixed_placement, rows, input, output, format) {
-        // Four SIMD-groups share one activation tile and compute 32 adjacent
-        // output columns without changing any group's FP32 accumulation.
+        // Four SIMD-groups share K32 tiles and compute 64 adjacent output
+        // columns without changing any group's FP32 accumulation.
         if p.get(Kernel::MatmulBatched).width != 32 {
             return Err(eyre!("metal: batched projection requires 32 threads"));
         }
@@ -102,7 +102,7 @@ pub(crate) fn encode_batched(
             Kernel::MatmulBatched,
             &[a, w, out],
             &super::u32s(&[input, output, format, rows]),
-            [(output as usize).div_ceil(32), 1, 1],
+            [(output as usize).div_ceil(64), 1, 1],
             128,
         );
     }

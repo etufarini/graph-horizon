@@ -1,7 +1,7 @@
 <!--
-  Questa guida possiede le interfacce operative degli script locali e mantiene
-  invarianti le directory modello in sola lettura; non definisce policy runtime
-  o prestazionale.
+  Questa guida possiede le interfacce operative del bootstrap remoto e degli
+  script locali e mantiene invarianti le directory modello in sola lettura;
+  non definisce policy runtime, modello o prestazionali.
 -->
 
 # Supporto operativo
@@ -12,7 +12,8 @@ diversi.
 
 | Script | Scopo |
 |---|---|
-| `install.sh` | build Web UI e uno dei cinque profili espliciti |
+| `../install.sh` | scarica e valida un archivio temporaneo del `main`, poi delega gli argomenti invariati |
+| `install.sh` | valida e compila un checkout locale, poi installa uno dei profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
 | `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
@@ -23,7 +24,8 @@ diversi.
 
 ## Prerequisiti
 
-- Rust/Cargo e dipendenze di build della piattaforma;
+- Bash, `curl`, `tar`, `mktemp` e `find` per il bootstrap pubblico;
+- Rust/Cargo, `uname`, `install` e dipendenze di build della piattaforma;
 - Node.js/npm 22.12 o successivo per `install.sh`;
 - loader/driver Vulkan per esecuzione Vulkan;
 - artefatti GGUF già acquisiti in sola lettura;
@@ -43,6 +45,18 @@ salta test sintetici.
 
 ## Installazione
 
+Il bootstrap pubblico sarà disponibile anonimamente soltanto quando il
+repository sarà pubblico. Segue il branch mutabile `main`, senza tag, checksum
+o binari precompilati:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+```
+
+`../install.sh` possiede soltanto download HTTPS, validazione dell'archivio e
+cleanup della directory temporanea. Il checkout estratto esegue poi lo stesso
+installer locale usato direttamente qui:
+
 ```sh
 support/install.sh --backend metal --profile release
 support/install.sh --backend cpu --profile fast --prefix "$PWD/.local"
@@ -50,7 +64,17 @@ support/install.sh --backend cpu --profile fast --prefix "$PWD/.local"
 
 `release|fast` sono profili di compilazione Cargo. `--backend` è obbligatorio e
 accetta `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`; non esiste un
-default né un profilo runtime.
+default né un profilo runtime. La matrice accettata, senza fallback, è:
+
+| Piattaforma | Backend |
+|---|---|
+| macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
+| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+
+Il profilo predefinito è `release`. Il prefisso deve essere assoluto, diverso
+dalla radice e privo di componenti `.` o `..`; `--prefix` prevale su
+`GRAPH_HORIZON_INSTALL_PREFIX`, che prevale su `$HOME/.local`. Nessuno dei due
+script invoca `sudo`.
 
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
 una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
@@ -62,10 +86,17 @@ La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
 prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso
 quando `--prefix` non è presente.
+L'installazione sostituisce `graph-horizon` e il link relativo
+`gh-zero-engine`. Se `<prefix>/bin` non è una voce esatta di `PATH`, stampa una
+sola istruzione diagnostica e non modifica alcun file shell.
 
 ## Verifica
 
 ```sh
+bash -n install.sh support/install.sh
+cargo test -p graph-horizon --no-default-features --features cpu installer_
+cargo test -p graph-horizon --no-default-features --features cpu bootstrap_
+
 support/profiling/validate-weights.sh --models-dir "/path/to/models"
 
 support/profiling/validate-kv.sh \

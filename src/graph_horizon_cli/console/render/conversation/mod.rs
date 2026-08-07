@@ -7,7 +7,7 @@
 
 use ratatui::prelude::*;
 
-use crate::graph_horizon_cli::runtime::{ChatMessage, estimate_tokens};
+use crate::graph_horizon_cli::runtime::ChatMessage;
 
 use super::RenderContent;
 use answer::{push_answer, push_prompt, trim_trailing_blank};
@@ -40,23 +40,16 @@ impl ChatTurn {
     }
 }
 
-// Estimates the tokens of what occupies the model's context: the fixed system
-// prompt plus the user/assistant content committed to history. The system
-// prompt is included even though it is invisible in history, so the shown number
-// stays consistent with the pruning that the same prompt drives. The
-// in-progress prompt and
-// failed turns (no messages) are excluded, so the count stays still while
-// typing and streaming and only moves once a completed turn enters history.
-// Characters are summed first and divided once (see estimate_tokens) to avoid
-// the per-message truncation that would undercount many short messages.
-pub(crate) fn conversation_tokens(system: Option<&str>, history: &[ChatTurn]) -> usize {
-    let system_chars = system.map_or(0, |s| s.chars().count());
-    let history_chars: usize = history
+// Counts only raw messages that would be sent again. None records arithmetic
+// overflow so a later admission cannot mistake an unrepresentable count for a
+// small context.
+pub(crate) fn conversation_characters(system: Option<&str>, history: &[ChatTurn]) -> Option<usize> {
+    history
         .iter()
         .flat_map(|turn| turn.messages.iter())
         .map(ChatMessage::chars)
-        .sum();
-    estimate_tokens(system_chars + history_chars)
+        .chain(system.map(|text| text.chars().count()))
+        .try_fold(0_usize, usize::checked_add)
 }
 
 // Converts RenderContent into a flat list of terminal lines at the given width.
@@ -104,9 +97,17 @@ pub(crate) fn build_lines(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{SectionStyle, TokenStatus, format_span};
+    use super::super::{SectionStyle, format_span};
     use super::*;
-    use crate::graph_horizon_cli::runtime::Throughput;
+    use crate::graph_horizon_cli::runtime::ContextUsage;
+    use std::time::Duration;
+
+    fn usage() -> ContextUsage {
+        ContextUsage {
+            estimated_messages: 0,
+            context_limit: 4096,
+        }
+    }
 
     #[test]
     fn builds_history_before_current_prompt() {
@@ -115,19 +116,7 @@ mod tests {
             "world".to_string(),
             Vec::new(),
         )];
-        let content = RenderContent::input(
-            &history,
-            "next",
-            "",
-            0,
-            &[],
-            0,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::input(&history, "next", "", 0, &[], 0, usage(), None, None);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -136,19 +125,7 @@ mod tests {
 
     #[test]
     fn wraps_long_prompt_into_scrollable_lines() {
-        let content = RenderContent::input(
-            &[],
-            "abcdefghi",
-            "",
-            0,
-            &[],
-            0,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::input(&[], "abcdefghi", "", 0, &[], 0, usage(), None, None);
 
         let visible: Vec<String> = build_lines(6, 1, &content).iter().map(line_text).collect();
 
@@ -157,16 +134,7 @@ mod tests {
 
     #[test]
     fn shows_generating_before_first_chunk() {
-        let content = RenderContent::output(
-            &[],
-            "prompt",
-            "",
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::output(&[], "prompt", "", usage(), Duration::ZERO);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -177,16 +145,7 @@ mod tests {
 
     #[test]
     fn no_generating_once_content_arrives() {
-        let content = RenderContent::output(
-            &[],
-            "prompt",
-            "content",
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::output(&[], "prompt", "content", usage(), Duration::ZERO);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -195,19 +154,7 @@ mod tests {
 
     #[test]
     fn no_generating_in_input_mode() {
-        let content = RenderContent::input(
-            &[],
-            "hello",
-            "",
-            0,
-            &[],
-            0,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::input(&[], "hello", "", 0, &[], 0, usage(), None, None);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -216,16 +163,7 @@ mod tests {
 
     #[test]
     fn preserves_empty_lines_in_response() {
-        let content = RenderContent::output(
-            &[],
-            "prompt",
-            "one\n\ntwo",
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::output(&[], "prompt", "one\n\ntwo", usage(), Duration::ZERO);
 
         let visible: Vec<String> = build_lines(10, 1, &content).iter().map(line_text).collect();
 
@@ -370,14 +308,14 @@ mod tests {
 
         // 11 + 2 = 13 chars / 4 = 3. Summing characters first matters: counting
         // per message ("hi" -> 0) would lose the short message and yield 2.
-        assert_eq!(conversation_tokens(None, &history), 3);
+        assert_eq!(conversation_characters(None, &history), Some(13));
     }
 
     #[test]
     fn includes_system_prompt_in_the_count() {
-        // The system prompt is invisible in history but drives pruning, so it
-        // must contribute to the shown count. 8 system chars / 4 = 2.
-        assert_eq!(conversation_tokens(Some("sys text"), &[]), 2);
+        // The system prompt is invisible in history but occupies context, so
+        // its eight characters must contribute to the stored character count.
+        assert_eq!(conversation_characters(Some("sys text"), &[]), Some(8));
     }
 
     // Flattens a styled line into plain text for assertions.
@@ -398,32 +336,11 @@ mod tests {
     }
 
     fn output(response: &str) -> RenderContent<'_> {
-        RenderContent::output(
-            &[],
-            "prompt",
-            response,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        )
+        RenderContent::output(&[], "prompt", response, usage(), Duration::ZERO)
     }
 
     fn input<'a>(history: &'a [ChatTurn], prompt: &'a str) -> RenderContent<'a> {
-        RenderContent::input(
-            history,
-            prompt,
-            "",
-            0,
-            &[],
-            0,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        )
+        RenderContent::input(history, prompt, "", 0, &[], 0, usage(), None, None)
     }
 
     // Returns the text of the single reverse-styled span — the caret cell — across all
@@ -438,19 +355,7 @@ mod tests {
     }
 
     fn input_lines(prompt: &str, hint: &str, cursor: usize, width: u16) -> Vec<Line<'static>> {
-        let content = RenderContent::input(
-            &[],
-            prompt,
-            hint,
-            cursor,
-            &[],
-            0,
-            TokenStatus::Active,
-            0,
-            Throughput::default(),
-            0,
-            None,
-        );
+        let content = RenderContent::input(&[], prompt, hint, cursor, &[], 0, usage(), None, None);
         build_lines(width, 1, &content)
     }
 

@@ -55,17 +55,18 @@ input
   +-- ordinary prompt
         |
         +-- expand @file attachments in the outgoing copy
-        +-- system prompt + completed turns + new prompt
-        +-- prune the oldest pairs when configured
-        +-- local provider or HTTP POST /chat/completions
+        +-- assemble system prompt + every completed turn + new prompt
+        +-- reject or admit the complete request without modifying it
+        +-- local provider or HTTP POST /chat/completions after admission
         +-- text-only stream
         +-- completed turn added to history
 ```
 
-The view and export preserve the typed prompt. For completed turns, the internal
-history sent back to the model instead retains the expanded copy, so the model
-can use an attachment in later turns of the same session. Notices and failed
-turns do not enter the context. The TUI models only `system`, `user`, and
+The view, model history, and export preserve the typed prompt. Attachment
+contents participate in the one request for which they are expanded, without
+replacing that raw prompt in committed history. Admission uses the shared
+[context-capacity contract](context.md) before provider invocation. Notices and
+failed turns do not enter the context. The TUI models only `system`, `user`, and
 `assistant` messages; tool calls and separate Reasoning channels are not part of
 its state. Raw assistant content, including Reasoning markers, remains the TUI
 context, history, and transcript representation. Only terminal conversation
@@ -73,12 +74,17 @@ rendering derives THINK and final-answer sections from it.
 
 ## Server And Web Flow
 
-The server loads one `Engine`, accepts validated text-only requests, and
-serializes one generation at a time. A semaphore limits admitted requests,
-including waiting requests, to eight.
+The server loads one `Engine`, serves its immutable resolved context through
+`GET /props`, accepts validated text-only chat requests, and serializes one
+generation at a time. A semaphore limits admitted chat requests, including
+waiting requests, to eight; property reads do not acquire it.
 
-Web mode adds only static assets and a browser UI to the same chat endpoint.
-There are no workspace, tool, or command-confirmation routes.
+Web mode adds static assets and a browser UI to the same chat and properties
+boundaries. The browser loads context before enabling send, assembles the exact
+wire messages, admits them locally, and only then starts chat transport and its
+monotonic timer. Direct external API clients retain the server's existing chat
+contract and receive no new server-side capacity gate. There are no workspace,
+tool, or command-confirmation routes.
 
 The engine and server expose raw Reasoning markers only as ordinary
 `delta.content` text; neither creates a structured Reasoning field. The browser

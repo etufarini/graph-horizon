@@ -352,11 +352,11 @@ fn docs_contract() {
             "root README missing contract phrase: {required}"
         );
     }
-    assert!(engine_flat.contains("suite sintetica"));
+    assert!(engine_flat.contains("synthetic suite"));
     assert!(engine_flat.contains("EngineConfig.context_tokens = None"));
     assert!(engine_flat.contains("floor(MemAvailable × 90 / 100)"));
     assert!(engine_flat.contains("src/family/mistral/version.rs"));
-    assert!(engine_flat.contains("Il solo profilo GGUF pubblico è `Q4_K_M`"));
+    assert!(engine_flat.contains("The only public GGUF profile is `Q4_K_M`"));
     assert!(engine_flat.contains("`GgmlType::Q8_0`"));
     assert!(backend_flat.contains("Build Backends"));
     assert!(backend_flat.contains("The library crate has no default feature"));
@@ -377,12 +377,12 @@ fn docs_contract() {
     assert!(kv.contains("cpu_layers"));
     assert!(kv.contains("gpu_layers"));
     assert!(kv.contains("non dichiara superate prove che non sono state eseguite"));
-    assert!(engine_flat.contains("`general.name`. Quest'ultimo seleziona soltanto la policy chat"));
-    assert!(engine_flat.contains("`tokenizer.chat_template` non viene eseguito"));
-    assert!(engine_flat.contains("un `System` esplicito, anche vuoto, lo sostituisce"));
+    assert!(engine_flat.contains("`general.name`. The latter selects only the chat policy"));
+    assert!(engine_flat.contains("`tokenizer.chat_template` is not executed"));
+    assert!(engine_flat.contains("an explicit `System` message, even an empty one, replaces it"));
     assert!(
         engine_flat
-            .contains("restano testo raw in `TextDelta`, senza un nuovo evento o canale pubblico")
+            .contains("remain raw text in `TextDelta`, without a new public event or channel")
     );
     assert!(architecture_flat.contains("there is not yet a multi-family registry or dispatcher"));
     assert!(architecture_flat.contains("family/mod.rs"));

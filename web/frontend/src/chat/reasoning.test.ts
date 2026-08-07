@@ -84,6 +84,7 @@ test('an opening marker without a close exposes THINK after completion', () => {
     thinking: 'passo',
     answer: '',
     pending: false,
+    incomplete: true,
   });
 });
 

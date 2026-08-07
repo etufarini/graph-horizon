@@ -1,7 +1,7 @@
 <!--
 This document owns the interactive console lifecycle, controls, rendering,
-derived THINK section, and status indicators. Commands and pruning algorithms
-are documented separately.
+derived THINK section, and compact status. Capacity arithmetic is delegated to
+the canonical context contract.
 -->
 
 # Console: TUI, Streaming, And Status Bar
@@ -13,11 +13,19 @@ HTTP provider.
 ## Session Cycle
 
 1. **Input**: editing, history, completion, and scrolling. Empty input is ignored.
-2. **Streaming**: request opening, incremental text consumption, and periodic rendering.
+2. **Admission**: attachment expansion, complete request assembly, and the
+   checked capacity gate from [context.md](context.md).
+3. **Streaming**: request opening, incremental text consumption, and periodic rendering.
 
-A completed turn enters history as a user/assistant pair. An error or empty
-response remains visible but is not sent back to the model. Local commands
-produce notices that are excluded from context.
+A completed non-empty turn enters model history as the raw user prompt and raw
+assistant response. An error or empty response remains visible but is not sent
+back to the model. Local commands produce notices that are excluded from
+context.
+
+Attachments are expanded only in the outgoing copy before admission. Their
+contents contribute to that request's estimate. If admission fails, the typed
+prompt is restored unchanged and no provider call starts; a successful turn
+commits the raw `@path` spelling.
 
 ## Keyboard During Input
 
@@ -79,21 +87,39 @@ keeps its label, and markers after the recognized boundaries remain literal.
 Marker-shape fallback does not create a connection or runtime error.
 
 Completed and imported turns derive the same presentation again from their raw
-responses. Token estimation, pruning, model context, history, `/import`, and
-`/export` retain that raw content with markers and leading whitespace. `Ctrl+C`
+responses. Context estimation, model history, `/import`, and `/export` retain
+that raw content with markers and leading whitespace. `Ctrl+C`
 continues to cancel streaming and discard the complete partial turn; every other
 keyboard behavior remains as documented above.
 
-## Status Bar
+## Capacity And Status
 
-Metrics are updated by the runtime and frozen when a turn ends:
+The HTTP provider must expose `/props`, or the CLI must receive a valid
+`--context-tokens`; otherwise startup stops before Ratatui with
+`limite di contesto non disponibile; specificare --context-tokens`.
 
-| Indicator | Meaning |
-|---|---|
-| `↑` / `↓` `tok/s` | Prefill and output throughput; values below 1 are hidden |
-| `a N` / `Σ N tok` | Estimated response tokens and total turn tokens |
-| `~X.Xk tok` | Estimated full conversation size |
-| `ctx X.Xk` | Known context used for pruning |
-| `∞` / `pruning off` | Pruning active or unavailable |
+The right-aligned status has one compact form:
 
-After `/import`, metrics from the previous turn are reset.
+```text
+ctx ~5.2k/32.8k tok gen 12.4s
+```
+
+Counts below 1000 are integers; larger counts use one decimal and `k`. Only the
+occupied estimate has `~`. The CLI has no percentage and no graphical progress
+bar. `gen` is absent before the first successful generation.
+
+Occupancy includes the raw draft while editing, the expanded submitted prompt
+and partial assistant response while streaming, then the committed raw pair on
+success. A failed or empty turn remains outside model occupancy. `/import`
+recomputes occupancy and clears the prior duration.
+
+Generation time is monotonic client-perceived wall time. It begins after
+admission and immediately before the provider future, includes connection wait,
+prefill, transport, and decode, updates live, and freezes only on successful
+stream completion. A new admitted turn clears the previous result; interruption
+or failure leaves no new duration. A rejected prompt never starts the timer and
+therefore preserves the previous final duration.
+
+While a capacity error is present, the status row instead reports estimated
+messages, reserved tokens, and safe budget. The next edit, recall, completion,
+or submission clears that transient error without clearing the restored prompt.

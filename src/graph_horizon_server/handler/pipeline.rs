@@ -49,7 +49,8 @@ pub(super) async fn chat_completions(
     };
 
     // 3. Validate + build the engine request. Every ApiError → 400, generic message.
-    let request = match api::chat::to_request(parsed, &state.config) {
+    let sampling = state.chat.default_sampling();
+    let request = match api::chat::to_request(parsed, &state.config, sampling) {
         Ok(request) => request,
         Err(err) => {
             return error_response(

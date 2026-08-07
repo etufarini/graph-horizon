@@ -89,5 +89,10 @@ binary="${project_dir}/target/${profile}/graph-horizon"
 bindir="${prefix}/bin"
 install -d "${bindir}"
 install -m 0755 "${binary}" "${bindir}/graph-horizon"
-printf 'installed %s (backend=%s, build-profile=%s)\n' \
-    "${bindir}/graph-horizon" "${backend}" "${profile}"
+legacy="${bindir}/gh-zero-engine"
+[[ ! -d "${legacy}" || -L "${legacy}" ]] \
+    || fail "legacy command path is a directory: ${legacy}"
+# One relative link keeps the legacy command on the exact installed artifact.
+ln -sfn "graph-horizon" "${legacy}"
+printf 'installed %s and compatibility link %s (backend=%s, build-profile=%s)\n' \
+    "${bindir}/graph-horizon" "${legacy}" "${backend}" "${profile}"

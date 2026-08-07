@@ -1,13 +1,12 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - Stream
- * Single responsibility: consume one assistant text stream and report terminal
- * state to the session. It depends on rendering, input events, and runtime
- * chunks, and does not render tools or a separate reasoning channel.
+ * Single responsibility: consume one admitted assistant stream while rendering
+ * live occupancy and total monotonic duration until its terminal outcome.
 */
 
-use super::super::render::{ChatTurn, RenderCache, RenderContent, TokenStatus, draw_viewport};
+use super::super::render::{ChatTurn, RenderCache, RenderContent, draw_viewport};
 use super::super::scroll::{ViewportState, drain_stream_events};
-use crate::graph_horizon_cli::runtime::{self, ChunkStream, Throughput, rate};
+use crate::graph_horizon_cli::runtime::{self, ChunkStream, ContextBudget};
 use color_eyre::eyre::Result;
 use ratatui::DefaultTerminal;
 use std::time::{Duration, Instant};
@@ -20,7 +19,7 @@ pub(super) const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(16);
 pub(crate) enum StreamOutcome {
     Quit,        // Esc: exit the app
     Interrupted, // Ctrl+C: discard partial output, back to input
-    Completed(String, Throughput),
+    Completed(String, Duration),
 }
 
 // Streams the response for one prompt and returns how the phase ended: Quit on Esc,
@@ -36,22 +35,14 @@ pub(crate) async fn stream_response<Fut>(
     viewport: &mut ViewportState,
     history: &[ChatTurn],
     prompt: &str,
-    status: TokenStatus,
-    token_count: usize,
-    input_tokens: usize,
-    // Previous turn's output estimate. It is shown only while connecting; once
-    // current text arrives, the status bar uses the live estimate.
-    output_tokens: usize,
-    context_limit: Option<usize>,
+    budget: ContextBudget,
+    input_characters: usize,
+    started: Instant,
     stream_future: Fut,
 ) -> Result<StreamOutcome>
 where
     Fut: std::future::Future<Output = Result<ChunkStream>>,
 {
-    // The prefill window starts when this phase begins and closes on the first
-    // real token. That keeps input throughput tied to the request that is now in
-    // flight, while generation throughput still starts at the first token.
-    let started = Instant::now();
     // Animate [generating...] while waiting for the HTTP stream to open. Esc is honoured
     // here too: connecting can be the slowest phase (model loading), so the user must be
     // able to exit before the first token arrives.
@@ -65,11 +56,8 @@ where
                 history,
                 prompt,
                 "",
-                status,
-                token_count,
-                Throughput::default(),
-                output_tokens,
-                context_limit,
+                budget.usage(input_characters),
+                started.elapsed(),
             ),
             viewport,
         )?;
@@ -86,8 +74,6 @@ where
     };
 
     let mut resp = String::new();
-    let mut first_token_at: Option<Instant> = None;
-    let mut throughput = Throughput::default();
     loop {
         let content_changed = match tokio::time::timeout(STREAM_POLL_INTERVAL, stream.next()).await
         {
@@ -114,19 +100,7 @@ where
             return Ok(StreamOutcome::Interrupted);
         }
 
-        // Mark the first real token: it closes prefill and starts generation.
-        // Both rates stay hidden until this boundary exists.
-        if content_changed && first_token_at.is_none() {
-            first_token_at = Some(Instant::now());
-        }
-        if let Some(first) = first_token_at {
-            let output_tokens = runtime::estimate_tokens(resp.chars().count());
-            throughput = Throughput {
-                input: rate(input_tokens, first.saturating_duration_since(started)),
-                output: rate(output_tokens, first.elapsed()),
-            };
-        }
-        let live_output_tokens = runtime::estimate_tokens(resp.chars().count());
+        let live_characters = input_characters.saturating_add(resp.chars().count());
 
         // `loading` (no token yet) lives in RenderContent; build the snapshot
         // once and reuse its flag instead of recomputing the predicate here.
@@ -134,11 +108,8 @@ where
             history,
             prompt,
             &resp,
-            status,
-            token_count,
-            throughput,
-            live_output_tokens,
-            context_limit,
+            budget.usage(live_characters),
+            started.elapsed(),
         );
         if content_changed || content.loading() {
             super::super::bump(content_revision);
@@ -149,5 +120,5 @@ where
         }
     }
 
-    Ok(StreamOutcome::Completed(resp, throughput))
+    Ok(StreamOutcome::Completed(resp, started.elapsed()))
 }

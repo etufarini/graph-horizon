@@ -11,6 +11,7 @@ export type ReasoningView = {
   thinking?: string;
   answer: string;
   pending: boolean;
+  incomplete?: true;
 };
 
 export function splitReasoning(raw: string, streaming: boolean): ReasoningView {
@@ -28,7 +29,9 @@ export function splitReasoning(raw: string, streaming: boolean): ReasoningView {
   const closeAt = content.indexOf(THINK_CLOSE);
 
   if (closeAt === -1) {
-    return { thinking: content, answer: '', pending: false };
+    return streaming
+      ? { thinking: content, answer: '', pending: false }
+      : { thinking: content, answer: '', pending: false, incomplete: true };
   }
 
   return {

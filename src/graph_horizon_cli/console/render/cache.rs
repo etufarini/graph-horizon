@@ -1,7 +1,7 @@
 /*
  * Graph Horizon CLI Modules - Console - Render - Cache
- * Pre-built line cache keyed on (terminal_width, content_revision).
- * Rebuilds wrapped lines only on width/revision change; serves viewport slices to draw.
+ * Single responsibility: cache wrapped conversation lines by terminal width
+ * and content revision for viewport drawing.
  */
 
 use ratatui::prelude::*;
@@ -47,9 +47,8 @@ impl RenderCache {
 
 #[cfg(test)]
 mod tests {
-    use super::super::TokenStatus;
     use super::*;
-    use crate::graph_horizon_cli::runtime::Throughput;
+    use crate::graph_horizon_cli::runtime::ContextUsage;
 
     #[test]
     fn max_scroll_tracks_lines_beyond_viewport() {
@@ -64,10 +63,11 @@ mod tests {
                 0,
                 &[],
                 0,
-                TokenStatus::Active,
-                0,
-                Throughput::default(),
-                0,
+                ContextUsage {
+                    estimated_messages: 0,
+                    context_limit: 4096,
+                },
+                None,
                 None,
             ),
         );

@@ -44,7 +44,7 @@ profiles are listed in the
 | `--context-tokens <n>` | engine policy or HTTP detection | Explicit context, integer `>= 1` |
 | `--system-prompt <text>` | none | TUI-only system prompt |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Base URL for the TUI HTTP provider |
-| `--max-tokens <n>` | TUI `2048`; server/web `1024` | TUI maximum; server/web request default, integer `>= 0` |
+| `--max-tokens <n>` | TUI `2048`; server `1024`; Web `1024` | Response maximum and client admission reserve, integer `>= 0` |
 | `--vram-weights-percent <n>` | automatic | Explicit `0..=100` weight-placement limit |
 | `--vram-reserve-mib <n>` | engine policy | Non-negative VRAM reserve; part of the hybrid automatic plan |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |
@@ -58,18 +58,21 @@ profiles are listed in the
 ## Local And HTTP TUI
 
 With `--provider local`, `--model` is required and the GGUF is loaded before the
-terminal. Without `--context-tokens`, pruning uses the context resolved by the
-engine.
+terminal. Without `--context-tokens`, capacity admission uses the context
+resolved by the engine.
 
 With any other provider, the TUI sends a text-only body containing `messages`,
 `stream: true`, and `max_tokens` to `<base-url>/chat/completions`. It sends no
 model name or credentials. Without an explicit context, it tries `GET /props` at
 the provider root for three seconds and reads
-`default_generation_settings.n_ctx`; failure disables pruning without blocking
-startup.
+`default_generation_settings.n_ctx`. A valid explicit override skips discovery.
+Failure, timeout, malformed JSON, or a non-positive value terminates before the
+terminal with `limite di contesto non disponibile; specificare
+--context-tokens`; there is no unknown or unlimited fallback.
 
-The current integrated server does not expose `/props`. Connecting the TUI to
-that server therefore requires `--context-tokens` to enable client-side pruning.
+The integrated server and Web wrapper expose `/props`, so the HTTP TUI example
+works without an override. External providers that do not implement the route
+require `--context-tokens`.
 
 ## Local Context
 
@@ -78,8 +81,9 @@ the engine applies its versioned policy within the maximum declared by the GGUF.
 A value above the maximum or unsupported by the backend fails; it is not
 silently truncated.
 
-The reserve used by TUI pruning is `--max-tokens`. The mechanism is described in
-[pruning.md](pruning.md).
+The TUI uses `--max-tokens` as its response reserve. If the reserve leaves no
+safe prompt space, startup fails before the terminal. Complete estimation and
+admission rules are defined in [context.md](context.md).
 
 ## Server
 
@@ -99,9 +103,10 @@ graph-horizon --mode server --model /path/to/model.gguf \
 `web/frontend/dist`. It keeps the port as a string until bind time, so an invalid
 value causes a listen error instead of the server mode's fallback.
 
-The included UI explicitly sends `max_tokens: 1024`. Consequently,
-`--max-tokens` is only the default for HTTP clients that omit the field, not a
-setting for the current web composer.
+The Web wrapper publishes its configured `max_tokens` through `/props`. The
+included UI validates that value, uses it as its admission reserve, and sends it
+with every chat request. The default is `1024`; an explicit `--max-tokens`
+therefore controls the current web composer as well as the wrapped server.
 
 ## Build And Environment
 

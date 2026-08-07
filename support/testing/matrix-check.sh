@@ -12,7 +12,7 @@ catalog="$project_dir/support/models.tsv"
 parity="$project_dir/support/testing/parity-check.sh"
 models_dir=""; reference_server=""; reference_port="18080"
 pass=0; external=0; failure=0
-declare -a row_keys row_status local_ids
+declare -a row_keys=() row_status=() local_ids=()
 
 usage_error() { printf 'matrix-check: %s\n' "$*" >&2; exit 2; }
 catalog_error() { printf 'matrix-check: catalog error: %s\n' "$*" >&2; exit 2; }

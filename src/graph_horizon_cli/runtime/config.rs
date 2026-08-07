@@ -1,8 +1,7 @@
 /*
  * Graph Horizon CLI Modules - Runtime - Config
- * Single responsibility: hold chat-only provider configuration shared by CLI
- * local and HTTP generation. It depends on app args and the HTTP client helper,
- * and carries no tool mode, workspace, profile, or reasoning state.
+ * Single responsibility: resolve provider configuration and a mandatory
+ * positive context limit while preserving explicit-over-discovered precedence.
  */
 
 use super::client;
@@ -13,9 +12,8 @@ pub(crate) struct ClientConfig {
     pub base_url: String,
     // Optional fixed system prompt, prepended to every request by the session.
     pub system: Option<String>,
-    // Optional context-window size in tokens. Sourced from the `--context-tokens`
-    // flag when set, otherwise queried from the HTTP provider via
-    // `resolve_context_limit`. Combined with `max_tokens` to derive pruning.
+    // Explicit context-window size when supplied; otherwise provider startup
+    // resolves it before the terminal is initialized.
     pub context_limit: Option<usize>,
     pub max_tokens: usize,
 }
@@ -31,21 +29,19 @@ impl ClientConfig {
         }
     }
 
-    // Fills `context_limit` from the HTTP provider when the `--context-tokens` override
-    // left it unset, so the pruning threshold is sized without manual configuration.
-    // The override always wins: a valid `--context-tokens` short-circuits this
-    // and the server is never queried. On any fetch failure `context_limit`
-    // stays None — pruning disabled — and startup proceeds.
-    pub(crate) async fn resolve_context_limit(&mut self) {
-        if self.context_limit.is_none() {
-            self.context_limit = client::fetch_context_limit(&self.base_url).await;
+    // The explicit override always wins and performs no network request. Remote
+    // discovery fails closed so callers cannot enter the terminal unbounded.
+    pub(crate) async fn resolve_context_limit(&mut self) -> Option<usize> {
+        if let Some(limit) = self.context_limit {
+            return Some(limit);
         }
+        let limit = client::fetch_context_limit(&self.base_url).await?;
+        self.context_limit = Some(limit);
+        Some(limit)
     }
 
-    // Local-provider counterpart of `resolve_context_limit`: fills
-    // `context_limit` from the engine-resolved limit, with no network call.
-    // The override always wins — a set `--context-tokens` leaves
-    // `context_limit` untouched — so local pruning follows the loaded engine.
+    // Local discovery is immutable after engine loading; an explicit override
+    // remains authoritative and is never replaced by the model result.
     pub(crate) fn apply_local_context_limit(&mut self, model_context: u32) {
         if self.context_limit.is_none() {
             self.context_limit = Some(model_context as usize);
@@ -67,7 +63,7 @@ mod tests {
     }
 
     #[test]
-    fn context_limit_policy_uses_engine_result_without_overriding_explicit_value() {
+    fn local_context_uses_engine_result_without_overriding_explicit_value() {
         let mut implicit = config(None, client::DEFAULT_BASE_URL.into());
         implicit.apply_local_context_limit(32_768);
         assert_eq!(implicit.context_limit, Some(32_768));
@@ -78,13 +74,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn context_limit_policy_leaves_remote_failure_unresolved() {
+    async fn explicit_context_skips_remote_discovery() {
+        let mut config = config(Some(65_536), "http://127.0.0.1:1/v1".into());
+        assert_eq!(config.resolve_context_limit().await, Some(65_536));
+    }
+
+    #[tokio::test]
+    async fn context_limit_policy_reports_remote_failure() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         drop(listener);
 
         let mut config = config(None, format!("http://{address}/v1"));
-        config.resolve_context_limit().await;
+        assert_eq!(config.resolve_context_limit().await, None);
         assert_eq!(config.context_limit, None);
     }
 }

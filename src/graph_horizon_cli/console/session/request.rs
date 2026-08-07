@@ -1,33 +1,73 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - Request
- * Assembles one turn's outgoing request: message assembly, pruning, token count.
- * Owns only request preparation; the loop drives it once per non-command prompt.
+ * Single responsibility: assemble one complete outgoing message vector and
+ * admit that exact request against the immutable context budget.
  */
 
 use super::super::render::ChatTurn;
-use crate::graph_horizon_cli::runtime::{ChatMessage, estimate_tokens, prune_to_limit};
+use crate::graph_horizon_cli::runtime::{CapacityError, ChatMessage, ContextBudget};
 
-// Builds the pruned request for one turn and the input-token estimate that
-// describes it. `expanded` is the exact user message that enters both the
-// provider request and, after the turn completes, the conversation history.
+pub(super) struct PreparedRequest {
+    pub(super) messages: Vec<ChatMessage>,
+    pub(super) characters: usize,
+}
+
+// Assemble the exact provider payload before checking its context capacity.
 pub(super) fn assemble(
     system: Option<&str>,
     history: &[ChatTurn],
     expanded: &str,
-    threshold: Option<usize>,
-) -> (Vec<ChatMessage>, usize) {
-    // Assemble the request: optional system prompt, the stored history, then the
-    // new user message. The system prompt is re-prepended every turn and never
-    // stored in history, so it is always first and never pruned.
-    let request: Vec<ChatMessage> = system
+    budget: ContextBudget,
+) -> Result<PreparedRequest, CapacityError> {
+    let messages: Vec<ChatMessage> = system
         .map(|s| ChatMessage::system(s.to_string()))
         .into_iter()
         .chain(history.iter().flat_map(|t| t.messages.iter().cloned()))
         .chain([ChatMessage::user(expanded.to_string())])
         .collect();
-    let request = prune_to_limit(request, threshold);
-    // Prefill speed must describe the exact request sent to the provider: count
-    // after pruning, before the request moves into the network future.
-    let input_tokens = estimate_tokens(request.iter().map(ChatMessage::chars).sum());
-    (request, input_tokens)
+    let characters = messages
+        .iter()
+        .try_fold(0_usize, |sum, message| sum.checked_add(message.chars()))
+        .ok_or_else(|| budget.overflow_error())?;
+    budget.admit(characters)?;
+    Ok(PreparedRequest {
+        messages,
+        characters,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assemble_includes_system_history_and_prompt() {
+        let history = vec![ChatTurn::new(
+            "raw".into(),
+            "shown".into(),
+            vec![
+                ChatMessage::user("old user".into()),
+                ChatMessage::assistant("old assistant".into()),
+            ],
+        )];
+        let prepared = assemble(
+            Some("system"),
+            &history,
+            "expanded prompt",
+            ContextBudget::new(4096, 128).unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(prepared.messages.len(), 4);
+        assert_eq!(
+            serde_json::to_value(&prepared.messages).unwrap(),
+            serde_json::json!([
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "old user"},
+                {"role": "assistant", "content": "old assistant"},
+                {"role": "user", "content": "expanded prompt"}
+            ])
+        );
+        assert_eq!(prepared.characters, 42);
+    }
 }

@@ -55,6 +55,9 @@ default né un profilo runtime.
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
 una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
 `test` e `build`.
+Il binario canonico installato è `graph-horizon`; il nome precedente
+`gh-zero-engine` è un collegamento di compatibilità allo stesso artefatto e non
+può quindi restare fermo a una build precedente.
 La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
 prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso

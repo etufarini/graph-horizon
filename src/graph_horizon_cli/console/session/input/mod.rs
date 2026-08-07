@@ -1,17 +1,17 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - Input
- * Input phase: reads one prompt from the user, handling editing, @-token completion, and scroll.
- * Returns None only on the explicit exit path (Esc); orchestration stays in session/mod.rs.
+ * Single responsibility: edit one prompt while rendering its live context
+ * occupancy and clearing transient admission errors on the next input action.
 */
 
 use super::super::render::{
-    ChatTurn, RenderCache, RenderContent, SUGGESTION_THRESHOLD, TokenStatus, draw_viewport,
+    ChatTurn, RenderCache, RenderContent, SUGGESTION_THRESHOLD, draw_viewport,
 };
 use super::super::scroll::{ViewportState, handle_scroll_events};
 use super::super::{INPUT_POLL_INTERVAL, bump};
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
-use crate::graph_horizon_cli::runtime::Throughput;
+use crate::graph_horizon_cli::runtime::{CapacityError, ContextBudget};
 use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
@@ -45,11 +45,10 @@ pub(super) fn read_prompt(
     content_revision: &mut u64,
     history: &[ChatTurn],
     initial: String,
-    status: TokenStatus,
-    token_count: usize,
-    throughput: Throughput,
-    output_tokens: usize,
-    context_limit: Option<usize>,
+    committed_characters: Option<usize>,
+    budget: ContextBudget,
+    duration: Option<std::time::Duration>,
+    capacity_error: &mut Option<CapacityError>,
     files: &FileAuthority,
 ) -> Result<Option<String>> {
     let mut prompt = initial;
@@ -76,6 +75,10 @@ pub(super) fn read_prompt(
             attachments::complete_at_token(files, &prompt)
         };
         let hint = tail.unwrap_or_default();
+        let characters = committed_characters
+            .and_then(|count| count.checked_add(prompt.chars().count()))
+            .unwrap_or(usize::MAX);
+        let usage = budget.usage(characters);
         let content = RenderContent::input(
             history,
             &prompt,
@@ -83,11 +86,9 @@ pub(super) fn read_prompt(
             cursor,
             &suggestions,
             suggestion_scroll,
-            status,
-            token_count,
-            throughput,
-            output_tokens,
-            context_limit,
+            usage,
+            duration,
+            *capacity_error,
         );
         draw_viewport(terminal, document, *content_revision, &content, viewport)?;
 
@@ -97,6 +98,7 @@ pub(super) fn read_prompt(
         {
             match k.code {
                 KeyCode::Enter => {
+                    capacity_error.take();
                     if let editing::Edit::Send = editing::on_enter(
                         &mut prompt,
                         &mut cursor,
@@ -133,42 +135,57 @@ pub(super) fn read_prompt(
                 }
                 // Up/Down recall older/newer prompts while editing; past the recall
                 // window they fall through to scrolling the viewport (see history.rs).
-                KeyCode::Up => history::on_up(
-                    &mut prompt,
-                    &mut cursor,
-                    &mut history_index,
-                    &mut draft,
-                    &mut suggestion_scroll,
-                    history,
-                    viewport,
-                    content_revision,
-                ),
-                KeyCode::Down => history::on_down(
-                    &mut prompt,
-                    &mut cursor,
-                    &mut history_index,
-                    &mut draft,
-                    &mut suggestion_scroll,
-                    history,
-                    viewport,
-                    content_revision,
-                ),
-                KeyCode::Char(c) => editing::on_char(
-                    c,
-                    &mut prompt,
-                    &mut cursor,
-                    &mut history_index,
-                    &mut suggestion_scroll,
-                    content_revision,
-                ),
-                KeyCode::Backspace => editing::on_backspace(
-                    &mut prompt,
-                    &mut cursor,
-                    &mut history_index,
-                    &mut suggestion_scroll,
-                    content_revision,
-                ),
-                KeyCode::Tab => editing::on_tab(&mut prompt, &mut cursor, &hint, content_revision),
+                KeyCode::Up => {
+                    capacity_error.take();
+                    history::on_up(
+                        &mut prompt,
+                        &mut cursor,
+                        &mut history_index,
+                        &mut draft,
+                        &mut suggestion_scroll,
+                        history,
+                        viewport,
+                        content_revision,
+                    )
+                }
+                KeyCode::Down => {
+                    capacity_error.take();
+                    history::on_down(
+                        &mut prompt,
+                        &mut cursor,
+                        &mut history_index,
+                        &mut draft,
+                        &mut suggestion_scroll,
+                        history,
+                        viewport,
+                        content_revision,
+                    )
+                }
+                KeyCode::Char(c) => {
+                    capacity_error.take();
+                    editing::on_char(
+                        c,
+                        &mut prompt,
+                        &mut cursor,
+                        &mut history_index,
+                        &mut suggestion_scroll,
+                        content_revision,
+                    )
+                }
+                KeyCode::Backspace => {
+                    capacity_error.take();
+                    editing::on_backspace(
+                        &mut prompt,
+                        &mut cursor,
+                        &mut history_index,
+                        &mut suggestion_scroll,
+                        content_revision,
+                    )
+                }
+                KeyCode::Tab => {
+                    capacity_error.take();
+                    editing::on_tab(&mut prompt, &mut cursor, &hint, content_revision)
+                }
                 KeyCode::Esc => return Ok(None),
                 code => handle_scroll_events(code, viewport),
             }

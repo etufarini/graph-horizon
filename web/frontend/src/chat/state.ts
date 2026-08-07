@@ -1,14 +1,20 @@
 /*
  * Chat state.
- * Single responsibility: own transcript, draft submission lifecycle, stop,
- * import/export application, system prompt, and generation stats. It depends on
- * the text-only client/transfer modules and exposes no tools or reasoning state.
+ * Single responsibility: own capacity-gated transcript mutations, transport
+ * rollback, stop behavior, and monotonic generation timing.
  */
 import { get, writable } from 'svelte/store';
 import { streamAssistant } from './client';
+import { admitMessages } from './context';
 import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
 import { parseChatFile } from './transfer';
-import type { ChatMessage, ChatSnapshot, GenerationStats, StreamDelta, WireMessage } from './types';
+import type {
+  ChatMessage,
+  ChatSnapshot,
+  RuntimeContext,
+  StreamDelta,
+  WireMessage
+} from './types';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
@@ -19,7 +25,8 @@ function emptySnapshot(): ChatSnapshot {
     status: 'idle',
     error: null,
     systemPrompt: loadSystemPrompt(),
-    stats: null
+    generationStartedAt: null,
+    generationMs: null
   };
 }
 
@@ -28,11 +35,19 @@ function nextId(role: string): string {
   return `${role}-${Date.now()}-${random}`;
 }
 
-function wireMessages(messages: ChatMessage[], systemPrompt: string): WireMessage[] {
+export function wireMessages(
+  messages: ChatMessage[],
+  systemPrompt: string,
+  draft = ''
+): WireMessage[] {
   const wire: WireMessage[] = messages.map(message => ({
     role: message.role,
     content: message.content
   }));
+  const trimmedDraft = draft.trim();
+  if (trimmedDraft) {
+    wire.push({ role: 'user', content: trimmedDraft });
+  }
   const trimmed = systemPrompt.trim();
   if (trimmed) {
     wire.unshift({ role: 'system', content: trimmed });
@@ -44,40 +59,77 @@ function createChatState() {
   const store = writable<ChatSnapshot>(emptySnapshot());
   let controller: AbortController | null = null;
 
-  async function send(text: string): Promise<void> {
+  async function send(text: string, context: RuntimeContext): Promise<void> {
     const prompt = text.trim();
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
       return;
     }
 
+    const wire = wireMessages(current.messages, current.systemPrompt, prompt);
+    const admission = admitMessages(wire, context);
+    if (!admission.ok) {
+      store.set({
+        ...current,
+        status: 'error',
+        error: `Contesto insufficiente: ~${admission.estimatedTokens} token + ${admission.maxTokens} riservati superano il budget sicuro di ${admission.safeTotalBudget} token`
+      });
+      return;
+    }
+
     const user: ChatMessage = { id: nextId('user'), role: 'user', content: prompt };
     const assistant: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
     const outgoing = [...current.messages, user];
+    controller = new AbortController();
+    const request = controller;
+    const generationStartedAt = performance.now();
     store.set({
       ...current,
       messages: [...outgoing, assistant],
       status: 'streaming',
       error: null,
-      stats: null
+      generationStartedAt,
+      generationMs: null
     });
 
-    controller = new AbortController();
-    const request = controller;
     try {
-      await streamAssistant(wireMessages(outgoing, current.systemPrompt), appendAssistant, setStats, request.signal);
-      store.update(snapshot => ({ ...snapshot, status: 'idle', error: null }));
+      await streamAssistant(
+        wire,
+        context.maxTokens,
+        appendAssistant,
+        request.signal
+      );
+      const generationMs = performance.now() - generationStartedAt;
+      store.update(snapshot => ({
+        ...snapshot,
+        status: 'idle',
+        error: null,
+        generationStartedAt: null,
+        generationMs
+      }));
     } catch (error) {
       const aborted =
         request.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
       if (aborted) {
         // Keep the stopped turn, including an empty or partial assistant message,
         // so every later request still sees an alternating transcript.
-        store.update(snapshot => ({ ...snapshot, status: 'idle', error: null, stats: null }));
+        store.update(snapshot => ({
+          ...snapshot,
+          status: 'idle',
+          error: null,
+          generationStartedAt: null,
+          generationMs: null
+        }));
       } else {
         removeTrailingTurn(user.id, assistant.id);
         const message = error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED;
-        store.update(snapshot => ({ ...snapshot, status: 'error', error: message, stats: null }));
+        store.update(snapshot => ({
+          ...snapshot,
+          status: 'error',
+          error: message,
+          generationStartedAt: null,
+          generationMs: null
+        }));
       }
     } finally {
       controller = null;
@@ -114,7 +166,8 @@ function createChatState() {
       status: 'idle',
       error: null,
       systemPrompt: result.payload.systemPrompt,
-      stats: null
+      generationStartedAt: null,
+      generationMs: null
     }));
     saveSystemPrompt(result.payload.systemPrompt);
   }
@@ -136,10 +189,6 @@ function createChatState() {
       // Roll back only the in-flight pair; completed history is immutable here.
       return { ...snapshot, messages: snapshot.messages.slice(0, -2) };
     });
-  }
-
-  function setStats(stats: GenerationStats): void {
-    store.update(snapshot => ({ ...snapshot, stats }));
   }
 
   function appendAssistant(delta: StreamDelta): void {

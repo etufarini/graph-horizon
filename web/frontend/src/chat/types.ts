@@ -1,8 +1,7 @@
 /*
  * Chat types.
- * Single responsibility: define the browser's text-only chat state and wire
- * shapes. These types do not model tools, workspaces, confirmations, or a
- * separately rendered reasoning channel.
+ * Single responsibility: define browser chat, immutable context-capacity,
+ * monotonic timing state, and text-only wire shapes.
  */
 export type Role = 'system' | 'user' | 'assistant';
 
@@ -19,19 +18,39 @@ export interface WireMessage {
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
 
-export interface GenerationStats {
-  promptTokens: number;
-  completionTokens: number;
-  prefillMs: number;
-  decodeMs: number;
+export interface RuntimeContext {
+  contextLimit: number;
+  maxTokens: number;
+  safeTotalBudget: number;
 }
+
+export interface ContextUsage {
+  estimatedTokens: number;
+  percent: number;
+  progress: number;
+}
+
+export type ContextConfigResult =
+  | { ok: true; context: RuntimeContext }
+  | { ok: false; error: 'unavailable' | 'no-prompt-space' };
+
+export type ContextAdmission =
+  | { ok: true; usage: ContextUsage }
+  | {
+      ok: false;
+      usage: ContextUsage;
+      estimatedTokens: number;
+      maxTokens: number;
+      safeTotalBudget: number;
+    };
 
 export interface ChatSnapshot {
   messages: ChatMessage[];
   status: ChatStatus;
   error: string | null;
   systemPrompt: string;
-  stats: GenerationStats | null;
+  generationStartedAt: number | null;
+  generationMs: number | null;
 }
 
 export interface StreamDelta {

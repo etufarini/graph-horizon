@@ -1,24 +1,17 @@
 /*
  * Graph Horizon CLI Modules - Console - Render - Draw
- * Draws one terminal frame: refreshes the line cache, renders the visible slice, syncs scroll.
- * Composes the status bar from the status-label helpers; owns no persistent state.
+ * Single responsibility: draw the conversation viewport and one right-aligned
+ * context/duration or capacity-error status row.
  */
 
 use ratatui::DefaultTerminal;
 use ratatui::{prelude::*, widgets::Paragraph};
 
 use super::super::scroll::{ViewportState, sync_scroll_state};
-use super::status::{count_label, speed_label};
-use super::{RenderCache, RenderContent, TokenStatus};
+use super::status::{capacity_error, context_status};
+use super::{RenderCache, RenderContent};
 use crate::graph_horizon_cli::style;
 use color_eyre::eyre::Result;
-
-// Status-bar text shown bottom-right before the token count: the off label while
-// pruning is disabled, the "∞" infinite-chat marker while it is active. No
-// trailing gap: the bar joins every field with a single space (see draw_viewport),
-// so spacing stays uniform across the whole row. Kept as editable constants.
-const PRUNING_OFF_LABEL: &str = "pruning off";
-const INFINITE_LABEL: &str = "∞";
 
 // Draws one terminal frame: rebuilds the line cache, renders the visible slice at the current
 // scroll offset, and synchronizes the viewport with the rendered document.
@@ -54,45 +47,17 @@ pub(crate) fn draw_viewport(
                 height: 1,
                 ..area
             };
-            // The bottom-right bar, left to right: speed rates, the last turn's
-            // token breakdown, the pruning label, and the conversation total. Each
-            // is a plain-grey field; empty fields drop out (speed while connecting,
-            // counts before the first reply), and the rest are joined by a single
-            // space so every gap on the row — glyph-to-number included — is the same
-            // width. One span keeps the whole bar one uniform run of text.
-            let label = match content.status {
-                TokenStatus::Off => PRUNING_OFF_LABEL,
-                TokenStatus::Active => INFINITE_LABEL,
+            let (palette, bar) = match content.capacity_error {
+                Some(error) => (style::Palette::Error, capacity_error(error)),
+                None => (
+                    style::Palette::Hint,
+                    context_status(content.usage, content.duration),
+                ),
             };
-            let bar = [
-                speed_label(content.throughput),
-                count_label(content.output_tokens),
-                label.to_string(),
-                format!("~{:.1}k tok", content.token_count as f64 / 1000.0),
-            ]
-            .into_iter()
-            .filter(|field| !field.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
             f.render_widget(
-                Paragraph::new(Line::from(style::format(style::Palette::Hint, bar)))
-                    .alignment(Alignment::Right),
+                Paragraph::new(Line::from(style::format(palette, bar))).alignment(Alignment::Right),
                 status,
             );
-
-            // Bottom-left: the raw context window as a fixed pruning reference,
-            // exact (no "~", unlike the estimated count on the right). Rendered as
-            // a separate left-aligned Paragraph over the same row; with a sane
-            // terminal width the two never overlap. A None or zero limit (pruning
-            // off) leaves the left side empty.
-            if let Some(limit) = content.context_limit.filter(|&l| l > 0) {
-                let ctx = format!("ctx {:.1}k", limit as f64 / 1000.0);
-                f.render_widget(
-                    Paragraph::new(Line::from(style::format(style::Palette::Hint, ctx)))
-                        .alignment(Alignment::Left),
-                    status,
-                );
-            }
         }
 
         sync_scroll_state(viewport, max_scroll);

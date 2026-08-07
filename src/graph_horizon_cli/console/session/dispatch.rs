@@ -1,16 +1,14 @@
 /*
  * Graph Horizon CLI Modules - Console - Session - Dispatch
- * Single responsibility: handle retained chat slash commands and expand text
- * attachments before generation. It depends on CLI plugins and session state,
- * and does not dispatch tools, confirmations, workspace, or reasoning controls.
+ * Single responsibility: handle retained slash commands, reset imported
+ * context accounting, and expand attachments before generation.
  */
 
 use super::super::bump;
-use super::super::render::{ChatTurn, conversation_tokens};
+use super::super::render::{ChatTurn, conversation_characters};
 use super::super::scroll::ViewportState;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
-use crate::graph_horizon_cli::runtime::Throughput;
 use color_eyre::eyre::Result;
 
 // Outcome of dispatching one prompt back to the session loop.
@@ -29,9 +27,8 @@ pub(super) fn dispatch(
     viewport: &mut ViewportState,
     system: &mut Option<String>,
     history: &mut Vec<ChatTurn>,
-    token_count: &mut usize,
-    output_tokens: &mut usize,
-    throughput: &mut Throughput,
+    committed_characters: &mut Option<usize>,
+    duration: &mut Option<std::time::Duration>,
     prompt: &str,
     files: &FileAuthority,
 ) -> Result<Dispatch> {
@@ -51,13 +48,12 @@ pub(super) fn dispatch(
             history: restored_history,
         }) => {
             // /import replaces the whole conversation: swap the system prompt and
-            // history, then reset the per-turn token and throughput readouts that
-            // no longer describe the restored state.
+            // history, then clear the prior generation duration because it no
+            // longer describes the restored session.
             *system = restored_system;
             *history = restored_history;
-            *token_count = conversation_tokens(system.as_deref(), history);
-            *output_tokens = 0;
-            *throughput = Throughput::default();
+            *committed_characters = conversation_characters(system.as_deref(), history);
+            *duration = None;
             viewport.manual_scroll = None;
             bump(content_revision);
             return Ok(Dispatch::Handled);
@@ -68,4 +64,24 @@ pub(super) fn dispatch(
     Ok(Dispatch::Proceed(attachments::attach_local_files(
         files, prompt,
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::graph_horizon_cli::runtime::ChatMessage;
+
+    #[test]
+    fn import_recomputes_committed_characters() {
+        let history = vec![ChatTurn::new(
+            "shown".into(),
+            "shown".into(),
+            vec![
+                ChatMessage::user("😀".into()),
+                ChatMessage::assistant("reply".into()),
+            ],
+        )];
+
+        assert_eq!(conversation_characters(Some("sys"), &history), Some(9));
+    }
 }

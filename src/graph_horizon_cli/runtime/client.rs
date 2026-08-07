@@ -1,8 +1,8 @@
 /*
  * Graph Horizon CLI Modules - Runtime - Client
- * Single responsibility: stream text-only HTTP chat completions into runtime
- * chunks. It depends on reqwest, SSE parsing, and ClientConfig, and never
- * serializes tool selection, workspace data, or internal-channel controls.
+ * Single responsibility: perform the CLI's context discovery and text-only
+ * HTTP chat requests. It depends on reqwest, SSE parsing, and ClientConfig,
+ * and never serializes tools, workspace data, or internal-channel controls.
 */
 
 use color_eyre::eyre::{Result, eyre};
@@ -20,15 +20,15 @@ pub(super) const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8080/v1";
 // Subset of the HTTP provider's /props response we depend on. Tolerant by omission:
 // only the context size is deserialized and the rest of the payload is ignored.
 // A missing or non-integer `n_ctx` makes the whole parse fail into None, which
-// the caller treats as "no limit" rather than a fatal error.
+// the startup caller treats as an unavailable mandatory context limit.
 #[derive(Deserialize)]
 struct Props {
     default_generation_settings: GenSettings,
 }
 
-// The HTTP provider reports the per-slot context window here. With N parallel slots
-// the total context is split N ways, so this is the size a single request may
-// actually use — exactly the figure the pruning threshold needs.
+// The HTTP provider reports the per-slot context window here. With N parallel
+// slots the total context is split N ways, so this is the capacity available to
+// one admitted request.
 #[derive(Deserialize)]
 struct GenSettings {
     n_ctx: usize,
@@ -44,10 +44,8 @@ fn props_url(base_url: &str) -> String {
 }
 
 // Asks the configured HTTP provider for its context window via GET /props.
-// Returns the per-slot `n_ctx` (when > 0), or None on any failure — server
-// down, timeout, non-success status, or unexpected JSON — so the caller falls
-// back to pruning disabled instead of aborting startup. The short timeout keeps
-// a slow or unreachable server from stalling the launch.
+// Returns positive per-slot `n_ctx`, or None on server, timeout, status or JSON
+// failure. Startup fails closed on None. The short timeout bounds launch delay.
 pub(super) async fn fetch_context_limit(base_url: &str) -> Option<usize> {
     let client = Client::builder()
         .timeout(Duration::from_secs(3))
@@ -78,7 +76,7 @@ pub(crate) async fn stream_completion(
         "stream": true,
     });
     // The external server owns the loaded model, so no model name is
-    // sent. `max_tokens` is the only generation cap and pruning reserve.
+    // sent. `max_tokens` is both the generation cap and admission reserve.
     body["max_tokens"] = json!(config.max_tokens);
 
     let response = Client::new().post(&url).json(&body).send().await?;

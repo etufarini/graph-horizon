@@ -1,7 +1,7 @@
 /*
- * Pure transcript boundary: validates complete alternating turns, hydrates
- * runtime IDs, and transforms chat/wire messages. Lifecycle, transport,
- * browser storage, file schemas, and presentation remain outside this module.
+ * Pure transcript boundary: validates and hydrates alternating transcripts,
+ * projects wire/prior context, and appends, reads, replaces, or removes the
+ * final pair. Lifecycle, storage, transport, and presentation remain outside.
  */
 import type { ChatMessage, TranscriptMessage, WireMessage } from './types';
 
@@ -58,15 +58,43 @@ export function appendAssistant(messages: ChatMessage[], content: string): ChatM
   return [...messages.slice(0, -1), { ...last, content: last.content + content }];
 }
 
+export function finalPair(messages: ChatMessage[]): [ChatMessage, ChatMessage] | null {
+  const user = messages.at(-2);
+  const assistant = messages.at(-1);
+  return user?.role === 'user' && assistant?.role === 'assistant'
+    ? [user, assistant]
+    : null;
+}
+
+export function replaceFinalPair(
+  messages: ChatMessage[],
+  userId: string,
+  assistantId: string,
+  userContent: string,
+  assistantContent: string
+): ChatMessage[] {
+  const pair = finalPair(messages);
+  if (!pair || pair[0].id !== userId || pair[1].id !== assistantId) {
+    return messages;
+  }
+  return [
+    ...messages.slice(0, -2),
+    { ...pair[0], content: userContent },
+    { ...pair[1], content: assistantContent }
+  ];
+}
+
+export function beforeFinalPair(messages: ChatMessage[]): ChatMessage[] {
+  return finalPair(messages) ? messages.slice(0, -2) : messages;
+}
+
 export function removeTrailingTurn(
   messages: ChatMessage[],
   userId: string,
   assistantId: string
 ): ChatMessage[] {
-  const user = messages.at(-2);
-  const assistant = messages.at(-1);
-  if (user?.role !== 'user' || user.id !== userId ||
-      assistant?.role !== 'assistant' || assistant.id !== assistantId) {
+  const pair = finalPair(messages);
+  if (!pair || pair[0].id !== userId || pair[1].id !== assistantId) {
     return messages;
   }
   return messages.slice(0, -2);

@@ -15,6 +15,7 @@ use crate::kv_cache::{
 };
 
 const SEGMENTED_CONTEXT: u32 = 512;
+const PARALLEL_CONTEXT: u32 = 1024;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(
@@ -47,16 +48,23 @@ pub(crate) fn encode(
     }
     c.extend((1.0f32 / (kv.head_dim as f32).sqrt()).to_ne_bytes());
     let width = p.get(Kernel::Attention).width;
-    let (mode, threads) = geometry(mixed_placement, rows, qh, kv.head_dim as u32, base, width)?;
+    let (mode, grid, group_threads) =
+        geometry(mixed_placement, rows, qh, kv.head_dim as u32, base, width)?;
     c.extend(mode.to_ne_bytes());
-    dispatch::encode(
-        e,
-        p,
-        Kernel::Attention,
-        &[q, &kv.k, &kv.v, out],
-        &c,
-        [threads, 1, 1],
-    )
+    let buffers = &[q, &kv.k, &kv.v, out];
+    if group_threads == 0 {
+        dispatch::encode(e, p, Kernel::Attention, buffers, &c, [grid, 1, 1])
+    } else {
+        dispatch::encode_threadgroups(
+            e,
+            p,
+            Kernel::Attention,
+            buffers,
+            &c,
+            [grid, 1, 1],
+            group_threads,
+        )
+    }
 }
 
 fn geometry(
@@ -66,20 +74,24 @@ fn geometry(
     dim: u32,
     base: u32,
     width: usize,
-) -> color_eyre::eyre::Result<(u32, usize)> {
+) -> color_eyre::eyre::Result<(u32, usize, usize)> {
     let heads = (rows as usize)
         .checked_mul(qh as usize)
         .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
     if mixed_placement {
-        Ok((0, heads))
+        Ok((0, heads, 0))
     } else {
+        let qualified = rows == 1 && dim == 128 && width == 32;
+        if qualified && base >= PARALLEL_CONTEXT - 1 {
+            return Ok((3, heads, width * 2));
+        }
         let threads = heads
             .checked_mul(width)
             .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
-        // Mode 2 is intentionally narrow: four eight-lane segments retain one
-        // dispatch only for the qualified decode shape and long KV scans.
-        let segmented = rows == 1 && dim == 128 && width == 32 && base >= SEGMENTED_CONTEXT - 1;
-        Ok((if segmented { 2 } else { 1 }, threads))
+        // Mode 2 retains one SIMD-group per head for the established medium
+        // context route; mode 3 widens only qualified long decode threadgroups.
+        let segmented = qualified && base >= SEGMENTED_CONTEXT - 1;
+        Ok((if segmented { 2 } else { 1 }, threads, 0))
     }
 }
 
@@ -89,15 +101,17 @@ mod tests {
 
     #[test]
     fn metal_attention_route_depends_on_effective_placement_not_feature() {
-        assert_eq!(geometry(false, 2, 4, 128, 511, 32).unwrap(), (1, 256));
-        assert_eq!(geometry(false, 1, 4, 128, 510, 32).unwrap(), (1, 128));
-        assert_eq!(geometry(false, 1, 4, 128, 511, 32).unwrap(), (2, 128));
-        assert_eq!(geometry(false, 1, 4, 64, 511, 32).unwrap(), (1, 128));
-        assert_eq!(geometry(true, 1, 4, 128, 511, 32).unwrap(), (0, 4));
+        assert_eq!(geometry(false, 2, 4, 128, 511, 32).unwrap(), (1, 256, 0));
+        assert_eq!(geometry(false, 1, 4, 128, 510, 32).unwrap(), (1, 128, 0));
+        assert_eq!(geometry(false, 1, 4, 128, 511, 32).unwrap(), (2, 128, 0));
+        assert_eq!(geometry(false, 1, 4, 128, 1022, 32).unwrap(), (2, 128, 0));
+        assert_eq!(geometry(false, 1, 4, 128, 1023, 32).unwrap(), (3, 4, 64));
+        assert_eq!(geometry(false, 1, 4, 64, 1023, 32).unwrap(), (1, 128, 0));
+        assert_eq!(geometry(true, 1, 4, 128, 1023, 32).unwrap(), (0, 4, 0));
         assert!(geometry(false, u32::MAX, u32::MAX, 128, 511, 32).is_err());
         assert_eq!(
-            geometry(true, u32::MAX, u32::MAX, 128, 511, 32).unwrap(),
-            (0, u32::MAX as usize * u32::MAX as usize)
+            geometry(true, u32::MAX, u32::MAX, 128, 1023, 32).unwrap(),
+            (0, u32::MAX as usize * u32::MAX as usize, 0)
         );
     }
 }

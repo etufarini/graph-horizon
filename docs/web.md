@@ -1,7 +1,8 @@
 <!--
-This document owns the current local browser UI, static routes, chat behavior,
-browser persistence, Reasoning presentation, and transfer format. It does not
-own server or model policy or describe removed tool/workspace capabilities.
+This document owns the current local browser UI, static routes, multi-chat
+history, last-turn controls, browser persistence, Reasoning presentation, and
+transfer format. It does not own server or model policy or describe removed
+tool/workspace capabilities.
 -->
 
 # Local Web UI
@@ -89,56 +90,132 @@ explicit `--max-tokens` to both browser admission and every request body.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 qualified temperature `0.7` policy.
 
-### Conversation Persistence
+### Saved Chat Persistence
 
-The browser restores one conversation synchronously during UI initialization.
-It uses the origin-scoped `localStorage` key `graph-horizon.conversation`; a
-different scheme, host, or port therefore selects a different conversation.
-An absent key starts an empty chat without a warning.
-
-The compact record is distinct from import/export and has exactly this shape:
+The browser restores one chat collection synchronously from the origin-scoped
+`localStorage` key `graph-horizon.conversation`. A different scheme, host, or
+port therefore selects a different archive. The private compact record is
+distinct from import/export and has exactly this version-2 shape:
 
 ```json
 {
-  "version": 1,
-  "messages": [
-    { "role": "user", "content": "..." },
-    { "role": "assistant", "content": "..." }
+  "version": 2,
+  "activeChatId": "00000000-0000-4000-8000-000000000001",
+  "chats": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "title": "Titolo",
+      "messages": [
+        { "role": "user", "content": "..." },
+        { "role": "assistant", "content": "..." }
+      ],
+      "updatedAt": 0
+    }
   ]
 }
 ```
 
-Messages must be empty or complete, strictly alternating user/assistant pairs.
-Runtime IDs are regenerated on restore. The record excludes the system prompt,
-draft, status, errors, timing, context settings, and presentation-only
-Reasoning state. The system prompt remains separately stored under
-`graph-horizon.system-prompt`.
+The list is never empty, IDs are unique UUIDs, and `activeChatId` identifies
+exactly one member. Every transcript is empty or consists of complete, strictly
+alternating `user`/`assistant` pairs. Titles contain 1–80 Unicode code points;
+`updatedAt` is a non-negative safe Unix time in milliseconds. Runtime message
+IDs are regenerated on restore and never enter the archive.
 
-Successful `[DONE]`, a settled stop, and a valid import are the only save
-checkpoints. Stop saves an empty or partial assistant response as the completed
-pair. `Nuova chat` is the only clear checkpoint: it retains the system prompt,
-clears chat errors and generation timing, asks
-`Iniziare una nuova chat? La conversazione corrente verrà eliminata.` only when
-messages exist, and clears an already empty idle chat without confirmation.
-Draft edits, system-prompt edits, admission rejection, generation start,
-assistant deltas, timing updates, and failed-request rollback never write the
-conversation record. Closing or reloading during streaming therefore leaves
-the previous stable record unchanged.
+The serialized archive is limited to 4,194,304 UTF-8 bytes. A missing key
+creates, activates, and immediately attempts to save one empty `Nuova chat`.
+Malformed JSON, unknown versions, extra or missing fields, oversize data, and
+any invariant violation cause the entire archive to be ignored and removed
+when possible. Successful cleanup shows `Archivio chat non valido: avvio con
+una chat vuota`; a cleanup, acquisition, read, or write failure shows
+`Persistenza non disponibile: le chat resteranno solo in memoria`.
 
-Stored text and new records are limited to 4 MiB measured as UTF-8. Corrupt,
-oversized, unknown-version, or structurally invalid records are ignored and
-removed when possible. Successful removal shows `Conversazione salvata non
-valida: avvio con una chat vuota`. If obtaining, reading, writing, or removing
-`localStorage` fails, the in-memory chat continues and the UI shows
-`Persistenza non disponibile: la conversazione resterà solo in memoria`. A
-failed save preserves the previous stable record. A failed `Nuova chat` removal
-still clears memory, but the older record may return on reload. A later
-successful stable operation clears the warning.
+The system prompt remains global and separately stored under
+`graph-horizon.system-prompt`. The archive excludes it along with drafts,
+status, errors, generation timing, context settings, and presentation-only
+Reasoning state.
 
-There is no storage-event listener, merge, or synchronization. With multiple
-tabs, the last successful stable writer wins. Persistence is browser-only and
-stores one conversation: the CLI and server have no corresponding persistence,
-database, filesystem write, or HTTP route.
+Stable transcript checkpoints are successful `[DONE]`, settled Stop,
+regenerate, edit-and-regenerate, and deletion of the final turn. They update
+that chat's `updatedAt` and save the complete collection once after idle state.
+Creating, selecting, renaming, or deleting a chat and importing a chat also
+save immediately; selection and rename do not change `updatedAt`. Generation
+start, assistant deltas, draft/system-prompt edits, capacity rejection, and
+transport rollback never save the collection.
+
+A failed stable save keeps the in-memory result and preserves the previous
+stored value. Reload may therefore restore the older archive; this is not a
+recovery merge. A later successful checkpoint clears the warning. There is no
+`storage` listener or cross-tab merge: the last successful stable writer wins.
+The CLI and server have no corresponding persistence, database, filesystem
+write, or HTTP route.
+
+### Legacy Conversation Migration
+
+The loader recognizes only the exact legacy private record
+`{"version":1,"messages":[...]}` with a valid complete transcript. It migrates
+the transcript unchanged into one active chat, derives the title from the
+first user message, and attempts one version-2 `setItem` on the same key.
+
+The replacement is atomic from the application's perspective: the legacy value
+is replaced only when the version-2 write succeeds. If serialization or the
+write fails, the migrated collection remains usable in memory, the exact
+version-1 value remains stored, and persistence is reported unavailable. A
+later reload may therefore attempt migration again. Invalid legacy input follows
+the invalid-archive cleanup path rather than returning a valid prefix.
+
+### Chat History Controls
+
+`NUOVA CHAT` creates and activates an empty chat only when the current chat is
+non-empty; requesting it from an already empty active chat is a no-op. A new
+chat receives an unused UUID, `Nuova chat`, and the current timestamp. Its first
+stable transcript derives a title from the first 48 Unicode code points of the
+trimmed first user message after collapsing whitespace, without an ellipsis.
+
+The history list sorts by descending `updatedAt`, then ascending ID. Selection
+persists only `activeChatId`. The always-visible row menu offers `RINOMINA` and
+`ELIMINA`; rename trims outer whitespace, preserves inner whitespace, and
+accepts 1–80 Unicode code points. Deletion requires the displayed irreversible
+confirmation. Deleting the active chat selects the most recently updated
+remaining chat; deleting the only chat creates one empty active replacement.
+Deleting a final turn does not reset an already derived title.
+
+History creation, selection, rename, and deletion are disabled during
+streaming. Import and all final-turn controls are disabled at the same time;
+Stop remains available.
+
+### Last-Turn Controls
+
+Only the final complete pair exposes controls: `MODIFICA` and `ELIMINA` below
+the user message, and `RIGENERA` below the assistant response. Earlier turns
+cannot be edited. Edit uses the current prompt as a local multiline draft;
+empty trimmed edits cannot be saved, and cancel or Escape discards the draft.
+Deletion asks `Eliminare l’ultimo turno? Il messaggio e la risposta verranno
+rimossi.` and removes the entire pair after confirmation.
+
+Regenerate sends the unchanged final user prompt with the system prompt and all
+messages before the final pair; the previous assistant response is excluded.
+Edit-and-regenerate substitutes the trimmed edited prompt. Capacity admission
+runs against that candidate and prior context before fetch or visible mutation.
+A rejected candidate leaves the stable transcript and archive unchanged.
+
+A new-send transport failure removes its uncommitted appended pair. A failed
+regenerate or edit-and-regenerate instead restores the exact prior user and
+assistant pair. Stop commits the candidate prompt and current replacement
+response, including an empty assistant response, clears final timing, updates
+recency, and saves once after abort settles. Stream deltas are never persisted.
+
+### Responsive Chat History
+
+Above 720 CSS pixels, the bounded 1320-pixel application shows a collapsible
+264-pixel history column beside the chat surface; closing it lets the chat use
+the released width. At 720 pixels or narrower, history starts closed and opens
+as a fixed left drawer over a backdrop. Selection, backdrop activation, and
+Escape close the mobile drawer and return focus to the accessible history
+toggle. The chat list and transcript scroll independently while the document
+body and composer remain fixed in the viewport. Collapse state is not stored.
+
+All history and final-turn controls are keyboard reachable, use visible focus
+treatment, and remain visible when eligible rather than depending on hover.
 
 ## Context And Generation Status
 
@@ -207,13 +284,17 @@ The web UI exports a versioned JSON object:
 ```
 
 Import requires `version: 1`, strings for the system prompt and message content,
-and complete `user`/`assistant` pairs. An invalid file leaves the current
-conversation intact. If history exists, the UI asks for confirmation before
-reading and applying the file.
+and complete `user`/`assistant` pairs. A valid file creates and activates a new
+chat, derives its title, persists the collection, and applies its system prompt
+globally. An imported empty transcript still creates a new empty chat. Invalid
+or unreadable files leave the collection, active selection, archive, and global
+system prompt unchanged. No replacement confirmation is shown.
 
-Unlike the browser conversation record, this file includes `systemPrompt`.
-Both formats share the same complete-pair transcript validation, but neither is
-the JSON array used by TUI `/export` and `/import`.
+Export serializes only the active chat. Unlike the private version-2 browser
+archive, the public file remains version 1 and includes `systemPrompt`; private
+chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
+share complete-pair transcript validation, but neither is the JSON array used by
+TUI `/export` and `/import`.
 
 ## Errors And Limits
 
@@ -222,6 +303,8 @@ limited to 4 MiB under their respective contracts. HTTP and stream errors
 become short UI messages; parser, engine, storage, and filesystem details are
 not shown. The Web gate rejects over-budget requests before transport.
 
-The current UI does not include multiple saved chats, login, API keys, tool
-calling, a workspace, a separate Reasoning protocol/state channel, or advanced
-sampling controls.
+The Web UI has no server persistence, accounts, authentication, account or
+cross-tab synchronization/merge, response-version history, earlier-turn
+editing, chat search, pins, archive folders, bulk deletion, or model selection
+for regenerate. It also has no API-key flow, tool calling, workspace, separate
+Reasoning protocol/state channel, or advanced sampling controls.

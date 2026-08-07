@@ -10,7 +10,7 @@
     "dev": "vite",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "build": "vite build",
-    "test": "node --experimental-strip-types --test src/chat/reasoning.test.ts"
+    "test": "node --experimental-strip-types --test src/chat/*.test.ts"
   },
   "dependencies": {
     "dompurify": "^3.4.12",

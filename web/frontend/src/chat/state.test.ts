@@ -5,6 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { serializeChat } from './transfer.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
 
 const CONVERSATION_KEY = 'graph-horizon.conversation';
@@ -169,6 +170,28 @@ test('valid import creates a new active chat and invalid import changes no durab
   chat.importChat(imported('empty system', []));
   assert.equal(snapshot.collection.chats.length, count + 2);
   assert.deepEqual(active().messages, []);
+});
+
+test('invalid JSON preserves prompt and archive while export stays public version 1', () => {
+  const collection = snapshot.collection;
+  const systemPrompt = snapshot.systemPrompt;
+  const archive = storage.values.get(CONVERSATION_KEY);
+  storage.resetCalls();
+  chat.importChat('{');
+  assert.equal(snapshot.collection, collection);
+  assert.equal(snapshot.systemPrompt, systemPrompt);
+  assert.equal(storage.values.get(CONVERSATION_KEY), archive);
+  assert.equal(storage.values.get(SYSTEM_KEY), systemPrompt);
+  assert.equal(conversationSets().length, 0);
+
+  const exported = JSON.parse(serializeChat(active().messages, snapshot.systemPrompt));
+  assert.deepEqual(exported, {
+    version: 1,
+    systemPrompt,
+    messages: plain()
+  });
+  assert.equal('activeChatId' in exported, false);
+  assert.equal('title' in exported, false);
 });
 
 test('streaming guards every collection and last-turn mutation', async () => {

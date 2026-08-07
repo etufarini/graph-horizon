@@ -21,6 +21,7 @@ pub(crate) fn encode(
     input: u32,
     output: u32,
     fp32: bool,
+    mixed_placement: bool,
 ) -> Result<()> {
     let format = match w.format() {
         MetalFormat::F16 => 0,
@@ -29,26 +30,44 @@ pub(crate) fn encode(
         MetalFormat::Q6K => 3,
         other => return Err(eyre!("metal: unsupported weight format '{other:?}'")),
     };
-    let threads = if matches!(format, 1 | 3) {
-        // The paired-row kernel's lane partition and reductions require one
-        // complete 32-lane Apple SIMD-group per output pair.
+    if matches!(format, 1 | 3) {
+        // Two independent SIMD-groups share one threadgroup. Each still owns
+        // exactly two output rows. Mixed placement retains its qualified
+        // single-group route because its CPU-dominant control regresses here.
         if p.get(Kernel::Matmul).width != 32 {
             return Err(eyre!("metal: quantized projection requires 32 threads"));
         }
-        (output as usize)
+        if !mixed_placement {
+            return dispatch::encode_threadgroups(
+                e,
+                p,
+                Kernel::Matmul,
+                &[a, w, out],
+                &super::u32s(&[input, output, format, u32::from(fp32)]),
+                [(output as usize).div_ceil(4), 1, 1],
+                64,
+            );
+        }
+        let threads = (output as usize)
             .div_ceil(2)
             .checked_mul(32)
-            .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?
-    } else {
-        output as usize
-    };
+            .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?;
+        return dispatch::encode(
+            e,
+            p,
+            Kernel::Matmul,
+            &[a, w, out],
+            &super::u32s(&[input, output, format, u32::from(fp32)]),
+            [threads, 1, 1],
+        );
+    }
     dispatch::encode(
         e,
         p,
         Kernel::Matmul,
         &[a, w, out],
         &super::u32s(&[input, output, format, u32::from(fp32)]),
-        [threads, 1, 1],
+        [output as usize, 1, 1],
     )
 }
 
@@ -72,17 +91,19 @@ pub(crate) fn encode_batched(
     // The cooperative path is retained only where its A/B control passed;
     // an effective Mixed suffix keeps the stable per-row execution order.
     if cooperative(mixed_placement, rows, input, output, format) {
-        // One 32-lane SIMD group computes each 8-column output tile.
+        // Four SIMD-groups share one activation tile and compute 32 adjacent
+        // output columns without changing any group's FP32 accumulation.
         if p.get(Kernel::MatmulBatched).width != 32 {
             return Err(eyre!("metal: batched projection requires 32 threads"));
         }
-        return dispatch::encode(
+        return dispatch::encode_threadgroups(
             e,
             p,
             Kernel::MatmulBatched,
             &[a, w, out],
             &super::u32s(&[input, output, format, rows]),
-            [(output as usize).div_ceil(8) * 32, 1, 1],
+            [(output as usize).div_ceil(32), 1, 1],
+            128,
         );
     }
 
@@ -91,7 +112,17 @@ pub(crate) fn encode_batched(
     for row in 0..u64::from(rows) {
         let input_row = a.view(row * input_stride, input_stride)?;
         let output_row = out.view(row * output_stride, output_stride)?;
-        encode(e, p, &output_row, &input_row, w, input, output, false)?;
+        encode(
+            e,
+            p,
+            &output_row,
+            &input_row,
+            w,
+            input,
+            output,
+            false,
+            mixed_placement,
+        )?;
     }
     Ok(())
 }

@@ -216,7 +216,7 @@ fn hybrid_numeric_dispatch_uses_effective_placement() {
     }
     let backend = fs::read_to_string(metal.join("backend.rs")).expect("Metal backend delegator");
     assert_eq!(backend.matches("AGENTS deroga I").count(), 1);
-    assert_eq!(backend.matches("self.mixed_placement").count(), 3);
+    assert_eq!(backend.matches("self.mixed_placement").count(), 5);
     let contract = fs::read_to_string(manifest().join("src/backend/hybrid/contract.rs"))
         .expect("hybrid device contract");
     assert_eq!(contract.matches("AGENTS deroga I").count(), 1);

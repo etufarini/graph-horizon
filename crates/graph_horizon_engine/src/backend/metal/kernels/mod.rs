@@ -165,7 +165,9 @@ mod tests {
         let matrix = buffer(&device, &[1.; 15], MetalFormat::F16)?;
         let output = MetalBuffer::allocate(&device, 6, MetalFormat::F16)?;
         let encoder = MetalEncoder::begin(&device)?;
-        matmul::encode(&encoder, &pipelines, &output, &input, &matrix, 5, 3, false)?;
+        matmul::encode(
+            &encoder, &pipelines, &output, &input, &matrix, 5, 3, false, false,
+        )?;
         encoder.submit()?;
         assert_eq!(halfs(&output, 3)?, vec![15.; 3]);
 
@@ -176,6 +178,54 @@ mod tests {
         normalization::encode(&encoder, &pipelines, &norm, &residual, &scale, 3, 1e-5, 2)?;
         encoder.submit()?;
         assert!(halfs(&norm, 6)?.into_iter().all(f32::is_finite));
+        Ok(())
+    }
+
+    #[test]
+    fn rmsnorm_matches_cpu_for_multiple_odd_rows() -> Result<()> {
+        const DIM: usize = 257;
+        const ROWS: usize = 3;
+
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let values: Vec<f32> = (0..DIM * ROWS)
+            .map(|index| ((index * 17 % 41) as f32 - 20.) / 7.)
+            .collect();
+        let weights: Vec<f32> = (0..DIM)
+            .map(|index| 0.5 + (index % 11) as f32 / 10.)
+            .collect();
+        let input = buffer(&device, &values, MetalFormat::F32)?;
+        let scale = buffer(&device, &weights, MetalFormat::F16)?;
+        let output = MetalBuffer::allocate(&device, (DIM * ROWS * 2) as u64, MetalFormat::F16)?;
+        let encoder = MetalEncoder::begin(&device)?;
+        normalization::encode(
+            &encoder,
+            &pipelines,
+            &output,
+            &input,
+            &scale,
+            DIM as u32,
+            1e-5,
+            ROWS as u32,
+        )?;
+        encoder.submit()?;
+
+        for (row, got) in values
+            .chunks_exact(DIM)
+            .zip(halfs(&output, DIM * ROWS)?.chunks_exact(DIM))
+        {
+            let inverse_rms = (row.iter().map(|value| value * value).sum::<f32>() / DIM as f32
+                + 1e-5)
+                .sqrt()
+                .recip();
+            for ((value, weight), actual) in row.iter().zip(&weights).zip(got) {
+                let expected = value * inverse_rms * weight;
+                assert!(
+                    (actual - expected).abs() <= 0.003,
+                    "got {actual}, want {expected}"
+                );
+            }
+        }
         Ok(())
     }
 
@@ -194,7 +244,7 @@ mod tests {
             let output = MetalBuffer::allocate(&device, 6, MetalFormat::F16)?;
             let encoder = MetalEncoder::begin(&device)?;
             matmul::encode(
-                &encoder, &pipelines, &output, &input, &weights, 512, 3, false,
+                &encoder, &pipelines, &output, &input, &weights, 512, 3, false, false,
             )?;
             encoder.submit()?;
             assert_eq!(halfs(&output, 3)?, vec![0.; 3]);
@@ -232,6 +282,7 @@ mod tests {
                 INPUT as u32,
                 OUTPUT as u32,
                 true,
+                false,
             )?;
             encoder.submit()?;
 
@@ -296,6 +347,7 @@ mod tests {
                     &weights,
                     INPUT as u32,
                     OUTPUT as u32,
+                    false,
                     false,
                 )?;
             }

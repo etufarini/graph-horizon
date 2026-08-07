@@ -122,6 +122,7 @@ impl Backend for MetalBackend {
             in_dim,
             out_dim,
             false,
+            self.mixed_placement,
         );
     }
 
@@ -166,6 +167,7 @@ impl Backend for MetalBackend {
             in_dim,
             out_dim,
             true,
+            self.mixed_placement,
         );
     }
 

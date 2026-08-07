@@ -13,7 +13,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export function createCollection(
   updatedAt = Date.now(),
-  idSource = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
   const id = nextId([], idSource);
   return {
@@ -37,7 +37,7 @@ export function appendChat(
   collection: ChatCollection,
   messages: ChatMessage[],
   updatedAt = Date.now(),
-  idSource = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
   if (validateTranscript(messages) === null) {
     return collection;
@@ -55,7 +55,7 @@ export function appendChat(
 export function newChat(
   collection: ChatCollection,
   updatedAt = Date.now(),
-  idSource = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
   return activeChat(collection).messages.length === 0
     ? collection
@@ -91,7 +91,7 @@ export function deleteChat(
   collection: ChatCollection,
   id: string,
   updatedAt = Date.now(),
-  idSource = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
   if (!collection.chats.some(chat => chat.id === id)) {
     return collection;

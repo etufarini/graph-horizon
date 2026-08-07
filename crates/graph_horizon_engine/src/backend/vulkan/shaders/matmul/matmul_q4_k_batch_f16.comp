@@ -17,7 +17,7 @@
 // Layout: A POSITION/TOKEN-MAJOR float16_t a[col*in_dim + k]; Y float16_t
 // y[col*out_dim + o] (same token-major [n][out_dim] the per-token path writes); W
 // Q4_K row-major, in_dim a multiple of 256. Grid is 2D (row-tile, col-tile) =
-// (out_dim/64, n/64).
+// (out_dim/64, n/32). One 256-thread workgroup computes a 64x32 output tile.
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [n][in_dim] token-major
@@ -27,16 +27,16 @@ layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [n][out_d
 layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
 
 const uint TILE_ROWS = 64u;
-const uint TILE_COLS = 64u;
+const uint TILE_COLS = 32u;
 // K-strip staged per barrier round. TK only sets the tiling — the accumulation still
 // runs sequentially over k=0..in_dim, so the result is bit-identical for any TK that
 // divides in_dim (always a multiple of 256 for Q4_K, so 16/32/64 all divide evenly).
 // TK=32 measured fastest on the large batched prefill case: it halves the stage+2-barrier
 // rounds of TK=16 while keeping occupancy (TK=64's 32 KB of shared regressed it).
 const uint TK = 32u;
-const uint TM = 4u;
+const uint TM = 2u;
 const uint TN = 4u;
-const uint THREADS_X = 16u;
+const uint THREADS_X = 8u;
 
 shared float ws[TILE_ROWS * TK];
 shared float as_[TILE_COLS * TK];

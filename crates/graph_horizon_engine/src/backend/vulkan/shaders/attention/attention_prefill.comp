@@ -18,9 +18,11 @@
 //
 // Numerics-changing (grouped/reordered softmax sum, f16-level drift), gated by the
 // f32 oracle. See attention_decode.comp for the invariants (head_dim <= 128, etc.).
-// A 256-thread group supplies four subgroups on wave64 hardware and eight on
-// subgroup-32 hardware, reducing each subgroup's serial KV span.
-layout(local_size_x = 256) in;
+// The build emits a 256-thread fallback and a capability-gated 512-thread variant.
+#ifndef ATTENTION_LOCAL_SIZE
+#define ATTENTION_LOCAL_SIZE 256
+#endif
+layout(local_size_x = ATTENTION_LOCAL_SIZE) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };   // [n*q_heads*head_dim]
 layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
@@ -39,7 +41,7 @@ layout(push_constant) uniform P {
 } p;
 
 const uint MAX_DPL = 8u;
-const uint MAX_G = 16u;
+const uint MAX_G = uint(ATTENTION_LOCAL_SIZE) / 16u;
 
 shared float sh_m[MAX_G];
 shared float sh_l[MAX_G];

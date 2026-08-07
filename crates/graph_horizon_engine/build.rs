@@ -1,6 +1,7 @@
 /*
  * graph_horizon_engine — offline shader build
- * Compiles recursive Vulkan GLSL only for Vulkan profiles and links the ten
+ * Compiles recursive Vulkan GLSL plus the two wide-attention variants for Vulkan
+ * profiles and links the ten
  * trusted Metal sources into one OUT_DIR metallib only for Metal profiles.
  * It performs no runtime compilation and never reads model data.
  */
@@ -23,12 +24,6 @@ fn build_vulkan() {
 
     let compiler = shaderc::Compiler::new().expect("shaderc: cannot create compiler");
     let out_dir = std::env::var("OUT_DIR").expect("build: OUT_DIR not set");
-    let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
-    options.set_target_env(
-        shaderc::TargetEnv::Vulkan,
-        shaderc::EnvVersion::Vulkan1_3 as u32,
-    );
-
     for path in shaders {
         println!("cargo:rerun-if-changed={}", path.display());
         let name = path
@@ -37,19 +32,50 @@ fn build_vulkan() {
             .expect("build: invalid shader file name");
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|_| panic!("build: cannot read shader '{}'", path.display()));
-        let artifact = compiler
-            .compile_into_spirv(
+        compile_vulkan_shader(&compiler, &path, &source, name, None, Path::new(&out_dir));
+        if matches!(name, "attention_decode" | "attention_prefill") {
+            let wide = format!("{name}_wide");
+            compile_vulkan_shader(
+                &compiler,
+                &path,
                 &source,
-                shaderc::ShaderKind::Compute,
-                &path.to_string_lossy(),
-                "main",
-                Some(&options),
-            )
-            .unwrap_or_else(|error| panic!("build: shader '{name}' failed to compile:\n{error}"));
-        let output = Path::new(&out_dir).join(format!("{name}.spv"));
-        std::fs::write(&output, artifact.as_binary_u8())
-            .unwrap_or_else(|_| panic!("build: cannot write '{}'", output.display()));
+                &wide,
+                Some("512"),
+                Path::new(&out_dir),
+            );
+        }
     }
+}
+
+#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
+fn compile_vulkan_shader(
+    compiler: &shaderc::Compiler,
+    path: &std::path::Path,
+    source: &str,
+    name: &str,
+    local_size: Option<&str>,
+    out_dir: &std::path::Path,
+) {
+    let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
+    options.set_target_env(
+        shaderc::TargetEnv::Vulkan,
+        shaderc::EnvVersion::Vulkan1_3 as u32,
+    );
+    if let Some(local_size) = local_size {
+        options.add_macro_definition("ATTENTION_LOCAL_SIZE", Some(local_size));
+    }
+    let artifact = compiler
+        .compile_into_spirv(
+            source,
+            shaderc::ShaderKind::Compute,
+            &path.to_string_lossy(),
+            "main",
+            Some(&options),
+        )
+        .unwrap_or_else(|error| panic!("build: shader '{name}' failed to compile:\n{error}"));
+    let output = out_dir.join(format!("{name}.spv"));
+    std::fs::write(&output, artifact.as_binary_u8())
+        .unwrap_or_else(|_| panic!("build: cannot write '{}'", output.display()));
 }
 
 #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]

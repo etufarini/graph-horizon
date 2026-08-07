@@ -117,11 +117,16 @@ pub(crate) fn attention_decode(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&scale.to_le_bytes());
+    let kernel = if reg.contains(Kernel::AttentionDecodeWide) {
+        Kernel::AttentionDecodeWide
+    } else {
+        Kernel::AttentionDecode
+    };
     dispatch(
         dev,
         reg,
         cmd,
-        Kernel::AttentionDecode,
+        kernel,
         &[
             (q.buffer, q.offset, q.size),
             (kc.buffer, kc.offset, kc.size),
@@ -155,11 +160,16 @@ pub(crate) fn attention_prefill(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&scale.to_le_bytes());
+    let kernel = if reg.contains(Kernel::AttentionPrefillWide) {
+        Kernel::AttentionPrefillWide
+    } else {
+        Kernel::AttentionPrefill
+    };
     dispatch_2d(
         dev,
         reg,
         cmd,
-        Kernel::AttentionPrefill,
+        kernel,
         &[
             (q.buffer, q.offset, q.size),
             (kc.buffer, kc.offset, kc.size),

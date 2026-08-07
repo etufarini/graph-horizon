@@ -25,9 +25,12 @@
 // f32-oracle gated, f16-level drift), not bit-identical.
 //
 // Invariants (already held by the call sites): head_dim <= 128 and a multiple of
-// the subgroup size. A 256-thread group gives four subgroups on wave64 hardware
-// and eight on subgroup-32 hardware; MAX_DPL/MAX_G cover both layouts.
-layout(local_size_x = 256) in;
+// the subgroup size. The build emits a 256-thread fallback and a capability-gated
+// 512-thread variant; MAX_DPL/MAX_G cover subgroup sizes down to 16.
+#ifndef ATTENTION_LOCAL_SIZE
+#define ATTENTION_LOCAL_SIZE 256
+#endif
+layout(local_size_x = ATTENTION_LOCAL_SIZE) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };   // [q_heads*head_dim]
 layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
@@ -45,7 +48,7 @@ layout(push_constant) uniform P {
 } p;
 
 const uint MAX_DPL = 8u;  // dims per lane: ceil(head_dim / subgroup_size), <=8 for S>=16
-const uint MAX_G = 16u;   // subgroups per workgroup: 256 / S, <=16 for S>=16
+const uint MAX_G = uint(ATTENTION_LOCAL_SIZE) / 16u;
 
 // Per-subgroup combine state. sh_acc holds each subgroup's partial output over the
 // full head_dim: sh_acc[g*head_dim + d].

@@ -1,87 +1,68 @@
 /*
- * Versioned conversation-storage boundary: owns the exact localStorage record,
- * UTF-8 bound, and exception-safe load/save/clear operations. System prompts,
- * UI text, lifecycle checkpoints, and alternative stores are excluded.
+ * Browser chat-storage I/O boundary: owns exception-safe load, save, invalid
+ * cleanup, and atomic migration choreography. Archive schemas belong to
+ * archive.ts, collection rules to sessions.ts, and checkpoints to state.ts.
  */
-import { validateTranscript } from './transcript.ts';
-import type {
-  ChatMessage,
-  ConversationLoadResult,
-  PersistenceWarning,
-  TranscriptMessage
-} from './types';
+import { parseArchive, serializeArchive, STORAGE_KEY } from './archive.ts';
+import { createCollection } from './sessions.ts';
+import type { ChatCollection, ChatLoadResult, ChatSaveResult } from './types.ts';
 
-export const STORAGE_KEY = 'graph-horizon.conversation';
-export const FORMAT_VERSION = 1;
-export const MAX_RECORD_BYTES = 4_194_304;
-
-function exactObject(value: unknown, keys: string[]): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return false;
+export function loadChats(
+  updatedAt = Date.now(),
+  idSource: () => string = () => globalThis.crypto.randomUUID()
+): ChatLoadResult {
+  let storage: Storage;
+  let raw: string | null;
+  try {
+    storage = window.localStorage;
+    raw = storage.getItem(STORAGE_KEY);
+  } catch {
+    return { collection: createCollection(updatedAt, idSource), warning: 'unavailable' };
   }
-  const actual = Object.keys(value);
-  return actual.length === keys.length && keys.every(key => actual.includes(key));
-}
 
-function invalidRecord(storage: Storage): ConversationLoadResult {
+  if (raw === null) {
+    const collection = createCollection(updatedAt, idSource);
+    return { collection, warning: write(storage, collection) };
+  }
+
+  const parsed = parseArchive(raw, updatedAt, idSource);
+  if (parsed.kind === 'current') {
+    return { collection: parsed.collection, warning: null };
+  }
+  if (parsed.kind === 'legacy') {
+    // One successful setItem atomically replaces the exact legacy value.
+    return { collection: parsed.collection, warning: write(storage, parsed.collection) };
+  }
+
+  const collection = createCollection(updatedAt, idSource);
   try {
     storage.removeItem(STORAGE_KEY);
-    return { messages: [], warning: 'invalid-record' };
+    return { collection, warning: 'invalid-record' };
   } catch {
-    return { messages: [], warning: 'unavailable' };
+    return { collection, warning: 'unavailable' };
   }
 }
 
-export function loadConversation(): ConversationLoadResult {
-  try {
-    const storage = window.localStorage;
-    const raw = storage.getItem(STORAGE_KEY);
-    if (raw === null) {
-      return { messages: [], warning: null };
-    }
-    if (new TextEncoder().encode(raw).byteLength > MAX_RECORD_BYTES) {
-      return invalidRecord(storage);
-    }
-    let value: unknown;
-    try {
-      value = JSON.parse(raw);
-    } catch {
-      return invalidRecord(storage);
-    }
-    if (!exactObject(value, ['version', 'messages']) || value.version !== FORMAT_VERSION ||
-        !Array.isArray(value.messages) ||
-        !value.messages.every(message => exactObject(message, ['role', 'content']))) {
-      return invalidRecord(storage);
-    }
-    const messages = validateTranscript(value.messages);
-    return messages === null ? invalidRecord(storage) : { messages, warning: null };
-  } catch {
-    return { messages: [], warning: 'unavailable' };
-  }
-}
-
-export function saveConversation(
-  messages: ChatMessage[] | TranscriptMessage[]
-): PersistenceWarning | null {
-  const transcript = validateTranscript(messages);
-  if (transcript === null) {
-    return 'unavailable';
-  }
-  const raw = JSON.stringify({ version: FORMAT_VERSION, messages: transcript });
-  if (new TextEncoder().encode(raw).byteLength > MAX_RECORD_BYTES) {
+export function saveChats(collection: ChatCollection): ChatSaveResult {
+  const serialized = serializeArchive(collection);
+  if (!serialized.ok) {
     return 'unavailable';
   }
   try {
-    window.localStorage.setItem(STORAGE_KEY, raw);
+    window.localStorage.setItem(STORAGE_KEY, serialized.raw);
     return null;
   } catch {
     return 'unavailable';
   }
 }
 
-export function clearConversation(): PersistenceWarning | null {
+function write(storage: Storage, collection: ChatCollection): ChatSaveResult {
+  const serialized = serializeArchive(collection);
+  if (!serialized.ok) {
+    return 'unavailable';
+  }
   try {
-    window.localStorage.removeItem(STORAGE_KEY);
+    storage.setItem(STORAGE_KEY, serialized.raw);
     return null;
   } catch {
     return 'unavailable';

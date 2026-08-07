@@ -1,52 +1,66 @@
+<!--
+Transcript.svelte renders validated complete pairs through Turn, delegates only
+final-turn intents, and owns pinned/autoscroll behavior. State mutation, chat
+history, transcript repair, and persistence remain outside this component.
+-->
 <script lang="ts">
-  /*
-   * Transcript.svelte
-   * Single responsibility: render the ordered user/assistant transcript and
-   * keep scroll position ergonomic. It does not render tools, workspace state,
-   * confirmations, or a separate reasoning channel.
-   */
-  import { afterUpdate } from 'svelte';
-  import Bubble from './Bubble.svelte';
+  import { afterUpdate, createEventDispatcher } from 'svelte';
+  import Turn from './Turn.svelte';
   import type { ChatMessage } from '../chat/types';
 
   export let messages: ChatMessage[] = [];
   export let streaming = false;
 
+  const dispatch = createEventDispatcher<{
+    regenerate: void;
+    edit: string;
+    delete: void;
+  }>();
   let transcript: HTMLDivElement;
   let pinned = true;
-  let seen = messages.length;
+  let firstId: string | undefined;
+  let lastId: string | undefined;
+  $: turns = Array.from({ length: messages.length / 2 }, (_, index) =>
+    [messages[index * 2], messages[index * 2 + 1]] as [ChatMessage, ChatMessage]
+  );
 
   function onScroll(): void {
-    // Pinned is recomputed only on scroll events (user or programmatic),
-    // never on content growth, so textarea/bubble resize cannot flip it
-    // mid-stream.
+    // User/programmatic scroll events own pin state; content growth cannot
+    // silently unpin the viewport during a stream.
     pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <= 40;
   }
 
   afterUpdate(() => {
-    if (!transcript) {
-      return;
-    }
-    const grew = messages.length > seen;
-    seen = messages.length;
-    // New message sent → scroll unconditionally; stream delta → only when
-    // pinned. Initial empty render scrolls nothing (grew=false, no overflow).
-    if (grew || pinned) {
+    if (!transcript) return;
+    const nextFirst = messages[0]?.id;
+    const nextLast = messages.at(-1)?.id;
+    const transcriptChanged = nextFirst !== firstId || nextLast !== lastId;
+    firstId = nextFirst;
+    lastId = nextLast;
+    if (transcriptChanged || pinned) {
       transcript.scrollTop = transcript.scrollHeight;
     }
   });
 </script>
 
 <div class="transcript" bind:this={transcript} on:scroll={onScroll}>
-  {#if messages.length === 0}
+  {#if turns.length === 0}
     <div class="empty-state">
       <span class="empty-mark" aria-hidden="true"></span>
       <h2>Motore di inferenza pronto</h2>
       <p>Scrivi un messaggio per avviare la sessione: tutto gira in locale.</p>
     </div>
   {:else}
-    {#each messages as message, index (message.id)}
-      <Bubble {message} streaming={streaming && index === messages.length - 1} />
+    {#each turns as turn, index (turn[0].id)}
+      <Turn
+        user={turn[0]}
+        assistant={turn[1]}
+        final={index === turns.length - 1}
+        {streaming}
+        on:regenerate={() => dispatch('regenerate')}
+        on:edit={event => dispatch('edit', event.detail)}
+        on:delete={() => dispatch('delete')}
+      />
     {/each}
   {/if}
 </div>
@@ -58,7 +72,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--gn-space-md);
-    /* Horizontal breathing room keeps hard shadows and corners unclipped. */
     padding: var(--gn-space-sm) var(--gn-space-xs);
   }
 
@@ -69,7 +82,6 @@
     color: var(--gn-text-muted);
   }
 
-  /* Square idle mark, animated only when reduced motion is not requested. */
   .empty-mark {
     display: inline-block;
     width: 16px;
@@ -81,12 +93,8 @@
 
   @keyframes idle-pulse {
     0%,
-    100% {
-      opacity: 1;
-    }
-    50% {
-      opacity: var(--gn-motion-low-opacity);
-    }
+    100% { opacity: 1; }
+    50% { opacity: var(--gn-motion-low-opacity); }
   }
 
   .empty-state h2 {

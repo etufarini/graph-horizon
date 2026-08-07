@@ -1,6 +1,7 @@
 /*
- * Browser chat types: define runtime, plain transcript, context-capacity,
- * timing, and bounded persistence-result shapes without owning side effects.
+ * Browser chat types: define runtime transport, plain transcripts, canonical
+ * chat collections, private archives, context capacity, timing, and bounded
+ * persistence results. Storage and lifecycle behavior remain outside.
  */
 export type Role = 'system' | 'user' | 'assistant';
 
@@ -13,6 +14,29 @@ export interface ChatMessage extends TranscriptMessage {
   id: string;
 }
 
+export interface ChatRecord {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  updatedAt: number;
+}
+
+export interface ChatCollection {
+  activeChatId: string;
+  chats: ChatRecord[];
+}
+
+export interface ChatArchiveRecord {
+  version: 2;
+  activeChatId: string;
+  chats: Array<{
+    id: string;
+    title: string;
+    messages: TranscriptMessage[];
+    updatedAt: number;
+  }>;
+}
+
 export interface WireMessage {
   role: Role;
   content: string;
@@ -22,10 +46,12 @@ export type ChatStatus = 'idle' | 'streaming' | 'error';
 
 export type PersistenceWarning = 'invalid-record' | 'unavailable';
 
-export interface ConversationLoadResult {
-  messages: TranscriptMessage[];
+export interface ChatLoadResult {
+  collection: ChatCollection;
   warning: PersistenceWarning | null;
 }
+
+export type ChatSaveResult = PersistenceWarning | null;
 
 export interface RuntimeContext {
   contextLimit: number;
@@ -54,7 +80,7 @@ export type ContextAdmission =
     };
 
 export interface ChatSnapshot {
-  messages: ChatMessage[];
+  collection: ChatCollection;
   status: ChatStatus;
   error: string | null;
   persistenceWarning: PersistenceWarning | null;

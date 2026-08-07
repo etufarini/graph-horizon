@@ -1,31 +1,31 @@
 /*
- * Chat lifecycle orchestration: owns capacity admission, transport rollback,
- * timing, and stable persistence checkpoints. Record format and presentation
- * remain in the persistence/transcript modules and Svelte components.
+ * Application chat lifecycle coordinator: owns the canonical collection store
+ * and public actions while generation.ts, sessions.ts, persistence.ts, transfer,
+ * and system-prompt modules retain their separate boundaries.
  */
 import { get, writable } from 'svelte/store';
-import { streamAssistant } from './client.ts';
-import { admitMessages } from './context.ts';
-import { clearConversation, loadConversation, saveConversation } from './persistence.ts';
-import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt.ts';
+import { createGeneration } from './generation.ts';
+import { loadChats, saveChats } from './persistence.ts';
 import {
-  appendAssistant as appendAssistantContent,
-  hydrateTranscript,
-  removeTrailingTurn,
-  wireMessages
-} from './transcript.ts';
+  activeChat,
+  appendChat,
+  deleteChat as deleteSession,
+  newChat as createSession,
+  renameChat as renameSession,
+  replaceActiveTranscript,
+  selectChat as selectSession
+} from './sessions.ts';
+import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt.ts';
+import { finalPair, hydrateTranscript, removeTrailingTurn } from './transcript.ts';
 import { parseChatFile } from './transfer.ts';
-import type { ChatSnapshot, RuntimeContext, StreamDelta } from './types';
+import type { ChatCollection, ChatSnapshot, RuntimeContext } from './types.ts';
 
 export { wireMessages } from './transcript.ts';
 
-const FAILED = 'Richiesta non riuscita';
-const INTERRUPTED = 'Connessione interrotta';
-
-function emptySnapshot(): ChatSnapshot {
-  const restored = loadConversation();
+function initialSnapshot(): ChatSnapshot {
+  const restored = loadChats();
   return {
-    messages: hydrateTranscript(restored.messages),
+    collection: restored.collection,
     status: 'idle',
     error: null,
     persistenceWarning: restored.warning,
@@ -36,90 +36,83 @@ function emptySnapshot(): ChatSnapshot {
 }
 
 function createChatState() {
-  const store = writable<ChatSnapshot>(emptySnapshot());
-  let controller: AbortController | null = null;
+  const store = writable<ChatSnapshot>(initialSnapshot());
+  const generation = createGeneration(store, checkpoint);
 
   async function send(text: string, context: RuntimeContext): Promise<void> {
-    const prompt = text.trim();
-    const current = get(store);
-    if (!prompt || current.status === 'streaming') {
-      return;
-    }
-
-    const wire = wireMessages(current.messages, current.systemPrompt, prompt);
-    const admission = admitMessages(wire, context);
-    if (!admission.ok) {
-      store.set({
-        ...current,
-        status: 'error',
-        error: `Contesto insufficiente: ~${admission.estimatedTokens} token + ${admission.maxTokens} riservati superano il budget sicuro di ${admission.safeTotalBudget} token`
-      });
-      return;
-    }
-
-    const [user, assistant] = hydrateTranscript([
-      { role: 'user', content: prompt },
-      { role: 'assistant', content: '' }
-    ]);
-    const outgoing = [...current.messages, user];
-    controller = new AbortController();
-    const request = controller;
-    const generationStartedAt = performance.now();
-    store.set({
-      ...current,
-      messages: [...outgoing, assistant],
-      status: 'streaming',
-      error: null,
-      generationStartedAt,
-      generationMs: null
-    });
-
-    try {
-      await streamAssistant(wire, context.maxTokens, appendAssistant, request.signal);
-      const generationMs = performance.now() - generationStartedAt;
-      store.update(snapshot => ({
-        ...snapshot,
-        status: 'idle',
-        error: null,
-        generationStartedAt: null,
-        generationMs
-      }));
-      checkpoint();
-    } catch (error) {
-      const aborted =
-        request.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
-      if (aborted) {
-        // Keep the stopped turn, including an empty or partial assistant message,
-        // so every later request still sees an alternating transcript.
-        store.update(snapshot => ({
-          ...snapshot,
-          status: 'idle',
-          error: null,
-          generationStartedAt: null,
-          generationMs: null
-        }));
-        checkpoint();
-      } else {
-        store.update(snapshot => ({
-          ...snapshot,
-          messages: removeTrailingTurn(snapshot.messages, user.id, assistant.id)
-        }));
-        const message = error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED;
-        store.update(snapshot => ({
-          ...snapshot,
-          status: 'error',
-          error: message,
-          generationStartedAt: null,
-          generationMs: null
-        }));
-      }
-    } finally {
-      controller = null;
-    }
+    await generation.send(text, context);
   }
 
   function stop(): void {
-    controller?.abort();
+    generation.stop();
+  }
+
+  async function regenerate(context: RuntimeContext): Promise<void> {
+    await generation.regenerate(context);
+  }
+
+  async function editLastPrompt(text: string, context: RuntimeContext): Promise<void> {
+    await generation.editLastPrompt(text, context);
+  }
+
+  function deleteLastTurn(): void {
+    const current = get(store);
+    if (current.status === 'streaming') return;
+    const chat = activeChat(current.collection);
+    const pair = finalPair(chat.messages);
+    if (!pair) return;
+    const messages = removeTrailingTurn(chat.messages, pair[0].id, pair[1].id);
+    applyStable(replaceActiveTranscript(current.collection, messages));
+  }
+
+  function newChat(): void {
+    mutate(collection => createSession(collection));
+  }
+
+  function selectChat(id: string): void {
+    mutate(collection => selectSession(collection, id));
+  }
+
+  function renameChat(id: string, requestedTitle: string): boolean {
+    const current = get(store);
+    const title = requestedTitle.trim();
+    if (current.status === 'streaming' || !title || Array.from(title).length > 80 ||
+        !current.collection.chats.some(chat => chat.id === id)) {
+      return false;
+    }
+    const collection = renameSession(current.collection, id, title);
+    store.set({ ...current, collection });
+    persist(collection);
+    return true;
+  }
+
+  function deleteChat(id: string): void {
+    mutate(collection => deleteSession(collection, id));
+  }
+
+  function importChat(text: string): void {
+    const current = get(store);
+    if (current.status === 'streaming') return;
+    const result = parseChatFile(text);
+    if (!result.ok) {
+      const error = result.error === 'invalid-json'
+        ? 'File non valido: JSON non riconosciuto'
+        : 'File non valido: formato chat non riconosciuto';
+      store.set({ ...current, status: 'error', error });
+      return;
+    }
+    const collection = appendChat(current.collection, hydrateTranscript(result.payload.messages));
+    store.set({
+      ...current,
+      collection,
+      status: 'idle',
+      error: null,
+      systemPrompt: result.payload.systemPrompt,
+      generationStartedAt: null,
+      generationMs: null
+    });
+    saveSystemPrompt(result.payload.systemPrompt);
+    persist(collection);
   }
 
   function setSystemPrompt(text: string): void {
@@ -127,64 +120,44 @@ function createChatState() {
     saveSystemPrompt(text);
   }
 
-  function importChat(text: string): void {
-    const result = parseChatFile(text);
-    if (!result.ok) {
-      const message =
-        result.error === 'invalid-json'
-          ? 'File non valido: JSON non riconosciuto'
-          : 'File non valido: formato chat non riconosciuto';
-      store.update(snapshot => ({ ...snapshot, status: 'error', error: message }));
-      return;
-    }
-    const messages = hydrateTranscript(result.payload.messages);
-    store.update(snapshot => ({
-      ...snapshot,
-      messages,
-      status: 'idle',
-      error: null,
-      systemPrompt: result.payload.systemPrompt,
-      generationStartedAt: null,
-      generationMs: null
-    }));
-    saveSystemPrompt(result.payload.systemPrompt);
-    checkpoint();
-  }
-
-  function newChat(): void {
+  function mutate(change: (collection: ChatCollection) => ChatCollection): void {
     const current = get(store);
     if (current.status === 'streaming') return;
+    const collection = change(current.collection);
+    if (collection === current.collection) return;
     store.set({
       ...current,
-      messages: [],
+      collection,
       status: 'idle',
       error: null,
       generationStartedAt: null,
       generationMs: null
     });
-    const persistenceWarning = clearConversation();
-    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
+    persist(collection);
   }
 
-  function checkpoint(): void {
-    const persistenceWarning = saveConversation(get(store).messages);
-    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
+  function checkpoint(chatId: string): void {
+    const current = get(store);
+    if (current.collection.activeChatId !== chatId) return;
+    const messages = activeChat(current.collection).messages;
+    applyStable(replaceActiveTranscript(current.collection, messages));
   }
 
-  function appendAssistant(delta: StreamDelta): void {
-    store.update(snapshot => ({
-      ...snapshot,
-      messages: appendAssistantContent(snapshot.messages, delta.content)
-    }));
+  function applyStable(collection: ChatCollection): void {
+    const current = get(store);
+    store.set({ ...current, collection, status: 'idle', error: null });
+    persist(collection);
+  }
+
+  function persist(collection: ChatCollection): void {
+    const persistenceWarning = saveChats(collection);
+    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
   }
 
   return {
     subscribe: store.subscribe,
-    send,
-    stop,
-    setSystemPrompt,
-    importChat,
-    newChat
+    send, stop, regenerate, editLastPrompt, deleteLastTurn,
+    newChat, selectChat, renameChat, deleteChat, importChat, setSystemPrompt
   };
 }
 

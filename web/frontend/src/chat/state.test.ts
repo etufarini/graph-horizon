@@ -1,10 +1,11 @@
 /*
- * Deterministic chat-lifecycle acceptance suite: exercises startup hydration,
- * transport, rollback, stop, import, clear, and stable storage checkpoints.
- * Svelte rendering, browser automation, and real network/storage are excluded.
+ * Deterministic state-coordination acceptance tests cover public multi-chat
+ * actions, import, global prompt ownership, warnings, and streaming guards.
+ * Generation transport details, Svelte rendering, and real storage are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { serializeChat } from './transfer.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
 
 const CONVERSATION_KEY = 'graph-horizon.conversation';
@@ -15,30 +16,18 @@ class TestStorage {
   setCalls: [string, string][] = [];
   removeCalls: string[] = [];
   throwSet = false;
-  throwRemove = false;
-  onConversationSet: (() => void) | null = null;
 
-  getItem(key: string): string | null {
-    return this.values.get(key) ?? null;
-  }
-
+  getItem(key: string): string | null { return this.values.get(key) ?? null; }
   setItem(key: string, value: string): void {
     this.setCalls.push([key, value]);
     if (this.throwSet) throw new Error('quota');
     this.values.set(key, value);
-    if (key === CONVERSATION_KEY) this.onConversationSet?.();
   }
-
   removeItem(key: string): void {
     this.removeCalls.push(key);
-    if (this.throwRemove) throw new Error('denied remove');
     this.values.delete(key);
   }
-
-  resetCalls(): void {
-    this.setCalls = [];
-    this.removeCalls = [];
-  }
+  resetCalls(): void { this.setCalls = []; this.removeCalls = []; }
 }
 
 const restored = [
@@ -55,25 +44,18 @@ Object.defineProperty(globalThis, 'window', {
 
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
 globalThis.fetch = (...args) => fetchHandler(...args);
-
-// Browser globals are configured before this single state-module initialization.
 const { chat } = await import('./state.ts');
 let snapshot: ChatSnapshot;
-const statuses: ChatSnapshot['status'][] = [];
-chat.subscribe(value => {
-  snapshot = value;
-  statuses.push(value.status);
-});
+chat.subscribe(value => { snapshot = value; });
 
-const context: RuntimeContext = {
-  contextLimit: 4096,
-  maxTokens: 128,
-  safeTotalBudget: 3686
-};
+const context: RuntimeContext = { contextLimit: 4096, maxTokens: 128, safeTotalBudget: 3686 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+const active = () => snapshot.collection.chats.find(
+  candidate => candidate.id === snapshot.collection.activeChatId
+)!;
+const plain = () => active().messages.map(({ role, content }) => ({ role, content }));
 const conversationSets = () => storage.setCalls.filter(([key]) => key === CONVERSATION_KEY);
-const plainMessages = () => snapshot.messages.map(({ role, content }) => ({ role, content }));
 
 function controlledFetch() {
   let controller: ReadableStreamDefaultController<Uint8Array>;
@@ -96,170 +78,177 @@ function controlledFetch() {
     done() {
       controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       controller.close();
-    },
-    close() {
-      controller.close();
     }
   };
 }
 
-function imported(systemPrompt: string, user = 'imported user'): string {
-  return JSON.stringify({
-    version: 1,
-    systemPrompt,
-    messages: [
-      { role: 'user', content: user },
-      { role: 'assistant', content: 'imported assistant' }
-    ]
-  });
+function imported(systemPrompt: string, messages = [
+  { role: 'user', content: 'imported user' },
+  { role: 'assistant', content: 'imported assistant' }
+]): string {
+  return JSON.stringify({ version: 1, systemPrompt, messages });
 }
 
-test('startup synchronously restores plain messages with fresh IDs', () => {
-  assert.deepEqual(plainMessages(), restored);
+test('startup migrates into one canonical active collection', () => {
+  assert.equal(snapshot.collection.chats.length, 1);
+  assert.deepEqual(plain(), restored);
   assert.equal(snapshot.systemPrompt, 'restored system');
-  assert.equal(snapshot.status, 'idle');
   assert.equal(snapshot.persistenceWarning, null);
-  assert.equal(snapshot.messages.every(message => typeof message.id === 'string'), true);
-  assert.equal(storage.setCalls.length, 0);
+  assert.equal(JSON.parse(storage.values.get(CONVERSATION_KEY)!).version, 2);
 });
 
-test('successful completion writes once after idle and never on deltas', async () => {
+test('new chat no-ops when empty and persists creation otherwise', () => {
   storage.resetCalls();
-  const setStatuses: string[] = [];
-  storage.onConversationSet = () => setStatuses.push(snapshot.status);
-  const stream = controlledFetch();
-  const pending = chat.send('next turn', context);
-  await tick();
-  assert.equal(snapshot.status, 'streaming');
-  assert.equal(conversationSets().length, 0);
-  stream.delta('partial');
-  await tick();
-  assert.equal(snapshot.messages.at(-1)?.content, 'partial');
-  assert.equal(conversationSets().length, 0);
-  stream.done();
-  await pending;
-  assert.equal(snapshot.status, 'idle');
-  assert.equal(snapshot.messages.at(-1)?.content, 'partial');
+  chat.newChat();
+  assert.equal(snapshot.collection.chats.length, 2);
+  assert.deepEqual(active().messages, []);
   assert.equal(conversationSets().length, 1);
-  assert.deepEqual(setStatuses, ['idle']);
-  assert.equal(snapshot.generationStartedAt, null);
-  assert.equal(typeof snapshot.generationMs, 'number');
-});
-
-test('empty and partial stops persist only after abort settles', async () => {
-  for (const partial of ['', 'stopped partial']) {
-    storage.resetCalls();
-    const stream = controlledFetch();
-    const pending = chat.send(`stop ${partial || 'empty'}`, context);
-    await tick();
-    if (partial) {
-      stream.delta(partial);
-      await tick();
-    }
-    assert.equal(conversationSets().length, 0);
-    chat.stop();
-    await pending;
-    assert.equal(snapshot.status, 'idle');
-    assert.equal(snapshot.messages.at(-1)?.content, partial);
-    assert.equal(conversationSets().length, 1);
-  }
-});
-
-test('failed stream rolls back its pair and leaves the stable record unchanged', async () => {
+  const collection = snapshot.collection;
   storage.resetCalls();
-  const beforeMessages = plainMessages();
-  const beforeRecord = storage.values.get(CONVERSATION_KEY);
-  const stream = controlledFetch();
-  const pending = chat.send('will fail', context);
-  await tick();
-  stream.delta('uncommitted');
-  stream.close();
-  await pending;
-  assert.equal(snapshot.status, 'error');
-  assert.deepEqual(plainMessages(), beforeMessages);
-  assert.equal(storage.values.get(CONVERSATION_KEY), beforeRecord);
+  chat.newChat();
+  assert.equal(snapshot.collection, collection);
   assert.equal(conversationSets().length, 0);
 });
 
-test('capacity rejection performs neither fetch nor persistence', async () => {
+test('selection and valid rename persist without changing recency', () => {
+  const target = snapshot.collection.chats[0];
+  const times = snapshot.collection.chats.map(item => item.updatedAt);
   storage.resetCalls();
-  let fetches = 0;
-  fetchHandler = async () => { fetches += 1; throw new Error('unexpected'); };
-  await chat.send('xxxxxxxx', { contextLimit: 10, maxTokens: 9, safeTotalBudget: 9 });
-  assert.equal(snapshot.status, 'error');
-  assert.equal(fetches, 0);
-  assert.equal(conversationSets().length, 0);
+  chat.selectChat(target.id);
+  assert.equal(snapshot.collection.activeChatId, target.id);
+  assert.deepEqual(snapshot.collection.chats.map(item => item.updatedAt), times);
+  assert.equal(conversationSets().length, 1);
+
+  storage.resetCalls();
+  assert.equal(chat.renameChat(target.id, '  titolo   nuovo  '), true);
+  assert.equal(active().title, 'titolo   nuovo');
+  assert.equal(active().updatedAt, target.updatedAt);
+  assert.equal(conversationSets().length, 1);
+  const collection = snapshot.collection;
+  assert.equal(chat.renameChat(target.id, '   '), false);
+  assert.equal(chat.renameChat(target.id, 'x'.repeat(81)), false);
+  assert.equal(snapshot.collection, collection);
 });
 
-test('system-prompt edits remain outside conversation checkpoints', () => {
+test('delete last turn and chat each persist one stable non-empty collection', () => {
   storage.resetCalls();
-  chat.setSystemPrompt('edited only in prompt storage');
-  assert.equal(snapshot.systemPrompt, 'edited only in prompt storage');
-  assert.equal(conversationSets().length, 0);
-  assert.equal(storage.values.get(SYSTEM_KEY), 'edited only in prompt storage');
+  chat.deleteLastTurn();
+  assert.deepEqual(active().messages, []);
+  assert.equal(conversationSets().length, 1);
+
+  const deletedId = snapshot.collection.activeChatId;
+  storage.resetCalls();
+  chat.deleteChat(deletedId);
+  assert.equal(snapshot.collection.chats.some(item => item.id === deletedId), false);
+  assert.equal(snapshot.collection.chats.length >= 1, true);
+  assert.equal(conversationSets().length, 1);
 });
 
-test('valid import checkpoints messages while invalid import changes no transcript or record', () => {
+test('valid import creates a new active chat and invalid import changes no durable data', () => {
+  const count = snapshot.collection.chats.length;
   storage.resetCalls();
   chat.importChat(imported('imported system'));
+  assert.equal(snapshot.collection.chats.length, count + 1);
+  assert.deepEqual(plain(), [
+    { role: 'user', content: 'imported user' },
+    { role: 'assistant', content: 'imported assistant' }
+  ]);
+  assert.equal(active().title, 'imported user');
   assert.equal(snapshot.systemPrompt, 'imported system');
-  assert.equal(snapshot.persistenceWarning, null);
-  assert.equal(conversationSets().length, 1);
   assert.equal(storage.values.get(SYSTEM_KEY), 'imported system');
-  const beforeMessages = plainMessages();
-  const beforeRecord = storage.values.get(CONVERSATION_KEY);
+  assert.equal(conversationSets().length, 1);
+
+  const collection = snapshot.collection;
+  const archive = storage.values.get(CONVERSATION_KEY);
+  storage.resetCalls();
+  chat.importChat(JSON.stringify({ version: 1, systemPrompt: 'must not apply', messages: [{}] }));
+  assert.equal(snapshot.collection, collection);
+  assert.equal(snapshot.systemPrompt, 'imported system');
+  assert.equal(storage.values.get(CONVERSATION_KEY), archive);
+  assert.equal(conversationSets().length, 0);
+
+  chat.importChat(imported('empty system', []));
+  assert.equal(snapshot.collection.chats.length, count + 2);
+  assert.deepEqual(active().messages, []);
+});
+
+test('invalid JSON preserves prompt and archive while export stays public version 1', () => {
+  const collection = snapshot.collection;
+  const systemPrompt = snapshot.systemPrompt;
+  const archive = storage.values.get(CONVERSATION_KEY);
   storage.resetCalls();
   chat.importChat('{');
-  assert.deepEqual(plainMessages(), beforeMessages);
-  assert.equal(storage.values.get(CONVERSATION_KEY), beforeRecord);
+  assert.equal(snapshot.collection, collection);
+  assert.equal(snapshot.systemPrompt, systemPrompt);
+  assert.equal(storage.values.get(CONVERSATION_KEY), archive);
+  assert.equal(storage.values.get(SYSTEM_KEY), systemPrompt);
   assert.equal(conversationSets().length, 0);
 
+  const exported = JSON.parse(serializeChat(active().messages, snapshot.systemPrompt));
+  assert.deepEqual(exported, {
+    version: 1,
+    systemPrompt,
+    messages: plain()
+  });
+  assert.equal('activeChatId' in exported, false);
+  assert.equal('title' in exported, false);
+});
+
+test('streaming guards every collection and last-turn mutation', async () => {
+  chat.selectChat(snapshot.collection.chats.find(item => item.messages.length > 0)!.id);
   storage.resetCalls();
-  chat.importChat(JSON.stringify({ version: 1, systemPrompt: 'empty import', messages: [] }));
-  assert.deepEqual(snapshot.messages, []);
+  const stream = controlledFetch();
+  const pending = chat.send('streaming guard', context);
+  await tick();
+  const collection = snapshot.collection;
+  const target = snapshot.collection.chats.find(item => item.id !== snapshot.collection.activeChatId)!.id;
+  assert.equal(snapshot.status, 'streaming');
+  chat.newChat();
+  chat.selectChat(target);
+  assert.equal(chat.renameChat(snapshot.collection.activeChatId, 'blocked'), false);
+  chat.deleteChat(target);
+  chat.deleteLastTurn();
+  chat.importChat(imported('blocked'));
+  await chat.regenerate(context);
+  await chat.editLastPrompt('blocked', context);
+  assert.equal(snapshot.collection, collection);
+  assert.equal(conversationSets().length, 0);
+  stream.delta('kept');
+  chat.stop();
+  await pending;
+  assert.equal(snapshot.status, 'idle');
   assert.equal(conversationSets().length, 1);
 });
 
-test('new chat clears memory and only the conversation key while retaining the prompt', () => {
-  chat.importChat(imported('imported system'));
+test('generation checkpoints stable recency and persistence after idle', async () => {
   storage.resetCalls();
-  chat.newChat();
-  assert.deepEqual(snapshot.messages, []);
-  assert.equal(snapshot.status, 'idle');
-  assert.equal(snapshot.error, null);
-  assert.equal(snapshot.generationStartedAt, null);
-  assert.equal(snapshot.generationMs, null);
-  assert.equal(snapshot.systemPrompt, 'imported system');
-  assert.deepEqual(storage.removeCalls, [CONVERSATION_KEY]);
-  assert.equal(storage.values.get(SYSTEM_KEY), 'imported system');
-  storage.resetCalls();
-  chat.newChat();
-  assert.deepEqual(storage.removeCalls, [CONVERSATION_KEY]);
-});
-
-test('storage failures keep memory and a later checkpoint clears the warning', async () => {
-  chat.importChat(imported('kept system', 'before failed clear'));
-  const oldRecord = storage.values.get(CONVERSATION_KEY);
-  storage.throwRemove = true;
-  chat.newChat();
-  assert.equal(snapshot.messages.length, 0);
-  assert.equal(snapshot.persistenceWarning, 'unavailable');
-  assert.equal(storage.values.get(CONVERSATION_KEY), oldRecord);
-  storage.throwRemove = false;
-
-  storage.throwSet = true;
+  const before = active().updatedAt;
   const stream = controlledFetch();
-  const pending = chat.send('memory survives quota', context);
+  const pending = chat.send('stable', context);
   await tick();
-  stream.delta('completed in memory');
+  stream.delta('response');
   stream.done();
   await pending;
-  assert.equal(snapshot.messages.at(-2)?.content, 'memory survives quota');
-  assert.equal(snapshot.messages.at(-1)?.content, 'completed in memory');
+  assert.equal(snapshot.status, 'idle');
+  assert.equal(active().updatedAt >= before, true);
+  assert.equal(conversationSets().length, 1);
+});
+
+test('failed save keeps memory warning and a later stable action clears it', () => {
+  const target = snapshot.collection.chats.find(item => item.id !== snapshot.collection.activeChatId)!;
+  storage.throwSet = true;
+  chat.selectChat(target.id);
+  assert.equal(snapshot.collection.activeChatId, target.id);
   assert.equal(snapshot.persistenceWarning, 'unavailable');
-  assert.equal(storage.values.get(CONVERSATION_KEY), oldRecord);
   storage.throwSet = false;
-  chat.importChat(imported('kept system', 'warning recovers'));
+  chat.renameChat(target.id, 'warning cleared');
   assert.equal(snapshot.persistenceWarning, null);
-  assert.equal(snapshot.messages[0].content, 'warning recovers');
+});
+
+test('system prompt remains in its separate storage boundary', () => {
+  storage.resetCalls();
+  chat.setSystemPrompt('global prompt');
+  assert.equal(snapshot.systemPrompt, 'global prompt');
+  assert.equal(storage.values.get(SYSTEM_KEY), 'global prompt');
+  assert.equal(conversationSets().length, 0);
 });

@@ -1,7 +1,6 @@
 /*
- * Static Web UI theme contract consumed by global and component styles.
- * This file owns changeable visual values, but no layout selectors or runtime
- * theme switching.
+ * Static Web UI values, including history geometry and backdrop, consumed by
+ * global/component styles without owning selectors or runtime theme switching.
  */
 :root {
   /* Surfaces, text, and state colors. */
@@ -73,6 +72,9 @@
   --gn-motion-pulse: 1200ms;
   --gn-motion-idle: 2400ms;
   --gn-motion-low-opacity: 0.35;
+
+  --gn-history-width: 264px; --gn-application-width: 1320px;
+  --gn-history-backdrop: rgb(21 21 36 / 45%);
 
   /* Existing spacing, font, type, and line-height scales stay unchanged. */
   --gn-space-xs: 4px;

@@ -1,18 +1,15 @@
 /*
- * Deterministic acceptance tests for the exact versioned storage adapter.
- * They replace browser storage in memory and perform no filesystem or network I/O.
+ * Deterministic in-memory storage coverage for version-2 collection startup,
+ * stable saves, invalid cleanup, and atomic legacy migration. Real browser,
+ * filesystem, and network I/O are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  clearConversation,
-  FORMAT_VERSION,
-  loadConversation,
-  MAX_RECORD_BYTES,
-  saveConversation,
-  STORAGE_KEY
-} from './persistence.ts';
+import { serializeArchive, STORAGE_KEY } from './archive.ts';
+import { loadChats, saveChats } from './persistence.ts';
+import { createCollection, replaceActiveTranscript } from './sessions.ts';
+import { hydrateTranscript } from './transcript.ts';
 
 class MemoryStorage {
   values = new Map<string, string>();
@@ -42,6 +39,14 @@ class MemoryStorage {
   }
 }
 
+const firstId = '00000000-0000-4000-8000-000000000001';
+const secondId = '00000000-0000-4000-8000-000000000002';
+const source = (id: string) => () => id;
+const plain = [
+  { role: 'user' as const, content: 'ciao 🧠' },
+  { role: 'assistant' as const, content: '' }
+];
+
 function useStorage(storage: MemoryStorage): void {
   Object.defineProperty(globalThis, 'window', {
     value: { localStorage: storage },
@@ -49,126 +54,124 @@ function useStorage(storage: MemoryStorage): void {
   });
 }
 
-function record(content = ''): string {
-  return JSON.stringify({
-    version: FORMAT_VERSION,
-    messages: [
-      { role: 'user', content },
-      { role: 'assistant', content: '' }
-    ]
-  });
+function collection() {
+  return replaceActiveTranscript(
+    createCollection(10, source(firstId)),
+    hydrateTranscript(plain),
+    11
+  );
 }
 
-function exactLimitRecord(): string {
-  const overhead = new TextEncoder().encode(record()).byteLength;
-  return record('x'.repeat(MAX_RECORD_BYTES - overhead));
+function rawCollection(): string {
+  const result = serializeArchive(collection());
+  assert.equal(result.ok, true);
+  return result.ok ? result.raw : '';
 }
 
-test('missing and valid records load without warning or runtime IDs', () => {
+test('missing storage creates and immediately persists one empty collection', () => {
   const storage = new MemoryStorage();
   useStorage(storage);
-  assert.deepEqual(loadConversation(), { messages: [], warning: null });
-  storage.values.set(STORAGE_KEY, record('ciao 🧠'));
-  assert.deepEqual(loadConversation(), {
-    messages: [
-      { role: 'user', content: 'ciao 🧠' },
-      { role: 'assistant', content: '' }
-    ],
-    warning: null
-  });
-  assert.equal('id' in loadConversation().messages[0], false);
+  const result = loadChats(42, source(firstId));
+  assert.equal(result.warning, null);
+  assert.equal(result.collection.activeChatId, firstId);
+  assert.deepEqual(result.collection.chats[0].messages, []);
+  assert.equal(storage.setCalls.length, 1);
+  assert.equal(JSON.parse(storage.setCalls[0][1]).version, 2);
 });
 
-test('corrupt, unknown, inexact, and invalid transcripts are removed', () => {
-  const invalid = [
-    '{',
-    JSON.stringify({ version: 2, messages: [] }),
-    JSON.stringify({ version: 1, messages: [], extra: true }),
-    JSON.stringify({
-      version: 1,
-      messages: [
-        { role: 'user', content: 'x', extra: true },
-        { role: 'assistant', content: '' }
-      ]
-    }),
-    JSON.stringify({ version: 1, messages: [{ role: 'user', content: 'odd' }] }),
-    `${exactLimitRecord()} `
-  ];
-  for (const raw of invalid) {
-    const storage = new MemoryStorage();
-    storage.values.set(STORAGE_KEY, raw);
-    useStorage(storage);
-    assert.deepEqual(loadConversation(), { messages: [], warning: 'invalid-record' });
-    assert.deepEqual(storage.removeCalls, [STORAGE_KEY]);
-    assert.equal(storage.values.has(STORAGE_KEY), false);
-  }
+test('a valid archive loads without storage mutation and hydrates IDs', () => {
+  const storage = new MemoryStorage();
+  storage.values.set(STORAGE_KEY, rawCollection());
+  useStorage(storage);
+  const result = loadChats();
+  assert.equal(result.warning, null);
+  assert.deepEqual(
+    result.collection.chats[0].messages.map(({ role, content }) => ({ role, content })),
+    plain
+  );
+  assert.equal(result.collection.chats[0].messages[0].id.length > 0, true);
+  assert.deepEqual(storage.setCalls, []);
+  assert.deepEqual(storage.removeCalls, []);
 });
 
-test('failed corrupt-record cleanup reports unavailable', () => {
+test('invalid archive cleanup reports the exact warning and touches only its key', () => {
+  const storage = new MemoryStorage();
+  storage.values.set(STORAGE_KEY, '{');
+  storage.values.set('graph-horizon.system-prompt', 'keep');
+  useStorage(storage);
+  const result = loadChats(1, source(firstId));
+  assert.equal(result.warning, 'invalid-record');
+  assert.deepEqual(storage.removeCalls, [STORAGE_KEY]);
+  assert.equal(storage.values.get('graph-horizon.system-prompt'), 'keep');
+  assert.deepEqual(storage.setCalls, []);
+});
+
+test('failed invalid cleanup keeps a usable collection and reports unavailable', () => {
   const storage = new MemoryStorage();
   storage.values.set(STORAGE_KEY, '{');
   storage.throwRemove = true;
   useStorage(storage);
-  assert.deepEqual(loadConversation(), { messages: [], warning: 'unavailable' });
+  const result = loadChats(1, source(firstId));
+  assert.equal(result.warning, 'unavailable');
+  assert.equal(result.collection.chats.length, 1);
   assert.equal(storage.values.get(STORAGE_KEY), '{');
 });
 
-test('exact 4 MiB save replaces once while one byte over preserves the old record', () => {
+test('legacy migration replaces the exact value only after a successful write', () => {
   const storage = new MemoryStorage();
-  storage.values.set(STORAGE_KEY, 'old');
+  const legacy = JSON.stringify({ version: 1, messages: plain });
+  storage.values.set(STORAGE_KEY, legacy);
   useStorage(storage);
-  const exact = exactLimitRecord();
-  const exactMessages = JSON.parse(exact).messages;
-  assert.equal(new TextEncoder().encode(exact).byteLength, MAX_RECORD_BYTES);
-  assert.equal(saveConversation(exactMessages), null);
-  assert.deepEqual(storage.setCalls, [[STORAGE_KEY, exact]]);
-
-  storage.setCalls = [];
-  assert.equal(saveConversation([{ ...exactMessages[0], content: `${exactMessages[0].content}x` }, exactMessages[1]]), 'unavailable');
-  assert.deepEqual(storage.setCalls, []);
-  assert.equal(storage.values.get(STORAGE_KEY), exact);
-});
-
-test('quota failure preserves the previous value and remains bounded', () => {
-  const storage = new MemoryStorage();
-  storage.values.set(STORAGE_KEY, 'old');
-  storage.throwSet = true;
-  useStorage(storage);
-  assert.equal(saveConversation(JSON.parse(record('new')).messages), 'unavailable');
-  assert.equal(storage.values.get(STORAGE_KEY), 'old');
+  const result = loadChats(77, source(secondId));
+  assert.equal(result.warning, null);
+  assert.equal(result.collection.activeChatId, secondId);
   assert.equal(storage.setCalls.length, 1);
+  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).version, 2);
+
+  const failed = new MemoryStorage();
+  failed.values.set(STORAGE_KEY, legacy);
+  failed.throwSet = true;
+  useStorage(failed);
+  const fallback = loadChats(77, source(secondId));
+  assert.equal(fallback.warning, 'unavailable');
+  assert.deepEqual(
+    fallback.collection.chats[0].messages.map(({ role, content }) => ({ role, content })),
+    plain
+  );
+  assert.equal(failed.values.get(STORAGE_KEY), legacy);
 });
 
-test('storage getter and each storage operation are exception-safe', () => {
+test('stable save uses one setItem and a failed save preserves the prior value', () => {
+  const storage = new MemoryStorage();
+  storage.values.set(STORAGE_KEY, 'old');
+  useStorage(storage);
+  assert.equal(saveChats(collection()), null);
+  assert.equal(storage.setCalls.length, 1);
+  const stable = storage.values.get(STORAGE_KEY);
+
+  storage.throwSet = true;
+  assert.equal(saveChats(createCollection(20, source(secondId))), 'unavailable');
+  assert.equal(storage.values.get(STORAGE_KEY), stable);
+});
+
+test('storage acquisition, read, initial write, and cleanup are exception-safe', () => {
   const denied: Record<string, unknown> = {};
   Object.defineProperty(denied, 'localStorage', {
     get() { throw new Error('denied storage'); }
   });
-  Object.defineProperty(globalThis, 'window', {
-    value: denied,
-    configurable: true
-  });
-  assert.deepEqual(loadConversation(), { messages: [], warning: 'unavailable' });
-  assert.equal(saveConversation([]), 'unavailable');
-  assert.equal(clearConversation(), 'unavailable');
+  Object.defineProperty(globalThis, 'window', { value: denied, configurable: true });
+  assert.equal(loadChats(1, source(firstId)).warning, 'unavailable');
+  assert.equal(saveChats(collection()), 'unavailable');
 
-  const get = new MemoryStorage();
-  get.throwGet = true;
-  useStorage(get);
-  assert.deepEqual(loadConversation(), { messages: [], warning: 'unavailable' });
+  const read = new MemoryStorage();
+  read.throwGet = true;
+  useStorage(read);
+  assert.equal(loadChats(1, source(firstId)).warning, 'unavailable');
 
-  const remove = new MemoryStorage();
-  remove.throwRemove = true;
-  useStorage(remove);
-  assert.equal(clearConversation(), 'unavailable');
-});
-
-test('clear removes only the conversation key', () => {
-  const storage = new MemoryStorage();
-  storage.values.set(STORAGE_KEY, record());
-  storage.values.set('graph-horizon.system-prompt', 'keep');
-  useStorage(storage);
-  assert.equal(clearConversation(), null);
-  assert.deepEqual(storage.removeCalls, [STORAGE_KEY]);
-  assert.equal(storage.values.get('graph-horizon.system-prompt'), 'keep');
+  const initial = new MemoryStorage();
+  initial.throwSet = true;
+  useStorage(initial);
+  const result = loadChats(1, source(firstId));
+  assert.equal(result.warning, 'unavailable');
+  assert.equal(result.collection.chats.length, 1);
 });

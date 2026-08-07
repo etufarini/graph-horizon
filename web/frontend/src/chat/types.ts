@@ -53,12 +53,6 @@ export interface ChatLoadResult {
 
 export type ChatSaveResult = PersistenceWarning | null;
 
-// Kept only until the persistence task replaces the version-1 adapter.
-export interface ConversationLoadResult {
-  messages: TranscriptMessage[];
-  warning: PersistenceWarning | null;
-}
-
 export interface RuntimeContext {
   contextLimit: number;
   maxTokens: number;
@@ -86,9 +80,7 @@ export type ContextAdmission =
     };
 
 export interface ChatSnapshot {
-  // The state milestone replaces this transitional version-1 authority with
-  // the canonical collection after persistence can load that collection.
-  messages: ChatMessage[];
+  collection: ChatCollection;
   status: ChatStatus;
   error: string | null;
   persistenceWarning: PersistenceWarning | null;

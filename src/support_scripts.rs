@@ -194,6 +194,105 @@ fn run_installer(
         .unwrap()
 }
 
+fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let fixture = fixture_dir(label);
+    let bin = fixture.join("bin");
+    let temp = fixture.join("temporary download");
+    let argument_log = fixture.join("delegated arguments");
+    fs::create_dir(&bin).unwrap();
+    fs::copy(repository().join("install.sh"), fixture.join("install.sh")).unwrap();
+    write_executable(
+        &bin.join("curl"),
+        br#"#!/usr/bin/env bash
+[[ -z "${GRAPH_HORIZON_CURL_FAIL:-}" ]] || exit 22
+[[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
+[[ "$4" == --show-error && "$5" == --output ]]
+[[ "$7" == https://github.com/etufarini/gh-zero-engine-ministral3/archive/refs/heads/main.tar.gz ]]
+cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
+"#,
+    );
+    write_executable(
+        &bin.join("mktemp"),
+        br#"#!/usr/bin/env bash
+mkdir "$GRAPH_HORIZON_TEST_TEMP"
+printf '%s\n' "$GRAPH_HORIZON_TEST_TEMP"
+"#,
+    );
+    write_executable(
+        &bin.join("tar"),
+        br#"#!/usr/bin/env bash
+if [[ -n "${GRAPH_HORIZON_TAR_LIST:-}" && "$1" == -tzf ]]; then
+  /bin/cat "$GRAPH_HORIZON_TAR_LIST"
+  exit 0
+fi
+exec /usr/bin/tar "$@"
+"#,
+    );
+    write_executable(
+        &bin.join("find"),
+        b"#!/usr/bin/env bash\nexec /usr/bin/find \"$@\"\n",
+    );
+    (fixture, bin, temp, argument_log)
+}
+
+fn source_archive(fixture: &Path, name: &str, complete: bool, with_symlink: bool) -> PathBuf {
+    let tree = fixture.join(format!("{name} tree"));
+    let root = tree.join("gh-zero-engine-ministral3-main");
+    fs::create_dir_all(root.join("support")).unwrap();
+    fs::create_dir_all(root.join("web/frontend")).unwrap();
+    write_executable(
+        &root.join("support/install.sh"),
+        br#"#!/usr/bin/env bash
+printf '%s\n' "$@" > "$GRAPH_HORIZON_ARGUMENT_LOG"
+exit "${GRAPH_HORIZON_DELEGATE_STATUS:-0}"
+"#,
+    );
+    fs::write(root.join("Cargo.toml"), b"[workspace]\n").unwrap();
+    fs::write(root.join("web/frontend/package.json"), b"{}\n").unwrap();
+    if complete {
+        fs::write(root.join("web/frontend/package-lock.json"), b"{}\n").unwrap();
+    }
+    if with_symlink {
+        std::os::unix::fs::symlink("Cargo.toml", root.join("linked manifest")).unwrap();
+    }
+    let archive = fixture.join(format!("{name}.tar.gz"));
+    let output = Command::new("/usr/bin/tar")
+        .args([
+            "-czf",
+            archive.to_str().unwrap(),
+            "-C",
+            tree.to_str().unwrap(),
+            "gh-zero-engine-ministral3-main",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "tar fixture failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    archive
+}
+
+fn run_bootstrap(
+    fixture: &Path,
+    bin: &Path,
+    temp: &Path,
+    argument_log: &Path,
+    archive: &Path,
+    args: &[&str],
+) -> Output {
+    Command::new("/bin/bash")
+        .arg(fixture.join("install.sh"))
+        .args(args)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GRAPH_HORIZON_TEST_ARCHIVE", archive)
+        .env("GRAPH_HORIZON_TEST_TEMP", temp)
+        .env("GRAPH_HORIZON_ARGUMENT_LOG", argument_log)
+        .output()
+        .unwrap()
+}
+
 #[test]
 fn catalog_contract() {
     let catalog = include_str!("../support/models.tsv");
@@ -475,6 +574,112 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
     assert!(source.contains("stat -f %z"));
     assert!(source.contains("sha256sum"));
     assert!(source.contains("shasum -a 256"));
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn bootstrap_forwards_arguments_and_cleans_temporary_tree() {
+    let (fixture, bin, temp, argument_log) = bootstrap_fixture("bootstrap forwarding");
+    let archive = source_archive(&fixture, "safe source", true, false);
+    let prefix = "/tmp/prefix with spaces";
+    let args = ["--backend", "cpu", "--profile", "fast", "--prefix", prefix];
+    let output = run_bootstrap(&fixture, &bin, &temp, &argument_log, &archive, &args);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&argument_log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        args
+    );
+    assert!(!temp.exists());
+
+    fs::remove_file(&argument_log).unwrap();
+    let output = Command::new("/bin/bash")
+        .arg(fixture.join("install.sh"))
+        .args(["--backend", "cpu"])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GRAPH_HORIZON_TEST_ARCHIVE", &archive)
+        .env("GRAPH_HORIZON_TEST_TEMP", &temp)
+        .env("GRAPH_HORIZON_ARGUMENT_LOG", &argument_log)
+        .env("GRAPH_HORIZON_DELEGATE_STATUS", "2")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(!temp.exists());
+
+    fs::remove_file(&argument_log).unwrap();
+    let output = Command::new("/bin/bash")
+        .arg(fixture.join("install.sh"))
+        .args(["--backend", "cpu"])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GRAPH_HORIZON_TEST_ARCHIVE", &archive)
+        .env("GRAPH_HORIZON_TEST_TEMP", &temp)
+        .env("GRAPH_HORIZON_ARGUMENT_LOG", &argument_log)
+        .env("GRAPH_HORIZON_CURL_FAIL", "1")
+        .output()
+        .unwrap();
+    assert_ne!(output.status.code(), Some(0));
+    assert!(!argument_log.exists());
+    assert!(!temp.exists());
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn bootstrap_rejects_unsafe_or_incomplete_archives() {
+    let (fixture, bin, temp, argument_log) = bootstrap_fixture("bootstrap rejection");
+    let incomplete = source_archive(&fixture, "incomplete source", false, false);
+    let symlink = source_archive(&fixture, "symlink source", true, true);
+    for archive in [&incomplete, &symlink] {
+        let output = run_bootstrap(
+            &fixture,
+            &bin,
+            &temp,
+            &argument_log,
+            archive,
+            &["--backend", "cpu"],
+        );
+        assert_ne!(output.status.code(), Some(0));
+        assert!(!argument_log.exists());
+        assert!(!temp.exists());
+    }
+
+    let safe = source_archive(&fixture, "listed source", true, false);
+    for (index, members) in [
+        "/absolute/member\n",
+        "gh-zero-engine-ministral3-main/../escape\n",
+        "gh-zero-engine-ministral3-main/./member\n",
+        "another-root/member\n",
+        "",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let listing = fixture.join(format!("unsafe listing {index}"));
+        fs::write(&listing, members).unwrap();
+        let output = Command::new("/bin/bash")
+            .arg(fixture.join("install.sh"))
+            .args(["--backend", "cpu"])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("GRAPH_HORIZON_TEST_ARCHIVE", &safe)
+            .env("GRAPH_HORIZON_TEST_TEMP", &temp)
+            .env("GRAPH_HORIZON_ARGUMENT_LOG", &argument_log)
+            .env("GRAPH_HORIZON_TAR_LIST", &listing)
+            .output()
+            .unwrap();
+        assert_ne!(
+            output.status.code(),
+            Some(0),
+            "unsafe listing {index} accepted"
+        );
+        assert!(!argument_log.exists());
+        assert!(!temp.exists());
+    }
     fs::remove_dir_all(fixture).unwrap();
 }
 

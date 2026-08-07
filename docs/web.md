@@ -1,7 +1,7 @@
 <!--
 This document owns the current local browser UI, static routes, chat behavior,
-Reasoning presentation, and transfer format. It does not own server or model
-policy and does not describe removed tool or workspace capabilities.
+browser persistence, Reasoning presentation, and transfer format. It does not
+own server or model policy or describe removed tool/workspace capabilities.
 -->
 
 # Local Web UI
@@ -32,8 +32,8 @@ With `cargo run`, assets must already exist in `web/frontend/dist`. If
 `index.html` is missing, startup terminates with `web frontend build missing`.
 
 `npm run dev`, `npm run check`, `npm test`, and `npm run build` are available
-for frontend development. `npm test` runs the display-only Reasoning parser
-suite directly with Node's TypeScript stripping.
+for frontend development. `npm test` runs every direct `src/chat/*.test.ts`
+suite with Node's TypeScript stripping.
 
 ## Routes
 
@@ -83,6 +83,57 @@ the local engine. Web `max_tokens` defaults to `1024`; `/props` propagates an
 explicit `--max-tokens` to both browser admission and every request body.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 qualified temperature `0.7` policy.
+
+### Conversation Persistence
+
+The browser restores one conversation synchronously during UI initialization.
+It uses the origin-scoped `localStorage` key `graph-horizon.conversation`; a
+different scheme, host, or port therefore selects a different conversation.
+An absent key starts an empty chat without a warning.
+
+The compact record is distinct from import/export and has exactly this shape:
+
+```json
+{
+  "version": 1,
+  "messages": [
+    { "role": "user", "content": "..." },
+    { "role": "assistant", "content": "..." }
+  ]
+}
+```
+
+Messages must be empty or complete, strictly alternating user/assistant pairs.
+Runtime IDs are regenerated on restore. The record excludes the system prompt,
+draft, status, errors, timing, context settings, and presentation-only
+Reasoning state. The system prompt remains separately stored under
+`graph-horizon.system-prompt`.
+
+Successful `[DONE]`, a settled stop, and a valid import are the only save
+checkpoints. Stop saves an empty or partial assistant response as the completed
+pair. `Nuova chat` is the only clear checkpoint: it retains the system prompt,
+clears chat errors and generation timing, asks
+`Iniziare una nuova chat? La conversazione corrente verrà eliminata.` only when
+messages exist, and clears an already empty idle chat without confirmation.
+Draft edits, system-prompt edits, admission rejection, generation start,
+assistant deltas, timing updates, and failed-request rollback never write the
+conversation record. Closing or reloading during streaming therefore leaves
+the previous stable record unchanged.
+
+Stored text and new records are limited to 4 MiB measured as UTF-8. Corrupt,
+oversized, unknown-version, or structurally invalid records are ignored and
+removed when possible. Successful removal shows `Conversazione salvata non
+valida: avvio con una chat vuota`. If obtaining, reading, writing, or removing
+`localStorage` fails, the in-memory chat continues and the UI shows
+`Persistenza non disponibile: la conversazione resterà solo in memoria`. A
+failed save preserves the previous stable record. A failed `Nuova chat` removal
+still clears memory, but the older record may return on reload. A later
+successful stable operation clears the warning.
+
+There is no storage-event listener, merge, or synchronization. With multiple
+tabs, the last successful stable writer wins. Persistence is browser-only and
+stores one conversation: the CLI and server have no corresponding persistence,
+database, filesystem write, or HTTP route.
 
 ## Context And Generation Status
 
@@ -155,14 +206,17 @@ and complete `user`/`assistant` pairs. An invalid file leaves the current
 conversation intact. If history exists, the UI asks for confirmation before
 reading and applying the file.
 
-This container differs from the JSON array used by TUI `/export` and `/import`.
+Unlike the browser conversation record, this file includes `systemPrompt`.
+Both formats share the same complete-pair transcript validation, but neither is
+the JSON array used by TUI `/export` and `/import`.
 
 ## Errors And Limits
 
-The chat body is limited to 4 MiB. HTTP and stream errors become short UI
-messages; parser, engine, and filesystem details are not shown. The Web gate
-rejects over-budget requests before transport.
+The HTTP chat body and the separate browser conversation record are each
+limited to 4 MiB under their respective contracts. HTTP and stream errors
+become short UI messages; parser, engine, storage, and filesystem details are
+not shown. The Web gate rejects over-budget requests before transport.
 
-The current UI does not include multiple sessions, login, API keys, tool calling,
-a workspace, a separate Reasoning protocol/state channel, or advanced sampling
-controls.
+The current UI does not include multiple saved chats, login, API keys, tool
+calling, a workspace, a separate Reasoning protocol/state channel, or advanced
+sampling controls.

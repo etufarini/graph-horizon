@@ -1,6 +1,7 @@
 <!--
-This document owns the model-neutral application map and request flows. Detailed
-surface contracts and family-specific engine behavior belong to linked documents.
+This document owns the model-neutral application map, request flows, and Web
+persistence boundary. Detailed surface contracts and family-specific engine
+behavior belong to linked documents.
 -->
 
 # Architecture
@@ -85,6 +86,25 @@ wire messages, admits them locally, and only then starts chat transport and its
 monotonic timer. Direct external API clients retain the server's existing chat
 contract and receive no new server-side capacity gate. There are no workspace,
 tool, or command-confirmation routes.
+
+Browser conversation ownership remains entirely in the frontend:
+
+```text
+transfer -----> transcript <----- state -----> client -----> HTTP/SSE
+                                  |
+                                  +----------> persistence -----> localStorage
+```
+
+`transcript` owns the pure complete-pair invariant shared by file transfer and
+persistence. `state` owns the stable checkpoints: successful completion,
+settled stop, valid import, and new-chat clear. Incremental deltas and failed
+turns do not reach persistence. Import/export and browser persistence remain
+separate versioned formats despite sharing transcript validation.
+
+`localStorage` is an origin-scoped browser boundary, not application storage.
+No server route, engine component, or CLI path reads or writes the saved Web
+conversation; there is no server-side or CLI persistence and no cross-tab
+coordination.
 
 The engine and server expose raw Reasoning markers only as ordinary
 `delta.content` text; neither creates a structured Reasoning field. The browser

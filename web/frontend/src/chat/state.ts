@@ -1,31 +1,34 @@
 /*
- * Chat state.
- * Single responsibility: own capacity-gated transcript mutations, transport
- * rollback, stop behavior, and monotonic generation timing.
+ * Chat lifecycle orchestration: owns capacity admission, transport rollback,
+ * timing, and stable persistence checkpoints. Record format and presentation
+ * remain in the persistence/transcript modules and Svelte components.
  */
 import { get, writable } from 'svelte/store';
-import { streamAssistant } from './client';
-import { admitMessages } from './context';
-import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
+import { streamAssistant } from './client.ts';
+import { admitMessages } from './context.ts';
+import { clearConversation, loadConversation, saveConversation } from './persistence.ts';
+import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt.ts';
 import {
   appendAssistant as appendAssistantContent,
   hydrateTranscript,
   removeTrailingTurn,
   wireMessages
-} from './transcript';
-import { parseChatFile } from './transfer';
+} from './transcript.ts';
+import { parseChatFile } from './transfer.ts';
 import type { ChatSnapshot, RuntimeContext, StreamDelta } from './types';
 
-export { wireMessages } from './transcript';
+export { wireMessages } from './transcript.ts';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
 
 function emptySnapshot(): ChatSnapshot {
+  const restored = loadConversation();
   return {
-    messages: [],
+    messages: hydrateTranscript(restored.messages),
     status: 'idle',
     error: null,
+    persistenceWarning: restored.warning,
     systemPrompt: loadSystemPrompt(),
     generationStartedAt: null,
     generationMs: null
@@ -72,12 +75,7 @@ function createChatState() {
     });
 
     try {
-      await streamAssistant(
-        wire,
-        context.maxTokens,
-        appendAssistant,
-        request.signal
-      );
+      await streamAssistant(wire, context.maxTokens, appendAssistant, request.signal);
       const generationMs = performance.now() - generationStartedAt;
       store.update(snapshot => ({
         ...snapshot,
@@ -86,6 +84,7 @@ function createChatState() {
         generationStartedAt: null,
         generationMs
       }));
+      checkpoint();
     } catch (error) {
       const aborted =
         request.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
@@ -99,6 +98,7 @@ function createChatState() {
           generationStartedAt: null,
           generationMs: null
         }));
+        checkpoint();
       } else {
         store.update(snapshot => ({
           ...snapshot,
@@ -148,6 +148,27 @@ function createChatState() {
       generationMs: null
     }));
     saveSystemPrompt(result.payload.systemPrompt);
+    checkpoint();
+  }
+
+  function newChat(): void {
+    const current = get(store);
+    if (current.status === 'streaming') return;
+    store.set({
+      ...current,
+      messages: [],
+      status: 'idle',
+      error: null,
+      generationStartedAt: null,
+      generationMs: null
+    });
+    const persistenceWarning = clearConversation();
+    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
+  }
+
+  function checkpoint(): void {
+    const persistenceWarning = saveConversation(get(store).messages);
+    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
   }
 
   function appendAssistant(delta: StreamDelta): void {
@@ -162,7 +183,8 @@ function createChatState() {
     send,
     stop,
     setSystemPrompt,
-    importChat
+    importChat,
+    newChat
   };
 }
 

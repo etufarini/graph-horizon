@@ -57,6 +57,7 @@ export interface ChatSnapshot {
   messages: ChatMessage[];
   status: ChatStatus;
   error: string | null;
+  persistenceWarning: PersistenceWarning | null;
   systemPrompt: string;
   generationStartedAt: number | null;
   generationMs: number | null;

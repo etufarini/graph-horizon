@@ -34,7 +34,6 @@ Store access, persistence, sorting, and collection mutation are excluded.
   function select(id: string): void {
     if (streaming) return;
     dispatch('select', id);
-    dispatch('close');
   }
 
   async function rename(chat: ChatRecord): Promise<void> {

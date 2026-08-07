@@ -29,7 +29,7 @@ export function activeChat(collection: ChatCollection): ChatRecord {
 
 export function orderedChats(collection: ChatCollection): ChatRecord[] {
   return [...collection.chats].sort(
-    (left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id)
+    (left, right) => right.updatedAt - left.updatedAt || (left.id < right.id ? -1 : left.id > right.id ? 1 : 0)
   );
 }
 

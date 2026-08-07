@@ -161,6 +161,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
   input { width: 100%; box-sizing: border-box; border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel); padding: var(--gn-space-xs); color: var(--gn-text-primary); font: inherit; }
   .rename-actions { display: flex; gap: var(--gn-space-xs); margin-top: var(--gn-space-xs); }
   .backdrop { display: none; }
+  .backdrop:focus-visible { outline: none; box-shadow: var(--gn-focus-inset); }
   @media (max-width: 720px) {
     aside { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; transform: translateX(-110%); }
     aside.open { transform: translateX(0); }

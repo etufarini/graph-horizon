@@ -1,8 +1,8 @@
 <script lang="ts">
   /*
    * Chat.svelte
-   * Single responsibility: own one-shot context initialization and compose
-   * transcript, exact draft occupancy, status, and capacity-gated submission.
+   * Single responsibility: initialize context and compose transcript, session
+   * actions, persistence warning, status, and capacity-gated submission.
    */
   import Composer from './Composer.svelte';
   import SessionActions from './SessionActions.svelte';
@@ -51,7 +51,9 @@
       return;
     }
     await chat.send(submitted, runtimeContext);
-    if ($chat.status === 'error' && submitted.trim()) {
+    // A failed request restores its prompt only if the user has not already
+    // prepared the next draft while the request was running.
+    if ($chat.status === 'error' && submitted.trim() && !draft) {
       draft = submitted;
     }
   }
@@ -75,6 +77,8 @@
   <SessionActions
     importDisabled={streaming}
     confirmBeforeImport={$chat.messages.length > 0}
+    hasMessages={$chat.messages.length > 0}
+    on:reset={() => chat.newChat()}
     on:export={() => downloadChatFile(serializeChat($chat.messages, $chat.systemPrompt))}
     on:import={event => chat.importChat(event.detail)}
   />
@@ -82,6 +86,7 @@
   <Transcript messages={$chat.messages} {streaming} />
 
   <Status
+    warning={$chat.persistenceWarning}
     error={configurationError ?? $chat.error}
     {usage}
     generationStartedAt={$chat.generationStartedAt}

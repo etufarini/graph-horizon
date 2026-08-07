@@ -1,6 +1,7 @@
 <!--
-This document owns the current runtime flag contract and mode-specific defaults.
-Build options, model support details and validation-only variables are delegated.
+This document owns the current runtime flag contract, mode-specific defaults,
+and installer inputs as build-time configuration. Model support details and
+validation-only variables are delegated.
 -->
 
 # Configuration
@@ -112,12 +113,33 @@ therefore controls the current web composer as well as the wrapped server.
 
 ```sh
 support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
-  --profile release|fast --prefix /path/to/prefix
+  [--profile release|fast] [--prefix /path/to/prefix]
 ```
 
 The backend is required; there is no default or runtime backend setting. Build
-profile defaults to `release` and prefix to `${HOME}/.local`. The only user
-environment variable is `GRAPH_HORIZON_INSTALL_PREFIX`, an alternative to `--prefix`.
+profile defaults to `release`. The prefix must be absolute, non-root, and have
+no `.` or `..` component. An explicit `--prefix` takes precedence over
+`GRAPH_HORIZON_INSTALL_PREFIX`, which takes precedence over `$HOME/.local`.
+The installer places both command names in `<prefix>/bin`; if that exact entry
+is absent from `PATH`, it reports the directory without editing shell files.
+
+| Platform | Accepted build backends |
+|---|---|
+| macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
+| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+
+Every other platform/backend tuple is rejected before `npm` or Cargo starts;
+there is no backend or profile fallback. The local form above builds the
+checkout directly. After the repository is public, the public acquisition form
+follows mutable `main` and delegates to that same local installer:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+```
+
+See the [product installation guide](../README.md) and
+[support contract](../support/README.md) for prerequisites, reinstall behavior,
+and the anonymous-access limitation while the repository remains private.
 The `GRAPH_HORIZON_*` variables used by tests, profiling, and diagnostics are not
 binary runtime configuration; their scripts and sources remain authoritative
 for those development interfaces.

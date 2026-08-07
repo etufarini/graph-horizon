@@ -1,19 +1,26 @@
 <script lang="ts">
   /*
    * SessionActions.svelte — presentational session action bar (props in,
-   * events out): the export/import buttons and the file-picker/confirm
-   * choreography, nothing else. Parsing and applying the file belong to
-   * the parent and the chat state; this component never reads the store
-   * and knows nothing about the file format.
+   * events out): new-chat/export/import controls and their confirm/file-picker
+   * choreography. Parsing and state/storage mutations remain outside; this
+   * component never reads the store or localStorage.
    */
   import { createEventDispatcher } from 'svelte';
 
   export let importDisabled = false;
   export let confirmBeforeImport = false;
+  export let hasMessages = false;
 
-  const dispatch = createEventDispatcher<{ export: void; import: string }>();
+  const dispatch = createEventDispatcher<{ reset: void; export: void; import: string }>();
 
   let picker: HTMLInputElement;
+
+  function reset(): void {
+    if (hasMessages && !confirm('Iniziare una nuova chat? La conversazione corrente verrà eliminata.')) {
+      return;
+    }
+    dispatch('reset');
+  }
 
   async function selected(): Promise<void> {
     const file = picker.files?.[0];
@@ -39,6 +46,7 @@
 </script>
 
 <div class="session-actions">
+  <button type="button" disabled={importDisabled} on:click={reset}>Nuova chat</button>
   <button type="button" on:click={() => dispatch('export')}>Esporta</button>
   <button type="button" disabled={importDisabled} on:click={() => picker.click()}>Importa</button>
   <input

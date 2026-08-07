@@ -18,7 +18,9 @@ text messages only, without tool calling or a separate reasoning channel.
 
 ## Requirements
 
-- Git, Rust/Cargo, and Node.js/npm 22.12 or newer;
+- Bash, `curl`, `tar`, `mktemp`, `find`, `uname`, and `install` for the public
+  bootstrap; Git is needed only for a local checkout;
+- Rust/Cargo and Node.js/npm 22.12 or newer;
 - platform build dependencies;
 - a Vulkan loader and driver for `vulkan` and `vulkan-hybrid`;
 - macOS arm64 plus Xcode command-line `metal` and `metallib` tools for Metal;
@@ -28,22 +30,47 @@ The installer builds from source and does not download models.
 
 ## Installation
 
+After the repository becomes public, install the current `main` source with:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+```
+
+The URL does not work anonymously while the repository is private. The command
+follows mutable `main` and verifies neither a release tag nor a checksum; review
+the script and repository state when reproducibility is required. It downloads
+a temporary source archive, validates it, and delegates the build to
+`support/install.sh`. Prerequisites and GGUF models are never installed or
+downloaded automatically.
+
+The equivalent local-checkout path is:
+
 ```sh
 git clone https://github.com/etufarini/gh-zero-engine-ministral3.git
 cd gh-zero-engine-ministral3
 ./support/install.sh --backend cpu
 ```
 
-There is no default backend. Installation requires one explicit profile and
-installs `$HOME/.local/bin/graph-horizon`. If that directory is not in `PATH`:
+There is no default backend. Supported build tuples are:
+
+| Platform | Backends |
+|---|---|
+| macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
+| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+
+The default profile is `release`, and the default prefix is `$HOME/.local`, so
+the command is installed as `$HOME/.local/bin/graph-horizon` with
+`gh-zero-engine` linked to the same artifact, without `sudo`. If that directory
+is not in `PATH`, the installer reports the exact directory but does not edit
+shell files:
 
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 graph-horizon --help
 ```
 
-To make the `PATH` change permanent, add the `export` line to `~/.profile`,
-`~/.zshrc`, or your shell configuration file.
+Add that `export` manually to the appropriate shell configuration only if you
+want the change to persist.
 
 ### Configuring the installer
 
@@ -58,7 +85,7 @@ To make the `PATH` change permanent, add the `export` line to `~/.profile`,
 |---|---|---|
 | `--backend` | required | Selects exactly one static runtime profile |
 | `--profile` | `release` | `fast` optimizes more but takes longer to build |
-| `--prefix` | `$HOME/.local` | Installs the command into `PATH/bin` |
+| `--prefix` | `$HOME/.local` | Installs the commands into `<prefix>/bin` |
 
 Examples:
 
@@ -73,7 +100,9 @@ Examples:
 GRAPH_HORIZON_INSTALL_PREFIX="$HOME/.local" ./support/install.sh --backend cpu
 ```
 
-Run the installer again to rebuild and replace the binary.
+Run either installer again to rebuild and replace both command names. The
+public form rebuilds the then-current `main`; the local form rebuilds the
+current checkout.
 
 ## Usage
 

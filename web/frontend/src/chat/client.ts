@@ -3,8 +3,8 @@
  * Single responsibility: load immutable context properties and POST admitted
  * text-only chat requests while delegating SSE parsing.
  */
-import { parseRuntimeContext } from './context';
-import { readChatStream } from './stream';
+import { parseRuntimeContext } from './context.ts';
+import { readChatStream } from './stream.ts';
 import type { ContextConfigResult, StreamDelta, WireMessage } from './types';
 
 const FAILED = 'Richiesta non riuscita';

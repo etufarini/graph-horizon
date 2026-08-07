@@ -1,14 +1,16 @@
 /*
- * Chat types.
- * Single responsibility: define browser chat, immutable context-capacity,
- * monotonic timing state, and text-only wire shapes.
+ * Browser chat types: define runtime, plain transcript, context-capacity,
+ * timing, and bounded persistence-result shapes without owning side effects.
  */
 export type Role = 'system' | 'user' | 'assistant';
 
-export interface ChatMessage {
-  id: string;
+export interface TranscriptMessage {
   role: Exclude<Role, 'system'>;
   content: string;
+}
+
+export interface ChatMessage extends TranscriptMessage {
+  id: string;
 }
 
 export interface WireMessage {
@@ -17,6 +19,13 @@ export interface WireMessage {
 }
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
+
+export type PersistenceWarning = 'invalid-record' | 'unavailable';
+
+export interface ConversationLoadResult {
+  messages: TranscriptMessage[];
+  warning: PersistenceWarning | null;
+}
 
 export interface RuntimeContext {
   contextLimit: number;
@@ -48,6 +57,7 @@ export interface ChatSnapshot {
   messages: ChatMessage[];
   status: ChatStatus;
   error: string | null;
+  persistenceWarning: PersistenceWarning | null;
   systemPrompt: string;
   generationStartedAt: number | null;
   generationMs: number | null;

@@ -1,58 +1,38 @@
 /*
- * Chat state.
- * Single responsibility: own capacity-gated transcript mutations, transport
- * rollback, stop behavior, and monotonic generation timing.
+ * Chat lifecycle orchestration: owns capacity admission, transport rollback,
+ * timing, and stable persistence checkpoints. Record format and presentation
+ * remain in the persistence/transcript modules and Svelte components.
  */
 import { get, writable } from 'svelte/store';
-import { streamAssistant } from './client';
-import { admitMessages } from './context';
-import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt';
-import { parseChatFile } from './transfer';
-import type {
-  ChatMessage,
-  ChatSnapshot,
-  RuntimeContext,
-  StreamDelta,
-  WireMessage
-} from './types';
+import { streamAssistant } from './client.ts';
+import { admitMessages } from './context.ts';
+import { clearConversation, loadConversation, saveConversation } from './persistence.ts';
+import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt.ts';
+import {
+  appendAssistant as appendAssistantContent,
+  hydrateTranscript,
+  removeTrailingTurn,
+  wireMessages
+} from './transcript.ts';
+import { parseChatFile } from './transfer.ts';
+import type { ChatSnapshot, RuntimeContext, StreamDelta } from './types';
+
+export { wireMessages } from './transcript.ts';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
 
 function emptySnapshot(): ChatSnapshot {
+  const restored = loadConversation();
   return {
-    messages: [],
+    messages: hydrateTranscript(restored.messages),
     status: 'idle',
     error: null,
+    persistenceWarning: restored.warning,
     systemPrompt: loadSystemPrompt(),
     generationStartedAt: null,
     generationMs: null
   };
-}
-
-function nextId(role: string): string {
-  const random = crypto.randomUUID?.() ?? Math.random().toString(16).slice(2);
-  return `${role}-${Date.now()}-${random}`;
-}
-
-export function wireMessages(
-  messages: ChatMessage[],
-  systemPrompt: string,
-  draft = ''
-): WireMessage[] {
-  const wire: WireMessage[] = messages.map(message => ({
-    role: message.role,
-    content: message.content
-  }));
-  const trimmedDraft = draft.trim();
-  if (trimmedDraft) {
-    wire.push({ role: 'user', content: trimmedDraft });
-  }
-  const trimmed = systemPrompt.trim();
-  if (trimmed) {
-    wire.unshift({ role: 'system', content: trimmed });
-  }
-  return wire;
 }
 
 function createChatState() {
@@ -77,8 +57,10 @@ function createChatState() {
       return;
     }
 
-    const user: ChatMessage = { id: nextId('user'), role: 'user', content: prompt };
-    const assistant: ChatMessage = { id: nextId('assistant'), role: 'assistant', content: '' };
+    const [user, assistant] = hydrateTranscript([
+      { role: 'user', content: prompt },
+      { role: 'assistant', content: '' }
+    ]);
     const outgoing = [...current.messages, user];
     controller = new AbortController();
     const request = controller;
@@ -93,12 +75,7 @@ function createChatState() {
     });
 
     try {
-      await streamAssistant(
-        wire,
-        context.maxTokens,
-        appendAssistant,
-        request.signal
-      );
+      await streamAssistant(wire, context.maxTokens, appendAssistant, request.signal);
       const generationMs = performance.now() - generationStartedAt;
       store.update(snapshot => ({
         ...snapshot,
@@ -107,6 +84,7 @@ function createChatState() {
         generationStartedAt: null,
         generationMs
       }));
+      checkpoint();
     } catch (error) {
       const aborted =
         request.signal.aborted || (error instanceof DOMException && error.name === 'AbortError');
@@ -120,8 +98,12 @@ function createChatState() {
           generationStartedAt: null,
           generationMs: null
         }));
+        checkpoint();
       } else {
-        removeTrailingTurn(user.id, assistant.id);
+        store.update(snapshot => ({
+          ...snapshot,
+          messages: removeTrailingTurn(snapshot.messages, user.id, assistant.id)
+        }));
         const message = error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED;
         store.update(snapshot => ({
           ...snapshot,
@@ -155,11 +137,7 @@ function createChatState() {
       store.update(snapshot => ({ ...snapshot, status: 'error', error: message }));
       return;
     }
-    const messages: ChatMessage[] = result.payload.messages.map(message => ({
-      id: nextId(message.role),
-      role: message.role,
-      content: message.content
-    }));
+    const messages = hydrateTranscript(result.payload.messages);
     store.update(snapshot => ({
       ...snapshot,
       messages,
@@ -170,37 +148,33 @@ function createChatState() {
       generationMs: null
     }));
     saveSystemPrompt(result.payload.systemPrompt);
+    checkpoint();
   }
 
-  function removeTrailingTurn(userId: string, assistantId: string): void {
-    store.update(snapshot => {
-      const user = snapshot.messages[snapshot.messages.length - 2];
-      const assistant = snapshot.messages[snapshot.messages.length - 1];
-      if (
-        !user ||
-        user.role !== 'user' ||
-        user.id !== userId ||
-        !assistant ||
-        assistant.role !== 'assistant' ||
-        assistant.id !== assistantId
-      ) {
-        return snapshot;
-      }
-      // Roll back only the in-flight pair; completed history is immutable here.
-      return { ...snapshot, messages: snapshot.messages.slice(0, -2) };
+  function newChat(): void {
+    const current = get(store);
+    if (current.status === 'streaming') return;
+    store.set({
+      ...current,
+      messages: [],
+      status: 'idle',
+      error: null,
+      generationStartedAt: null,
+      generationMs: null
     });
+    const persistenceWarning = clearConversation();
+    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
+  }
+
+  function checkpoint(): void {
+    const persistenceWarning = saveConversation(get(store).messages);
+    store.update(snapshot => ({ ...snapshot, persistenceWarning }));
   }
 
   function appendAssistant(delta: StreamDelta): void {
     store.update(snapshot => ({
       ...snapshot,
-      messages: snapshot.messages.map((message, index) => {
-        const isLast = index === snapshot.messages.length - 1;
-        if (!isLast || message.role !== 'assistant') {
-          return message;
-        }
-        return { ...message, content: message.content + delta.content };
-      })
+      messages: appendAssistantContent(snapshot.messages, delta.content)
     }));
   }
 
@@ -209,7 +183,8 @@ function createChatState() {
     send,
     stop,
     setSystemPrompt,
-    importChat
+    importChat,
+    newChat
   };
 }
 

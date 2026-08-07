@@ -1,8 +1,8 @@
 <script lang="ts">
   /*
    * Composer.svelte
-   * Single responsibility: present editable text and expose send only when
-   * runtime context is available, while retaining the existing stop action.
+   * Single responsibility: keep the next draft editable while exposing send
+   * only when the runtime is idle and available, alongside the stop action.
    */
   // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
   import logoUrl from '../../../../assets/graph-horizon-logo.svg';
@@ -39,7 +39,6 @@
   <textarea
     bind:value
     rows="3"
-    disabled={streaming}
     on:keydown={keydown}
     aria-label="Messaggio"
     placeholder="Scrivi a Graph Horizon…"
@@ -47,7 +46,7 @@
   <div class="composer-bar">
     <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
     <span class="composer-hint">
-      {streaming ? 'Generazione in corso…' : 'Ctrl/⌘ + Invio per inviare'}
+      {streaming ? 'Generazione in corso… prepara il prossimo messaggio' : 'Ctrl/⌘ + Invio per inviare'}
     </span>
     {#if streaming}
       <button
@@ -105,12 +104,6 @@
     font-family: var(--gn-font-sans);
     font-size: var(--gn-text-md);
     line-height: var(--gn-line-height);
-  }
-
-  textarea:disabled {
-    /* Keep the rail image visible while only the surface color changes. */
-    background-color: var(--gn-bg-panel-raised);
-    color: var(--gn-text-muted);
   }
 
   .composer-bar {

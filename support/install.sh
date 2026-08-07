@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
-# Builds the Web UI and one required explicit profile, then installs its binary.
-# Arguments own the build/profile/prefix tuple; subprocesses stay synchronous.
-# It installs no prerequisites and never retries another profile or toolchain.
+# Local source installer: validates one explicit host/backend/profile tuple,
+# builds the Web UI and Rust binary, and installs both command names in a prefix.
+# Remote acquisition and prerequisite installation are intentionally excluded.
 
 set -euo pipefail
 
@@ -49,27 +49,42 @@ while (($#)); do
     esac
 done
 
-[[ -n "${backend}" ]] || fail "--backend is required"
+[[ -n "${backend}" ]] \
+    || fail "--backend is required; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid"
 case "${backend}" in
     cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;;
-    *) fail "invalid backend: ${backend}" ;;
+    *) fail "invalid backend: ${backend}; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid" ;;
 esac
 case "${profile}" in
     release|fast) ;;
     *) fail "invalid build profile: ${profile}" ;;
 esac
-[[ -n "${prefix}" && "${prefix}" != "/" ]] || fail "invalid install prefix"
-case "${backend}" in
-    metal|metal-hybrid)
-        [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] \
-            || fail "Metal requires macOS on arm64"
-        command -v xcrun >/dev/null 2>&1 || fail "Metal requires xcrun"
-        xcrun -f metal >/dev/null 2>&1 || fail "Metal compiler is unavailable"
-        xcrun -f metallib >/dev/null 2>&1 || fail "Metal library tool is unavailable"
-        ;;
+[[ -n "${prefix}" && "${prefix}" == /* ]] || fail "invalid install prefix"
+[[ "${prefix}" != *[$'\001'-$'\037'$'\177']* ]] || fail "invalid install prefix"
+case "${prefix}/" in
+    */./*|*/../*) fail "invalid install prefix" ;;
 esac
-command -v cargo >/dev/null 2>&1 || fail "cargo is required"
-command -v npm >/dev/null 2>&1 || fail "npm is required"
+while [[ "${prefix}" != "/" && "${prefix}" == */ ]]; do
+    prefix="${prefix%/}"
+done
+[[ "${prefix}" != "/" ]] || fail "invalid install prefix"
+
+for prerequisite in bash uname install npm cargo; do
+    command -v "${prerequisite}" >/dev/null 2>&1 || fail "${prerequisite} is required"
+done
+
+os="$(uname -s)"
+arch="$(uname -m)"
+case "${os}/${arch}/${backend}" in
+    Darwin/arm64/cpu|Darwin/arm64/vulkan|Darwin/arm64/vulkan-hybrid|Darwin/arm64/metal|Darwin/arm64/metal-hybrid) ;;
+    Linux/x86_64/cpu|Linux/x86_64/vulkan|Linux/x86_64/vulkan-hybrid) ;;
+    *) fail "unsupported platform/backend: ${os}/${arch}/${backend}; Metal requires macOS on arm64" ;;
+esac
+if [[ "${backend}" == metal || "${backend}" == metal-hybrid ]]; then
+    command -v xcrun >/dev/null 2>&1 || fail "Metal requires xcrun"
+    xcrun -f metal >/dev/null 2>&1 || fail "Metal compiler is unavailable"
+    xcrun -f metallib >/dev/null 2>&1 || fail "Metal library tool is unavailable"
+fi
 
 (
     cd "${project_dir}/web/frontend"
@@ -87,12 +102,16 @@ profile_args=(--profile "${profile}")
 binary="${project_dir}/target/${profile}/graph-horizon"
 [[ -f "${binary}" ]] || fail "build completed without the expected binary"
 bindir="${prefix}/bin"
-install -d "${bindir}"
-install -m 0755 "${binary}" "${bindir}/graph-horizon"
 legacy="${bindir}/gh-zero-engine"
 [[ ! -d "${legacy}" || -L "${legacy}" ]] \
     || fail "legacy command path is a directory: ${legacy}"
+install -d "${bindir}"
+install -m 0755 "${binary}" "${bindir}/graph-horizon"
 # One relative link keeps the legacy command on the exact installed artifact.
 ln -sfn "graph-horizon" "${legacy}"
-printf 'installed %s and compatibility link %s (backend=%s, build-profile=%s)\n' \
-    "${bindir}/graph-horizon" "${legacy}" "${backend}" "${profile}"
+printf 'installed graph-horizon (prefix=%s, backend=%s, profile=%s)\n' \
+    "${prefix}" "${backend}" "${profile}"
+case ":${PATH:-}:" in
+    *":${bindir}:"*) ;;
+    *) printf 'install: %s is not in PATH; add it manually\n' "${bindir}" ;;
+esac

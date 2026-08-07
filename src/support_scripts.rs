@@ -1,9 +1,9 @@
 /*
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
- * interfaces through disposable fixtures, proving early validation, quoted
- * read-only model handling, class-sensitive semantic protocols, and explicit
- * external-verification output without real builds.
+ * interfaces through disposable fixtures, proving installer/bootstrap safety,
+ * quoted read-only model handling, class-sensitive semantic protocols, and
+ * explicit external-verification output without real builds or network use.
  */
 
 use std::fs;
@@ -112,6 +112,86 @@ fn fixture_dir(label: &str) -> PathBuf {
     }
     fs::create_dir_all(&path).expect("create fixture");
     path
+}
+
+fn write_executable(path: &Path, source: &[u8]) {
+    fs::write(path, source).unwrap();
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
+}
+
+fn installer_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
+    let fixture = fixture_dir(label);
+    let root = fixture.join("repository with spaces");
+    let bin = fixture.join("bin");
+    let log = fixture.join("build calls");
+    fs::create_dir_all(root.join("support")).unwrap();
+    fs::create_dir_all(root.join("web/frontend")).unwrap();
+    fs::create_dir(&bin).unwrap();
+    fs::copy(
+        repository().join("support/install.sh"),
+        root.join("support/install.sh"),
+    )
+    .unwrap();
+    write_executable(
+        &bin.join("uname"),
+        br#"#!/usr/bin/env bash
+case "$1" in
+  -s) printf '%s\n' "$GRAPH_HORIZON_TEST_OS" ;;
+  -m) printf '%s\n' "$GRAPH_HORIZON_TEST_ARCH" ;;
+  *) exit 2 ;;
+esac
+"#,
+    );
+    write_executable(
+        &bin.join("npm"),
+        br#"#!/usr/bin/env bash
+printf 'npm\t%s\n' "$*" >> "$GRAPH_HORIZON_TEST_LOG"
+"#,
+    );
+    write_executable(
+        &bin.join("cargo"),
+        br#"#!/usr/bin/env bash
+printf 'cargo\t%s\n' "$*" >> "$GRAPH_HORIZON_TEST_LOG"
+profile=release
+while (($#)); do
+  if [[ "$1" == --profile ]]; then profile="$2"; shift; fi
+  shift
+done
+mkdir -p "$GRAPH_HORIZON_FIXTURE_ROOT/target/$profile"
+printf '#!/bin/sh\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/target/$profile/graph-horizon"
+"#,
+    );
+    write_executable(
+        &bin.join("xcrun"),
+        br#"#!/usr/bin/env bash
+[[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
+"#,
+    );
+    (fixture, root, bin, log)
+}
+
+fn run_installer(
+    fixture: &Path,
+    root: &Path,
+    bin: &Path,
+    log: &Path,
+    os: &str,
+    arch: &str,
+    args: &[&str],
+) -> Output {
+    Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(args)
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_OS", os)
+        .env("GRAPH_HORIZON_TEST_ARCH", arch)
+        .env("GRAPH_HORIZON_TEST_LOG", log)
+        .env("GRAPH_HORIZON_FIXTURE_ROOT", root)
+        .output()
+        .unwrap()
 }
 
 #[test]
@@ -395,6 +475,181 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
     assert!(source.contains("stat -f %z"));
     assert!(source.contains("sha256sum"));
     assert!(source.contains("shasum -a 256"));
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_rejects_unsupported_platform_backend_pairs() {
+    let (fixture, root, bin, log) = installer_fixture("installer platform matrix");
+    let cases = [
+        ("Darwin", "arm64", "cpu", true),
+        ("Darwin", "arm64", "vulkan", true),
+        ("Darwin", "arm64", "vulkan-hybrid", true),
+        ("Darwin", "arm64", "metal", true),
+        ("Darwin", "arm64", "metal-hybrid", true),
+        ("Linux", "x86_64", "cpu", true),
+        ("Linux", "x86_64", "vulkan", true),
+        ("Linux", "x86_64", "vulkan-hybrid", true),
+        ("Linux", "x86_64", "metal", false),
+        ("Linux", "x86_64", "metal-hybrid", false),
+        ("Darwin", "x86_64", "cpu", false),
+        ("FreeBSD", "x86_64", "cpu", false),
+    ];
+    for (index, (os, arch, backend, accepted)) in cases.into_iter().enumerate() {
+        fs::write(&log, []).unwrap();
+        let prefix = fixture.join(format!("prefix {index}"));
+        let output = run_installer(
+            &fixture,
+            &root,
+            &bin,
+            &log,
+            os,
+            arch,
+            &["--backend", backend, "--prefix", prefix.to_str().unwrap()],
+        );
+        assert_eq!(
+            output.status.success(),
+            accepted,
+            "{os}/{arch}/{backend}: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if accepted {
+            assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 3);
+        } else {
+            assert_eq!(output.status.code(), Some(2));
+            assert!(fs::read(&log).unwrap().is_empty());
+            assert!(
+                String::from_utf8_lossy(&output.stderr).contains(&format!("{os}/{arch}/{backend}"))
+            );
+        }
+    }
+
+    fs::write(&log, []).unwrap();
+    let prefix = fixture.join("metal tools");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(["--backend", "metal", "--prefix", prefix.to_str().unwrap()])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_OS", "Darwin")
+        .env("GRAPH_HORIZON_TEST_ARCH", "arm64")
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
+        .env("GRAPH_HORIZON_XCRUN_FAIL", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Metal compiler is unavailable"));
+    assert!(fs::read(&log).unwrap().is_empty());
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_rejects_unsafe_prefixes_before_build() {
+    let (fixture, root, bin, log) = installer_fixture("installer unsafe prefixes");
+    for prefix in [
+        "",
+        "relative",
+        "/",
+        "////",
+        "/tmp/./unsafe",
+        "/tmp/../unsafe",
+        "/tmp/\nunsafe",
+    ] {
+        fs::write(&log, []).unwrap();
+        let output = run_installer(
+            &fixture,
+            &root,
+            &bin,
+            &log,
+            "Linux",
+            "x86_64",
+            &["--backend", "cpu", "--prefix", prefix],
+        );
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "unsafe prefix accepted: {prefix:?}"
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains("invalid install prefix"));
+        assert!(fs::read(&log).unwrap().is_empty());
+    }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_reports_missing_prerequisite_before_build() {
+    let (fixture, root, _, log) = installer_fixture("installer missing prerequisite");
+    let isolated = fixture.join("isolated bin");
+    fs::create_dir(&isolated).unwrap();
+    for tool in ["bash", "uname", "install", "cargo"] {
+        write_executable(&isolated.join(tool), b"#!/bin/sh\nexit 0\n");
+    }
+    let prefix = fixture.join("prefix");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(["--backend", "cpu", "--prefix", prefix.to_str().unwrap()])
+        .env("PATH", &isolated)
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("npm is required"));
+    assert!(!log.exists());
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_reports_missing_path_without_mutating_shells() {
+    let (fixture, root, bin, log) = installer_fixture("installer path report");
+    let home = fixture.join("home");
+    let prefix = fixture.join("prefix with spaces");
+    fs::create_dir(&home).unwrap();
+    fs::write(home.join(".zshrc"), b"unchanged\n").unwrap();
+    let prefix_with_slashes = format!("{}///", prefix.display());
+    let output = run_installer(
+        &fixture,
+        &root,
+        &bin,
+        &log,
+        "Linux",
+        "x86_64",
+        &["--backend", "cpu", "--prefix", &prefix_with_slashes],
+    );
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!(
+        "installed graph-horizon (prefix={}, backend=cpu, profile=release)",
+        prefix.display()
+    )));
+    assert!(stdout.contains(&format!(
+        "install: {}/bin is not in PATH; add it manually",
+        prefix.display()
+    )));
+    assert_eq!(fs::read(home.join(".zshrc")).unwrap(), b"unchanged\n");
+    assert!(prefix.join("bin/graph-horizon").is_file());
+    assert_eq!(
+        fs::read_link(prefix.join("bin/gh-zero-engine")).unwrap(),
+        Path::new("graph-horizon")
+    );
+    assert_eq!(
+        fs::read_to_string(&log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "npm\tci",
+            "npm\trun build",
+            "cargo\tbuild --locked --no-default-features --features cpu --profile release -p graph-horizon"
+        ]
+    );
     fs::remove_dir_all(fixture).unwrap();
 }
 

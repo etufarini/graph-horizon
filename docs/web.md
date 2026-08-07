@@ -78,6 +78,11 @@ usage does not affect the client timer. `reasoning_content` and tool frames
 remain protocol errors. The stop button aborts the fetch and retains the active
 pair, including partial raw text, to preserve alternating history.
 
+The composer remains editable while a response is streaming, so the next
+message can be prepared without starting a concurrent request. Send stays
+disabled until streaming ends, while Stop remains available. A failed request
+restores its submitted prompt only when no newer draft has been entered.
+
 `--provider` is ignored. `--context-tokens`, KV, threads, and placement configure
 the local engine. Web `max_tokens` defaults to `1024`; `/props` propagates an
 explicit `--max-tokens` to both browser admission and every request body.

@@ -51,7 +51,9 @@
       return;
     }
     await chat.send(submitted, runtimeContext);
-    if ($chat.status === 'error' && submitted.trim()) {
+    // A failed request restores its prompt only if the user has not already
+    // prepared the next draft while the request was running.
+    if ($chat.status === 'error' && submitted.trim() && !draft) {
       draft = submitted;
     }
   }

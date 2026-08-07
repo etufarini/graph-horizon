@@ -1,12 +1,13 @@
 <script lang="ts">
   /*
    * Status.svelte
-   * Single responsibility: present an additive error strip, accessible context
-   * progress, and live/final client-perceived generation duration.
+   * Single responsibility: present independent persistence warning/error
+   * strips, accessible context progress, and client-perceived generation time.
    */
   import { onDestroy } from 'svelte';
-  import type { ContextUsage } from '../chat/types';
+  import type { ContextUsage, PersistenceWarning } from '../chat/types';
 
+  export let warning: PersistenceWarning | null;
   export let error: string | null;
   export let usage: ContextUsage | null;
   export let generationStartedAt: number | null;
@@ -37,9 +38,16 @@
     : usage.percent < 100
       ? 'fill-warning'
       : 'fill-error';
+  $: warningText = warning === 'invalid-record'
+    ? 'Conversazione salvata non valida: avvio con una chat vuota'
+    : warning === 'unavailable' ? 'Persistenza non disponibile: la conversazione resterà solo in memoria' : null;
 
   onDestroy(stopTimer);
 </script>
+
+{#if warningText}
+  <div class="status-error status-warning" role="status">{warningText}</div>
+{/if}
 
 {#if error}
   <div class="status-error">{error}</div>
@@ -74,6 +82,12 @@
     font-weight: 600;
     color: var(--gn-error-fg);
     background: var(--gn-error-bg);
+  }
+
+  .status-warning {
+    border-color: var(--gn-streaming);
+    color: var(--gn-text);
+    background: var(--gn-bg-panel);
   }
 
   .status-panel {

@@ -12,6 +12,8 @@ inline float h(device const uchar *w,uint b){return float(as_type<half>(ushort(u
 inline void sm(device const uchar*w,uint b,uint j,thread uint&sc,thread uint&mn){if(j<4){sc=w[b+j]&63;mn=w[b+j+4]&63;}else{uint hi=w[b+j+4],lo=w[b+j-4];sc=(hi&15)|((lo>>6)<<4);mn=(hi>>4)|((uint(w[b+j])>>6)<<4);}}
 inline float q4(device const uchar*w,uint b,uint i,bool five){uint g=i/64,l=i%64,sc,mn;sm(w,b+4,g*2+l/32,sc,mn);uint qo=b+(five?48:16)+g*32+l%32;uint q=l<32?(w[qo]&15):(w[qo]>>4);if(five)q+=((w[b+16+l%32]>>(g*2+l/32))&1)*16;return h(w,b)*float(sc)*float(q)-h(w,b+2)*float(mn);}
 inline float q6(device const uchar*w,uint b,uint i){uint seg=i/128,c=(i%128)/32,l=i%32;uint qb=b+seg*64+(c&1)*32+l,hb=b+128+seg*32+l;uint lo=c>=2?(w[qb]>>4):(w[qb]&15),hi=(w[hb]>>(c*2))&3;float dl=h(w,b+208)*float(int(as_type<char>(w[b+192+seg*8+l/16+c*2])));return dl*(float(lo|(hi<<4))-32.0f);}
+inline void q4x16(device const uchar*w,uint b,uint i,thread half4x4&r){uint g=i/64,l=i%64,sc,mn;sm(w,b+4,g*2+l/32,sc,mn);uint qo=b+16+g*32+l%32;float ds=h(w,b)*float(sc),ms=h(w,b+2)*float(mn);for(uint j=0;j<16;j++){uint q=l<32?(w[qo+j]&15):(w[qo+j]>>4);r[j/4][j%4]=half(ds*float(q)-ms);}}
+inline void q6x16(device const uchar*w,uint b,uint i,thread half4x4&r){uint seg=i/128,c=(i%128)/32,l=i%32;uint qb=b+seg*64+(c&1)*32+l,hb=b+128+seg*32+l;float dl=h(w,b+208)*float(int(as_type<char>(w[b+192+seg*8+l/16+c*2])));for(uint j=0;j<16;j++){uint lo=c>=2?(w[qb+j]>>4):(w[qb+j]&15),hi=(w[hb+j]>>(c*2))&3;r[j/4][j%4]=half(dl*(float(lo|(hi<<4))-32.0f));}}
 kernel void metal_matmul(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device uchar*out[[buffer(2)]],constant Params&p[[buffer(3)]],uint tid[[thread_position_in_grid]],ushort sl[[thread_index_in_simdgroup]]){
  if(p.format==1){
   // One SIMD-group emits two rows; four lane octets own disjoint input blocks.
@@ -46,36 +48,31 @@ kernel void metal_matmul(device const half*a[[buffer(0)]],device const uchar*w[[
  for(uint i=0;i<p.input;i++){float v;if(p.format==0)v=float(((device const half*)w)[o*p.input+i]);else{uint b=o*ns+i/256,q=i%256;v=q4(w,b*176,q,true);}acc+=float(a[i])*v;}
  if(p.fp32)((device float*)out)[o]=acc;else((device half*)out)[o]=half(acc);
 }
-kernel void metal_matmul_batched(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort lane[[thread_index_in_threadgroup]]){
- threadgroup half weights[64],acts[4*64];threadgroup float result[4*64];
- // One SIMD group owns one 8-output tile and up to four 8-token tiles.
- simdgroup_float8x8 acc[4];uint tiles=(p.rows+7)/8,out_base=group*8,ns=p.input/256;
- for(uint t=0;t<tiles;t++)acc[t]=make_filled_simdgroup_matrix<float,8>(0.0f);
- for(uint base=0;base<p.input;base+=8){
-  for(uint index=lane;index<64;index+=32){
-   uint row=out_base+index/8,k=base+index%8;
-   if(row<p.output){
-    uint block=(row*ns+k/256)*(p.format==1?144:210);
-    weights[index]=half(p.format==1?q4(w,block,k&255,false):q6(w,block,k&255));
-   }else weights[index]=half(0.0h);
-   for(uint t=0;t<tiles;t++){
-    uint token=t*8+index/8;
-    acts[t*64+index]=token<p.rows?a[token*p.input+k]:half(0.0h);
-   }
-  }
-  // All 32 lanes reach both barriers before shared tiles can be overwritten.
+kernel void metal_matmul_batched(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
+ threadgroup half weights[64*32],acts[32*32];threadgroup float result[32*64];
+ simdgroup_float8x8 acc[8];for(uint i=0;i<8;i++)acc[i]=make_filled_simdgroup_matrix<float,8>(0.0f);
+ uint ns=p.input/256,group_out=group*64,local_out=tid/2,chunk=tid&1;
+ for(uint base=0;base<p.input;base+=32){
+  uint column=group_out+local_out;
+  if(column<p.output){
+   uint block=(column*ns+base/256)*(p.format==1?144:210);half4x4 values;
+   if(p.format==1)q4x16(w,block,(base&255)+chunk*16,values);else q6x16(w,block,(base&255)+chunk*16,values);
+   for(uint i=0;i<16;i++)weights[local_out*32+chunk*16+i]=values[i/4][i%4];
+  }else for(uint i=0;i<16;i++)weights[local_out*32+chunk*16+i]=half(0.0h);
+  for(uint index=tid;index<32*32;index+=128){uint token=index/32,k=index%32;acts[index]=token<p.rows?a[token*p.input+base+k]:half(0.0h);}
+  // The complete K32 tiles are immutable until all four SIMD groups finish.
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  simdgroup_half8x8 wm;simdgroup_load(wm,weights,8,0,true);
-  for(uint t=0;t<tiles;t++){
-   simdgroup_half8x8 am;simdgroup_load(am,acts+t*64,8,0,false);
-   simdgroup_multiply_accumulate(acc[t],am,wm,acc[t]);
+  uint out_tile=(sg&1)*32,token_tile=(sg>>1)*16;
+  for(uint k=0;k<32;k+=8){
+   simdgroup_half8x8 wm[4],am[2];
+   for(uint i=0;i<4;i++)simdgroup_load(wm[i],weights+(out_tile+i*8)*32+k,32,0,true);
+   for(uint i=0;i<2;i++)simdgroup_load(am[i],acts+(token_tile+i*8)*32+k,32,0,false);
+   for(uint token=0;token<2;token++)for(uint column=0;column<4;column++){uint i=token*4+column;simdgroup_multiply_accumulate(acc[i],am[token],wm[column],acc[i]);}
   }
   threadgroup_barrier(mem_flags::mem_threadgroup);
  }
- for(uint t=0;t<tiles;t++)simdgroup_store(acc[t],result+t*64,8,0,false);
+ uint out_tile=(sg&1)*32,token_tile=(sg>>1)*16;
+ for(uint token=0;token<2;token++)for(uint column=0;column<4;column++)simdgroup_store(acc[token*4+column],result+(token_tile+token*8)*64+out_tile+column*8,64,0,false);
  threadgroup_barrier(mem_flags::mem_threadgroup);
- for(uint t=0;t<tiles;t++)for(uint index=lane;index<64;index+=32){
-  uint token=t*8+index/8,column=out_base+index%8;
-  if(token<p.rows&&column<p.output)out[token*p.output+column]=half(result[t*64+index]);
- }
+ for(uint index=tid;index<32*64;index+=128){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
 }

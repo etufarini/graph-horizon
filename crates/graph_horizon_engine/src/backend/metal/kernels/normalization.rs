@@ -23,12 +23,15 @@ pub(crate) fn encode(
     let mut c = super::u32s(&[dim]);
     c.extend(eps.to_ne_bytes());
     c.extend(rows.to_ne_bytes());
-    dispatch::encode(
+    // One complete threadgroup owns each row: every lane must participate in
+    // the shader barriers, so the group count must remain exactly `rows`.
+    dispatch::encode_threadgroups(
         e,
         p,
         Kernel::Rmsnorm,
         &[x, w, out],
         &c,
         [rows as usize, 1, 1],
+        256,
     )
 }

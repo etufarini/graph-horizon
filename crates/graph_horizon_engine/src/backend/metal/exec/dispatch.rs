@@ -22,14 +22,64 @@ pub(crate) fn encode(
     constants: &[u8],
     grid: [usize; 3],
 ) -> Result<()> {
-    if grid.contains(&0) {
-        return Err(arithmetic());
-    }
-    let compute = encoder.compute()?;
+    encode_geometry(
+        encoder,
+        registry,
+        kernel,
+        buffers,
+        constants,
+        Geometry::Threads(grid),
+    )
+}
+
+pub(crate) fn encode_threadgroups(
+    encoder: &MetalEncoder,
+    registry: &PipelineRegistry,
+    kernel: Kernel,
+    buffers: &[&MetalBuffer],
+    constants: &[u8],
+    groups: [usize; 3],
+    threads: usize,
+) -> Result<()> {
+    encode_geometry(
+        encoder,
+        registry,
+        kernel,
+        buffers,
+        constants,
+        Geometry::Threadgroups { groups, threads },
+    )
+}
+
+enum Geometry {
+    Threads([usize; 3]),
+    Threadgroups { groups: [usize; 3], threads: usize },
+}
+
+fn encode_geometry(
+    encoder: &MetalEncoder,
+    registry: &PipelineRegistry,
+    kernel: Kernel,
+    buffers: &[&MetalBuffer],
+    constants: &[u8],
+    geometry: Geometry,
+) -> Result<()> {
     let pipeline = registry.get(kernel);
     if pipeline.width == 0 || pipeline.max_threads == 0 {
         return Err(arithmetic());
     }
+    // Reject invalid geometry before mutating the command encoder: callers
+    // must never receive an error after a partial dispatch has been encoded.
+    match &geometry {
+        Geometry::Threads(grid) if !grid.contains(&0) => {}
+        Geometry::Threadgroups { groups, threads }
+            if !groups.contains(&0)
+                && *threads > 0
+                && *threads <= pipeline.max_threads
+                && threads.is_multiple_of(pipeline.width) => {}
+        _ => return Err(arithmetic()),
+    }
+    let compute = encoder.compute()?;
     compute.setComputePipelineState(&pipeline.raw);
     for (index, buffer) in buffers.iter().enumerate() {
         let end = buffer
@@ -54,20 +104,26 @@ pub(crate) fn encode(
             compute.setBytes_length_atIndex(pointer, constants.len(), buffers.len());
         }
     }
-    let threads = pipeline.width.min(pipeline.max_threads);
-    compute.dispatchThreads_threadsPerThreadgroup(
-        MTLSize {
-            width: grid[0],
-            height: grid[1],
-            depth: grid[2],
-        },
-        MTLSize {
-            width: threads,
-            height: 1,
-            depth: 1,
-        },
-    );
+    match geometry {
+        Geometry::Threads(grid) => {
+            compute.dispatchThreads_threadsPerThreadgroup(
+                size(grid),
+                size([pipeline.width.min(pipeline.max_threads), 1, 1]),
+            );
+        }
+        Geometry::Threadgroups { groups, threads } => {
+            compute.dispatchThreadgroups_threadsPerThreadgroup(size(groups), size([threads, 1, 1]));
+        }
+    }
     Ok(())
+}
+
+fn size(value: [usize; 3]) -> MTLSize {
+    MTLSize {
+        width: value[0],
+        height: value[1],
+        depth: value[2],
+    }
 }
 
 fn arithmetic() -> color_eyre::Report {

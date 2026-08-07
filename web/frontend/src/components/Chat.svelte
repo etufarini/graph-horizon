@@ -13,6 +13,7 @@
   import { loadRuntimeContext } from '../chat/client';
   import { contextUsage } from '../chat/context';
   import { downloadChatFile } from '../chat/download';
+  import { activeChat } from '../chat/sessions';
   import { chat, wireMessages } from '../chat/state';
   import { serializeChat } from '../chat/transfer';
   import type { RuntimeContext } from '../chat/types';
@@ -40,8 +41,9 @@
   onDestroy(() => contextController.abort());
 
   $: streaming = $chat.status === 'streaming';
+  $: messages = activeChat($chat.collection).messages;
   $: usage = runtimeContext
-    ? contextUsage(wireMessages($chat.messages, $chat.systemPrompt, streaming ? '' : draft), runtimeContext)
+    ? contextUsage(wireMessages(messages, $chat.systemPrompt, streaming ? '' : draft), runtimeContext)
     : null;
 
   async function send(): Promise<void> {
@@ -76,14 +78,14 @@
 
   <SessionActions
     importDisabled={streaming}
-    confirmBeforeImport={$chat.messages.length > 0}
-    hasMessages={$chat.messages.length > 0}
+    confirmBeforeImport={messages.length > 0}
+    hasMessages={messages.length > 0}
     on:reset={() => chat.newChat()}
-    on:export={() => downloadChatFile(serializeChat($chat.messages, $chat.systemPrompt))}
+    on:export={() => downloadChatFile(serializeChat(messages, $chat.systemPrompt))}
     on:import={event => chat.importChat(event.detail)}
   />
 
-  <Transcript messages={$chat.messages} {streaming} />
+  <Transcript {messages} {streaming} />
 
   <Status
     warning={$chat.persistenceWarning}

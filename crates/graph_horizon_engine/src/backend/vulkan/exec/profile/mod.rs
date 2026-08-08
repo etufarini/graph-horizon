@@ -1,8 +1,11 @@
 /*
  * Vulkan prefill profiler: owns one reusable timestamp pool and aggregates
- * feature-gated GPU, submission, synchronization, and allocation diagnostics
- * on stderr without changing model buffers or shaders.
+ * feature-gated GPU, submission, synchronization, and allocation diagnostics.
+ * Kernel classification and stderr presentation remain isolated in siblings.
  */
+
+mod category;
+mod report;
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -10,7 +13,8 @@ use std::time::Instant;
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
-use crate::backend::vulkan::pipeline::{Kernel, ProfileCategory};
+use self::category::Category;
+use crate::backend::vulkan::pipeline::Kernel;
 
 const QUERY_COUNT: u32 = 8192;
 type Stamp = Option<(vk::QueryPool, u32)>;
@@ -21,13 +25,13 @@ pub(crate) struct Profile {
 }
 
 #[derive(Clone, Copy)]
-struct Mark(ProfileCategory, u32, u32);
+struct Mark(Category, u32, u32);
 
 #[derive(Default)]
 struct Totals {
     counts: [u64; 3],
     gpu_ms: [f64; 2],
-    category_ms: [f64; ProfileCategory::COUNT],
+    category_ms: [f64; Category::COUNT],
     cpu_ms: [f64; 3],
     allocations: [u64; 3],
 }
@@ -95,8 +99,8 @@ impl Profile {
         }
         let (start, end) = (state.next, state.next + 1);
         state.next += 2;
-        let category = kernel.profiled_category(&mut state.batched_matmul);
-        state.is_prefill |= kernel.is_prefill_attention();
+        let category = category::profiled(kernel, &mut state.batched_matmul);
+        state.is_prefill |= category::is_prefill_attention(kernel);
         state.marks.push(Mark(category, start, end));
         let pool = state.pool.expect("profile pool while recording");
         // SAFETY: the reserved query is reset and `cmd` is recording.
@@ -176,7 +180,7 @@ impl Profile {
         }
         let tick_ms = self.period_ns / 1_000_000.0;
         let gpu_ms = values[end as usize].wrapping_sub(values[0]) as f64 * tick_ms;
-        let mut category_ms = [0.0; ProfileCategory::COUNT];
+        let mut category_ms = [0.0; Category::COUNT];
         for mark in &state.marks {
             let index = mark.0 as usize;
             category_ms[index] +=
@@ -202,7 +206,7 @@ impl Profile {
 
     pub(crate) fn finish(&self, device: &ash::Device) {
         let mut state = self.state.lock().expect("vulkan profile lock");
-        report(&state.totals);
+        report::write(&state.totals);
         if let Some(pool) = state.pool.take() {
             // SAFETY: Device::drop waited idle; no command can use this pool.
             unsafe { device.destroy_query_pool(pool, None) };
@@ -210,53 +214,9 @@ impl Profile {
     }
 }
 
-fn report(totals: &Totals) {
-    let accounted = totals.gpu_ms[1] / totals.gpu_ms[0].max(f64::MIN_POSITIVE) * 100.0;
-    eprintln!(
-        "vulkan_profile phase=prefill counts_command_dispatch_barrier={:?} gpu_total_kernel_ms={:?} residual_ms={:.3} accounted_pct={:.2} cpu_record_submit_wait_ms={:?} allocation_count_bytes_host={:?}",
-        totals.counts,
-        totals.gpu_ms,
-        (totals.gpu_ms[0] - totals.gpu_ms[1]).max(0.0),
-        accounted,
-        totals.cpu_ms,
-        totals.allocations
-    );
-    for category in ProfileCategory::ALL {
-        let index = category as usize;
-        let pct = totals.category_ms[index] / totals.gpu_ms[0].max(f64::MIN_POSITIVE) * 100.0;
-        eprintln!(
-            "vulkan_profile phase=prefill category={} gpu_ms={:.3} pct={:.2}",
-            category.name(),
-            totals.category_ms[index],
-            pct
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn batch_sequence_splits_attention_projections_and_mlp() {
-        let mut slot = 0;
-        let kernel = Kernel::MatmulQ4KBatchF16Out;
-        let names = (0..7)
-            .map(|_| kernel.profiled_category(&mut slot).name())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            names,
-            [
-                "projection_qkv",
-                "projection_qkv",
-                "projection_qkv",
-                "projection_output",
-                "mlp",
-                "mlp",
-                "mlp"
-            ]
-        );
-    }
+    use super::QUERY_COUNT;
 
     #[test]
     fn selected_prefill_batch_fits_query_pool() {

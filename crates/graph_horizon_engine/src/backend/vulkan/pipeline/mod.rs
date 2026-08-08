@@ -16,8 +16,6 @@ mod kernel;
 mod record;
 
 pub(crate) use kernel::Kernel;
-#[cfg(feature = "vulkan-profile")]
-pub(crate) use kernel::ProfileCategory;
 pub(crate) use record::{dispatch, dispatch_2d};
 
 pub(crate) struct Pipeline {

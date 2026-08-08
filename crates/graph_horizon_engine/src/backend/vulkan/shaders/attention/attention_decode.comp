@@ -25,8 +25,8 @@
 // f32-oracle gated, f16-level drift), not bit-identical.
 //
 // Invariants (already held by the call sites): head_dim <= 128 and a multiple of
-// the subgroup size. The build emits a 256-thread fallback and a capability-gated
-// 512-thread variant; MAX_DPL/MAX_G cover subgroup sizes down to 16.
+// the subgroup size. The build emits a 256-thread fallback and capability-gated
+// 512/1024-thread variants; MAX_DPL/MAX_G cover subgroup sizes down to 16.
 #ifndef ATTENTION_LOCAL_SIZE
 #define ATTENTION_LOCAL_SIZE 256
 #endif

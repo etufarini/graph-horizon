@@ -1,11 +1,6 @@
 /*
- * graph_horizon_engine — Vulkan pipeline specification table
- * Defines the exhaustive reachable kernel set and maps each variant directly
- * to one compiled SPIR-V module, storage-binding count, and push-constant size.
- * It owns no device state, dispatch, or resource lifecycle.
+ * Vulkan pipeline specification: maps every reachable kernel to its SPIR-V module and ABI without owning device state or resources.
  */
-
-// One variant maps to one retained shader and one pipeline.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Kernel {
     MatmulF16,
@@ -26,6 +21,7 @@ pub(crate) enum Kernel {
     KvWrite,
     AttentionDecode,
     AttentionDecodeWide,
+    AttentionDecode1024,
     AttentionPrefill,
     AttentionPrefillWide,
     KvWriteInt8,
@@ -39,6 +35,123 @@ pub(crate) enum Kernel {
     MatmulQ4KCoopmatF16Out,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
+}
+
+#[cfg(feature = "vulkan-profile")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileCategory {
+    Attention,
+    ProjectionQkv,
+    ProjectionOutput,
+    Mlp,
+    Matmul,
+    Normalization,
+    Rope,
+    KvCache,
+    Elementwise,
+    Embedding,
+    Logits,
+    Reduction,
+}
+
+#[cfg(feature = "vulkan-profile")]
+impl ProfileCategory {
+    pub(crate) const COUNT: usize = 12;
+    pub(crate) const ALL: [Self; Self::COUNT] = [
+        Self::Attention,
+        Self::ProjectionQkv,
+        Self::ProjectionOutput,
+        Self::Mlp,
+        Self::Matmul,
+        Self::Normalization,
+        Self::Rope,
+        Self::KvCache,
+        Self::Elementwise,
+        Self::Embedding,
+        Self::Logits,
+        Self::Reduction,
+    ];
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Attention => "attention",
+            Self::ProjectionQkv => "projection_qkv",
+            Self::ProjectionOutput => "projection_output",
+            Self::Mlp => "mlp",
+            Self::Matmul => "matmul_other",
+            Self::Normalization => "normalization",
+            Self::Rope => "rope",
+            Self::KvCache => "kv_cache",
+            Self::Elementwise => "elementwise",
+            Self::Embedding => "embedding",
+            Self::Logits => "logits",
+            Self::Reduction => "reduction",
+        }
+    }
+}
+
+#[cfg(feature = "vulkan-profile")]
+impl Kernel {
+    const fn profile_category(self) -> ProfileCategory {
+        match self {
+            Self::AttentionDecode
+            | Self::AttentionDecodeWide
+            | Self::AttentionDecode1024
+            | Self::AttentionPrefill
+            | Self::AttentionPrefillWide
+            | Self::AttentionDecodeInt8
+            | Self::AttentionPrefillInt8 => ProfileCategory::Attention,
+            Self::MatmulF16
+            | Self::MatmulQ4KTiled
+            | Self::MatmulQ5K
+            | Self::MatmulQ6K
+            | Self::MatmulQ4KBatchF16Out
+            | Self::MatmulQ6KBatchF16Out
+            | Self::MatmulQ4KCoopmatF16Out
+            | Self::QuantAQ8F16
+            | Self::MatmulQ4KMmvqF16Out => ProfileCategory::Matmul,
+            Self::Logits | Self::LogitsQ4K | Self::LogitsQ5K | Self::LogitsQ6K => {
+                ProfileCategory::Logits
+            }
+            Self::EmbedF16 | Self::EmbedQ4K | Self::EmbedQ5K | Self::EmbedQ6K => {
+                ProfileCategory::Embedding
+            }
+            Self::RmsNormX => ProfileCategory::Normalization,
+            Self::Rope => ProfileCategory::Rope,
+            Self::Residual | Self::SiluMul => ProfileCategory::Elementwise,
+            Self::KvWrite | Self::KvWriteInt8 => ProfileCategory::KvCache,
+            Self::Argmax | Self::TopkPartial => ProfileCategory::Reduction,
+        }
+    }
+
+    pub(crate) const fn is_batched_matmul(self) -> bool {
+        matches!(
+            self,
+            Self::MatmulQ4KBatchF16Out | Self::MatmulQ6KBatchF16Out | Self::MatmulQ4KCoopmatF16Out
+        )
+    }
+
+    pub(crate) const fn is_prefill_attention(self) -> bool {
+        matches!(
+            self,
+            Self::AttentionPrefill | Self::AttentionPrefillWide | Self::AttentionPrefillInt8
+        )
+    }
+
+    pub(crate) fn profiled_category(self, batched: &mut usize) -> ProfileCategory {
+        if !self.is_batched_matmul() {
+            return self.profile_category();
+        }
+        // Every prefill layer records Q, K, V, output, gate, up, then down;
+        // preserving that seven-dispatch order is the category invariant.
+        let category = match *batched % 7 {
+            0..=2 => ProfileCategory::ProjectionQkv,
+            3 => ProfileCategory::ProjectionOutput,
+            _ => ProfileCategory::Mlp,
+        };
+        *batched += 1;
+        category
+    }
 }
 
 // SPIR-V bytes, storage-buffer binding count, and push-constant bytes.
@@ -67,6 +180,7 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::KvWrite => (spv!("kv_write"), 4, 8),
         Kernel::AttentionDecode => (spv!("attention_decode"), 4, 32),
         Kernel::AttentionDecodeWide => (spv!("attention_decode_wide"), 4, 32),
+        Kernel::AttentionDecode1024 => (spv!("attention_decode_1024"), 4, 32),
         Kernel::AttentionPrefill => (spv!("attention_prefill"), 4, 32),
         Kernel::AttentionPrefillWide => (spv!("attention_prefill_wide"), 4, 32),
         Kernel::KvWriteInt8 => (spv!("kv_write_int8"), 4, 16),

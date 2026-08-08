@@ -23,6 +23,8 @@ use color_eyre::eyre::{Result, eyre};
 
 use super::bootstrap;
 use crate::backend::vulkan::coopmat::CoopmatCaps;
+#[cfg(feature = "vulkan-profile")]
+use crate::backend::vulkan::exec::profile::Profile;
 
 pub(crate) struct Device {
     pub device: ash::Device,
@@ -46,6 +48,8 @@ pub(crate) struct Device {
     pub min_storage_buffer_offset_alignment: u64,
     pub push_desc: ash::khr::push_descriptor::Device,
     pub cmd_pool: vk::CommandPool,
+    #[cfg(feature = "vulkan-profile")]
+    pub(crate) profile: Profile,
     // When set, the next recorded dispatch omits its trailing compute→compute
     // barrier (see `pipeline::record`). A run of mutually-independent dispatches
     // (e.g. the Q/K/V projections, which all read `normed` and write disjoint
@@ -113,6 +117,8 @@ impl Device {
             dp4a: boot.dp4a,
             push_desc: boot.push_desc,
             cmd_pool: boot.cmd_pool,
+            #[cfg(feature = "vulkan-profile")]
+            profile: Profile::new(dev_props.limits.timestamp_period),
             skip_next_barrier: std::sync::atomic::AtomicBool::new(false),
             instance,
             _entry: entry,
@@ -127,6 +133,8 @@ impl Drop for Device {
         // destroyed in dependency order (pool → device → instance), child before parent.
         unsafe {
             let _ = self.device.device_wait_idle();
+            #[cfg(feature = "vulkan-profile")]
+            self.profile.finish(&self.device);
             self.device.destroy_command_pool(self.cmd_pool, None);
             self.device.destroy_device(None);
             self.instance.destroy_instance(None);

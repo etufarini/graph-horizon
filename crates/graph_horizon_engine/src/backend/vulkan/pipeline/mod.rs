@@ -2,7 +2,7 @@
  * graph_horizon_engine — compute pipeline registry
  * Owns transactional construction, lookup, and destruction of the reachable
  * compute pipelines. The registry builds its unconditional set plus the
- * capability-gated wide-attention, FP16 coopmat, and MMVQ variants.
+ * capability-gated 512/1024-thread attention, FP16 coopmat, and MMVQ variants.
 */
 
 use std::collections::HashMap;
@@ -16,6 +16,8 @@ mod kernel;
 mod record;
 
 pub(crate) use kernel::Kernel;
+#[cfg(feature = "vulkan-profile")]
+pub(crate) use kernel::ProfileCategory;
 pub(crate) use record::{dispatch, dispatch_2d};
 
 pub(crate) struct Pipeline {
@@ -60,14 +62,19 @@ const KERNELS: [Kernel; 26] = [
 ];
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
+const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
     invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
 }
 
+fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
+    invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+}
+
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let wide_attention = Self::check_limits(dev)?;
+        let (wide_attention, attention_1024) = Self::check_limits(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -84,6 +91,12 @@ impl PipelineRegistry {
                 for k in [Kernel::AttentionDecodeWide, Kernel::AttentionPrefillWide] {
                     map.insert(k, record::build_one(dev, cache, k)?);
                 }
+            }
+            if attention_1024 {
+                map.insert(
+                    Kernel::AttentionDecode1024,
+                    record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
+                );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
             if dev.coopmat.available {
@@ -122,9 +135,9 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<bool> {
-        // Required kernels use up to 256 invocations; the optional wide-attention
-        // pair is built only at 512+. Vulkan guarantees maxPushConstantsSize >= 128.
+    fn check_limits(dev: &Device) -> Result<(bool, bool)> {
+        // Required kernels use up to 256 invocations; optional attention variants
+        // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // SAFETY: `dev.instance` is live and `dev.physical` is one of its enumerated devices.
         let l = unsafe {
             dev.instance
@@ -139,10 +152,14 @@ impl PipelineRegistry {
                 "vulkan: device workgroup/push-constant limits too small"
             ));
         }
-        Ok(supports_wide_attention(
+        let limits = (
             l.max_compute_work_group_invocations,
             l.max_compute_work_group_size[0],
             l.max_compute_shared_memory_size,
+        );
+        Ok((
+            supports_wide_attention(limits.0, limits.1, limits.2),
+            supports_attention_1024(limits.0, limits.1, limits.2),
         ))
     }
 
@@ -162,7 +179,10 @@ impl PipelineRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{WIDE_ATTENTION_SHARED_BYTES, supports_wide_attention};
+    use super::{
+        ATTENTION_1024_SHARED_BYTES, WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024,
+        supports_wide_attention,
+    };
 
     #[test]
     fn wide_attention_requires_every_resource_limit() {
@@ -185,6 +205,30 @@ mod tests {
             512,
             512,
             WIDE_ATTENTION_SHARED_BYTES - 1
+        ));
+    }
+
+    #[test]
+    fn attention_1024_requires_every_resource_limit() {
+        assert!(supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1023,
+            1024,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1023,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES - 1
         ));
     }
 }

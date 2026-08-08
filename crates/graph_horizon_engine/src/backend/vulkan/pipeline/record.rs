@@ -73,6 +73,8 @@ fn record(
                 .buffer_info(std::slice::from_ref(info))
         })
         .collect();
+    #[cfg(feature = "vulkan-profile")]
+    let stamp = dev.profile.begin_kernel(&dev.device, cmd, k);
     // SAFETY: `cmd` is recording; `p`'s pipeline/layout are live and built for this device;
     // `writes` (and `push`) outlive the calls and bind exactly the kernel's declared
     // descriptors/push range before the dispatch.
@@ -92,6 +94,8 @@ fn record(
         }
         dev.device.cmd_dispatch(cmd, groups_x, groups_y, 1);
     }
+    #[cfg(feature = "vulkan-profile")]
+    dev.profile.end_kernel(&dev.device, cmd, stamp);
     if !dev
         .skip_next_barrier
         .swap(false, std::sync::atomic::Ordering::Relaxed)

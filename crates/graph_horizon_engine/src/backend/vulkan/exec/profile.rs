@@ -1,0 +1,266 @@
+/*
+ * Vulkan prefill profiler: owns one reusable timestamp pool and aggregates
+ * feature-gated GPU, submission, synchronization, and allocation diagnostics
+ * on stderr without changing model buffers or shaders.
+ */
+
+use std::sync::Mutex;
+use std::time::Instant;
+
+use ash::vk;
+use color_eyre::eyre::{Result, eyre};
+
+use crate::backend::vulkan::pipeline::{Kernel, ProfileCategory};
+
+const QUERY_COUNT: u32 = 8192;
+type Stamp = Option<(vk::QueryPool, u32)>;
+
+pub(crate) struct Profile {
+    period_ns: f64,
+    state: Mutex<State>,
+}
+
+#[derive(Clone, Copy)]
+struct Mark(ProfileCategory, u32, u32);
+
+#[derive(Default)]
+struct Totals {
+    counts: [u64; 3],
+    gpu_ms: [f64; 2],
+    category_ms: [f64; ProfileCategory::COUNT],
+    cpu_ms: [f64; 3],
+    allocations: [u64; 3],
+}
+
+#[derive(Default)]
+struct State {
+    pool: Option<vk::QueryPool>,
+    next: u32,
+    started: Option<Instant>,
+    marks: Vec<Mark>,
+    barriers: u64,
+    batched_matmul: usize,
+    is_prefill: bool,
+    cpu_ms: [f64; 3],
+    totals: Totals,
+}
+
+impl Profile {
+    pub(crate) fn new(period_ns: f32) -> Self {
+        Self {
+            period_ns: period_ns as f64,
+            state: Mutex::new(State::default()),
+        }
+    }
+
+    pub(crate) fn begin(&self, device: &ash::Device, cmd: vk::CommandBuffer) -> Result<()> {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        let pool = match state.pool {
+            Some(pool) => pool,
+            None => {
+                let info = vk::QueryPoolCreateInfo::default()
+                    .query_type(vk::QueryType::TIMESTAMP)
+                    .query_count(QUERY_COUNT);
+                // SAFETY: the live logical device owns the returned query pool.
+                let pool = unsafe { device.create_query_pool(&info, None) }
+                    .map_err(|_| eyre!("vulkan profile: cannot create query pool"))?;
+                state.pool = Some(pool);
+                pool
+            }
+        };
+        // SAFETY: the synchronous queue guarantees the prior pool use completed.
+        unsafe { device.reset_query_pool(pool, 0, QUERY_COUNT) };
+        state.next = 1;
+        state.started = Some(Instant::now());
+        state.marks.clear();
+        state.barriers = 0;
+        state.batched_matmul = 0;
+        state.is_prefill = false;
+        state.cpu_ms = [0.0; 3];
+        // SAFETY: query zero is reset and `cmd` is recording on this device.
+        unsafe { device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::TOP_OF_PIPE, pool, 0) };
+        Ok(())
+    }
+
+    pub(crate) fn begin_kernel(
+        &self,
+        device: &ash::Device,
+        cmd: vk::CommandBuffer,
+        kernel: Kernel,
+    ) -> Stamp {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        if state.next + 2 >= QUERY_COUNT {
+            state.next = QUERY_COUNT;
+            return None;
+        }
+        let (start, end) = (state.next, state.next + 1);
+        state.next += 2;
+        let category = kernel.profiled_category(&mut state.batched_matmul);
+        state.is_prefill |= kernel.is_prefill_attention();
+        state.marks.push(Mark(category, start, end));
+        let pool = state.pool.expect("profile pool while recording");
+        // SAFETY: the reserved query is reset and `cmd` is recording.
+        unsafe {
+            device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::COMPUTE_SHADER, pool, start)
+        };
+        Some((pool, end))
+    }
+
+    pub(crate) fn end_kernel(&self, device: &ash::Device, cmd: vk::CommandBuffer, stamp: Stamp) {
+        if let Some((pool, end)) = stamp {
+            // SAFETY: `end` was reserved with this live pool for this recording.
+            unsafe {
+                device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::COMPUTE_SHADER, pool, end)
+            };
+        }
+    }
+
+    pub(crate) fn end(&self, device: &ash::Device, cmd: vk::CommandBuffer) {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        if state.next < QUERY_COUNT {
+            let pool = state.pool.expect("profile pool while recording");
+            let end = state.next;
+            state.next += 1;
+            // SAFETY: the reserved query is reset and `cmd` remains recording.
+            unsafe {
+                device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::BOTTOM_OF_PIPE, pool, end)
+            };
+        }
+        state.cpu_ms[0] = state
+            .started
+            .take()
+            .map_or(0.0, |start| start.elapsed().as_secs_f64() * 1000.0);
+    }
+
+    pub(crate) fn barrier(&self) {
+        self.state.lock().expect("vulkan profile lock").barriers += 1;
+    }
+
+    pub(crate) fn cpu(&self, index: usize, elapsed_ms: f64) {
+        self.state.lock().expect("vulkan profile lock").cpu_ms[index] = elapsed_ms;
+    }
+
+    pub(crate) fn allocation(&self, bytes: u64, host: bool) {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        // The first completed prefill command is the phase latch: model loading
+        // allocations are excluded, while later request-local churn is retained.
+        if state.totals.counts[0] > 0 {
+            state.totals.allocations[0] += 1;
+            state.totals.allocations[1] += bytes;
+            state.totals.allocations[2] += u64::from(host);
+        }
+    }
+
+    pub(crate) fn resolve(&self, device: &ash::Device) -> Result<()> {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        if state.next >= QUERY_COUNT {
+            return Err(eyre!("vulkan profile: query capacity exceeded"));
+        }
+        let end = state
+            .next
+            .checked_sub(1)
+            .ok_or_else(|| eyre!("vulkan profile: missing command end"))?;
+        let mut values = vec![0u64; state.next as usize];
+        // SAFETY: the submission fence completed, so every query is available.
+        unsafe {
+            device.get_query_pool_results(
+                state.pool.expect("profile pool after submission"),
+                0,
+                &mut values,
+                vk::QueryResultFlags::TYPE_64 | vk::QueryResultFlags::WAIT,
+            )
+        }
+        .map_err(|_| eyre!("vulkan profile: cannot read timestamps"))?;
+        if !state.is_prefill {
+            return Ok(());
+        }
+        let tick_ms = self.period_ns / 1_000_000.0;
+        let gpu_ms = values[end as usize].wrapping_sub(values[0]) as f64 * tick_ms;
+        let mut category_ms = [0.0; ProfileCategory::COUNT];
+        for mark in &state.marks {
+            let index = mark.0 as usize;
+            category_ms[index] +=
+                values[mark.2 as usize].wrapping_sub(values[mark.1 as usize]) as f64 * tick_ms;
+        }
+        let kernel_ms = category_ms.iter().sum::<f64>();
+        let (dispatches, barriers, cpu_ms) =
+            (state.marks.len() as u64, state.barriers, state.cpu_ms);
+        let totals = &mut state.totals;
+        totals.counts[0] += 1;
+        totals.counts[1] += dispatches;
+        totals.counts[2] += barriers;
+        totals.gpu_ms[0] += gpu_ms;
+        totals.gpu_ms[1] += kernel_ms;
+        for (total, value) in totals.category_ms.iter_mut().zip(category_ms) {
+            *total += value;
+        }
+        for (total, value) in totals.cpu_ms.iter_mut().zip(cpu_ms) {
+            *total += value;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish(&self, device: &ash::Device) {
+        let mut state = self.state.lock().expect("vulkan profile lock");
+        report(&state.totals);
+        if let Some(pool) = state.pool.take() {
+            // SAFETY: Device::drop waited idle; no command can use this pool.
+            unsafe { device.destroy_query_pool(pool, None) };
+        }
+    }
+}
+
+fn report(totals: &Totals) {
+    let accounted = totals.gpu_ms[1] / totals.gpu_ms[0].max(f64::MIN_POSITIVE) * 100.0;
+    eprintln!(
+        "vulkan_profile phase=prefill counts_command_dispatch_barrier={:?} gpu_total_kernel_ms={:?} residual_ms={:.3} accounted_pct={:.2} cpu_record_submit_wait_ms={:?} allocation_count_bytes_host={:?}",
+        totals.counts,
+        totals.gpu_ms,
+        (totals.gpu_ms[0] - totals.gpu_ms[1]).max(0.0),
+        accounted,
+        totals.cpu_ms,
+        totals.allocations
+    );
+    for category in ProfileCategory::ALL {
+        let index = category as usize;
+        let pct = totals.category_ms[index] / totals.gpu_ms[0].max(f64::MIN_POSITIVE) * 100.0;
+        eprintln!(
+            "vulkan_profile phase=prefill category={} gpu_ms={:.3} pct={:.2}",
+            category.name(),
+            totals.category_ms[index],
+            pct
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn batch_sequence_splits_attention_projections_and_mlp() {
+        let mut slot = 0;
+        let kernel = Kernel::MatmulQ4KBatchF16Out;
+        let names = (0..7)
+            .map(|_| kernel.profiled_category(&mut slot).name())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            names,
+            [
+                "projection_qkv",
+                "projection_qkv",
+                "projection_qkv",
+                "projection_output",
+                "mlp",
+                "mlp",
+                "mlp"
+            ]
+        );
+    }
+
+    #[test]
+    fn selected_prefill_batch_fits_query_pool() {
+        let dispatches = 32 + 26 * 78 + 2;
+        assert!(1 + dispatches * 2 + 1 < QUERY_COUNT);
+    }
+}

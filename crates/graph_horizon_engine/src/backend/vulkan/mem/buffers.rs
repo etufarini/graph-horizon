@@ -89,6 +89,8 @@ impl GpuBuffer {
             }
             return Err(eyre!("vulkan: bind buffer memory failed"));
         }
+        #[cfg(feature = "vulkan-profile")]
+        dev.profile.allocation(req.size, host);
         Ok(GpuBuffer {
             buffer,
             memory,

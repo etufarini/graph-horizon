@@ -12,6 +12,7 @@ edition = "2024"
 # default or target-based selection.
 cpu = ["graph_horizon_engine/cpu"]
 vulkan = ["graph_horizon_engine/vulkan"]
+vulkan-profile = ["vulkan", "graph_horizon_engine/vulkan-profile"]
 vulkan-hybrid = ["graph_horizon_engine/vulkan-hybrid"]
 metal = ["graph_horizon_engine/metal"]
 metal-hybrid = ["graph_horizon_engine/metal-hybrid"]

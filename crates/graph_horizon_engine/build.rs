@@ -1,9 +1,5 @@
 /*
- * graph_horizon_engine — offline shader build
- * Compiles recursive Vulkan GLSL plus the two wide-attention variants for Vulkan
- * profiles and links the ten
- * trusted Metal sources into one OUT_DIR metallib only for Metal profiles.
- * It performs no runtime compilation and never reads model data.
+ * graph_horizon_engine — offline shader build: compiles trusted Vulkan/Metal sources and variants into build outputs; it performs no runtime compilation and reads no model data.
  */
 
 fn main() {
@@ -32,18 +28,7 @@ fn build_vulkan() {
             .expect("build: invalid shader file name");
         let source = std::fs::read_to_string(&path)
             .unwrap_or_else(|_| panic!("build: cannot read shader '{}'", path.display()));
-        compile_vulkan_shader(&compiler, &path, &source, name, None, Path::new(&out_dir));
-        if matches!(name, "attention_decode" | "attention_prefill") {
-            let wide = format!("{name}_wide");
-            compile_vulkan_shader(
-                &compiler,
-                &path,
-                &source,
-                &wide,
-                Some("512"),
-                Path::new(&out_dir),
-            );
-        }
+        compile_vulkan_shader(&compiler, &path, &source, name, Path::new(&out_dir));
     }
 }
 
@@ -53,29 +38,41 @@ fn compile_vulkan_shader(
     path: &std::path::Path,
     source: &str,
     name: &str,
-    local_size: Option<&str>,
     out_dir: &std::path::Path,
 ) {
-    let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
-    options.set_target_env(
-        shaderc::TargetEnv::Vulkan,
-        shaderc::EnvVersion::Vulkan1_3 as u32,
-    );
-    if let Some(local_size) = local_size {
-        options.add_macro_definition("ATTENTION_LOCAL_SIZE", Some(local_size));
+    let variants: &[(&str, &str)] = match name {
+        "attention_decode" => &[
+            ("attention_decode_wide", "512"),
+            ("attention_decode_1024", "1024"),
+        ],
+        "attention_prefill" => &[("attention_prefill_wide", "512")],
+        _ => &[],
+    };
+    let variants = variants
+        .iter()
+        .map(|&(variant, size)| (variant, Some(size)));
+    for (variant, local_size) in std::iter::once((name, None)).chain(variants) {
+        let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
+        let vulkan13 = shaderc::EnvVersion::Vulkan1_3 as u32;
+        options.set_target_env(shaderc::TargetEnv::Vulkan, vulkan13);
+        if let Some(local_size) = local_size {
+            options.add_macro_definition("ATTENTION_LOCAL_SIZE", Some(local_size));
+        }
+        let artifact = compiler
+            .compile_into_spirv(
+                source,
+                shaderc::ShaderKind::Compute,
+                &path.to_string_lossy(),
+                "main",
+                Some(&options),
+            )
+            .unwrap_or_else(|error| {
+                panic!("build: shader '{variant}' failed to compile:\n{error}")
+            });
+        let output = out_dir.join(format!("{variant}.spv"));
+        std::fs::write(&output, artifact.as_binary_u8())
+            .unwrap_or_else(|_| panic!("build: cannot write '{}'", output.display()));
     }
-    let artifact = compiler
-        .compile_into_spirv(
-            source,
-            shaderc::ShaderKind::Compute,
-            &path.to_string_lossy(),
-            "main",
-            Some(&options),
-        )
-        .unwrap_or_else(|error| panic!("build: shader '{name}' failed to compile:\n{error}"));
-    let output = out_dir.join(format!("{name}.spv"));
-    std::fs::write(&output, artifact.as_binary_u8())
-        .unwrap_or_else(|_| panic!("build: cannot write '{}'", output.display()));
 }
 
 #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
@@ -171,11 +168,8 @@ fn find_tool(name: &str) -> std::path::PathBuf {
         .args(["--find", name])
         .output()
         .unwrap_or_else(|_| toolchain_unavailable());
-    if !output.status.success() {
-        toolchain_unavailable();
-    }
     let path = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    if path.is_empty() {
+    if !output.status.success() || path.is_empty() {
         toolchain_unavailable();
     }
     path.into()

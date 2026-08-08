@@ -1,7 +1,8 @@
 /*
- * Browser context capacity model.
- * Single responsibility: validate `/props`, estimate exact wire-message Unicode
- * code points, and apply checked occupancy and admission arithmetic.
+ * Browser prompt-capacity model.
+ * Validates the `/props` invariant that `n_ctx` equals `max_tokens`, estimates
+ * outgoing Unicode occupancy, and admits prompts without reserving generation
+ * tokens. All arithmetic on untrusted properties and content fails closed.
  */
 import type { ContextAdmission, ContextConfigResult, ContextUsage, RuntimeContext, WireMessage } from './types';
 
@@ -23,13 +24,13 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
   const limit = contextLimit as number;
   const generationLimit = maxTokens as number;
   // Quotient/remainder avoids overflowing a valid safe integer by multiplying it.
-  const safeTotalBudget = Math.floor(limit / 10) * 9 + Math.floor(((limit % 10) * 9) / 10);
-  if (generationLimit >= safeTotalBudget) {
-    return { ok: false, error: 'no-prompt-space' };
+  const safePromptBudget = Math.floor(limit / 10) * 9 + Math.floor(((limit % 10) * 9) / 10);
+  if (generationLimit !== limit || safePromptBudget <= 0) {
+    return { ok: false, error: 'unavailable' };
   }
   return {
     ok: true,
-    context: { contextLimit: limit, maxTokens: generationLimit, safeTotalBudget }
+    context: { contextLimit: limit, safePromptBudget }
   };
 }
 
@@ -39,18 +40,14 @@ export function contextUsage(messages: WireMessage[], context: RuntimeContext): 
 
 export function admitMessages(messages: WireMessage[], context: RuntimeContext): ContextAdmission {
   const assessed = estimate(messages, context);
-  const required = assessed.valid
-    ? assessed.estimatedTokens + context.maxTokens
-    : Number.POSITIVE_INFINITY;
-  if (Number.isSafeInteger(required) && required <= context.safeTotalBudget) {
+  if (assessed.valid && assessed.estimatedTokens <= context.safePromptBudget) {
     return { ok: true, usage: assessed.usage };
   }
   return {
     ok: false,
     usage: assessed.usage,
     estimatedTokens: assessed.estimatedTokens,
-    maxTokens: context.maxTokens,
-    safeTotalBudget: context.safeTotalBudget
+    safePromptBudget: context.safePromptBudget
   };
 }
 

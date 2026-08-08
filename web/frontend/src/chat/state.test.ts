@@ -1,7 +1,8 @@
 /*
  * Deterministic state-coordination acceptance tests cover public multi-chat
- * actions, import, global prompt ownership, warnings, and streaming guards.
- * Generation transport details, Svelte rendering, and real storage are excluded.
+ * actions, import, global prompt ownership, warnings, streaming guards, and the
+ * prompt-only runtime-context fixture. Generation transport details, Svelte
+ * rendering, and real storage are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +49,7 @@ const { chat } = await import('./state.ts');
 let snapshot: ChatSnapshot;
 chat.subscribe(value => { snapshot = value; });
 
-const context: RuntimeContext = { contextLimit: 4096, maxTokens: 128, safeTotalBudget: 3686 };
+const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const active = () => snapshot.collection.chats.find(

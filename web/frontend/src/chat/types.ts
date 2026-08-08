@@ -1,6 +1,6 @@
 /*
  * Browser chat types: define runtime transport, plain transcripts, canonical
- * chat collections, private archives, context capacity, timing, and bounded
+ * chat collections, private archives, prompt capacity, timing, and bounded
  * persistence results. Storage and lifecycle behavior remain outside.
  */
 export type Role = 'system' | 'user' | 'assistant';
@@ -55,8 +55,7 @@ export type ChatSaveResult = PersistenceWarning | null;
 
 export interface RuntimeContext {
   contextLimit: number;
-  maxTokens: number;
-  safeTotalBudget: number;
+  safePromptBudget: number;
 }
 
 export interface ContextUsage {
@@ -67,7 +66,7 @@ export interface ContextUsage {
 
 export type ContextConfigResult =
   | { ok: true; context: RuntimeContext }
-  | { ok: false; error: 'unavailable' | 'no-prompt-space' };
+  | { ok: false; error: 'unavailable' };
 
 export type ContextAdmission =
   | { ok: true; usage: ContextUsage }
@@ -75,8 +74,7 @@ export type ContextAdmission =
       ok: false;
       usage: ContextUsage;
       estimatedTokens: number;
-      maxTokens: number;
-      safeTotalBudget: number;
+      safePromptBudget: number;
     };
 
 export interface ChatSnapshot {

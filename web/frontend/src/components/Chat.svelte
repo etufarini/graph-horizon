@@ -38,9 +38,7 @@ Collection rules, transport internals, and storage schemas remain outside.
     void loadRuntimeContext(contextController.signal).then(result => {
       if (contextController.signal.aborted) return;
       if (result.ok) runtimeContext = result.context;
-      else configurationError = result.error === 'no-prompt-space'
-        ? 'max_tokens non lascia spazio al prompt'
-        : 'Configurazione del contesto non disponibile';
+      else configurationError = 'Configurazione del contesto non disponibile';
     });
     return () => {
       media.removeEventListener('change', applyBreakpoint);

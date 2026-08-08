@@ -13,7 +13,7 @@ import { hydrateTranscript } from './transcript.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
-const context: RuntimeContext = { contextLimit: 4096, maxTokens: 128, safeTotalBudget: 3686 };
+const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
@@ -207,8 +207,7 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   await generation.editLastPrompt('   ', context);
   await generation.send('troppo lungo', {
     contextLimit: 10,
-    maxTokens: 9,
-    safeTotalBudget: 9
+    safePromptBudget: 9
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));

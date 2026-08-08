@@ -75,7 +75,7 @@ export function createGeneration(
       store.set({
         ...current,
         status: 'error',
-        error: `Contesto insufficiente: ~${admission.estimatedTokens} token + ${admission.maxTokens} riservati superano il budget sicuro di ${admission.safeTotalBudget} token`
+        error: `Contesto insufficiente: ~${admission.estimatedTokens} token stimati superano il budget sicuro di ${admission.safePromptBudget} token`
       });
       return;
     }
@@ -106,7 +106,7 @@ export function createGeneration(
     try {
       await streamAssistant(
         wire,
-        context.maxTokens,
+        context.contextLimit,
         delta => applyDelta(chatId, assistantId, delta),
         request.signal
       );

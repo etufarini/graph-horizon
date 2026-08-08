@@ -1,7 +1,7 @@
 /*
- * Node tests for the pure browser context model.
- * They cover properties validation, Unicode estimation, budget boundaries,
- * percentage clamping, and arithmetic rejection without browser fixtures.
+ * Pure Web-capacity tests covering `/props` validation and equality, Unicode
+ * estimation, inclusive prompt-budget boundaries, and overflow-safe arithmetic.
+ * Browser rendering and transport are intentionally excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,45 +11,50 @@ import type { RuntimeContext, WireMessage } from './types.ts';
 
 const context: RuntimeContext = {
   contextLimit: 2000,
-  maxTokens: 1024,
-  safeTotalBudget: 1800
+  safePromptBudget: 1800
 };
 
 function user(content: string): WireMessage[] {
   return [{ role: 'user', content }];
 }
 
-test('properties accept positive safe capacity integers and ignore extra fields', () => {
+test('properties accept equal positive safe capacities and ignore extra fields', () => {
   assert.deepEqual(
     parseRuntimeContext({
-      default_generation_settings: { n_ctx: 8192, max_tokens: 4096, ignored: true },
+      default_generation_settings: { n_ctx: 8192, max_tokens: 8192, ignored: true },
       model_path: 'ignored'
     }),
     {
       ok: true,
-      context: { contextLimit: 8192, maxTokens: 4096, safeTotalBudget: 7372 }
+      context: { contextLimit: 8192, safePromptBudget: 7372 }
     }
   );
   for (const n_ctx of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx, max_tokens: 1 } }), {
+    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx, max_tokens: n_ctx } }), {
       ok: false,
       error: 'unavailable'
     });
   }
   for (const max_tokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: 8192, max_tokens } }), {
+    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: max_tokens, max_tokens } }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  assert.deepEqual(parseRuntimeContext({}), { ok: false, error: 'unavailable' });
-});
-
-test('reserve must leave prompt space', () => {
-  assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: 4096, max_tokens: 4096 } }), {
-    ok: false,
-    error: 'no-prompt-space'
-  });
+  for (const settings of [
+    { n_ctx: 8192 },
+    { max_tokens: 8192 },
+    { n_ctx: 8192, max_tokens: 4096 },
+    { n_ctx: 1, max_tokens: 1 }
+  ]) {
+    assert.deepEqual(parseRuntimeContext({ default_generation_settings: settings }), {
+      ok: false,
+      error: 'unavailable'
+    });
+  }
+  for (const payload of [null, [], {}, { default_generation_settings: null }, { default_generation_settings: [] }]) {
+    assert.deepEqual(parseRuntimeContext(payload), { ok: false, error: 'unavailable' });
+  }
 });
 
 test('Unicode code points are summed before one floor division', () => {
@@ -61,12 +66,13 @@ test('Unicode code points are summed before one floor division', () => {
 });
 
 test('admission accepts equality and rejects one token over', () => {
-  assert.equal(admitMessages(user('x'.repeat((1800 - 1024) * 4)), context).ok, true);
-  const rejected = admitMessages(user('x'.repeat((1801 - 1024) * 4)), context);
+  assert.equal(admitMessages(user('x'.repeat(1800 * 4)), context).ok, true);
+  const rejected = admitMessages(user('x'.repeat(1801 * 4)), context);
   assert.equal(rejected.ok, false);
   if (!rejected.ok) {
-    assert.equal(rejected.estimatedTokens, 777);
-    assert.equal(rejected.safeTotalBudget, 1800);
+    assert.equal(rejected.estimatedTokens, 1801);
+    assert.equal(rejected.safePromptBudget, 1800);
+    assert.deepEqual(rejected.usage, { estimatedTokens: 1801, percent: 91, progress: 91 });
   }
 });
 
@@ -82,11 +88,20 @@ test('percentage uses ceiling while graphical progress clamps to 100', () => {
   assert.equal(over.progress, 100);
 });
 
-test('unsafe required-budget arithmetic rejects', () => {
-  const unsafeContext: RuntimeContext = {
-    contextLimit: Number.MAX_SAFE_INTEGER,
-    maxTokens: Number.MAX_SAFE_INTEGER - 1,
-    safeTotalBudget: Number.MAX_SAFE_INTEGER
-  };
-  assert.equal(admitMessages(user('xxxxxxxx'), unsafeContext).ok, false);
+test('maximum safe capacity uses exact quotient arithmetic', () => {
+  assert.deepEqual(
+    parseRuntimeContext({
+      default_generation_settings: {
+        n_ctx: Number.MAX_SAFE_INTEGER,
+        max_tokens: Number.MAX_SAFE_INTEGER
+      }
+    }),
+    {
+      ok: true,
+      context: {
+        contextLimit: Number.MAX_SAFE_INTEGER,
+        safePromptBudget: 8106479329266891
+      }
+    }
+  );
 });

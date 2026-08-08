@@ -11,25 +11,33 @@ a tokenizer or a replacement for engine and provider validation.
 
 ## Canonical Arithmetic
 
-`context_limit` is the positive effective model window; `max_tokens` is the
-response reserve; `estimated_messages` is message occupancy;
-`safe_total_budget` is the window after the 10% margin; and `required_budget`
-is occupancy plus reserve.
+`context_limit` is the positive effective model window; `estimated_messages` is
+message occupancy; and `safe_prompt_budget` is the window after the 10% margin.
+For the CLI, `max_tokens` remains the response reserve and `required_budget` is
+occupancy plus that reserve.
 
-Both clients use exactly these formulas:
+Both clients share the estimate and safe-budget formulas:
 
 ```text
 total_code_points = sum(Unicode code points in every outgoing message content)
 estimated_messages = floor(total_code_points / 4)
-safe_total_budget = floor(context_limit * 90 / 100)
-required_budget = estimated_messages + max_tokens
-admitted = required_budget <= safe_total_budget
+safe_prompt_budget = floor(context_limit * 90 / 100)
 ```
 
 Characters are summed before the single division. Rust uses `chars()` and
 JavaScript iterates by Unicode code point, not UTF-16 code unit. Arithmetic is
 checked; overflow is rejected as out of budget. Equality is admitted.
-`max_tokens` participates in admission but not displayed occupancy.
+
+CLI admission remains:
+
+```text
+required_budget = estimated_messages + max_tokens
+admitted = required_budget <= safe_prompt_budget
+```
+
+Web admission does not reserve generation tokens. It admits exactly when
+`estimated_messages <= safe_prompt_budget`; the engine enforces the exact limit
+after real rendering and tokenization.
 
 ## Included Messages
 
@@ -54,16 +62,19 @@ An explicit positive `--context-tokens` wins. Otherwise the local CLI uses the
 engine's resolved context, while HTTP CLI and Web read `GET /props` at
 `default_generation_settings.n_ctx`.
 
-The CLI reserve is configured by `--max-tokens`. Web reads the wrapper's
-`default_generation_settings.max_tokens` and uses that same value for admission
-and the request body; its default is 1024.
+The CLI reserve is configured by `--max-tokens`. In Web mode the wrapper exposes
+equal `n_ctx` and `max_tokens` values from the loaded engine. The browser uses
+`n_ctx` for the request allowance and uses only the 90% prompt budget for local
+admission.
 
 Without an override, HTTP CLI discovery failure exits before terminal setup.
-Web disables its composer and shows `Configurazione del contesto non disponibile`.
-With no prompt capacity, both report `max_tokens non lascia spazio al prompt`.
+Web disables its composer and shows `Configurazione del contesto non disponibile`
+for invalid capacity properties or a zero safe prompt budget. The CLI retains
+`max_tokens non lascia spazio al prompt` when its reserve leaves no capacity.
 
-An admission rejection reports estimate, reserve, and safe budget. It preserves
-CLI input, Web draft, conversation, and the previous successful duration.
+An admission rejection reports estimate and safe budget; the CLI also reports
+its reserve. It preserves CLI input, Web draft, conversation, and the previous
+successful duration.
 
 ## Presentation Edge Cases
 

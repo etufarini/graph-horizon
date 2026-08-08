@@ -151,9 +151,11 @@ window explicitly:
 graph-horizon --base-url "https://provider.example/v1" --context-tokens 32768
 ```
 
-Requests preserve every message and are rejected locally when complete history
-plus the response reserve exceeds the safe capacity. The CLI status is compact,
-for example `ctx ~5.2k/32.8k tok gen 12.4s`, with no percentage or progress bar.
+Requests preserve every message. CLI admission includes its response reserve;
+Web admission compares only estimated prompt occupancy with the 90% safe budget
+and leaves the engine to enforce the exact rendered limit. The CLI status is
+compact, for example `ctx ~5.2k/32.8k tok gen 12.4s`, with no percentage or
+progress bar.
 The Web UI shows an accessible `Contesto 63%` bar and `Generazione 12.4s`.
 See the [context capacity contract](docs/context.md) for exact admission and
 prompt-preservation behavior.
@@ -169,7 +171,7 @@ complete list accepted by the program.
 | `--model <path>` | none | GGUF for the local console, server, and Web UI |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Console HTTP provider |
 | `--context-tokens <n>` | local `min(32,768, GGUF maximum)` | Sets an exact explicit context |
-| `--max-tokens <n>` | CLI `2048`, server `1024`, Web `1024` | Response limit; Web uses the configured value for admission and generation |
+| `--max-tokens <n>` | CLI `2048`, server `1024`; Web ignored | CLI response reserve or server request fallback |
 | `--system-prompt <text>` | none | Console system prompt |
 | `--kv-quant <f16\|int8>` | `f16` | KV-cache format |
 | `--cpu-threads <n>` | automatic | Sets CPU workers |
@@ -226,6 +228,10 @@ in the existing stream. The bundled [Web UI](docs/web.md) and
 [CLI](docs/console.md) derive separate THINK and final-answer presentation from
 that raw text; transport, model context, and transcript import/export retain
 the markers. The runtime does not parse it into a separate Reasoning channel.
+For supported Reasoning models, an explicit system prompt follows the fixed
+release-owned Reasoning instruction instead of replacing it.
+Web mode ignores `--max-tokens` and sends the loaded context limit as its
+generation allowance.
 Internal numeric formats do not expand this public GGUF contract.
 Hybrid startup chooses the device-only endpoint, one contiguous device suffix
 with a CPU prefix, or all-CPU. Standalone device profiles are device-only or

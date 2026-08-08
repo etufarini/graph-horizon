@@ -45,16 +45,16 @@ profiles are listed in the
 | `--context-tokens <n>` | engine policy or HTTP detection | Explicit context, integer `>= 1` |
 | `--system-prompt <text>` | none | TUI-only system prompt |
 | `--base-url <url>` | `http://127.0.0.1:8080/v1` | Base URL for the TUI HTTP provider |
-| `--max-tokens <n>` | TUI `2048`; server `1024`; Web `1024` | Response maximum and client admission reserve, integer `>= 0` |
+| `--max-tokens <n>` | TUI `2048`; server `1024`; Web ignored | CLI response reserve or server fallback, integer `>= 0` |
 | `--vram-weights-percent <n>` | automatic | Explicit `0..=100` weight-placement limit |
 | `--vram-reserve-mib <n>` | engine policy | Non-negative VRAM reserve; part of the hybrid automatic plan |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |
 | `--kv-quant <f16\|int8>` | `f16` | Lowercase, case-sensitive KV scheme |
 | `--no-attn-simd` | absent | Disables the CPU attention SIMD path |
 
-`--context-tokens`, VRAM percentage, reserve, thread count, KV, and
-`--max-tokens` are validated before dispatch. In particular, a percentage above
-100 is an error and is not reduced automatically.
+`--context-tokens`, VRAM percentage, reserve, thread count, and KV are validated
+before engine loading. CLI and server modes also validate `--max-tokens`. In
+particular, a percentage above 100 is an error and is not reduced automatically.
 
 ## Local And HTTP TUI
 
@@ -104,10 +104,12 @@ graph-horizon --mode server --model /path/to/model.gguf \
 `web/frontend/dist`. It keeps the port as a string until bind time, so an invalid
 value causes a listen error instead of the server mode's fallback.
 
-The Web wrapper publishes its configured `max_tokens` through `/props`. The
-included UI validates that value, uses it as its admission reserve, and sends it
-with every chat request. The default is `1024`; an explicit `--max-tokens`
-therefore controls the current web composer as well as the wrapped server.
+`--max-tokens` is ignored in Web mode. This includes explicit and otherwise
+invalid values. After loading the engine, the wrapper publishes its positive
+`n_ctx` as both `/props` capacity fields and uses the same value as the
+wrapped-server fallback. The included UI requires those fields to be equal,
+applies its 90% margin only to estimated prompt admission, and sends the full
+`n_ctx` with every chat request.
 
 ## Build And Environment
 

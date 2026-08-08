@@ -34,9 +34,11 @@ test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let stream!: ReadableStreamDefaultController<Uint8Array>;
   let request: any;
+  let cacheKey: string | null = null;
   let internalSignal: AbortSignal | undefined;
   globalThis.fetch = async (_input, init) => {
     request = JSON.parse(String(init?.body));
+    cacheKey = new Headers(init?.headers).get('x-graph-horizon-cache');
     internalSignal = init?.signal ?? undefined;
     return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
   };
@@ -54,10 +56,30 @@ test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
   await pending;
 
   assert.equal(request.max_tokens, 8192);
+  assert.match(cacheKey ?? '', /^[0-9a-f]{32}$/);
   assert.equal(internalSignal?.aborted, false);
   external.abort();
   t.mock.timers.tick(60_000);
   assert.equal(internalSignal?.aborted, false);
+});
+
+test('cache key remains stable across requests in one page session', async () => {
+  const keys: Array<string | null> = [];
+  globalThis.fetch = async (_input, init) => {
+    keys.push(new Headers(init?.headers).get('x-graph-horizon-cache'));
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        controller.close();
+      }
+    }));
+  };
+
+  await streamAssistant(messages, 4096, () => {}, new AbortController().signal);
+  await streamAssistant(messages, 4096, () => {}, new AbortController().signal);
+
+  assert.match(keys[0] ?? '', /^[0-9a-f]{32}$/);
+  assert.equal(keys[1], keys[0]);
 });
 
 test('unsuccessful and bodyless responses use request failure', async () => {

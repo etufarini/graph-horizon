@@ -66,6 +66,11 @@ Every request uses `fetch` with:
 }
 ```
 
+The page also sends one random lowercase-hex `x-graph-horizon-cache` key for
+its lifetime. On the Vulkan profile, the server retains one KV allocation and
+reuses only an exact rendered-token prefix with the same key. Another page may
+replace that slot; requests without the header keep the uncached behavior.
+
 On page initialization the browser requests exact `/props` with a three-second
 timeout. Send remains disabled until `n_ctx` and `max_tokens` are equal positive
 safe integers whose 90% prompt budget is non-zero. A failed, timed-out,

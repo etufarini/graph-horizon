@@ -57,7 +57,7 @@ pub(crate) fn validate(
         model.context,
         model.scheme,
     )?;
-    session.prefill(&prompt, &mut || Ok(()))?;
+    session.prefill(&prompt, 0, &mut || Ok(()))?;
     let mut local_ids = Vec::with_capacity(TOKEN_COUNT);
     let mut top_two = Vec::with_capacity(TOKEN_COUNT);
     for (step, &oracle) in completion.iter().enumerate() {

@@ -12,6 +12,9 @@ import type { ContextConfigResult, StreamDelta, WireMessage } from './types';
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
 const INACTIVITY_MS = 60_000;
+const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
+  byte.toString(16).padStart(2, '0')
+).join('');
 
 export async function loadRuntimeContext(signal: AbortSignal): Promise<ContextConfigResult> {
   const controller = new AbortController();
@@ -60,7 +63,8 @@ export async function streamAssistant(
     const response = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'content-type': 'application/json'
+        'content-type': 'application/json',
+        'x-graph-horizon-cache': CACHE_KEY
       },
       body: JSON.stringify({
         messages,

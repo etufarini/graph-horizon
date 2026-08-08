@@ -5,6 +5,8 @@
  * terminal event.
  */
 
+#[cfg(feature = "vulkan")]
+mod cache;
 #[cfg(test)]
 pub(crate) mod tests;
 
@@ -20,9 +22,27 @@ use crate::backend::selection;
 use crate::runtime::RuntimeSession;
 use crate::sampling::{self, Rng};
 
+#[cfg(feature = "vulkan")]
+pub(super) use cache::{PrefixCache, free_cache};
+
 pub(crate) fn generate(model: &RuntimeModel, request: Request, sink: &mut dyn EventSink) {
     let mut terminal = Terminal::new(sink);
     match execute(model, &request, &mut terminal) {
+        Ok(Some(stats)) => terminal.finish(stats),
+        Ok(None) => {}
+        Err(_) => terminal.fail(),
+    }
+}
+
+#[cfg(feature = "vulkan")]
+pub(crate) fn generate_cached(
+    model: &RuntimeModel,
+    cache_key: [u8; 16],
+    request: Request,
+    sink: &mut dyn EventSink,
+) {
+    let mut terminal = Terminal::new(sink);
+    match cache::execute(model, &request, cache_key, &mut terminal) {
         Ok(Some(stats)) => terminal.finish(stats),
         Ok(None) => {}
         Err(_) => terminal.fail(),
@@ -42,18 +62,19 @@ fn execute(
         model.context,
         model.scheme,
     )?;
-    drive(model, request, &prompt, &session, terminal)
+    drive(model, request, &prompt, 0, &session, terminal)
 }
 
-fn drive<S: RuntimeSession>(
+pub(super) fn drive<S: RuntimeSession>(
     model: &RuntimeModel,
     request: &Request,
     prompt: &[u32],
+    prefix: usize,
     session: &S,
     terminal: &mut Terminal<'_>,
 ) -> Result<Option<GenerationStats>> {
     let prefill_start = std::time::Instant::now();
-    session.prefill(prompt, &mut || {
+    session.prefill(&prompt[prefix..], prefix, &mut || {
         (!terminal.cancelled())
             .then_some(())
             .ok_or_else(|| color_eyre::eyre::eyre!("generation cancelled"))

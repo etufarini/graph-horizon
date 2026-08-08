@@ -31,15 +31,30 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
         context: usize,
         scheme: KvQuant,
     ) -> Result<Self> {
-        let kv = kv_cache::alloc_shape(
-            backend,
-            shape.block_count,
-            context,
-            shape.kv_heads,
-            shape.key_length,
-            shape.value_length,
-            scheme,
-        )?;
+        Self::with_state(backend, config, shape, row_capacity, context, scheme, None)
+    }
+
+    pub(crate) fn with_state(
+        backend: &'a B,
+        config: &'a G::Config,
+        shape: RuntimeShape,
+        row_capacity: usize,
+        context: usize,
+        scheme: KvQuant,
+        state: Option<Kv<B::Buffer>>,
+    ) -> Result<Self> {
+        let kv = match state {
+            Some(kv) => kv,
+            None => kv_cache::alloc_shape(
+                backend,
+                shape.block_count,
+                context,
+                shape.kv_heads,
+                shape.key_length,
+                shape.value_length,
+                scheme,
+            )?,
+        };
         Ok(Self {
             backend,
             config,
@@ -52,17 +67,28 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
     fn kv(&self) -> &Kv<B::Buffer> {
         self.kv.as_ref().expect("request KV exists until drop")
     }
+
+    #[cfg(feature = "vulkan")]
+    pub(crate) fn into_state(mut self) -> Kv<B::Buffer> {
+        self.kv.take().expect("cached session returns its KV")
+    }
 }
 
 impl<B: Backend, G: LayeredGraph> RuntimeSession for HomogeneousSession<'_, B, G> {
     type Graph = G;
 
-    fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()> {
+    fn prefill(
+        &self,
+        prompt: &[u32],
+        base: usize,
+        before: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
         G::prefill(
             self.backend,
             self.config,
             self.kv(),
             prompt,
+            base,
             self.row_capacity,
             before,
         )

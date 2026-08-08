@@ -113,6 +113,16 @@ impl Engine {
         mistral::generation::generate(&self.model, request, sink);
     }
 
+    pub fn generate_cached(&self, cache_key: [u8; 16], request: Request, sink: &mut dyn EventSink) {
+        #[cfg(feature = "vulkan")]
+        mistral::generation::generate_cached(&self.model, cache_key, request, sink);
+        #[cfg(not(feature = "vulkan"))]
+        {
+            let _ = cache_key;
+            mistral::generation::generate(&self.model, request, sink);
+        }
+    }
+
     pub(crate) fn validate_parity(
         &self,
         prompt_ids: &str,

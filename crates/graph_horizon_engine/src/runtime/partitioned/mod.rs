@@ -228,6 +228,7 @@ mod tests {
             _: &Self::Config,
             _: &Kv<B::Buffer>,
             prompt: &[u32],
+            _: usize,
             row_capacity: usize,
             before: &mut dyn FnMut() -> Result<()>,
         ) -> Result<()> {
@@ -370,7 +371,7 @@ mod tests {
         };
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&all_gpu, &(), shape(), 8, KvQuant::F16)?;
-        session.prefill(&[0, 1, 0, 1, 0], &mut || Ok(()))?;
+        session.prefill(&[0, 1, 0, 1, 0], 0, &mut || Ok(()))?;
 
         let cpu_only = HybridRuntime {
             plan: HybridPlan::new(2, 2, BackendBytes::default(), BackendBytes::default())?,
@@ -378,13 +379,13 @@ mod tests {
         };
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&cpu_only, &(), shape(), 8, KvQuant::F16)?;
-        session.prefill(&[0, 1, 0, 1], &mut || Ok(()))?;
+        session.prefill(&[0, 1, 0, 1], 0, &mut || Ok(()))?;
 
         let mixed = mixed(8);
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&mixed, &(), shape(), 8, KvQuant::F16)?;
         crate::backend::hybrid::crossing::reset_count();
-        session.prefill(&[0, 1, 0], &mut || Ok(()))?;
+        session.prefill(&[0, 1, 0], 0, &mut || Ok(()))?;
 
         assert_eq!(PREFILL_ROWS.with(|seen| seen.borrow().clone()), [4, 3]);
         assert_eq!(BATCH_ROWS.with(|seen| seen.borrow().clone()), [2, 2]);
@@ -407,7 +408,7 @@ mod tests {
         assert!(KV_LAYERS.with(|seen| seen.borrow().iter().all(|layers| *layers == 1)));
 
         crate::backend::hybrid::crossing::reset_count();
-        session.prefill(&[0, 1, 0], &mut || Ok(()))?;
+        session.prefill(&[0, 1, 0], 0, &mut || Ok(()))?;
         assert_eq!(crate::backend::hybrid::crossing::count(), 2);
         Ok(())
     }
@@ -433,7 +434,7 @@ mod tests {
                 KvQuant::F16,
             )?;
             session.token(0, 0)?;
-            session.prefill(&[0], &mut || Ok(()))?;
+            session.prefill(&[0], 0, &mut || Ok(()))?;
         }
         assert_eq!(crate::backend::hybrid::crossing::count(), 0);
         Ok(())

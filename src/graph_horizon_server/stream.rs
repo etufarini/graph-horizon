@@ -54,6 +54,7 @@ pub(super) type OwnedGuard = tokio::sync::OwnedMutexGuard<()>;
 pub(super) fn sse_body(
     engine: Arc<Engine>,
     req: Request,
+    cache_key: Option<[u8; 16]>,
     guard: OwnedGuard,
     permit: OwnedSemaphorePermit,
 ) -> ResponseBody {
@@ -67,7 +68,11 @@ pub(super) fn sse_body(
         let _permit = permit;
 
         let mut sink = ServerSink { tx };
-        engine.generate(req, &mut sink);
+        if let Some(key) = cache_key {
+            engine.generate_cached(key, req, &mut sink);
+        } else {
+            engine.generate(req, &mut sink);
+        }
         // Returning here drops _guard and _permit: lock released, slot returned.
     });
 

@@ -52,6 +52,7 @@ pub(crate) trait LayeredGraph: Sized {
         config: &Self::Config,
         kv: &Kv<B::Buffer>,
         prompt: &[u32],
+        base: usize,
         row_capacity: usize,
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()>;
@@ -80,7 +81,12 @@ pub(crate) trait LayeredGraph: Sized {
 pub(crate) trait RuntimeSession {
     type Graph: LayeredGraph;
 
-    fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()>;
+    fn prefill(
+        &self,
+        prompt: &[u32],
+        base: usize,
+        before: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()>;
     fn token(&self, token: u32, position: usize) -> Result<()>;
     fn logits(&self, vocab: usize) -> Result<Vec<f32>>;
     fn argmax(&self, vocab: usize) -> Result<u32>;

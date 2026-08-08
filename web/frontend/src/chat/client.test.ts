@@ -1,0 +1,89 @@
+/*
+ * Controlled HTTP/watchdog tests cover pre-header inactivity, heartbeat reset,
+ * request capacity, failed or bodyless responses, external Stop, and cleanup.
+ * They use mocked timers and in-memory streams, never real waits or networking.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { streamAssistant } from './client.ts';
+
+const messages = [{ role: 'user' as const, content: 'ciao' }];
+const originalFetch = globalThis.fetch;
+
+test.after(() => { globalThis.fetch = originalFetch; });
+
+test('inactivity before response headers aborts after 60 seconds', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let internalSignal: AbortSignal | undefined;
+  globalThis.fetch = async (_input, init) => {
+    internalSignal = init?.signal ?? undefined;
+    return await new Promise<Response>((_resolve, reject) => {
+      internalSignal?.addEventListener('abort', () => reject(internalSignal?.reason), { once: true });
+    });
+  };
+
+  const pending = streamAssistant(messages, 4096, () => {}, new AbortController().signal);
+  t.mock.timers.tick(60_000);
+
+  await assert.rejects(pending, { message: 'Connessione interrotta' });
+  assert.equal(internalSignal?.aborted, true);
+});
+
+test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let stream!: ReadableStreamDefaultController<Uint8Array>;
+  let request: any;
+  let internalSignal: AbortSignal | undefined;
+  globalThis.fetch = async (_input, init) => {
+    request = JSON.parse(String(init?.body));
+    internalSignal = init?.signal ?? undefined;
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; } }));
+  };
+
+  const external = new AbortController();
+  const pending = streamAssistant(messages, 8192, () => {}, external.signal);
+  await Promise.resolve();
+  for (let heartbeat = 0; heartbeat < 3; heartbeat += 1) {
+    t.mock.timers.tick(59_000);
+    stream.enqueue(new TextEncoder().encode(': heartbeat\n\n'));
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+  stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+  await pending;
+
+  assert.equal(request.max_tokens, 8192);
+  assert.equal(internalSignal?.aborted, false);
+  external.abort();
+  t.mock.timers.tick(60_000);
+  assert.equal(internalSignal?.aborted, false);
+});
+
+test('unsuccessful and bodyless responses use request failure', async () => {
+  for (const response of [new Response(null, { status: 500 }), new Response(null)]) {
+    globalThis.fetch = async () => response;
+    await assert.rejects(
+      streamAssistant(messages, 4096, () => {}, new AbortController().signal),
+      { message: 'Richiesta non riuscita' }
+    );
+  }
+});
+
+test('external abort remains a recognizable voluntary Stop', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  let internalSignal: AbortSignal | undefined;
+  globalThis.fetch = async (_input, init) => {
+    internalSignal = init?.signal ?? undefined;
+    return await new Promise<Response>((_resolve, reject) => {
+      internalSignal?.addEventListener('abort', () => reject(internalSignal?.reason), { once: true });
+    });
+  };
+
+  const external = new AbortController();
+  const pending = streamAssistant(messages, 4096, () => {}, external.signal);
+  external.abort();
+
+  await assert.rejects(pending, error => error instanceof DOMException && error.name === 'AbortError');
+  assert.equal(internalSignal?.aborted, true);
+});

@@ -79,6 +79,9 @@ export async function streamAssistant(
     if (cancellation === 'timeout') {
       throw new Error(INTERRUPTED);
     }
+    if (cancellation === 'external') {
+      throw new DOMException('Aborted', 'AbortError');
+    }
     throw error;
   } finally {
     clearTimeout(timeout!);

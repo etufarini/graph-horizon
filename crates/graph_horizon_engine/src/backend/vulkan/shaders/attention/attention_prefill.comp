@@ -73,27 +73,43 @@ void main() {
         if (d < p.head_dim) dpl = j + 1u;
     }
 
-    // Diagnostic QK-only ablation: preserve every causal dot product and the
-    // dispatch shape, but remove online softmax and V reads/accumulation.
-    float probe = 0.0;
+    float m_g = -1e30;
+    float l_g = 0.0;
     for (uint t = g; t <= pos; t += G) {
         uint kbase = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
         float prod = 0.0;
         for (uint j = 0u; j < dpl; j++) {
             prod += qd[j] * float(kc[kbase + l + j * S]);
         }
-        probe += subgroupAdd(prod) * p.scale;
+        float score = subgroupAdd(prod) * p.scale;
+        float m_new = max(m_g, score);
+        float alpha = exp(m_g - m_new);
+        float pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        for (uint j = 0u; j < dpl; j++) {
+            acc[j] = acc[j] * alpha + pw * float(vc[kbase + l + j * S]);
+        }
+        m_g = m_new;
     }
 
-    if (subgroupElect()) sh_l[g] = probe;
+    if (subgroupElect()) { sh_m[g] = m_g; sh_l[g] = l_g; }
+    for (uint j = 0u; j < dpl; j++) {
+        sh_acc[g * p.head_dim + l + j * S] = acc[j];
+    }
     barrier();
 
     if (g == 0u) {
-        float total = 0.0;
-        for (uint gg = 0u; gg < G; gg++) total += sh_l[gg];
+        float m_glob = -1e30;
+        for (uint gg = 0u; gg < G; gg++) { m_glob = max(m_glob, sh_m[gg]); }
+        float l_glob = 0.0;
+        for (uint gg = 0u; gg < G; gg++) { l_glob += sh_l[gg] * exp(sh_m[gg] - m_glob); }
         for (uint j = 0u; j < dpl; j++) {
             uint d = l + j * S;
-            o[row + h * p.head_dim + d] = float16_t(total / float(pos + 1u));
+            float num = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                num += sh_acc[gg * p.head_dim + d] * exp(sh_m[gg] - m_glob);
+            }
+            o[row + h * p.head_dim + d] = float16_t(num / l_glob);
         }
     }
 }

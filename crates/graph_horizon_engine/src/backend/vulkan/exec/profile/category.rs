@@ -29,9 +29,13 @@ impl Phase {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Category {
     Attention,
-    ProjectionQkv,
+    ProjectionQ,
+    ProjectionK,
+    ProjectionV,
     ProjectionOutput,
-    Mlp,
+    MlpGate,
+    MlpUp,
+    MlpDown,
     Matmul,
     Normalization,
     Rope,
@@ -43,12 +47,16 @@ pub(super) enum Category {
 }
 
 impl Category {
-    pub(super) const COUNT: usize = 12;
+    pub(super) const COUNT: usize = 16;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::Attention,
-        Self::ProjectionQkv,
+        Self::ProjectionQ,
+        Self::ProjectionK,
+        Self::ProjectionV,
         Self::ProjectionOutput,
-        Self::Mlp,
+        Self::MlpGate,
+        Self::MlpUp,
+        Self::MlpDown,
         Self::Matmul,
         Self::Normalization,
         Self::Rope,
@@ -62,9 +70,13 @@ impl Category {
     pub(super) const fn name(self) -> &'static str {
         match self {
             Self::Attention => "attention",
-            Self::ProjectionQkv => "projection_qkv",
+            Self::ProjectionQ => "projection_q",
+            Self::ProjectionK => "projection_k",
+            Self::ProjectionV => "projection_v",
             Self::ProjectionOutput => "projection_output",
-            Self::Mlp => "mlp",
+            Self::MlpGate => "mlp_gate",
+            Self::MlpUp => "mlp_up",
+            Self::MlpDown => "mlp_down",
             Self::Matmul => "matmul_other",
             Self::Normalization => "normalization",
             Self::Rope => "rope",
@@ -144,9 +156,13 @@ pub(super) fn profiled(kernel: Kernel, matmul_slot: &mut usize) -> Category {
     // Every dense layer records Q, K, V, output, gate, up, then down. This
     // invariant is shared by the batched prefill and single-row decode graphs.
     let category = match *matmul_slot % 7 {
-        0..=2 => Category::ProjectionQkv,
+        0 => Category::ProjectionQ,
+        1 => Category::ProjectionK,
+        2 => Category::ProjectionV,
         3 => Category::ProjectionOutput,
-        _ => Category::Mlp,
+        4 => Category::MlpGate,
+        5 => Category::MlpUp,
+        _ => Category::MlpDown,
     };
     *matmul_slot += 1;
     category
@@ -165,13 +181,13 @@ mod tests {
         assert_eq!(
             names,
             [
-                "projection_qkv",
-                "projection_qkv",
-                "projection_qkv",
+                "projection_q",
+                "projection_k",
+                "projection_v",
                 "projection_output",
-                "mlp",
-                "mlp",
-                "mlp"
+                "mlp_gate",
+                "mlp_up",
+                "mlp_down"
             ]
         );
 
@@ -179,9 +195,9 @@ mod tests {
         let names = (0..7)
             .map(|_| profiled(Kernel::MatmulQ4KTiled, &mut slot).name())
             .collect::<Vec<_>>();
-        assert_eq!(names[0], "projection_qkv");
+        assert_eq!(names[0], "projection_q");
         assert_eq!(names[3], "projection_output");
-        assert_eq!(names[6], "mlp");
+        assert_eq!(names[6], "mlp_down");
     }
 
     #[test]

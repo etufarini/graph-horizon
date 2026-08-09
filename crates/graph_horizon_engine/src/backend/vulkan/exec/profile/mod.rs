@@ -6,6 +6,7 @@
 
 mod category;
 mod report;
+mod summary;
 
 use std::sync::Mutex;
 use std::time::Instant;
@@ -13,7 +14,8 @@ use std::time::Instant;
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
-use self::category::{Category, Phase};
+use self::category::Phase;
+use self::summary::{Mark, PhaseTotals};
 use crate::backend::vulkan::pipeline::Kernel;
 
 const QUERY_COUNT: u32 = 8192;
@@ -24,17 +26,6 @@ pub(crate) struct Profile {
     state: Mutex<State>,
 }
 
-#[derive(Clone, Copy)]
-struct Mark(Category, u32, u32);
-
-#[derive(Default)]
-struct Totals {
-    counts: [u64; 3],
-    gpu_ms: [f64; 2],
-    category_ms: [f64; Category::COUNT],
-    cpu_ms: [f64; 3],
-}
-
 #[derive(Default)]
 struct State {
     pool: Option<vk::QueryPool>,
@@ -43,10 +34,13 @@ struct State {
     marks: Vec<Mark>,
     barriers: u64,
     matmul_slot: usize,
+    layer: Option<u8>,
+    residuals: u8,
     phase: Option<Phase>,
-    cpu_ms: [f64; 3],
-    totals: [Totals; Phase::COUNT],
+    cpu_ms: [f64; 4],
+    totals: PhaseTotals,
     allocations: [u64; 3],
+    allocation_ms: f64,
 }
 
 impl Profile {
@@ -79,8 +73,10 @@ impl Profile {
         state.marks.clear();
         state.barriers = 0;
         state.matmul_slot = 0;
+        state.layer = None;
+        state.residuals = 0;
         state.phase = None;
-        state.cpu_ms = [0.0; 3];
+        state.cpu_ms = [0.0; 4];
         // SAFETY: query zero is reset and `cmd` is recording on this device.
         unsafe { device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::TOP_OF_PIPE, pool, 0) };
         Ok(())
@@ -91,6 +87,8 @@ impl Profile {
         device: &ash::Device,
         cmd: vk::CommandBuffer,
         kernel: Kernel,
+        groups_x: u32,
+        groups_y: u32,
     ) -> Stamp {
         let mut state = self.state.lock().expect("vulkan profile lock");
         if state.next + 2 >= QUERY_COUNT {
@@ -100,12 +98,30 @@ impl Profile {
         let (start, end) = (state.next, state.next + 1);
         state.next += 2;
         let category = category::profiled(kernel, &mut state.matmul_slot);
+        if kernel == Kernel::RmsNormX && state.layer.is_none() {
+            state.layer = Some(0);
+        }
         if let Some(phase) = category::phase(kernel) {
             // One submitted command belongs to at most one inference phase.
             debug_assert!(state.phase.is_none_or(|current| current == phase));
             state.phase = Some(phase);
         }
-        state.marks.push(Mark(category, start, end));
+        let layer = state.layer;
+        state.marks.push(Mark {
+            category,
+            kernel,
+            start,
+            end,
+            groups: [groups_x, groups_y],
+            layer,
+        });
+        if kernel == Kernel::Residual {
+            state.residuals += 1;
+            if state.residuals == 2 {
+                state.layer = state.layer.and_then(|layer| layer.checked_add(1));
+                state.residuals = 0;
+            }
+        }
         let pool = state.pool.expect("profile pool while recording");
         // SAFETY: the reserved query is reset and `cmd` is recording.
         unsafe {
@@ -114,13 +130,20 @@ impl Profile {
         Some((pool, end))
     }
 
-    pub(crate) fn end_kernel(&self, device: &ash::Device, cmd: vk::CommandBuffer, stamp: Stamp) {
+    pub(crate) fn end_kernel(
+        &self,
+        device: &ash::Device,
+        cmd: vk::CommandBuffer,
+        stamp: Stamp,
+        descriptor_ms: f64,
+    ) {
         if let Some((pool, end)) = stamp {
             // SAFETY: `end` was reserved with this live pool for this recording.
             unsafe {
                 device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::COMPUTE_SHADER, pool, end)
             };
         }
+        self.state.lock().expect("vulkan profile lock").cpu_ms[3] += descriptor_ms;
     }
 
     pub(crate) fn end(&self, device: &ash::Device, cmd: vk::CommandBuffer) {
@@ -148,7 +171,7 @@ impl Profile {
         self.state.lock().expect("vulkan profile lock").cpu_ms[index] = elapsed_ms;
     }
 
-    pub(crate) fn allocation(&self, bytes: u64, host: bool) {
+    pub(crate) fn allocation(&self, bytes: u64, host: bool, elapsed_ms: f64) {
         let mut state = self.state.lock().expect("vulkan profile lock");
         // The first completed prefill command is the phase latch: model loading
         // allocations are excluded, while later request-local churn is retained.
@@ -156,6 +179,7 @@ impl Profile {
             state.allocations[0] += 1;
             state.allocations[1] += bytes;
             state.allocations[2] += u64::from(host);
+            state.allocation_ms += elapsed_ms;
         }
     }
 
@@ -184,33 +208,18 @@ impl Profile {
         };
         let tick_ms = self.period_ns / 1_000_000.0;
         let gpu_ms = values[end as usize].wrapping_sub(values[0]) as f64 * tick_ms;
-        let mut category_ms = [0.0; Category::COUNT];
-        for mark in &state.marks {
-            let index = mark.0 as usize;
-            category_ms[index] +=
-                values[mark.2 as usize].wrapping_sub(values[mark.1 as usize]) as f64 * tick_ms;
-        }
-        let kernel_ms = category_ms.iter().sum::<f64>();
         let (dispatches, barriers, cpu_ms) =
             (state.marks.len() as u64, state.barriers, state.cpu_ms);
-        let totals = &mut state.totals[phase as usize];
-        totals.counts[0] += 1;
-        totals.counts[1] += dispatches;
-        totals.counts[2] += barriers;
-        totals.gpu_ms[0] += gpu_ms;
-        totals.gpu_ms[1] += kernel_ms;
-        for (total, value) in totals.category_ms.iter_mut().zip(category_ms) {
-            *total += value;
-        }
-        for (total, value) in totals.cpu_ms.iter_mut().zip(cpu_ms) {
-            *total += value;
-        }
+        let State { marks, totals, .. } = &mut *state;
+        totals[phase as usize].add_command(
+            gpu_ms, dispatches, barriers, cpu_ms, marks, &values, tick_ms,
+        );
         Ok(())
     }
 
     pub(crate) fn finish(&self, device: &ash::Device) {
         let mut state = self.state.lock().expect("vulkan profile lock");
-        report::write(&state.totals, state.allocations);
+        report::write(&state.totals, state.allocations, state.allocation_ms);
         if let Some(pool) = state.pool.take() {
             // SAFETY: Device::drop waited idle; no command can use this pool.
             unsafe { device.destroy_query_pool(pool, None) };

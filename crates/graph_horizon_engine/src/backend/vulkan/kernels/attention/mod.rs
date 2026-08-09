@@ -174,6 +174,6 @@ pub(crate) fn attention_prefill(
         ],
         &push,
         q_heads,
-        n.div_ceil(2),
+        n,
     );
 }

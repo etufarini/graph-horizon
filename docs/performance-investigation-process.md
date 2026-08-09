@@ -25,6 +25,21 @@ Before changing code, declare:
 - the changed runtime profile;
 - the narrow correctness gate selected for that path.
 
+### Autonomous Category-K Loop
+
+AGENTS deroga E applies only to an existing category-K kernel, its directly
+related tests, and this document's existing measurement path. Before editing,
+verify that `HEAD` is on a dedicated `perf/<experiment>` branch and not on
+`main`. Record the baseline and commit each candidate at a reproducible checkpoint.
+A rejected candidate remains in branch history and is removed by a later commit;
+do not amend, squash, or reset away experimental evidence during the loop.
+
+The agent may iterate through implementation, checks, measurement, and rollback
+without per-candidate approval. This autonomy covers local work and
+commits only: pushing, opening a pull request, merging, or expanding the change
+beyond the category-K boundary requires normal authorization. The final report
+identifies the baseline, candidate, and any restoration revisions.
+
 Prompt throughput is the end-to-end proxy for prefill. It is prompt-token count
 divided by time to the first public text delta, so it includes first sampling;
 it is not isolated prefill timing. Decode throughput uses intervals between

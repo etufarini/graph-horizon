@@ -57,6 +57,28 @@ Guided by **KISS** (*Keep It Simple, Stupid*) and the **Unix philosophy**: *"Do 
 
 > **Workflow Boundary:** Wait for explicit approval or feedback on the proposed structure before moving to the implementation phase or writing any production code.
 
+#### Deroga E: Autonomous Kernel Experiments
+
+An agent may run an optimization experiment without per-candidate approval when
+the work is limited to an existing category-K kernel, its directly related
+tests, and the existing measurement path. Before the first production edit, it
+must declare the experiment under `docs/performance-investigation-process.md`
+and verify that `HEAD` is not on `main`. Otherwise it must create or switch to a
+dedicated `perf/<experiment>` branch, or stop if that cannot be done safely.
+
+This is the only exception to the Workflow Boundary. It authorizes autonomous
+implementation, measurement, rollback, and local commits, but not new files,
+dependencies, public APIs, orchestration changes, pushes, pull requests, or
+merges. Each self-contained candidate must be committed once it reaches a
+reproducible checkpoint, whether it is retained or rejected; broken intermediate
+states need not be committed. Rejected candidates must be removed by a later
+commit rather than by rewriting history; do not wait until the end of the search
+to create one aggregate commit.
+
+The final branch state must contain either the accepted candidate or the
+restored baseline, and the report must identify the relevant commit revisions.
+All correctness, security, scope, and performance gates remain in force.
+
 ### Phase 2: Implementation Phase
 Once the structure is approved, ensure that every file adheres to the following checklist:
 - [ ] **Initial architectural comment:** A clear multiline comment defining the file's exact purpose, main responsibilities, and system context.

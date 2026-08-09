@@ -23,7 +23,6 @@ pub(super) struct DeviceBoot {
     pub memory_budget_enabled: bool,
     pub coopmat: CoopmatCaps,
     pub dp4a: bool,
-    pub subgroup32: bool,
     pub push_desc: ash::khr::push_descriptor::Device,
     pub cmd_pool: vk::CommandPool,
 }
@@ -54,23 +53,13 @@ pub(super) fn create_device(
     let coopmat = coopmat::detect(entry, instance, physical);
 
     // dp4a for the mmvq Q4_K decode GEMV; absence means float GEMV.
-    let (dp4a, subgroup32) = {
+    let dp4a = {
         let mut f13 = vk::PhysicalDeviceVulkan13Features::default();
         let mut feats = vk::PhysicalDeviceFeatures2::default().push_next(&mut f13);
         // SAFETY: `instance`/`physical` are live; `feats` (with `f13` chained via
         // push_next) is a stack struct that outlives the call the driver writes into.
         unsafe { instance.get_physical_device_features2(physical, &mut feats) };
-        let mut p13 = vk::PhysicalDeviceVulkan13Properties::default();
-        let mut props = vk::PhysicalDeviceProperties2::default().push_next(&mut p13);
-        // SAFETY: the live physical device fills the chained Vulkan 1.3 properties.
-        unsafe { instance.get_physical_device_properties2(physical, &mut props) };
-        let subgroup32 = f13.subgroup_size_control != 0
-            && p13.min_subgroup_size <= 32
-            && p13.max_subgroup_size >= 32
-            && p13
-                .required_subgroup_size_stages
-                .contains(vk::ShaderStageFlags::COMPUTE);
-        (f13.shader_integer_dot_product != 0, subgroup32)
+        f13.shader_integer_dot_product != 0
     };
 
     let priorities = [1.0f32];
@@ -90,9 +79,7 @@ pub(super) fn create_device(
     let mut f12 = vk::PhysicalDeviceVulkan12Features::default().shader_float16(true);
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
-    let mut f13 = vk::PhysicalDeviceVulkan13Features::default()
-        .shader_integer_dot_product(dp4a)
-        .subgroup_size_control(subgroup32);
+    let mut f13 = vk::PhysicalDeviceVulkan13Features::default().shader_integer_dot_product(true);
     let mut dci = vk::DeviceCreateInfo::default()
         .queue_create_infos(&qci)
         .enabled_extension_names(&ext)
@@ -101,7 +88,7 @@ pub(super) fn create_device(
     if coopmat.available {
         dci = dci.push_next(&mut coop_feat);
     }
-    if dp4a || subgroup32 {
+    if dp4a {
         dci = dci.push_next(&mut f13);
     }
     // SAFETY: `instance`/`physical` are live; `dci` and every feature/queue struct it
@@ -133,7 +120,6 @@ pub(super) fn create_device(
         memory_budget_enabled,
         coopmat,
         dp4a,
-        subgroup32,
         push_desc,
         cmd_pool,
     })

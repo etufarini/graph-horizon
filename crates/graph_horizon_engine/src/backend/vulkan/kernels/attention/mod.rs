@@ -112,15 +112,13 @@ pub(crate) fn attention_decode(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    let gqa_group = q_heads / kv_heads;
-    let (kernel, workgroups) =
-        if reg.contains(Kernel::AttentionDecode1024) && gqa_group.is_multiple_of(2) {
-            (Kernel::AttentionDecode1024, q_heads / 2)
-        } else if reg.contains(Kernel::AttentionDecodeWide) {
-            (Kernel::AttentionDecodeWide, q_heads)
-        } else {
-            (Kernel::AttentionDecode, q_heads)
-        };
+    let kernel = if reg.contains(Kernel::AttentionDecode1024) {
+        Kernel::AttentionDecode1024
+    } else if reg.contains(Kernel::AttentionDecodeWide) {
+        Kernel::AttentionDecodeWide
+    } else {
+        Kernel::AttentionDecode
+    };
     dispatch(
         dev,
         reg,
@@ -133,7 +131,7 @@ pub(crate) fn attention_decode(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        workgroups,
+        q_heads,
     );
 }
 

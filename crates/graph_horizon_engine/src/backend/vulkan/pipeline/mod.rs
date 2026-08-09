@@ -66,8 +66,18 @@ fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> 
     invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
 }
 
-fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+fn supports_attention_1024(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+    subgroup_shuffle: bool,
+) -> bool {
+    invocations >= 1024
+        && size_x >= 1024
+        && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+        && subgroup_size >= 32
+        && subgroup_shuffle
 }
 
 impl PipelineRegistry {
@@ -137,11 +147,13 @@ impl PipelineRegistry {
         // Required kernels use up to 256 invocations; optional attention variants
         // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // SAFETY: `dev.instance` is live and `dev.physical` is one of its enumerated devices.
-        let l = unsafe {
+        let mut subgroup = vk::PhysicalDeviceSubgroupProperties::default();
+        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut subgroup);
+        unsafe {
             dev.instance
-                .get_physical_device_properties(dev.physical)
-                .limits
+                .get_physical_device_properties2(dev.physical, &mut properties)
         };
+        let l = properties.properties.limits;
         if l.max_compute_work_group_invocations < 256
             || l.max_compute_work_group_size[0] < 256
             || l.max_push_constants_size < 36
@@ -157,7 +169,15 @@ impl PipelineRegistry {
         );
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
-            supports_attention_1024(limits.0, limits.1, limits.2),
+            supports_attention_1024(
+                limits.0,
+                limits.1,
+                limits.2,
+                subgroup.subgroup_size,
+                subgroup
+                    .supported_operations
+                    .contains(vk::SubgroupFeatureFlags::SHUFFLE),
+            ),
         ))
     }
 
@@ -211,22 +231,44 @@ mod tests {
         assert!(supports_attention_1024(
             1024,
             1024,
-            ATTENTION_1024_SHARED_BYTES
+            ATTENTION_1024_SHARED_BYTES,
+            32,
+            true,
         ));
         assert!(!supports_attention_1024(
             1023,
             1024,
-            ATTENTION_1024_SHARED_BYTES
+            ATTENTION_1024_SHARED_BYTES,
+            32,
+            true,
         ));
         assert!(!supports_attention_1024(
             1024,
             1023,
-            ATTENTION_1024_SHARED_BYTES
+            ATTENTION_1024_SHARED_BYTES,
+            32,
+            true,
         ));
         assert!(!supports_attention_1024(
             1024,
             1024,
-            ATTENTION_1024_SHARED_BYTES - 1
+            ATTENTION_1024_SHARED_BYTES - 1,
+            32,
+            true,
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES,
+            16,
+            true,
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES,
+            32,
+            false,
         ));
     }
 }

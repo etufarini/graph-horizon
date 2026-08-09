@@ -58,6 +58,9 @@ fn compile_vulkan_shader(
         if let Some(local_size) = local_size {
             options.add_macro_definition("ATTENTION_LOCAL_SIZE", Some(local_size));
         }
+        if variant == "attention_decode_1024" {
+            options.add_macro_definition("ATTENTION_GQA_HEADS", Some("2"));
+        }
         let artifact = compiler
             .compile_into_spirv(
                 source,

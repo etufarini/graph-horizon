@@ -151,6 +151,8 @@ fn copy_to_host(
     host: &GpuBuffer,
     bytes: u64,
 ) {
+    #[cfg(feature = "vulkan-profile")]
+    dev.profile.barrier();
     let barrier = vk::MemoryBarrier::default()
         .src_access_mask(vk::AccessFlags::SHADER_WRITE)
         .dst_access_mask(vk::AccessFlags::TRANSFER_READ);

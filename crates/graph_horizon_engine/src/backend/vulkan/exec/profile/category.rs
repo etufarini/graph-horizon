@@ -1,10 +1,30 @@
 /*
- * Vulkan profiler kernel categories: classifies one recorded dispatch and
- * preserves the fixed seven-matmul order used to separate prefill projections
- * from MLP work. It owns no timestamps, resources, or output formatting.
+ * Vulkan profiler classification: assigns commands to inference phases and
+ * preserves the fixed seven-matmul order used to separate projections from
+ * MLP work. It owns no timestamps, resources, or output formatting.
  */
 
 use crate::backend::vulkan::pipeline::Kernel;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Phase {
+    Prefill,
+    Decode,
+    Sampling,
+}
+
+impl Phase {
+    pub(super) const COUNT: usize = 3;
+    pub(super) const ALL: [Self; Self::COUNT] = [Self::Prefill, Self::Decode, Self::Sampling];
+
+    pub(super) const fn name(self) -> &'static str {
+        match self {
+            Self::Prefill => "prefill",
+            Self::Decode => "decode",
+            Self::Sampling => "sampling",
+        }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Category {
@@ -89,33 +109,46 @@ const fn direct(kernel: Kernel) -> Category {
     }
 }
 
-const fn is_batched_matmul(kernel: Kernel) -> bool {
+const fn is_projection_matmul(kernel: Kernel) -> bool {
     matches!(
         kernel,
-        Kernel::MatmulQ4KBatchF16Out
+        Kernel::MatmulF16
+            | Kernel::MatmulQ4KTiled
+            | Kernel::MatmulQ5K
+            | Kernel::MatmulQ6K
+            | Kernel::MatmulQ4KBatchF16Out
             | Kernel::MatmulQ6KBatchF16Out
             | Kernel::MatmulQ4KCoopmatF16Out
+            | Kernel::MatmulQ4KMmvqF16Out
     )
 }
 
-pub(super) const fn is_prefill_attention(kernel: Kernel) -> bool {
-    matches!(
-        kernel,
-        Kernel::AttentionPrefill | Kernel::AttentionPrefillWide | Kernel::AttentionPrefillInt8
-    )
+pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
+    match kernel {
+        Kernel::AttentionPrefill | Kernel::AttentionPrefillWide | Kernel::AttentionPrefillInt8 => {
+            Some(Phase::Prefill)
+        }
+        Kernel::AttentionDecode
+        | Kernel::AttentionDecodeWide
+        | Kernel::AttentionDecode1024
+        | Kernel::AttentionDecodeInt8 => Some(Phase::Decode),
+        Kernel::Argmax | Kernel::TopkPartial => Some(Phase::Sampling),
+        _ => None,
+    }
 }
 
-pub(super) fn profiled(kernel: Kernel, batched: &mut usize) -> Category {
-    if !is_batched_matmul(kernel) {
+pub(super) fn profiled(kernel: Kernel, matmul_slot: &mut usize) -> Category {
+    if !is_projection_matmul(kernel) {
         return direct(kernel);
     }
-    // Every prefill layer records Q, K, V, output, gate, up, then down.
-    let category = match *batched % 7 {
+    // Every dense layer records Q, K, V, output, gate, up, then down. This
+    // invariant is shared by the batched prefill and single-row decode graphs.
+    let category = match *matmul_slot % 7 {
         0..=2 => Category::ProjectionQkv,
         3 => Category::ProjectionOutput,
         _ => Category::Mlp,
     };
-    *batched += 1;
+    *matmul_slot += 1;
     category
 }
 
@@ -124,7 +157,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn batch_sequence_splits_attention_projections_and_mlp() {
+    fn dense_sequence_splits_attention_projections_and_mlp() {
         let mut slot = 0;
         let names = (0..7)
             .map(|_| profiled(Kernel::MatmulQ4KBatchF16Out, &mut slot).name())
@@ -141,5 +174,27 @@ mod tests {
                 "mlp"
             ]
         );
+
+        let mut slot = 0;
+        let names = (0..7)
+            .map(|_| profiled(Kernel::MatmulQ4KTiled, &mut slot).name())
+            .collect::<Vec<_>>();
+        assert_eq!(names[0], "projection_qkv");
+        assert_eq!(names[3], "projection_output");
+        assert_eq!(names[6], "mlp");
+    }
+
+    #[test]
+    fn attention_and_reduction_select_command_phase() {
+        assert!(matches!(
+            phase(Kernel::AttentionPrefillWide),
+            Some(Phase::Prefill)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionDecode1024),
+            Some(Phase::Decode)
+        ));
+        assert!(matches!(phase(Kernel::Argmax), Some(Phase::Sampling)));
+        assert!(phase(Kernel::Rope).is_none());
     }
 }

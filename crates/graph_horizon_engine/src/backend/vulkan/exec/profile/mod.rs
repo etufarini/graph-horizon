@@ -1,7 +1,7 @@
 /*
- * Vulkan prefill profiler: owns one reusable timestamp pool and aggregates
- * feature-gated GPU, submission, synchronization, and allocation diagnostics.
- * Kernel classification and stderr presentation remain isolated in siblings.
+ * Vulkan inference profiler: owns one reusable timestamp pool and aggregates
+ * feature-gated prefill, decode, sampling, synchronization, and allocation
+ * diagnostics. Classification and stderr presentation remain in siblings.
  */
 
 mod category;
@@ -13,7 +13,7 @@ use std::time::Instant;
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
-use self::category::Category;
+use self::category::{Category, Phase};
 use crate::backend::vulkan::pipeline::Kernel;
 
 const QUERY_COUNT: u32 = 8192;
@@ -33,7 +33,6 @@ struct Totals {
     gpu_ms: [f64; 2],
     category_ms: [f64; Category::COUNT],
     cpu_ms: [f64; 3],
-    allocations: [u64; 3],
 }
 
 #[derive(Default)]
@@ -43,10 +42,11 @@ struct State {
     started: Option<Instant>,
     marks: Vec<Mark>,
     barriers: u64,
-    batched_matmul: usize,
-    is_prefill: bool,
+    matmul_slot: usize,
+    phase: Option<Phase>,
     cpu_ms: [f64; 3],
-    totals: Totals,
+    totals: [Totals; Phase::COUNT],
+    allocations: [u64; 3],
 }
 
 impl Profile {
@@ -78,8 +78,8 @@ impl Profile {
         state.started = Some(Instant::now());
         state.marks.clear();
         state.barriers = 0;
-        state.batched_matmul = 0;
-        state.is_prefill = false;
+        state.matmul_slot = 0;
+        state.phase = None;
         state.cpu_ms = [0.0; 3];
         // SAFETY: query zero is reset and `cmd` is recording on this device.
         unsafe { device.cmd_write_timestamp(cmd, vk::PipelineStageFlags::TOP_OF_PIPE, pool, 0) };
@@ -99,8 +99,12 @@ impl Profile {
         }
         let (start, end) = (state.next, state.next + 1);
         state.next += 2;
-        let category = category::profiled(kernel, &mut state.batched_matmul);
-        state.is_prefill |= category::is_prefill_attention(kernel);
+        let category = category::profiled(kernel, &mut state.matmul_slot);
+        if let Some(phase) = category::phase(kernel) {
+            // One submitted command belongs to at most one inference phase.
+            debug_assert!(state.phase.is_none_or(|current| current == phase));
+            state.phase = Some(phase);
+        }
         state.marks.push(Mark(category, start, end));
         let pool = state.pool.expect("profile pool while recording");
         // SAFETY: the reserved query is reset and `cmd` is recording.
@@ -148,10 +152,10 @@ impl Profile {
         let mut state = self.state.lock().expect("vulkan profile lock");
         // The first completed prefill command is the phase latch: model loading
         // allocations are excluded, while later request-local churn is retained.
-        if state.totals.counts[0] > 0 {
-            state.totals.allocations[0] += 1;
-            state.totals.allocations[1] += bytes;
-            state.totals.allocations[2] += u64::from(host);
+        if state.totals[Phase::Prefill as usize].counts[0] > 0 {
+            state.allocations[0] += 1;
+            state.allocations[1] += bytes;
+            state.allocations[2] += u64::from(host);
         }
     }
 
@@ -175,9 +179,9 @@ impl Profile {
             )
         }
         .map_err(|_| eyre!("vulkan profile: cannot read timestamps"))?;
-        if !state.is_prefill {
+        let Some(phase) = state.phase else {
             return Ok(());
-        }
+        };
         let tick_ms = self.period_ns / 1_000_000.0;
         let gpu_ms = values[end as usize].wrapping_sub(values[0]) as f64 * tick_ms;
         let mut category_ms = [0.0; Category::COUNT];
@@ -189,7 +193,7 @@ impl Profile {
         let kernel_ms = category_ms.iter().sum::<f64>();
         let (dispatches, barriers, cpu_ms) =
             (state.marks.len() as u64, state.barriers, state.cpu_ms);
-        let totals = &mut state.totals;
+        let totals = &mut state.totals[phase as usize];
         totals.counts[0] += 1;
         totals.counts[1] += dispatches;
         totals.counts[2] += barriers;
@@ -206,7 +210,7 @@ impl Profile {
 
     pub(crate) fn finish(&self, device: &ash::Device) {
         let mut state = self.state.lock().expect("vulkan profile lock");
-        report::write(&state.totals);
+        report::write(&state.totals, state.allocations);
         if let Some(pool) = state.pool.take() {
             // SAFETY: Device::drop waited idle; no command can use this pool.
             unsafe { device.destroy_query_pool(pool, None) };
@@ -221,6 +225,12 @@ mod tests {
     #[test]
     fn selected_prefill_batch_fits_query_pool() {
         let dispatches = 32 + 26 * 78 + 2;
+        assert!(1 + dispatches * 2 + 1 < QUERY_COUNT);
+    }
+
+    #[test]
+    fn selected_decode_step_fits_query_pool() {
+        let dispatches = 1 + 26 * 16 + 2;
         assert!(1 + dispatches * 2 + 1 < QUERY_COUNT);
     }
 }

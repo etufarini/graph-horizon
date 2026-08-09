@@ -181,10 +181,15 @@ pub(super) fn build_one(dev: &Device, cache: vk::PipelineCache, k: Kernel) -> Re
         }
     };
 
-    let stage = vk::PipelineShaderStageCreateInfo::default()
+    let mut stage = vk::PipelineShaderStageCreateInfo::default()
         .stage(vk::ShaderStageFlags::COMPUTE)
         .module(module)
         .name(c"main");
+    let mut subgroup =
+        vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo::default().required_subgroup_size(32);
+    if k == Kernel::AttentionPrefillWide && dev.subgroup32 {
+        stage = stage.push_next(&mut subgroup);
+    }
     let info = vk::ComputePipelineCreateInfo::default()
         .stage(stage)
         .layout(layout);

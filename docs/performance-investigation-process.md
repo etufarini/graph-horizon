@@ -62,6 +62,18 @@ it is not isolated prefill timing. Decode throughput uses intervals between
 public text deltas, not raw model-token steps. TTFT runs from
 `Engine::generate` entry to the first public text delta.
 
+### Vulkan Phase Attribution
+
+Build the existing benchmark with `--features vulkan-profile` when Vulkan GPU
+timestamps are required. At device shutdown it reports accumulated `prefill`,
+`decode`, and `sampling` records separately. Each phase includes command,
+dispatch, and barrier counts; total and classified GPU time; residual and
+accounted percentage; CPU record, submit, and wait time; and operation-category
+totals. Allocation count and device/host bytes are reported once. The totals
+include warm-up and measured repetitions, so divide them only by the matching
+command or repetition count from that exact run. The profiler does not replace
+the public-event throughput and TTFT record used for A/B retention decisions.
+
 ## Default Iterative Tuple
 
 Use this tuple only when the task does not define a more representative

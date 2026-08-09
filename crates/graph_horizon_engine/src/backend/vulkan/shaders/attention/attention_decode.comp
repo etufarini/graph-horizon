@@ -89,14 +89,22 @@ void main() {
             prod += qd[j] * float(kc[kbase + l + j * S]);
         }
         float score = subgroupAdd(prod) * p.scale;  // full dot, broadcast to all lanes
-        float m_new = max(m_g, score);
-        float alpha = exp(m_g - m_new);
-        float pw = exp(score - m_new);
+        float alpha;
+        float pw;
+        // score and m_g are subgroup-uniform, so this branch cannot diverge. Since
+        // m_new is one operand, its corresponding exponential is exactly one.
+        if (score <= m_g) {
+            alpha = 1.0;
+            pw = exp(score - m_g);
+        } else {
+            alpha = exp(m_g - score);
+            pw = 1.0;
+        }
         l_g = l_g * alpha + pw;
         for (uint j = 0u; j < dpl; j++) {
             acc[j] = acc[j] * alpha + pw * float(vc[kbase + l + j * S]);
         }
-        m_g = m_new;
+        m_g = max(m_g, score);
     }
 
     // Publish this subgroup's partial state for the cross-subgroup combine.

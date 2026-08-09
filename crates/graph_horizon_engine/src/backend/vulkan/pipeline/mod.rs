@@ -91,9 +91,10 @@ impl PipelineRegistry {
                 }
             }
             if attention_1024 {
-                for k in [Kernel::AttentionDecode1024, Kernel::AttentionPrefill1024] {
-                    map.insert(k, record::build_one(dev, cache, k)?);
-                }
+                map.insert(
+                    Kernel::AttentionDecode1024,
+                    record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
+                );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
             if dev.coopmat.available {

@@ -45,10 +45,7 @@ fn compile_vulkan_shader(
             ("attention_decode_wide", "512"),
             ("attention_decode_1024", "1024"),
         ],
-        "attention_prefill" => &[
-            ("attention_prefill_wide", "512"),
-            ("attention_prefill_1024", "1024"),
-        ],
+        "attention_prefill" => &[("attention_prefill_wide", "512")],
         _ => &[],
     };
     let variants = variants

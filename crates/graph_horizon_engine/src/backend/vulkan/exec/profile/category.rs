@@ -96,7 +96,6 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionDecode1024
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
-        | Kernel::AttentionPrefill1024
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
@@ -138,10 +137,9 @@ const fn is_projection_matmul(kernel: Kernel) -> bool {
 
 pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
     match kernel {
-        Kernel::AttentionPrefill
-        | Kernel::AttentionPrefillWide
-        | Kernel::AttentionPrefill1024
-        | Kernel::AttentionPrefillInt8 => Some(Phase::Prefill),
+        Kernel::AttentionPrefill | Kernel::AttentionPrefillWide | Kernel::AttentionPrefillInt8 => {
+            Some(Phase::Prefill)
+        }
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024

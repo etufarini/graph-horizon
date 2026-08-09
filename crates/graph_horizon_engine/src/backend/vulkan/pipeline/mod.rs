@@ -59,7 +59,7 @@ const KERNELS: [Kernel; 26] = [
     Kernel::MatmulQ6KBatchF16Out,
 ];
 
-const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
+const WIDE_ATTENTION_SHARED_BYTES: u32 = 2 * (32 * 128 * 4 + 32 * 4 * 2);
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {

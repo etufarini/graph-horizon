@@ -37,6 +37,7 @@ pub(crate) enum Kernel {
     MatmulQ4KMmvqF16Out,
 }
 
+#[cfg(feature = "vulkan-profile")]
 impl Kernel {
     pub(crate) const fn name(self) -> &'static str {
         match self {

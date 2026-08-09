@@ -6,14 +6,12 @@
 
 // AGENTS deroga K: kernel numerico della sola attention prefill F16.
 
-// Causal GQA attention for N query in a single dispatch — the N-query generalization
-// of attention_decode.comp, with the same flash KV-parallel structure. Grid is 2D
-// (q_heads, n): workgroup (h, i) handles query head h of row i (absolute position
-// pos = base + i), attending cached positions 0..=pos. The cached positions are split
-// across the workgroup's subgroups (subgroup g streams t = g, g+G, ...), each keeping
-// its own online-softmax state over its owned head_dim components in registers; the G
-// partials are combined once at the end. This removes the per-position workgroup
-// barriers and cuts the serial KV depth from pos to pos/G. q/out are N-wide
+// Causal GQA attention for N queries in one dispatch. Grid is 2D
+// (q_heads, ceil(n/2)): workgroup (h, tile) handles two adjacent query rows and
+// reuses each K/V vector between them. Subgroup g streams t = g, g+G, ... up to
+// the second row's position; each row keeps an independent online-softmax state
+// and the G partials are combined once at the end. The first row skips the one
+// possible extra causal position. q/out are N-wide
 // [n][q_heads][head_dim]; cache layout is [layer][token][kv_head][head_dim].
 //
 // Numerics-changing (grouped/reordered softmax sum, f16-level drift), gated by the
@@ -42,74 +40,111 @@ layout(push_constant) uniform P {
 
 const uint MAX_DPL = 8u;
 const uint MAX_G = uint(ATTENTION_LOCAL_SIZE) / 16u;
+const uint QUERY_TILE = 2u;
 
-shared float sh_m[MAX_G];
-shared float sh_l[MAX_G];
-shared float sh_acc[MAX_G * 128u];
+shared float sh_m[QUERY_TILE * MAX_G];
+shared float sh_l[QUERY_TILE * MAX_G];
+shared float sh_acc[QUERY_TILE * MAX_G * 128u];
 
 void main() {
     uint h = gl_WorkGroupID.x;  // query head
-    uint i = gl_WorkGroupID.y;  // query row in the batch
-    if (h >= p.q_heads || i >= p.n) return;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (h >= p.q_heads || first >= p.n) return;
+    uint rows = min(QUERY_TILE, p.n - first);
 
     uint S = gl_SubgroupSize;
     uint G = gl_NumSubgroups;
     uint g = gl_SubgroupID;
     uint l = gl_SubgroupInvocationID;
 
-    uint pos = p.base + i;                  // absolute position of this row
     uint group = p.q_heads / p.kv_heads;    // GQA ratio
     uint kvh = h / group;
-    uint row = i * p.q_heads * p.head_dim;  // N-wide offset into q/out
+    uint pos[QUERY_TILE];
+    uint row[QUERY_TILE];
+    for (uint r = 0u; r < rows; r++) {
+        pos[r] = p.base + first + r;
+        row[r] = (first + r) * p.q_heads * p.head_dim;
+    }
 
     // This lane's owned head_dim components: d = l + j*S (j = 0..dpl-1), d < head_dim.
-    float qd[MAX_DPL];
-    float acc[MAX_DPL];
+    float qd[QUERY_TILE][MAX_DPL];
+    float acc[QUERY_TILE][MAX_DPL];
     uint dpl = 0u;
     for (uint j = 0u; j < MAX_DPL; j++) {
         uint d = l + j * S;
-        qd[j] = (d < p.head_dim) ? float(q[row + h * p.head_dim + d]) : 0.0;
-        acc[j] = 0.0;
+        for (uint r = 0u; r < rows; r++) {
+            qd[r][j] = (d < p.head_dim) ? float(q[row[r] + h * p.head_dim + d]) : 0.0;
+            acc[r][j] = 0.0;
+        }
         if (d < p.head_dim) dpl = j + 1u;
     }
 
-    float m_g = -1e30;
-    float l_g = 0.0;
-    for (uint t = g; t <= pos; t += G) {
+    float m_g[QUERY_TILE];
+    float l_g[QUERY_TILE];
+    for (uint r = 0u; r < rows; r++) {
+        m_g[r] = -1e30;
+        l_g[r] = 0.0;
+    }
+    uint last_pos = pos[rows - 1u];
+    for (uint t = g; t <= last_pos; t += G) {
         uint kbase = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
-        float prod = 0.0;
+        float kd[MAX_DPL];
         for (uint j = 0u; j < dpl; j++) {
-            prod += qd[j] * float(kc[kbase + l + j * S]);
+            kd[j] = float(kc[kbase + l + j * S]);
         }
-        float score = subgroupAdd(prod) * p.scale;
-        float m_new = max(m_g, score);
-        float alpha = exp(m_g - m_new);
-        float pw = exp(score - m_new);
-        l_g = l_g * alpha + pw;
+        float alpha[QUERY_TILE];
+        float pw[QUERY_TILE];
+        for (uint r = 0u; r < rows; r++) {
+            alpha[r] = 1.0;
+            pw[r] = 0.0;
+            if (t <= pos[r]) {
+                float prod = 0.0;
+                for (uint j = 0u; j < dpl; j++) prod += qd[r][j] * kd[j];
+                float score = subgroupAdd(prod) * p.scale;
+                float m_new = max(m_g[r], score);
+                alpha[r] = exp(m_g[r] - m_new);
+                pw[r] = exp(score - m_new);
+                l_g[r] = l_g[r] * alpha[r] + pw[r];
+                m_g[r] = m_new;
+            }
+        }
         for (uint j = 0u; j < dpl; j++) {
-            acc[j] = acc[j] * alpha + pw * float(vc[kbase + l + j * S]);
+            float vd = float(vc[kbase + l + j * S]);
+            for (uint r = 0u; r < rows; r++) {
+                if (t <= pos[r]) acc[r][j] = acc[r][j] * alpha[r] + pw[r] * vd;
+            }
         }
-        m_g = m_new;
     }
 
-    if (subgroupElect()) { sh_m[g] = m_g; sh_l[g] = l_g; }
-    for (uint j = 0u; j < dpl; j++) {
-        sh_acc[g * p.head_dim + l + j * S] = acc[j];
+    for (uint r = 0u; r < rows; r++) {
+        uint partial = r * MAX_G + g;
+        if (subgroupElect()) { sh_m[partial] = m_g[r]; sh_l[partial] = l_g[r]; }
+        for (uint j = 0u; j < dpl; j++) {
+            sh_acc[partial * p.head_dim + l + j * S] = acc[r][j];
+        }
     }
     barrier();
 
     if (g == 0u) {
-        float m_glob = -1e30;
-        for (uint gg = 0u; gg < G; gg++) { m_glob = max(m_glob, sh_m[gg]); }
-        float l_glob = 0.0;
-        for (uint gg = 0u; gg < G; gg++) { l_glob += sh_l[gg] * exp(sh_m[gg] - m_glob); }
-        for (uint j = 0u; j < dpl; j++) {
-            uint d = l + j * S;
-            float num = 0.0;
+        for (uint r = 0u; r < rows; r++) {
+            float m_glob = -1e30;
             for (uint gg = 0u; gg < G; gg++) {
-                num += sh_acc[gg * p.head_dim + d] * exp(sh_m[gg] - m_glob);
+                m_glob = max(m_glob, sh_m[r * MAX_G + gg]);
             }
-            o[row + h * p.head_dim + d] = float16_t(num / l_glob);
+            float l_glob = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                uint partial = r * MAX_G + gg;
+                l_glob += sh_l[partial] * exp(sh_m[partial] - m_glob);
+            }
+            for (uint j = 0u; j < dpl; j++) {
+                uint d = l + j * S;
+                float num = 0.0;
+                for (uint gg = 0u; gg < G; gg++) {
+                    uint partial = r * MAX_G + gg;
+                    num += sh_acc[partial * p.head_dim + d] * exp(sh_m[partial] - m_glob);
+                }
+                o[row[r] + h * p.head_dim + d] = float16_t(num / l_glob);
+            }
         }
     }
 }

@@ -82,21 +82,42 @@ void main() {
     // Online softmax over this subgroup's strided KV subset (registers only).
     float m_g = -1e30;
     float l_g = 0.0;
-    for (uint t = g; t <= p.pos; t += G) {
-        uint kbase = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
-        float prod = 0.0;
+    for (uint t = g; t <= p.pos; t += 2u * G) {
+        uint kbase0 = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
+        bool has_second = t + G <= p.pos;
+        uint kbase1 = ((p.layer * p.context + t + G) * p.kv_heads + kvh) * p.head_dim;
+        float prod0 = 0.0;
+        float prod1 = 0.0;
+        // Two independent K rows expose memory-level parallelism without changing
+        // the per-subgroup softmax order or the number of bytes transferred.
         for (uint j = 0u; j < dpl; j++) {
-            prod += qd[j] * float(kc[kbase + l + j * S]);
+            float qv = qd[j];
+            prod0 += qv * float(kc[kbase0 + l + j * S]);
+            if (has_second) {
+                prod1 += qv * float(kc[kbase1 + l + j * S]);
+            }
         }
-        float score = subgroupAdd(prod) * p.scale;  // full dot, broadcast to all lanes
+        float score = subgroupAdd(prod0) * p.scale;  // full dot, broadcast to all lanes
         float m_new = max(m_g, score);
         float alpha = exp(m_g - m_new);
         float pw = exp(score - m_new);
         l_g = l_g * alpha + pw;
         for (uint j = 0u; j < dpl; j++) {
-            acc[j] = acc[j] * alpha + pw * float(vc[kbase + l + j * S]);
+            acc[j] = acc[j] * alpha + pw * float(vc[kbase0 + l + j * S]);
         }
         m_g = m_new;
+
+        if (has_second) {
+            score = subgroupAdd(prod1) * p.scale;
+            m_new = max(m_g, score);
+            alpha = exp(m_g - m_new);
+            pw = exp(score - m_new);
+            l_g = l_g * alpha + pw;
+            for (uint j = 0u; j < dpl; j++) {
+                acc[j] = acc[j] * alpha + pw * float(vc[kbase1 + l + j * S]);
+            }
+            m_g = m_new;
+        }
     }
 
     // Publish this subgroup's partial state for the cross-subgroup combine.

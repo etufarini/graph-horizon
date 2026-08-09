@@ -5,10 +5,12 @@ errors, and limitations. It defines no quality, support, or release threshold.
 
 # End-To-End Throughput Benchmark
 
-`examples/bench.rs` is the only retained iterative performance executable. It
-runs one explicit model tuple through public `Engine` events and emits one
-human-readable record. It measures and reports; it does not authenticate an
-artifact, compare revisions, or assign a performance verdict.
+`examples/bench.rs` is the retained end-to-end iterative performance
+executable. It runs one explicit model tuple through public `Engine` events and
+emits one human-readable record. It measures and reports; it does not
+authenticate an artifact, compare revisions, or assign a performance verdict.
+Focused temporary instrumentation may supplement it under the performance
+investigation process when a task requires phase or GPU attribution.
 
 The [performance investigation process](performance-investigation-process.md)
 owns tuple authentication, A/B comparability, thresholds, correctness gates,
@@ -68,8 +70,9 @@ cargo run --locked --release --no-default-features --features metal-hybrid \
 ```
 
 These commands demonstrate the interface, not an A/B tuple. For an
-investigation, use the default iterative tuple by reference from the process
-page and change only the selected profile as that procedure permits.
+investigation, use the task-directed matrix when one is specified; otherwise
+use the default iterative tuple by reference from the process page and change
+only the selected profile as that procedure permits.
 
 ## Metric Contract
 

@@ -5,11 +5,13 @@ contains no measured result and makes no runtime or support claim.
 
 # Performance Investigation Process
 
-Use this process for performance-sensitive changes after correctness and scope
-have been approved. `examples/bench.rs` is the only retained iterative
-performance executable. It measures one end-to-end public-event tuple; the
-operator authenticates artifacts, records environment metadata, compares
-revisions, and assigns the terminal state.
+Use this process when an explicit task requests performance investigation or
+optimization. The request defines the authorized target, invariants, and local
+experimental scope; it does not require a second approval before measurement or
+implementation. `examples/bench.rs` is the retained end-to-end public-event
+benchmark. Temporary test-only instrumentation or focused diagnostic paths may
+be used when that benchmark cannot attribute the measured cost; remove them
+before completion unless the task requires a reusable profiling facility.
 
 `support/profiling/profile.sh` may provide a placement and memory snapshot.
 `support/profiling/validate-kv.sh` checks both public KV schemes, and
@@ -25,20 +27,34 @@ Before changing code, declare:
 - the changed runtime profile;
 - the narrow correctness gate selected for that path.
 
-### Autonomous Category-K Loop
+### Autonomous Investigation Loop
 
-AGENTS deroga E applies only to an existing category-K kernel, its directly
-related tests, and this document's existing measurement path. Before editing,
-verify that `HEAD` is on a dedicated `perf/<experiment>` branch and not on
-`main`. Record the baseline and commit each candidate at a reproducible checkpoint.
-A rejected candidate remains in branch history and is removed by a later commit;
-do not amend, squash, or reset away experimental evidence during the loop.
+Before editing production code, verify that the worktree is clean and `HEAD` is
+on a dedicated `perf/<experiment>` branch rather than `main`, then record the
+requested baseline. The agent may follow measured cost across kernels, cache
+layout, orchestration, dispatch, synchronization, shaders, allocations, and
+supporting tests or benchmarks. It may iterate through instrumentation,
+implementation, checks, measurement, and rollback without per-candidate
+approval.
 
-The agent may iterate through implementation, checks, measurement, and rollback
-without per-candidate approval. This autonomy covers local work and
-commits only: pushing, opening a pull request, merging, or expanding the change
-beyond the category-K boundary requires normal authorization. The final report
-identifies the baseline, candidate, and any restoration revisions.
+Each candidate must be isolated and measured against the same applicable
+baseline. Retained production changes and reproducible checkpoints are committed
+locally. Rejected production changes are removed without rewriting history, and
+their result is recorded concisely so the same hypothesis is not repeated.
+Pushing, opening a pull request, merging, external side effects, unrelated scope,
+new dependencies, or public API changes are not authorized implicitly. The
+final report identifies baseline, retained candidates, rejected candidates, and
+any restoration revisions.
+
+### Task-Directed Measurements
+
+An explicit task's workload matrix, metrics, thresholds, correctness gates, and
+completion conditions take precedence over the defaults below. This includes
+requests for multiple context lengths, isolated GPU timestamps, dispatch and
+barrier counts, hardware telemetry, causal ablations, parameter sweeps, or
+continued profiling after an initial improvement. Missing support for a
+required metric calls for the smallest reversible instrumentation experiment;
+it is not a reason to request approval.
 
 Prompt throughput is the end-to-end proxy for prefill. It is prompt-token count
 divided by time to the first public text delta, so it includes first sampling;
@@ -47,6 +63,9 @@ public text deltas, not raw model-token steps. TTFT runs from
 `Engine::generate` entry to the first public text delta.
 
 ## Default Iterative Tuple
+
+Use this tuple only when the task does not define a more representative
+workload or measurement matrix.
 
 Define the default tuple once as follows:
 
@@ -68,9 +87,9 @@ until catalog authentication and tuple comparison pass.
 Run only the profile whose path changed. If the change is shared by standalone
 Metal and hybrid Metal, run two selected rows: `metal` and `metal-hybrid` with
 `weights_percent=25`. CPU is not an automatic control row. Add `int8`, Vulkan,
-8B, or 14B only when the approved change directly depends on that scheme,
-backend, size, layout, capacity, or memory pressure. Select a larger model early
-only when 3B cannot exercise the relevant property.
+8B, or 14B only when the task or measured bottleneck directly depends on that
+scheme, backend, size, layout, capacity, or memory pressure. Select a larger
+model early only when 3B cannot exercise the relevant property.
 
 ## Acquire Matching Records
 
@@ -79,10 +98,11 @@ candidate B with the default tuple. Store the benchmark's single-line records
 beside the tuple metadata; do not add metadata to benchmark stdout. Do not
 selectively repeat a favorable row or alter inputs after reading results.
 
-The complete comparison must finish within two hours of elapsed wall time. Once
-two hours are reached, do not start another row; allow an already running row to finish,
-then assign `not_verified: time budget exceeded` if the comparison remains
-unfinished.
+Unless the task defines different continuation or completion conditions, the
+complete comparison must finish within two hours of elapsed wall time. Once two
+hours are reached, do not start another row; allow an already running row to
+finish, then assign `not_verified: time budget exceeded` if the comparison
+remains unfinished.
 
 For each metric, the benchmark reports the mean and sample standard deviation.
 CV is sample standard deviation divided by the positive mean and is a
@@ -100,6 +120,9 @@ For throughput, improvement is `candidate / baseline - 1`. For TTFT,
 regression is `candidate / baseline - 1`. Evaluate only the target declared
 before acquisition. For target `both`, prompt and decode throughput must each
 meet the selected threshold; a favorable aggregate cannot hide a failing row.
+
+Use the task's explicit retention threshold when it provides one. Otherwise,
+apply the default terminal states below.
 
 TTFT is always a control for prefill work. The non-target throughput metric is
 also a control. Apply exactly one terminal state:

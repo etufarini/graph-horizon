@@ -28,13 +28,19 @@ single-operation dense numeric kernel and declare exactly one
 trait definition or one thin delegating `impl Trait` block and declare exactly
 one `// AGENTS deroga I: <nota>` marker.
 
-Category-K optimization experiments may use AGENTS deroga E. They must run on a
-dedicated `perf/<experiment>` branch, never on `main`, and follow the declared
-performance experiment and correctness gate. Commit every reproducible,
-self-contained candidate locally, including candidates later rejected, and
-remove rejected code with a subsequent commit instead of rewriting history.
-The exemption does not authorize pushes, pull requests, merges, new files,
-dependencies, public APIs, or orchestration changes.
+An explicit performance investigation runs autonomously on a dedicated
+`perf/<experiment>` branch, never on `main`, and follows its declared baseline,
+measurement, and correctness gates. Measurements may move the investigation
+across category-K kernels, cache layout, orchestration, dispatch,
+synchronization, shaders, allocations, and focused test or benchmark support.
+No per-candidate approval is required for local, reversible, in-scope work.
+
+Keep candidates isolated and reproducible, commit retained checkpoints locally,
+remove rejected production changes without rewriting history, and record useful
+negative results. New files and structural changes must satisfy the same
+single-responsibility and line-limit rules as ordinary work. This autonomy does
+not authorize pushes, pull requests, merges, external side effects, unrelated
+scope, dependencies, or public API changes.
 
 New backends implement the neutral runtime contracts; new model families do not
 add backend-pair modules. Never reduce context, change placement, or retry a

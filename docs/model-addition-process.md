@@ -154,7 +154,7 @@ is complete; do not use them for iterative tuning.
 
 Move a larger model earlier only when model size, capacity, layout, or memory
 pressure is itself part of the change. Larger-model performance runs are
-required only by an explicit approved acceptance criterion. The current
+required only by an explicit task acceptance criterion. The current
 model-neutral harness requires an explicit model, context and KV scheme:
 
 ```sh

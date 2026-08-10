@@ -6,11 +6,12 @@
 
 // AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
 
-// Causal GQA prefill attention for eight adjacent query rows. A 512-thread
+// Causal GQA prefill attention for four adjacent rows and two query heads that
+// share one KV head. A 512-thread
 // workgroup loads one 64-position tile in two phases: K produces shared scores,
 // then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
-// workgroup tile. History keys are distributed across two subgroups per query;
-// every invocation owns two disjoint output dimensions and FP32 accumulators.
+// workgroup tile. Eight query states share the load; history keys are distributed
+// across two subgroups/state and every invocation owns two output dimensions.
 // Q/output are [n][q_heads][head_dim]; cache is
 // [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
 layout(local_size_x = 512) in;
@@ -31,7 +32,9 @@ layout(push_constant) uniform P {
     float scale;
 } p;
 
-const uint QUERY_TILE = 8u;
+const uint ROW_TILE = 4u;
+const uint HEAD_TILE = 2u;
+const uint QUERY_TILE = ROW_TILE * HEAD_TILE;
 const uint KV_TILE = 64u;
 const uint MAX_DPL = 8u;
 const uint OUTPUT_DPL = 2u;
@@ -44,35 +47,46 @@ shared float sh_l[QUERY_TILE];
 shared float sh_alpha[QUERY_TILE];
 
 void main() {
-    uint h = gl_WorkGroupID.x;
-    uint first = gl_WorkGroupID.y * QUERY_TILE;
-    if (h >= p.q_heads || first >= p.n) return;
+    uint first_h = gl_WorkGroupID.x * HEAD_TILE;
+    uint first = gl_WorkGroupID.y * ROW_TILE;
+    if (first_h >= p.q_heads || first >= p.n) return;
 
     uint S = gl_SubgroupSize;
     uint G = gl_NumSubgroups;
     uint g = gl_SubgroupID;
     uint lane = gl_SubgroupInvocationID;
-    uint rows = min(QUERY_TILE, p.n - first);
+    uint rows = min(ROW_TILE, p.n - first);
+    uint heads = min(HEAD_TILE, p.q_heads - first_h);
     uint key_parts = G / QUERY_TILE;
     uint query = g / key_parts;
     uint part = g % key_parts;
-    bool valid_query = query < rows;
+    uint query_head = query / ROW_TILE;
+    uint query_index = query % ROW_TILE;
+    bool valid_query = query_head < heads && query_index < rows;
 
     uint group = p.q_heads / p.kv_heads;
-    uint kvh = h / group;
-    uint query_row = first + min(query, rows - 1u);
+    uint h = first_h + min(query_head, heads - 1u);
+    uint kvh = first_h / group;
+    uint query_row = first + min(query_index, rows - 1u);
     uint row = query_row * p.q_heads * p.head_dim;
     uint pos = p.base + query_row;
     uint last_pos = p.base + first + rows - 1u;
 
     // Q is shared because every history-partition subgroup for the same query
     // computes independent scores from the same vector.
-    uint query_elements = rows * p.head_dim;
+    uint query_elements = QUERY_TILE * p.head_dim;
     for (uint index = gl_LocalInvocationIndex; index < query_elements; index += 512u) {
-        uint query_index = index / p.head_dim;
-        uint d = index - query_index * p.head_dim;
-        uint source_row = first + query_index;
-        sh_q[index] = q[(source_row * p.q_heads + h) * p.head_dim + d];
+        uint state = index / p.head_dim;
+        uint d = index - state * p.head_dim;
+        uint state_head = state / ROW_TILE;
+        uint state_row = state % ROW_TILE;
+        if (state_head < heads && state_row < rows) {
+            uint source_h = first_h + state_head;
+            uint source_row = first + state_row;
+            sh_q[index] = q[(source_row * p.q_heads + source_h) * p.head_dim + d];
+        } else {
+            sh_q[index] = float16_t(0.0);
+        }
     }
     if (gl_LocalInvocationIndex < QUERY_TILE) {
         sh_m[gl_LocalInvocationIndex] = -1e30;
@@ -81,8 +95,8 @@ void main() {
     }
     barrier();
 
-    // With two key subgroups/query on subgroup 32, each lane owns two output
-    // dimensions. This bounds private state while Q_TILE doubles from four.
+    // With two key subgroups/state on subgroup 32, each lane owns two output
+    // dimensions. Temporal and GQA reuse therefore have the same live-state cost.
     float acc[OUTPUT_DPL];
     for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
 

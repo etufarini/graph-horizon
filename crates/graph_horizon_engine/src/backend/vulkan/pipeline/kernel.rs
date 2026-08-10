@@ -63,7 +63,7 @@ impl Kernel {
             Self::AttentionDecode1024 => "attention_decode_1024",
             Self::AttentionPrefill => "attention_prefill",
             Self::AttentionPrefillWide => "attention_prefill_wide",
-            Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q8_kv64",
+            Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q4_gqa2_kv64",
             Self::KvWriteInt8 => "kv_write_int8",
             Self::AttentionDecodeInt8 => "attention_decode_int8",
             Self::AttentionPrefillInt8 => "attention_prefill_int8",

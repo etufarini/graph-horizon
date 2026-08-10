@@ -761,3 +761,21 @@ l'intensità sale a circa 8 FLOP/byte. Il beneficio aggiuntivo rispetto a B3 pro
 che due accumulatori/lane non causano ancora collasso di risorse. Il successivo
 esperimento mantiene otto query state ma sostituisce metà del reuse temporale
 con reuse GQA (`4 posizioni × 2 query head`) per isolare la seconda dimensione.
+
+### MQ-D1 — quattro posizioni × due query head GQA
+
+Stesso `KV_TILE=64`, WG 512, otto query state, due accumulatori/lane, 20.576
+byte shared e riduzione teorica 8× di C1. Il grid passa da `(32 head, 4 tile)` a
+`(16 coppie head, 8 tile)`; il percorso è valido soltanto per gruppi GQA pari.
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-D1 | phased K→V, temporal × GQA | 4 | 64 | 512/32 | 2 | 20.576 B | array privata 2 FP32; 184 istruzioni | identica a C1 | 1,788451 TB | 53,86 GB/s | 33.206,81 ms | 1,542× | 63,00 | 130.036,96 ms | reject |
+
+MQ-D1 è 0,57% più lento di C1 in attention e 0,19% più lento in tok/s: entro la
+scala del rumore di un singolo run, ma senza alcun segnale positivo che compensi
+mapping e capability gate aggiuntivi. A parità di byte logici e risorse, il
+reuse temporale puro è più generale e marginalmente migliore. Questo spiega
+anche il precedente semplice GQA packing: sostituire reuse temporale con reuse
+tra head non riduce ulteriormente i byte e la cache può già servire i quattro
+query head contigui associati allo stesso KV head. C1 viene ripristinato.

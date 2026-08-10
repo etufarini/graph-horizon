@@ -528,3 +528,108 @@ ignorato in ciascuna suite. `docs_contract` non è eseguibile sul commit di
 partenza perché `VALIDATION.md`, che il test apre obbligatoriamente, non è
 presente né nel worktree né nel tree Git di `43f2da5`; non è una regressione del
 prototipo. L'audit Git finale non mostra differenze fuori da questo documento.
+
+## Follow-up multi-query tiled — modello iniziale, RTX 3060, 2026-08-10
+
+Questa sezione registra il modello quantitativo costruito prima della prima
+modifica al kernel. Il codice di produzione è ancora quello di `43f2da5`; la
+baseline misurata nella sezione split-KV è quindi riutilizzabile senza ripetere
+il profiling generale già concluso. Il nuovo branch pulito è
+`perf/vulkan-prefill-multi-query-tiled`.
+
+### Invarianti, modifica minima e rischio
+
+- invariante: ogni output `(layer, token, query head)` conserva causalità, GQA e
+  online softmax stabile senza materializzare una matrice N×N;
+- modifica minima: un kernel F16 prefill dedicato e il solo dispatch necessario
+  a selezionarlo; decode e attention INT8 restano percorsi distinti invariati;
+- rischio principale: il risparmio di load globali viene perso riducendo i warp
+  che partizionano la history o aumentando registri, shared memory e barrier.
+
+Struttura prevista prima del prototipo, con stima delle righe produttive:
+
+```text
+crates/graph_horizon_engine/
+├── build.rs (~175 righe produttive, orchestrazione shader)
+└── src/backend/vulkan/
+    ├── kernels/attention/mod.rs (~185 righe produttive, dispatch attention)
+    ├── pipeline/kernel.rs (~125 righe produttive, ABI pipeline)
+    └── shaders/attention/
+        ├── attention_prefill.comp (115 righe produttive, baseline categoria K)
+        └── attention_prefill_tiled.comp (~190 righe produttive, categoria K)
+```
+
+Il nuovo shader è una categoria K: una sola operazione numerica attention, senza
+I/O host, ownership di risorse o dispatch. Le tre modifiche Rust restano file di
+orchestrazione sotto 200 righe produttive; se il prototipo richiede una seconda
+architettura shader, questa entra nello stesso dominio `shaders/attention/` e
+non modifica la struttura dell'orchestrazione.
+
+### Modello dei byte della baseline
+
+La forma reale è 26 layer, 32 query head, 8 KV head, head dimension 128 e K/V
+F16. Per una query logica `(layer, token, query head)`, ogni posizione causale
+legge 256 byte K e 256 byte V. Per N token:
+
+```text
+coppie causali              = N × (N + 1) / 2
+byte K+V                    = 26 × 32 × 512 × coppie causali
+byte Q+output               = 26 × 32 × 512 × N
+FLOP QK+AV                  ≈ byte K+V
+intensità aritmetica K/V    ≈ 1 FLOP/byte
+```
+
+`Byte/query` indica una query logica di un singolo layer/head; `byte/token`
+include tutti i 26 layer e i 32 query head. I byte sono logici: le cache possono
+servire load ripetuti, quindi la banda effettiva non è un contatore DRAM.
+
+| Prompt | K letti | V letti | K+V | Byte/query | Byte/token | Byte attention, Q/O inclusi | Attention baseline | Banda effettiva |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 0,446895 TB | 0,446895 TB | 0,893789 TB | 0,525 MB | 0,436 GB | 0,894662 TB | 3.105,04 ms | 287,85 GB/s |
+| 8K | 7,147698 TB | 7,147698 TB | 14,295396 TB | 2,097 MB | 1,745 GB | 14,298886 TB | 51.206,35 ms | 279,17 GB/s |
+| 16K | 28,589047 TB | 28,589047 TB | 57,178094 TB | 4,195 MB | 3,490 GB | 57,185074 TB | 209.462,67 ms | 272,98 GB/s |
+| 28K | 83,495846 TB | 83,495846 TB | 166,991692 TB | 7,168 MB | 5,964 GB | 167,003619 TB | 627.180,43 ms | 266,26 GB/s |
+
+### Minimo plausibile con riuso temporale
+
+Il modello raggruppa query adiacenti e carica fino alla posizione causale
+dell'ultima query del tile. Include quindi il piccolo over-read mascherato della
+diagonale, ma assume che ogni K/V tile venga caricato globalmente una sola volta
+per query head. Non include ancora riuso tra query head GQA: quello è una
+dimensione separata, con massimo teorico ulteriore 4× per questo modello.
+
+| Prompt | Q_TILE=1 | Q_TILE=2 | Riduzione | Q_TILE=4 | Riduzione | Q_TILE=8 | Riduzione |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 0,893789 TB | 0,447113 TB | 49,976% | 0,223775 TB | 74,963% | 0,112105 TB | 87,457% |
+| 8K | 14,295396 TB | 7,148570 TB | 49,994% | 3,575158 TB | 74,991% | 1,788451 TB | 87,489% |
+| 16K | 57,178094 TB | 28,590792 TB | 49,997% | 14,297141 TB | 74,995% | 7,150315 TB | 87,495% |
+| 28K | 166,991692 TB | 83,498828 TB | 49,998% | 41,752396 TB | 74,997% | 20,879180 TB | 87,497% |
+
+L'intensità K/V teorica cresce rispettivamente a circa 1×, 2×, 4× e 8×
+FLOP/byte. Il primo sweep non sarà combinatorio: `Q_TILE=2/4`, `KV_TILE=32/64`
+e workgroup da 256/512 thread, scartando `KV_TILE=128` finché il costo di almeno
+32 KiB di shared tile non sia giustificato. Il controllo `Q_TILE=1` distingue il
+costo del tiling dal beneficio del reuse; `Q_TILE=8` viene valutato soltanto se
+registri/shared e residenza dei candidati piccoli lo rendono plausibile.
+
+### Budget delle risorse e strategie
+
+La RTX 3060 espone subgroup 32, massimo 1.024 invocation/workgroup e 49.152 byte
+shared/workgroup. La baseline wide dichiara 512 thread e circa 16.640 byte shared;
+ogni invocation dichiara fino a 8 componenti Q e 8 accumulatori FP32, anche se
+con subgroup 32 ne usa quattro per head dimension 128. I registri compilati e gli
+spill non sono esposti da Vulkan; saranno riportati da strumenti shader/vendor
+se disponibili, altrimenti tramite conteggio comparativo dello stato privato,
+shared dichiarata e residenza inferita da configurazioni isolate.
+
+Le architetture da separare sperimentalmente sono:
+
+1. K e V residenti insieme in shared, più subgroup per query che partizionano la
+   history e fondono stati online-softmax parziali;
+2. tile shared riutilizzata in due fasi K poi V, score di tile in shared e output
+   dimension distribuita tra subgroup, per ridurre shared e stato privato;
+3. solo dopo un candidato temporale efficiente, riuso GQA limitato combinato con
+   un query tile piccolo, mantenendo costante il numero totale di query state.
+
+Il gate del prototipo resta triplo: riduzione reale/proxy dei byte, tempo
+attention inferiore e costo di risorse/residenza quantificato.

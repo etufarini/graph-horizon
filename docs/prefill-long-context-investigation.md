@@ -779,3 +779,27 @@ reuse temporale puro è più generale e marginalmente migliore. Questo spiega
 anche il precedente semplice GQA packing: sostituire reuse temporale con reuse
 tra head non riduce ulteriormente i byte e la cache può già servire i quattro
 query head contigui associati allo stesso KV head. C1 viene ripristinato.
+
+### Controllo 2K e correttezza estesa di MQ-C1
+
+Il controllo singolo 2K produce 78,26 tok/s e 26.168,18 ms wall contro baseline
+74,61 tok/s e 27.447,79 ms: +4,89% tok/s e −4,66% wall. Attention scende da
+3.105,04 a 2.041,64 ms, speedup 1,521×. Il traffico stimato è 0,112105 TB,
+−87,46%; banda sui byte stimati 54,91 GB/s e sul lavoro logico 437,78 GB/s.
+Amdahl predice 1,041× end-to-end, il wall misura 1,049×. Non emerge quindi una
+regressione a 2K e non serve una threshold long-context su questa GPU.
+
+Il test focalizzato ora usa head dimension 128 e GQA 2:1, e per F16/INT8 copre:
+
+- base/N `0/3`, `33/32`, `65/9`;
+- tile K/V completa e diagonale, query tile completa e incompleta;
+- base e lunghezze non multiple di 64/8;
+- output attention e logits sintetici proiettati;
+- F16 contro reference CPU indipendente e prefill contro decode sequenziale;
+- INT8 contro decode sequenziale sullo stesso KV quantizzato.
+
+Tutti i confronti prefill/decode F16 e INT8 hanno `max_abs=mean_abs=mean_relative=0`.
+Contro CPU F16, il massimo `max_abs` attention è `2,94e-5`, il massimo
+`mean_abs` è `5,52e-6` e il massimo `mean_relative` è `1,66e-4`. Per i logits il
+massimo `max_abs` è `3,37e-6`, il massimo `mean_abs` è `6,22e-7`; il massimo
+`mean_relative` è `7,66e-3` per logits prossimi allo zero.

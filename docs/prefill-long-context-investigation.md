@@ -553,6 +553,7 @@ crates/graph_horizon_engine/
 ├── build.rs (~175 righe produttive, orchestrazione shader)
 └── src/backend/vulkan/
     ├── kernels/attention/mod.rs (~185 righe produttive, dispatch attention)
+    ├── pipeline/mod.rs (~155 righe produttive, registry e capability gate)
     ├── pipeline/kernel.rs (~125 righe produttive, ABI pipeline)
     └── shaders/attention/
         ├── attention_prefill.comp (115 righe produttive, baseline categoria K)
@@ -560,7 +561,7 @@ crates/graph_horizon_engine/
 ```
 
 Il nuovo shader è una categoria K: una sola operazione numerica attention, senza
-I/O host, ownership di risorse o dispatch. Le tre modifiche Rust restano file di
+I/O host, ownership di risorse o dispatch. Le quattro modifiche Rust restano file di
 orchestrazione sotto 200 righe produttive; se il prototipo richiede una seconda
 architettura shader, questa entra nello stesso dominio `shaders/attention/` e
 non modifica la struttura dell'orchestrazione.

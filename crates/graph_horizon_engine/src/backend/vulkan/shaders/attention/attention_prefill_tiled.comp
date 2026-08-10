@@ -6,12 +6,12 @@
 
 // AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
 
-// Causal GQA prefill attention for four adjacent query rows. A 512-thread
+// Causal GQA prefill attention for eight adjacent query rows. A 512-thread
 // workgroup loads one 64-position tile in two phases: K produces shared scores,
 // then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
-// workgroup tile. History keys are distributed across subgroups while four
-// subgroups per query own disjoint output dimensions and keep one FP32
-// accumulator per invocation. Q/output are [n][q_heads][head_dim]; cache is
+// workgroup tile. History keys are distributed across two subgroups per query;
+// every invocation owns two disjoint output dimensions and FP32 accumulators.
+// Q/output are [n][q_heads][head_dim]; cache is
 // [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
 layout(local_size_x = 512) in;
 
@@ -31,9 +31,10 @@ layout(push_constant) uniform P {
     float scale;
 } p;
 
-const uint QUERY_TILE = 4u;
+const uint QUERY_TILE = 8u;
 const uint KV_TILE = 64u;
 const uint MAX_DPL = 8u;
+const uint OUTPUT_DPL = 2u;
 
 shared float16_t sh_tile[KV_TILE * 128u];
 shared float16_t sh_q[QUERY_TILE * 128u];
@@ -80,11 +81,10 @@ void main() {
     }
     barrier();
 
-    // Four subgroup/lane grids cover 128 output dimensions when subgroup size
-    // is 32. Other subgroups contribute QK scores but own no accumulator.
-    uint output_d = part * S + lane;
-    bool owns_output = valid_query && output_d < p.head_dim;
-    float acc = 0.0;
+    // With two key subgroups/query on subgroup 32, each lane owns two output
+    // dimensions. This bounds private state while Q_TILE doubles from four.
+    float acc[OUTPUT_DPL];
+    for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
 
     for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
         uint count = min(KV_TILE, last_pos + 1u - tile);
@@ -154,18 +154,27 @@ void main() {
         }
         barrier();
 
-        if (owns_output) {
-            acc *= sh_alpha[query];
-            for (uint key = 0u; key < count; key++) {
-                acc += sh_score[query * KV_TILE + key]
-                     * float(sh_tile[key * p.head_dim + output_d]);
+        if (valid_query) {
+            for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                uint d = part * S + lane + j * key_parts * S;
+                if (d >= p.head_dim) continue;
+                acc[j] *= sh_alpha[query];
+                for (uint key = 0u; key < count; key++) {
+                    acc[j] += sh_score[query * KV_TILE + key]
+                            * float(sh_tile[key * p.head_dim + d]);
+                }
             }
         }
         // The V tile remains live until every output owner finishes consuming it.
         barrier();
     }
 
-    if (owns_output) {
-        o[row + h * p.head_dim + output_d] = float16_t(acc / sh_l[query]);
+    if (valid_query) {
+        for (uint j = 0u; j < OUTPUT_DPL; j++) {
+            uint d = part * S + lane + j * key_parts * S;
+            if (d < p.head_dim) {
+                o[row + h * p.head_dim + d] = float16_t(acc[j] / sh_l[query]);
+            }
+        }
     }
 }

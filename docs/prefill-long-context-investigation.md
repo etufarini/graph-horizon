@@ -741,3 +741,23 @@ privato non cresce: la differenza controllata è la tile shared raddoppiata e la
 densità di barrier dimezzata. Il crossover attribuisce quindi la regressione al
 costo di residenza/shared/cache della tile da 35 KiB. `KV_TILE=64` viene
 ristabilita come configurazione migliore senza riscrivere la storia Git.
+
+### MQ-C1 — otto query, due segmenti output per invocation
+
+Terza strategia di ownership: `Q_TILE=8`, `KV_TILE=64`, WG 512. Due subgroup
+partizionano i key per query; ogni lane mantiene due accumulatori FP32 per
+coprire due segmenti da 64 dimensioni complessive. La shared è 20.576 byte. La
+proxy SPIR-V sale a 178 istruzioni e una array Function da due FP32, senza
+evidenza di spill misurabile; le barrier restano quattro/tile.
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-C1 | phased K→V, 2 segmenti/lane | 8 | 64 | 512/32 | 1 | 20.576 B | array privata 2 FP32; 178 istruzioni | shared 1,24× baseline; 16 warp/WG | 1,788451 TB | 54,16 GB/s | 33.019,47 ms | 1,551× | 63,12 | 129.781,51 ms | keep per sweep |
+
+MQ-C1 porta +14,91% tok/s, −12,98% wall e 1,551× attention a 8K. Amdahl
+predice 1,140× e il wall misura 1,149×. Rapportata al lavoro logico originale,
+la banda effettiva è 432,94 GB/s; sui byte globali stimati è 54,16 GB/s perché
+l'intensità sale a circa 8 FLOP/byte. Il beneficio aggiuntivo rispetto a B3 prova
+che due accumulatori/lane non causano ancora collasso di risorse. Il successivo
+esperimento mantiene otto query state ma sostituisce metà del reuse temporale
+con reuse GQA (`4 posizioni × 2 query head`) per isolare la seconda dimensione.

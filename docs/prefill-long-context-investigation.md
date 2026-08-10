@@ -669,3 +669,24 @@ barrier ogni 32 chiavi e minore parallelismo history per query riducono la banda
 utile abbastanza da perdere il beneficio. Il prossimo candidato separa le fasi
 K e V, dimezza la tile shared, materializza soltanto 32 score/query in shared e
 distribuisce le dimensioni output tra subgroup.
+
+### MQ-B1 — tile phased K→V, accumulatore distribuito
+
+Seconda architettura, a parità di `Q_TILE=2`, `KV_TILE=32` e WG 512. La tile K
+produce 32 score/query in shared, viene sovrascritta dalla tile V e quattro
+subgroup/query possiedono dimensioni output disgiunte. Lo shader non fonde più
+stati history parziali: mantiene `(max, sum, alpha)` per query in shared e un solo
+accumulatore FP32 nelle invocation che possiedono output.
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-B1 | phased K→V, output distribuito | 2 | 32 | 512/32 | 1 | 8.984 B | nessuna array Function SPIR-V; 1 accumulatore FP32 | shared −73% vs A; warp/WG invariati | 7,148570 TB | 154,71 GB/s | 46.204,90 ms | 1,108× | 57,20 | 143.213,30 ms | keep per sweep |
+
+MQ-B1 riduce attention del 9,77% rispetto alla baseline e del 20,41% rispetto ad
+MQ-A1. Il tok/s migliora del 4,13% e il wall del 4,14%; Amdahl predice 1,035× e
+il wall misura 1,041×. La proxy SPIR-V ha 161 istruzioni statiche, cinque
+subgroup operation, nessuna variabile Function e cinque barrier statiche: una
+iniziale e quattro eseguite per tile. Il minor live state/shared vince quindi sul
+costo di sincronizzazione, ma il risultato 8K non supera ancora lo split-KV.
+`Q_TILE=4` è ora plausibile: mantiene 512 thread, assegna quattro subgroup sia ai
+key sia alle 128 dimensioni di ogni query e porta il traffico previsto a −75%.

@@ -2,7 +2,7 @@
  * Web chat HTTP client.
  * Loads immutable context properties and posts admitted text-only requests.
  * Generation uses a linked internal controller so caller Stop remains distinct
- * from 60-second inactivity cancellation; activity resets that watchdog, which
+ * from five-minute inactivity cancellation; activity resets that watchdog, which
  * is not a total-generation timeout.
  */
 import { parseRuntimeContext } from './context.ts';
@@ -11,7 +11,7 @@ import type { ContextConfigResult, StreamDelta, WireMessage } from './types';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
-const INACTIVITY_MS = 60_000;
+const INACTIVITY_MS = 5 * 60_000;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
   byte.toString(16).padStart(2, '0')
 ).join('');

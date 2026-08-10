@@ -81,9 +81,9 @@ The browser consumes only non-empty string `delta.content` and requires `[DONE]`
 for successful completion. It stops reading immediately at that sentinel. Usage
 and final-stop frames are tolerated but do not drive presentation. Invalid JSON,
 server error objects, `reasoning_content`, and tool frames interrupt the response
-without exposing payload details. A 60-second inactivity watchdog starts before
-the request and resets on every non-empty body chunk; it is not a total
-generation timeout. The stop button aborts voluntarily and retains the active
+without exposing payload details. A five-minute inactivity watchdog starts before
+the request and resets on every non-empty body chunk; it is not a total generation
+timeout. The stop button aborts voluntarily and retains the active
 pair, including partial raw text, to preserve alternating history.
 
 The composer remains editable while a response is streaming, so the next

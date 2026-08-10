@@ -13,7 +13,7 @@ const originalFetch = globalThis.fetch;
 
 test.after(() => { globalThis.fetch = originalFetch; });
 
-test('inactivity before response headers aborts after 60 seconds', async t => {
+test('inactivity before response headers aborts after five minutes', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let internalSignal: AbortSignal | undefined;
   globalThis.fetch = async (_input, init) => {
@@ -24,13 +24,13 @@ test('inactivity before response headers aborts after 60 seconds', async t => {
   };
 
   const pending = streamAssistant(messages, 4096, () => {}, new AbortController().signal);
-  t.mock.timers.tick(60_000);
+  t.mock.timers.tick(5 * 60_000);
 
   await assert.rejects(pending, { message: 'Connessione interrotta' });
   assert.equal(internalSignal?.aborted, true);
 });
 
-test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
+test('non-empty chunks reset inactivity beyond five minutes total', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   let stream!: ReadableStreamDefaultController<Uint8Array>;
   let request: any;
@@ -47,7 +47,7 @@ test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
   const pending = streamAssistant(messages, 8192, () => {}, external.signal);
   await Promise.resolve();
   for (let heartbeat = 0; heartbeat < 3; heartbeat += 1) {
-    t.mock.timers.tick(59_000);
+    t.mock.timers.tick(4 * 60_000);
     stream.enqueue(new TextEncoder().encode(': heartbeat\n\n'));
     await Promise.resolve();
     await Promise.resolve();
@@ -59,7 +59,7 @@ test('non-empty chunks reset inactivity beyond 60 seconds total', async t => {
   assert.match(cacheKey ?? '', /^[0-9a-f]{32}$/);
   assert.equal(internalSignal?.aborted, false);
   external.abort();
-  t.mock.timers.tick(60_000);
+  t.mock.timers.tick(5 * 60_000);
   assert.equal(internalSignal?.aborted, false);
 });
 

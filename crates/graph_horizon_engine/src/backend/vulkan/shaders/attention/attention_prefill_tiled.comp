@@ -7,8 +7,8 @@
 // AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
 
 // Causal GQA prefill attention for four adjacent query rows. A 512-thread
-// workgroup loads one 128-position tile in two phases: K produces shared scores,
-// then V consumes shared softmax weights. K and V therefore reuse the same 32 KiB
+// workgroup loads one 64-position tile in two phases: K produces shared scores,
+// then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
 // workgroup tile. History keys are distributed across subgroups while four
 // subgroups per query own disjoint output dimensions and keep one FP32
 // accumulator per invocation. Q/output are [n][q_heads][head_dim]; cache is
@@ -32,7 +32,7 @@ layout(push_constant) uniform P {
 } p;
 
 const uint QUERY_TILE = 4u;
-const uint KV_TILE = 128u;
+const uint KV_TILE = 64u;
 const uint MAX_DPL = 8u;
 
 shared float16_t sh_tile[KV_TILE * 128u];

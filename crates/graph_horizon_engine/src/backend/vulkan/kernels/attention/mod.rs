@@ -156,20 +156,12 @@ pub(crate) fn attention_prefill(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    let gqa_group = q_heads / kv_heads;
-    let (kernel, heads, rows) = if reg.contains(Kernel::AttentionPrefillTiled)
-        && gqa_group >= 2
-        && gqa_group.is_multiple_of(2)
-    {
-        (
-            Kernel::AttentionPrefillTiled,
-            q_heads.div_ceil(2),
-            n.div_ceil(4),
-        )
+    let (kernel, rows) = if reg.contains(Kernel::AttentionPrefillTiled) {
+        (Kernel::AttentionPrefillTiled, n.div_ceil(8))
     } else if reg.contains(Kernel::AttentionPrefillWide) {
-        (Kernel::AttentionPrefillWide, q_heads, n)
+        (Kernel::AttentionPrefillWide, n)
     } else {
-        (Kernel::AttentionPrefill, q_heads, n)
+        (Kernel::AttentionPrefill, n)
     };
     dispatch_2d(
         dev,
@@ -183,7 +175,7 @@ pub(crate) fn attention_prefill(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        heads,
+        q_heads,
         rows,
     );
 }

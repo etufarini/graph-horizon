@@ -82,6 +82,9 @@ ampia del wide prefill non è presente nello stato finale.
 - parità esterna F16: prompt IDs identici e 16/16 token greedy identici
   all'oracle llama.cpp `13f2b28b`;
 - parità esterna INT8: prompt IDs identici e 16/16 token greedy identici;
+- le suite workspace `metal` e `metal-hybrid` passano escludendo soltanto
+  `docs_contract`, già rotto su `main` perché `c46eb41` ha rimosso il
+  `VALIDATION.md` che il test continua a leggere;
 - `cargo fmt --check` e `git diff --check` passano;
 - il matmul prefill resta invariato perché possiede già il tile trasferibile;
 - il solo cambiamento produttivo mantenuto è il wide decode F16 long-context.

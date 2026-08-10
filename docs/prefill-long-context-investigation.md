@@ -375,3 +375,156 @@ residenti, con partial state in scratch e riduzione separata; richiede nuova
 orchestrazione, buffer temporaneo e dispatch, quindi è fuori dal perimetro dei
 tre prototipi locali conclusi e va progettato come percorso prefill dedicato
 ```
+
+## Follow-up split-KV multi-workgroup — RTX 3060, 2026-08-10
+
+Questa indagine ha implementato il percorso multi-workgroup proposto sopra e lo
+ha poi rimosso perché non raggiunge la soglia di accettazione del 10% end-to-end.
+I risultati non sono direttamente confrontabili con quelli RX 6750 XT delle
+sezioni precedenti: macchina, driver e baseline sono diversi.
+
+### Riproducibilità e baseline
+
+- branch locale: `perf/vulkan-prefill-split-kv`;
+- commit di partenza e stato finale del codice: `43f2da5`;
+- GPU: NVIDIA GeForce RTX 3060, driver 595.84;
+- modello e SHA-256: gli stessi dichiarati in apertura;
+- backend Vulkan, KV F16, contesto 32.768, greedy, due token richiesti;
+- prompt sintetico: `" a"` ripetuto fino a ottenere esattamente N token dopo
+  l'applicazione del chat template;
+- build `release`, feature `vulkan-profile`;
+- per ogni punto pubblico: una warm-up più tre ripetizioni misurate;
+- i contatori profiler aggregano i quattro run e sono stati divisi per quattro;
+  wall, tok/s e CV escludono la warm-up.
+
+La baseline è stata acquisita sul worktree pulito prima della prima modifica di
+produzione. Tutti i CV del prompt sono inferiori allo 0,4%.
+
+| Prompt | Tok/s | Wall prefill (ms) | GPU prefill (ms) | Attention (ms) | Attention/GPU | CV |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 74,61 | 27.447,79 | 27.173,44 | 3.105,04 | 11,43% | 0,33% |
+| 8K | 54,93 | 149.138,63 | 148.280,05 | 51.206,35 | 34,53% | 0,04% |
+| 16K | 40,24 | 407.152,88 | 405.613,55 | 209.462,67 | 51,64% | 0,04% |
+| 28K | 28,89 | 969.170,17 | 966.629,22 | 627.180,43 | 64,88% | 0,02% |
+
+### Prototipo
+
+Il prototipo usava due dispatch solo nel prefill:
+
+1. un workgroup per `(query, head, split)` calcolava online-softmax stabile e
+   scriveva `(m, l, O)` per una partizione causale contigua della history;
+2. un workgroup per `(query, head)` fondeva gli stati con la correzione di scala
+   `exp(m_i - m)` e produceva l'output finale.
+
+Non veniva materializzata una matrice N×N. Il buffer era fisso, allocato insieme
+al backend, con capacità massima di 16 split: 8.519.680 byte. La configurazione
+selezionata a 8 split ne usava 4.259.840 per batch. Il percorso decode e le sue
+pipeline non venivano modificati. Gli split supportati dal prototipo erano
+1 (baseline), 2, 4, 8 e 16.
+
+### Sweep e candidati scartati
+
+Prima selezione a 8K, singolo run per candidato, workgroup da 256 thread:
+
+| Variante | Split | Tok/s | Wall (ms) | Partial (ms) | Reduce (ms) | Attention totale (ms) |
+|---|---:|---:|---:|---:|---:|---:|
+| split-KV | 2 | 56,09 | 146.053,43 | 48.853,41 | 49,41 | 48.902,82 |
+| split-KV | 4 | 56,03 | 146.219,93 | 48.322,39 | 76,84 | 48.399,23 |
+| split-KV | 8 | 55,94 | 146.446,67 | 48.347,83 | 131,72 | 48.479,55 |
+| GQA, 2 query head per KV scan | 4 | 49,49 | 165.532,40 | 68.417,08 | 76,69 | 68.493,77 |
+| GQA, 2 query head per KV scan | 8 | 49,24 | 166.381,75 | 68.366,86 | 130,57 | 68.497,44 |
+| GQA, 2 query head per KV scan | 16 | 49,03 | 167.064,60 | 68.941,70 | 231,90 | 69.173,60 |
+
+La curva split 2/4/8 è sostanzialmente piatta: già il kernel originale emette
+1.024 workgroup per dispatch, quindi la sola moltiplicazione dei workgroup non
+risolve il limite di banda/cache. La variante GQA riusava K/V per due query head,
+ma raddoppiava Q e accumulatori vivi; la regressione piatta al crescere degli
+split attribuisce il costo a pressione registri/residenza, non a parallelismo
+insufficiente. Non è stata raccolta una misura hardware diretta di occupancy:
+Nsight Compute non è integrato nel benchmark; questa attribuzione è quindi
+un'inferenza dai tempi e dal live state, non un contatore dichiarato.
+
+Ridurre il workgroup da 256 a 128 thread e usare 8 split è stato il miglior
+candidato. A 16K il suo attention era 195.986 ms contro 195.569 ms del candidato
+256-thread/4-split: entro lo 0,22%, ulteriore evidenza del plateau di banda.
+
+### Risultato ripetuto del miglior candidato
+
+| Prompt | Baseline tok/s | Split tok/s | Delta tok/s | Baseline wall (ms) | Split wall (ms) | Delta wall | Speedup attention |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 74,61 | 74,68 | +0,09% | 27.447,79 | 27.422,56 | +0,09% | 1,012× |
+| 8K | 54,93 | 55,99 | +1,93% | 149.138,63 | 146.324,17 | +1,89% | 1,057× |
+| 16K | 40,24 | 41,66 | +3,53% | 407.152,88 | 393.242,01 | +3,42% | 1,069× |
+| 28K | 28,89 | 30,34 | +5,02% | 969.170,17 | 922.904,32 | +4,77% | 1,078× |
+
+Tempi GPU del candidato selezionato:
+
+| Prompt | GPU prefill (ms) | Partial (ms) | Reduce (ms) | Buffer R+W cumulativo |
+|---:|---:|---:|---:|---:|
+| 2K | 27.149,64 | 3.033,93 | 33,34 | 14,18 GB |
+| 8K | 145.483,83 | 48.308,01 | 131,53 | 56,71 GB |
+| 16K | 391.727,55 | 195.723,96 | 261,69 | 113,41 GB |
+| 28K | 920.217,34 | 581.455,85 | 450,57 | 193,82 GB |
+
+A 28K la riduzione costa soltanto lo 0,049% del tempo GPU e il traffico scratch
+R+W è circa lo 0,116% dei 166,99 TB logici letti dalla KV. Buffer e merge non
+sono quindi il limite. Il modello di Amdahl, usando il 64,88% baseline attribuito
+all'attention e lo speedup locale 1,078×, predice circa 1,048× end-to-end; il
+rapporto wall misurato è 1,050×. Il guadagno è quasi interamente spiegato dallo
+speedup locale e resta circa metà della soglia minima richiesta.
+
+### Correttezza e decode
+
+Il test focalizzato, esteso durante l'esperimento e poi rimosso con il candidato,
+era:
+
+```text
+cargo test -p graph_horizon_engine --locked --no-default-features \
+  --features vulkan \
+  'backend::vulkan::cpu_vulkan_parity::vulkan_prefill_attention_matches_sequential_decode' \
+  -- --nocapture
+```
+
+Ha confrontato split 2/4/8 con una reference CPU sequenziale su base 0/N=3 e
+base 33/N=32, contesto 65, head dimension 128 e GQA 2:1. Copriva partizioni
+vuote, ultime partizioni parziali, causal mask, KV F16 e il percorso INT8 già
+esistente. Sia l'output attention sia i logits FP32 proiettati hanno prodotto
+`max_abs=0`, `mean_abs=0` e `mean_relative=0` per tutti i casi.
+
+La parity esterna pinned non è stata dichiarata superata: il `llama-server`
+installato è alla revisione `9bebfcb4b`, mentre il repository richiede
+`13f2b28b`; lo script ha correttamente riportato revisione non supportata.
+
+Il decode non era nel grafo modificato. Nel candidato ripetuto misurava 31,81,
+19,75, 13,10 e 8,88 tok/s rispettivamente a 2K/8K/16K/28K, con CV massimo 1,23%;
+la baseline era 31,96, 19,65, 13,01 e 8,87 tok/s. Non emerge una regressione.
+
+### Decisione
+
+Il risultato è una falsificazione forte sul target RTX 3060:
+
+- split-KV reale, online-softmax stabile e merge separato implementati;
+- tre configurazioni significative split 2/4/8 misurate;
+- workgroup 128/256 e GQA reuse split 4/8/16 esplorati;
+- costi di merge, scratch, occupancy indiretta e speedup locale attribuiti;
+- migliore risultato +5,02% tok/s e +4,77% wall a 28K, sotto il 10%;
+- nessuna patch shader/runtime mantenuta; il codice finale coincide con la
+  baseline e questo report è l'unica modifica.
+
+Il bottleneck residuo maggiore è la scansione causale ripetuta di K/V: lo split
+aumenta il parallelismo ma non riduce i byte della history. La prossima strada
+strutturale a più alto impatto è un tile FlashAttention-style di più query che
+carichi K/V una volta e controlli esplicitamente accumulatori/registri per non
+ripetere il collasso di residenza osservato nel prototipo GQA. Richiede una
+diversa mappatura subgroup/query, non un ulteriore valore di split.
+
+### Verifica finale del rollback
+
+`cargo fmt --all -- --check` e il test focalizzato CPU/Vulkan sono passati. La
+suite Vulkan ha completato 139 unit test, con due test autenticati ignorati. Le
+suite residue, escludendo il solo contratto documentale non eseguibile, hanno
+completato 4 test family-agnostic e 12 test semantici, con un test autenticato
+ignorato in ciascuna suite. `docs_contract` non è eseguibile sul commit di
+partenza perché `VALIDATION.md`, che il test apre obbligatoriamente, non è
+presente né nel worktree né nel tree Git di `43f2da5`; non è una regressione del
+prototipo. L'audit Git finale non mostra differenze fuori da questo documento.

@@ -710,3 +710,21 @@ logico originale è 367,10 GB/s. Il risultato prova insieme riduzione effettiva
 per costruzione, maggiore intensità (4 FLOP/byte) e beneficio attention. Prima
 del benchmark long-context viene provato `KV_TILE=64`: stesso traffico asintotico,
 metà barrier, ma 18.480 byte shared e loop score/V doppi.
+
+### MQ-B3 — tile phased K→V da 64
+
+`Q_TILE=4`, `KV_TILE=64`, WG 512. La trasformazione softmax assegna score
+strided alle 32 lane, mantenendo una sola riduzione subgroup anche quando la tile
+supera la subgroup width. La proxy SPIR-V è 158 istruzioni, cinque subgroup
+operation, nessuna variabile Function e quattro barrier/tile.
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-B3 | phased K→V, output distribuito | 4 | 64 | 512/32 | 1 | 18.480 B | nessuna array Function; 1 accumulatore FP32 | shared 1,11× baseline; 16 warp/WG | 3,575158 TB | 96,07 GB/s | 37.214,79 ms | 1,376× | 61,09 | 134.093,80 ms | keep per sweep |
+
+MQ-B3 migliora ulteriormente B2: −4,43% attention locale. Rispetto alla baseline
+porta +11,21% tok/s, −10,09% wall e 1,376× attention; Amdahl predice 1,104× e il
+wall misura 1,112×. Il target minimo è quindi già superato a 8K in una singola
+misura. `KV_TILE=128` richiede 35.888 byte shared, ancora sotto il limite 49.152,
+e dimezza nuovamente la densità di barrier; viene provato prima dei run ripetuti
+per verificare il crossover tra sincronizzazione e residenza/shared footprint.

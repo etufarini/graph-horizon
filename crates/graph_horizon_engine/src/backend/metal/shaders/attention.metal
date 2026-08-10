@@ -30,12 +30,12 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half(acc[part]/l);}return;
  }
  if(id>=total)return;uint row=id/p.qh,h=id%p.qh,pos=p.base+row,kh=h/(p.qh/p.kvh),qb=(row*p.qh+h)*p.dim;
- if(p.mode==3){
-  // Two SIMD-groups retain the established accumulator width while eight
-  // subgroups divide the time axis; threadgroup memory merges both states.
-  threadgroup float pm[2],pl[2],pa[256];uint segment=group*4+(lane>>3),sub=lane&7;float m=-INFINITY,l=0.0f,acc[16];
+ if(p.mode==3||p.mode==5){
+  // Long F16 decode uses four SIMD-groups; prefill and INT8 retain two. Both
+  // routes preserve the eight-lane accumulator and merge every partial state.
+  threadgroup float pm[4],pl[4],pa[512];uint groups=p.mode==5?4:2,segment=group*4+(lane>>3),sub=lane&7;float m=-INFINITY,l=0.0f,acc[16];
   for(uint part=0;part<16;part++)acc[part]=0.0f;
-  for(uint t=segment;t<=pos;t+=8){
+  for(uint t=segment;t<=pos;t+=groups*4){
    uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;
    for(uint d=sub;d<128;d+=8)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
    dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);
@@ -46,9 +46,12 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   float r0=exp(m0-gm),r1=exp(m1-gm),r2=exp(m2-gm),r3=exp(m3-gm),gl=simd_shuffle(l,0)*r0+simd_shuffle(l,8)*r1+simd_shuffle(l,16)*r2+simd_shuffle(l,24)*r3;
   if(lane==0){pm[group]=gm;pl[group]=gl;}
   for(uint part=0;part<16;part++){float merged=simd_shuffle(acc[part],sub)*r0+simd_shuffle(acc[part],8+sub)*r1+simd_shuffle(acc[part],16+sub)*r2+simd_shuffle(acc[part],24+sub)*r3;if(segment==group*4)pa[group*128+sub+part*8]=merged;}
-  // Every thread reaches this barrier before group zero reads group one's state.
+  // Every thread reaches this barrier before group zero reads the partial states.
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  if(group==0&&segment==0){float top=max(pm[0],pm[1]),s0=exp(pm[0]-top),s1=exp(pm[1]-top),den=pl[0]*s0+pl[1]*s1;for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half((pa[d]*s0+pa[128+d]*s1)/den);}}return;
+  if(group==0&&segment==0){
+   float top=max(pm[0],pm[1]);if(groups==4)top=max(top,max(pm[2],pm[3]));float s0=exp(pm[0]-top),s1=exp(pm[1]-top),s2=groups==4?exp(pm[2]-top):0.0f,s3=groups==4?exp(pm[3]-top):0.0f,den=pl[0]*s0+pl[1]*s1+(groups==4?pl[2]*s2+pl[3]*s3:0.0f);
+   for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half((pa[d]*s0+pa[128+d]*s1+(groups==4?pa[256+d]*s2+pa[384+d]*s3:0.0f))/den);}
+  }return;
  }
  if(p.mode==2){
   // Four eight-lane subgroups own disjoint KV positions for one query head.

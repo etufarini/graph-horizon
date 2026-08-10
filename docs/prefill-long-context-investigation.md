@@ -554,7 +554,7 @@ crates/graph_horizon_engine/
 └── src/backend/vulkan/
     ├── kernels/attention/mod.rs (~185 righe produttive, dispatch attention)
     ├── exec/profile/category.rs (~160 righe produttive, classificazione profiler)
-    ├── pipeline/mod.rs (~170 righe produttive, registry e capability gate)
+    ├── pipeline/mod.rs (~185 righe produttive, registry e capability gate)
     ├── pipeline/kernel.rs (~125 righe produttive, ABI pipeline)
     └── shaders/attention/
         ├── attention_prefill.comp (115 righe produttive, baseline categoria K)
@@ -803,3 +803,181 @@ Contro CPU F16, il massimo `max_abs` attention è `2,94e-5`, il massimo
 `mean_abs` è `5,52e-6` e il massimo `mean_relative` è `1,66e-4`. Per i logits il
 massimo `max_abs` è `3,37e-6`, il massimo `mean_abs` è `6,22e-7`; il massimo
 `mean_relative` è `7,66e-3` per logits prossimi allo zero.
+
+## Risultato finale multi-query tiled — 2026-08-11
+
+La configurazione mantenuta è MQ-C1: prefill F16 dedicato, `Q_TILE=8`,
+`KV_TILE=64`, WG 512, subgroup 32 sulla RTX 3060, nessun reuse GQA esplicito e
+due segmenti output FP32 per invocation. Il dispatch mantiene il fallback
+esistente quando il device non supporta 512 invocation, 20.576 byte shared o un
+subgroup 16/32/64. Decode e attention INT8 non sono modificati.
+
+### Benchmark ripetuto
+
+Stesso protocollo della baseline split-KV: prompt esatti, contesto 32.768, KV
+F16, due token, una warm-up e tre ripetizioni pubbliche. I timestamp profiler
+aggregano quattro run e sono divisi per quattro nelle tabelle.
+
+| Prompt | Baseline tok/s | MQ-C1 tok/s | Delta tok/s | Baseline wall | MQ-C1 wall | Delta wall | CV MQ-C1 | Baseline attention | MQ-C1 attention | Speedup attention |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 74,61 | 77,69 | +4,13% | 27.447,79 ms | 26.362,16 ms | −3,96% | 0,14% | 3.105,04 ms | 2.052,82 ms | 1,513× |
+| 8K | 54,93 | 62,67 | +14,09% | 149.138,63 ms | 130.714,95 ms | −12,35% | 0,03% | 51.206,35 ms | 33.166,26 ms | 1,544× |
+| 16K | 40,24 | 49,51 | +23,04% | 407.152,88 ms | 330.955,33 ms | −18,72% | 0,02% | 209.462,67 ms | 134.651,88 ms | 1,556× |
+| 28K | 28,89 | 38,30 | +32,57% | 969.170,17 ms | 731.075,26 ms | −24,57% | 0,05% | 627.180,43 ms | 395.863,27 ms | 1,584× |
+
+GPU prefill medio del candidato: 26.085,42 / 129.836,14 / 328.949,96 /
+728.987,36 ms a 2K/8K/16K/28K. La quota attention passa da 11,43/34,53/51,64/
+64,88% baseline a 7,87/25,54/40,93/54,30%.
+
+### Traffico, banda e intensità
+
+Il caricamento cooperativo indicizza ogni elemento K e V una sola volta per tile
+di otto query; i subgroup consumano soltanto `sh_tile`. Il byte model include
+l'over-read causale dell'ultima query del tile e coincide quindi con i load
+globali emessi per costruzione. Sono stime verificate dal layout/shader, non
+contatori DRAM. Nsight Systems non supporta GPU metrics su questa RTX 3060 e
+Nsight Compute non profila Vulkan; hit rate L1/L2 e byte fisici restano
+esplicitamente non misurabili.
+
+| Prompt | K+V baseline | K+V MQ-C1 stimati | Riduzione | Banda baseline su byte logici | Banda MQ-C1 su byte stimati | Banda su lavoro logico originale | Intensità MQ-C1 |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 0,893789 TB | 0,112105 TB | 87,457% | 287,85 GB/s | 54,61 GB/s | 435,40 GB/s | 7,973 FLOP/B |
+| 8K | 14,295396 TB | 1,788451 TB | 87,489% | 279,17 GB/s | 53,92 GB/s | 431,02 GB/s | 7,993 FLOP/B |
+| 16K | 57,178094 TB | 7,150315 TB | 87,495% | 272,98 GB/s | 53,10 GB/s | 424,64 GB/s | 7,997 FLOP/B |
+| 28K | 166,991692 TB | 20,879180 TB | 87,497% | 266,26 GB/s | 52,74 GB/s | 421,84 GB/s | 7,998 FLOP/B |
+
+A 28K K e V sono 10,439590 TB ciascuno nel candidato, contro 83,495846 TB
+ciascuno baseline. L'intensità cresce da circa 1 a circa 8 FLOP/byte. La banda
+calcolata sui byte nuovi diminuisce perché QK/AV, exp, shared traffic e barrier
+restano lavoro reale; la banda rapportata al lavoro logico mostra invece che il
+kernel mantiene oltre 421 GB/s equivalenti mentre evita sette scansioni su otto.
+
+### Risorse e occupancy
+
+| Risorsa/proxy | Baseline wide | MQ-C1 |
+|---|---:|---:|
+| Workgroup / subgroup target | 512 / 32 | 512 / 32 |
+| Warp per workgroup RTX 3060 | 16 | 16 |
+| Shared dichiarata/workgroup | 16.640 B | 20.576 B |
+| Stato privato SPIR-V | Q[8] + acc[8] FP32 | acc[2] FP32; Q in shared |
+| Istruzioni SPIR-V statiche | 124 | 178 |
+| Barrier | 1 finale | 1 iniziale + 4/tile |
+| Registri ISA / invocation | non misurabile | non misurabile |
+| Spill / local memory | non misurabile | non misurabile |
+| Workgroup/warp residenti per SM | non misurabile | non misurabile |
+
+Non viene dichiarata una occupancy hardware inventata. L'evidenza comparativa è:
+stesso WG/warp count, shared +23,7%, array privata ridotta da sedici a due FP32,
+nessuna ulteriore variabile Function nel disassemblato oltre `acc[2]`, e sweep
+controllato. A parità di architettura, 35.888 byte shared di KV_TILE 128 peggiorano
+attention del 5,27%; 20.576 byte con due accumulatori migliorano invece B3.
+
+### Amdahl e decode
+
+| Prompt | Quota attention baseline | Speedup attention | Speedup E2E previsto | Speedup wall misurato |
+|---:|---:|---:|---:|---:|
+| 2K | 11,43% | 1,513× | 1,040× | 1,041× |
+| 8K | 34,53% | 1,544× | 1,138× | 1,141× |
+| 16K | 51,64% | 1,556× | 1,226× | 1,230× |
+| 28K | 64,88% | 1,584× | 1,315× | 1,326× |
+
+Decode baseline/candidato in tok/s: 31,96/31,86 (−0,31%) a 2K,
+19,65/19,83 (+0,92%) a 8K, 13,01/13,16 (+1,15%) a 16K e 8,87/8,91
+(+0,45%) a 28K. Non emerge regressione; il relativo shader/dispatch è invariato.
+
+### Decisione e report richiesto
+
+```text
+Root cause:
+repeated bandwidth/cache-limited K/V scans
+
+Baseline 28K:
+wall: 969.170,17 ms
+tok/s: 28,89
+attention time: 627.180,43 ms
+attention %: 64,88%
+
+Original K/V traffic:
+K 83,495846 TB + V 83,495846 TB = 166,991692 TB logici
+
+Best multi-query candidate:
+Q_TILE: 8
+KV_TILE: 64
+subgroup mapping: 2 subgroup/query; key partition + 2 output segment/lane
+register strategy: Q shared, 2 accumulatori FP32 privati/lane
+shared memory: 20.576 B/WG
+GQA reuse: 1 (solo reuse temporale esplicito)
+
+Candidate K/V traffic:
+K 10,439590 TB + V 10,439590 TB = 20,879180 TB stimati
+
+Traffic reduction:
+87,497%
+
+Effective bandwidth:
+baseline: 266,26 GB/s sui byte logici
+candidate: 52,74 GB/s sui byte stimati; 421,84 GB/s sul lavoro logico
+
+Register/occupancy:
+baseline: Q[8]+acc[8], 16.640 B shared, 16 warp/WG
+candidate: acc[2], 20.576 B shared, 16 warp/WG
+registri ISA, spill e resident warp hardware non misurabili
+
+Attention speedup:
+1,584× a 28K
+
+Prefill speedup:
++32,57% tok/s; wall −24,57%; 1,326× wall speedup a 28K
+
+2K: 77,69 tok/s, +4,13%, CV 0,14%
+8K: 62,67 tok/s, +14,09%, CV 0,03%
+16K: 49,51 tok/s, +23,04%, CV 0,02%
+28K: 38,30 tok/s, +32,57%, CV 0,05%
+
+Decode regression:
+nessuna; delta da −0,31% a +1,15%
+
+Correctness:
+F16 CPU max_abs attention 2,94e-5; logits 3,37e-6;
+prefill/decode F16 e INT8 max/mean/relative = 0 sui casi focalizzati
+
+Strategies rejected:
+MQ-A1 K+V simultanei shared: byte −50% ma attention 0,882×;
+MQ-B4 KV_TILE 128: −5,27% attention vs KV_TILE 64;
+MQ-D1 temporal×GQA: +0,57% attention time vs reuse temporale puro
+
+Remaining bottleneck:
+attention ancora 54,30% del GPU prefill; nuovo limite combinato di QK/AV,
+shared traffic, exp e quattro barrier per tile, non più otto scansioni globali
+
+Next architectural candidate:
+solo per un target ulteriore: persistent/larger query block che riusi K/V tra
+più tile da otto senza mantenere simultaneamente tutti gli accumulatori
+```
+
+Il percorso è mantenuto: supera il precedente split-KV (+5,02%) e il target
+minimo +10% a 28K con complessità locale, nessuna nuova allocazione, dipendenza,
+API pubblica o modifica decode. La complessità concettuale aumenta di un kernel
+prefill categoria K e di un capability-gated dispatch; è proporzionata alla
+riduzione misurata e resta separata dall'attention INT8/decode.
+
+### Verifica finale
+
+- `cargo fmt --all -- --check`: pass;
+- Clippy `--all-targets -D warnings`, feature `vulkan-profile`: pass;
+- suite library Vulkan: 140 pass, 2 test autenticati ignorati;
+- suite library `vulkan-profile`: 144 pass, 2 test autenticati ignorati;
+- suite semantica: 12 pass, 1 test autenticato ignorato;
+- family-agnostic: 4 test eseguibili pass, 1 autenticato ignorato;
+- build release del benchmark Vulkan: pass;
+- test CPU/Vulkan focalizzato incluso nelle due suite: pass per tutti i casi
+  F16/INT8 e boundary descritti sopra;
+- capability gate subgroup 16/32/64: testato; subgroup 8 rifiutato e fallback al
+  kernel esistente;
+- formattazione e `git diff --check`: pass.
+
+Il solo `docs_contract` family-agnostic resta non eseguibile: apre
+obbligatoriamente `VALIDATION.md`, assente sia dal worktree sia dal tree Git del
+commit baseline `43f2da5`. È lo stesso limite documentato prima dell'esperimento
+e non è causato dal kernel. Lo stato finale conserva MQ-C1 e il report; tutti i
+candidati rigettati restano soltanto nella storia Git e nelle tabelle.

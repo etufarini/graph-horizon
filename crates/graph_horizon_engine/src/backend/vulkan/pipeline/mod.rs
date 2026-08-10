@@ -71,8 +71,16 @@ fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> 
     invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
 }
 
-fn supports_tiled_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 512 && size_x >= 512 && shared_bytes >= TILED_ATTENTION_SHARED_BYTES
+fn supports_tiled_attention(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+) -> bool {
+    invocations >= 512
+        && size_x >= 512
+        && shared_bytes >= TILED_ATTENTION_SHARED_BYTES
+        && matches!(subgroup_size, 16 | 32 | 64)
 }
 
 impl PipelineRegistry {
@@ -147,12 +155,16 @@ impl PipelineRegistry {
     fn check_limits(dev: &Device) -> Result<(bool, bool, bool)> {
         // Required kernels use up to 256 invocations; optional attention variants
         // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
-        // SAFETY: `dev.instance` is live and `dev.physical` is one of its enumerated devices.
-        let l = unsafe {
+        // Query core limits and the default subgroup width in one properties chain.
+        let mut vulkan11 = vk::PhysicalDeviceVulkan11Properties::default();
+        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut vulkan11);
+        // SAFETY: `dev.instance` is live, `dev.physical` belongs to it, and the
+        // complete output chain outlives the read-only driver query.
+        unsafe {
             dev.instance
-                .get_physical_device_properties(dev.physical)
-                .limits
+                .get_physical_device_properties2(dev.physical, &mut properties)
         };
+        let l = properties.properties.limits;
         if l.max_compute_work_group_invocations < 256
             || l.max_compute_work_group_size[0] < 256
             || l.max_push_constants_size < 36
@@ -168,7 +180,7 @@ impl PipelineRegistry {
         );
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
-            supports_tiled_attention(limits.0, limits.1, limits.2),
+            supports_tiled_attention(limits.0, limits.1, limits.2, vulkan11.subgroup_size),
             supports_attention_1024(limits.0, limits.1, limits.2),
         ))
     }
@@ -247,22 +259,32 @@ mod tests {
         assert!(supports_tiled_attention(
             512,
             512,
-            TILED_ATTENTION_SHARED_BYTES
+            TILED_ATTENTION_SHARED_BYTES,
+            32,
         ));
         assert!(!supports_tiled_attention(
             511,
             512,
-            TILED_ATTENTION_SHARED_BYTES
+            TILED_ATTENTION_SHARED_BYTES,
+            32,
         ));
         assert!(!supports_tiled_attention(
             512,
             511,
-            TILED_ATTENTION_SHARED_BYTES
+            TILED_ATTENTION_SHARED_BYTES,
+            32,
         ));
         assert!(!supports_tiled_attention(
             512,
             512,
-            TILED_ATTENTION_SHARED_BYTES - 1
+            TILED_ATTENTION_SHARED_BYTES - 1,
+            32,
+        ));
+        assert!(!supports_tiled_attention(
+            512,
+            512,
+            TILED_ATTENTION_SHARED_BYTES,
+            8,
         ));
     }
 }

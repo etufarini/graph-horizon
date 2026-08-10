@@ -109,7 +109,7 @@ fn geometry(
             base >= SEGMENTED_CONTEXT
         };
         if qualified && parallel {
-            return Ok((3, heads, width * 2));
+            return Ok((3, heads, width * 4));
         }
         let threads = heads
             .checked_mul(width)
@@ -133,7 +133,7 @@ mod tests {
         );
         assert_eq!(
             geometry(false, 2, 4, 1, 128, 512, 32, true).unwrap(),
-            (3, 8, 64)
+            (3, 8, 128)
         );
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 512, 32, true).unwrap(),
@@ -141,7 +141,7 @@ mod tests {
         );
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 512, 32, false).unwrap(),
-            (3, 128, 64)
+            (3, 128, 128)
         );
         assert_eq!(
             geometry(false, 1, 4, 1, 128, 510, 32, true).unwrap(),
@@ -157,7 +157,7 @@ mod tests {
         );
         assert_eq!(
             geometry(false, 1, 4, 1, 128, 1023, 32, true).unwrap(),
-            (3, 4, 64)
+            (3, 4, 128)
         );
         assert_eq!(
             geometry(false, 1, 4, 1, 64, 1023, 32, true).unwrap(),

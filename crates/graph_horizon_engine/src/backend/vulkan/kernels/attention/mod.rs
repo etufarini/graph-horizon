@@ -1,7 +1,5 @@
 /*
- * graph_horizon_engine — Vulkan attention dispatch
- * Dispatches causal GQA decode/prefill variants for F16 and INT8 KV caches;
- * KV-cache mutation remains isolated in the sibling write module.
+ * Vulkan attention dispatch: selects causal GQA decode/prefill variants while the sibling module owns KV-cache mutation.
  */
 
 #![allow(clippy::too_many_arguments)]
@@ -32,12 +30,11 @@ pub(crate) fn attention_decode_int8(
     context: u32,
     meta_base: u32,
 ) {
-    let scale = 1.0f32 / (head_dim as f32).sqrt();
     let mut push = Vec::with_capacity(32);
     for value in [head_dim, kv_heads, q_heads, pos, layer, context, meta_base] {
         push.extend_from_slice(&value.to_le_bytes());
     }
-    push.extend_from_slice(&scale.to_le_bytes());
+    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
     dispatch(
         dev,
         reg,
@@ -71,14 +68,13 @@ pub(crate) fn attention_prefill_int8(
     context: u32,
     meta_base: u32,
 ) {
-    let scale = 1.0f32 / (head_dim as f32).sqrt();
     let mut push = Vec::with_capacity(36);
     for value in [
         head_dim, kv_heads, q_heads, base, n, layer, context, meta_base,
     ] {
         push.extend_from_slice(&value.to_le_bytes());
     }
-    push.extend_from_slice(&scale.to_le_bytes());
+    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
     dispatch_2d(
         dev,
         reg,
@@ -111,17 +107,23 @@ pub(crate) fn attention_decode(
     layer: u32,
     context: u32,
 ) {
-    let scale = 1.0f32 / (head_dim as f32).sqrt();
     let mut push = Vec::with_capacity(32);
     for value in [head_dim, kv_heads, q_heads, pos, layer, context] {
         push.extend_from_slice(&value.to_le_bytes());
     }
-    push.extend_from_slice(&scale.to_le_bytes());
+    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
+    let kernel = if reg.contains(Kernel::AttentionDecode1024) {
+        Kernel::AttentionDecode1024
+    } else if reg.contains(Kernel::AttentionDecodeWide) {
+        Kernel::AttentionDecodeWide
+    } else {
+        Kernel::AttentionDecode
+    };
     dispatch(
         dev,
         reg,
         cmd,
-        Kernel::AttentionDecode,
+        kernel,
         &[
             (q.buffer, q.offset, q.size),
             (kc.buffer, kc.offset, kc.size),
@@ -149,17 +151,21 @@ pub(crate) fn attention_prefill(
     layer: u32,
     context: u32,
 ) {
-    let scale = 1.0f32 / (head_dim as f32).sqrt();
     let mut push = Vec::with_capacity(32);
     for value in [head_dim, kv_heads, q_heads, base, n, layer, context] {
         push.extend_from_slice(&value.to_le_bytes());
     }
-    push.extend_from_slice(&scale.to_le_bytes());
+    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
+    let kernel = if reg.contains(Kernel::AttentionPrefillWide) {
+        Kernel::AttentionPrefillWide
+    } else {
+        Kernel::AttentionPrefill
+    };
     dispatch_2d(
         dev,
         reg,
         cmd,
-        Kernel::AttentionPrefill,
+        kernel,
         &[
             (q.buffer, q.offset, q.size),
             (kc.buffer, kc.offset, kc.size),

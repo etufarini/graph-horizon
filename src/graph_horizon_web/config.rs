@@ -1,8 +1,8 @@
 /*
  * Graph Horizon web config
- * Single responsibility: hold bind/static settings and chat generation cap for
- * web mode. It depends on parsed app args and does not expose tools, workspace,
- * or reasoning configuration.
+ * Holds only Web bind and static-asset settings. Generation capacity is
+ * resolved from the loaded engine during startup, so Web argument parsing does
+ * not own or validate a generation cap.
  */
 
 use std::path::PathBuf;
@@ -14,7 +14,6 @@ pub(super) struct WebConfig {
     pub host: String,
     pub port: String,
     pub asset_root: PathBuf,
-    pub max_tokens: usize,
 }
 
 impl WebConfig {
@@ -24,7 +23,6 @@ impl WebConfig {
             // Keep the raw port string so invalid values fail at bind time.
             port: args::value("--port").unwrap_or_else(|| "8080".to_string()),
             asset_root: PathBuf::from("web/frontend/dist"),
-            max_tokens: crate::app::engine::config::max_tokens_from_args(1024),
         }
     }
 }

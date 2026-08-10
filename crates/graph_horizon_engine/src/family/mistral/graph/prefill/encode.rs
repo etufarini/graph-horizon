@@ -18,6 +18,7 @@ pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
     cfg: &MistralConfig,
     kv: &Kv<B::Buffer>,
     prompt: &[u32],
+    base: usize,
     row_capacity: usize,
     mut before_batch: F,
 ) -> Result<()> {
@@ -27,10 +28,13 @@ pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
     let buffers = BatchBuffers::new(backend, cfg, row_capacity)?;
     for (batch_index, tokens) in prompt.chunks(row_capacity).enumerate() {
         before_batch()?;
-        let base = batch_index
+        let offset = batch_index
             .checked_mul(row_capacity)
             .ok_or_else(|| color_eyre::eyre::eyre!("mistral prefill: buffer size overflow"))?;
-        record_batch(backend, cfg, kv, &buffers, tokens, base, true, true)?;
+        let position = base
+            .checked_add(offset)
+            .ok_or_else(|| color_eyre::eyre::eyre!("mistral prefill: buffer size overflow"))?;
+        record_batch(backend, cfg, kv, &buffers, tokens, position, true, true)?;
     }
     Ok(())
 }
@@ -121,7 +125,7 @@ mod tests {
         )
         .unwrap();
         let calls = Cell::new(0);
-        prefill(&backend, &cfg, &kv, &[1, 1, 1], 2, || {
+        prefill(&backend, &cfg, &kv, &[1, 1, 1], 0, 2, || {
             calls.set(calls.get() + 1);
             Ok(())
         })
@@ -142,6 +146,28 @@ mod tests {
             "mistral prefill: batch exceeds capacity"
         );
         drop(batch);
+        kv_cache::free(&backend, kv);
+        assert_eq!(backend.live_allocations(), 0);
+    }
+
+    #[test]
+    fn incremental_prefill_applies_base_to_every_batch() {
+        let mut cfg = config(1, 8, 8);
+        cfg.context_length = 4;
+        let backend = ShapeBackend::new(&cfg, false);
+        let kv = kv_cache::alloc_shape(
+            &backend,
+            cfg.block_count,
+            cfg.context_length,
+            cfg.kv_head_count,
+            cfg.key_length,
+            cfg.value_length,
+            KvQuant::F16,
+        )
+        .unwrap();
+
+        // Base 2 fits the first two rows; the second batch starts at position 4.
+        assert!(prefill(&backend, &cfg, &kv, &[1, 1, 1], 2, 2, || Ok(())).is_err());
         kv_cache::free(&backend, kv);
         assert_eq!(backend.live_allocations(), 0);
     }

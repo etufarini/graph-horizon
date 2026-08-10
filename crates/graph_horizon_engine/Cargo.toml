@@ -12,6 +12,7 @@ ignored = ["shaderc"]
 # selected. Hybrid profiles gate their concrete dependencies directly.
 cpu = []
 vulkan = ["dep:ash", "dep:shaderc"]
+vulkan-profile = ["vulkan"]
 vulkan-hybrid = ["dep:ash", "dep:shaderc"]
 metal = [
     "dep:dispatch2",

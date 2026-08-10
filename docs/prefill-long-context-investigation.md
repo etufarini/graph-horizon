@@ -1,0 +1,377 @@
+<!--
+Questa pagina conserva risultati, tuple, decisioni e revisioni dell'indagine
+Vulkan sul solo prefill long-context. Non definisce supporto o API runtime.
+-->
+
+# Indagine prefill long-context Vulkan
+
+## Ambito e tuple
+
+Target esclusivo: prefill. Il decode è stato usato solo come controllo di
+regressione. Nessuna percentuale decode è stata usata per scegliere i candidati.
+
+- baseline: `42b4e4073a8d26389d94b8e78b0588f3af5067b0`;
+- profiler dettagliato: `0ea4472`;
+- stato prestazionale ripristinato: `87a3909` più questo report;
+- modello: `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2.147.023.008 byte;
+- SHA-256: `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`;
+- forma: 26 layer, hidden 3072, Q 4096, K/V 1024, FFN 9216,
+  32 query head, 8 KV head, head dimension 128;
+- backend: Vulkan puro, tutte le weight su RX 6750 XT 12 GiB, KV F16;
+- contesto allocato 32.768, greedy, due token richiesti;
+- prompt sintetico calibrato a 128, 512, 2.048, 8.192, 16.384 e 28.000
+  token effettivi;
+- una warm-up separata e tre ripetizioni misurate per la baseline pubblica;
+- build Cargo `release`, feature diagnostica `vulkan-profile`;
+- RX 6750 XT, RADV Mesa 26.0.3, Vulkan 1.4.335, Ryzen 5 5500,
+  Rust 1.97.1.
+
+Il wall prefill è il TTFT pubblico: include la prima riduzione/sampling, inferiore
+a 1 ms, e quindi costituisce un upper bound praticamente identico al wall prefill.
+I timestamp GPU riportati sotto contengono invece soltanto la fase prefill.
+
+## Baseline
+
+| Token | Wall prefill / TTFT (ms) | Prompt tok/s | ms/token | CV |
+|---:|---:|---:|---:|---:|
+| 128 | 935,71 | 136,80 | 7,310 | 0,07% |
+| 512 | 3.812,81 | 134,28 | 7,447 | 0,23% |
+| 2.048 | 16.662,53 | 122,91 | 8,136 | 0,14% |
+| 8.192 | 84.921,56 | 96,47 | 10,366 | 0,06% |
+| 16.384 | 222.110,16 | 73,77 | 13,557 | 0,16% |
+| 28.000 | 561.274,91 | 49,89 | 20,046 | 0,19% |
+
+Warm-up, caricamento del modello e compilazione pipeline non fanno parte delle
+tre ripetizioni pubbliche. La VRAM di picco dopo il caricamento è 6,94–6,98 GB.
+Durante i run la GPU è al 95–99%, 2,42–2,65 GHz, fino a 157 W, 69 °C edge e
+92 °C junction. Non è stato osservato throttling.
+
+## Scaling
+
+Il rapporto nell'ultima colonna è rispetto alla riga precedente; il fattore N è
+indicato per evitare di chiamare impropriamente `T(4N)/T(N)` un raddoppio.
+
+| N | T(N) ms | T/N ms | T/N² ms | Fattore N | Rapporto T |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 935,71 | 7,310234 | 0,057111206 | — | — |
+| 512 | 3.812,81 | 7,446895 | 0,014544716 | 4× | 4,0748× |
+| 2.048 | 16.662,53 | 8,136001 | 0,003972657 | 4× | 4,3701× |
+| 8.192 | 84.921,56 | 10,366401 | 0,001265430 | 4× | 5,0966× |
+| 16.384 | 222.110,16 | 13,556528 | 0,000827425 | 2× | 2,6155× |
+| 28.000 | 561.274,91 | 20,045533 | 0,000715912 | 1,709× | 2,5270× |
+
+Scaling delle famiglie GPU, per prompt:
+
+| N | Attention ms | Attention/N² | MLP ms | MLP/N | Proiezioni ms | Proiezioni/N | KV write ms |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 6,83 | 0,0004168 | 624,93 | 4,882 | 268,46 | 2,097 | 0,092 |
+| 512 | 82,36 | 0,0003142 | 2.505,37 | 4,893 | 1.071,98 | 2,094 | 0,334 |
+| 2.048 | 1.737,50 | 0,0004143 | 10.015,30 | 4,890 | 4.287,33 | 2,093 | 1,320 |
+| 8.192 | 25.927,38 | 0,0003863 | 39.614,18 | 4,836 | 16.944,54 | 2,068 | 5,214 |
+| 16.384 | 102.962,82 | 0,0003836 | 79.728,98 | 4,866 | 34.175,07 | 2,086 | 12,778 |
+| 28.000 | 352.272,63 | 0,0004493 | 139.521,14 | 4,983 | 59.506,25 | 2,125 | 24,440 |
+
+MLP, proiezioni, KV write, command recording e dispatch crescono
+sostanzialmente in modo lineare. L'attention cresce quasi quadraticamente:
+8K→16K fa 3,97× mentre N raddoppia. È il termine che degrada il throughput.
+
+## Top 10 kernel del solo prefill
+
+Le dimensioni sono quelle di un chunk da 32 token:
+
+- `ATTN`: Q `[32,32,128]`, K/V cache `[history,8,128]`, output
+  `[32,32,128]`, workgroup `[32,32]`, local size 512;
+- `DOWN`: A `[32,9216]`, W `[3072,9216]`, Y `[32,3072]`, WG `[48,1]`;
+- `GATE`/`UP`: A `[32,3072]`, W `[9216,3072]`, Y `[32,9216]`, WG `[144,1]`;
+- `OUT`: A `[32,4096]`, W `[3072,4096]`, Y `[32,3072]`, WG `[48,1]`;
+- `Q`: A `[32,3072]`, W `[4096,3072]`, Y `[32,4096]`, WG `[64,1]`;
+- `V`: A `[32,3072]`, W `[1024,3072]`, Y `[32,1024]`, WG `[16,1]`;
+- `LOGITS`: A `[1,3072]`, W `[131072,3072]`, Y `[131072]`, WG `[2048,1]`;
+- `NORM`: `[32,3072]` → `[32,3072]`, WG massimo `[32,1]`;
+- `ROPE`: una riga `[32 o 8,128]` → stessa forma, WG massimo `[32,1]`;
+- `ELEM`: residual/Silu su `[32,3072 o 9216]`, WG massimo `[4608,1]`.
+
+Q/K e gate/up sono coppie indipendenti senza barrier intermedia e possono
+sovrapporsi. Il timestamp della prima può includere il lavoro concorrente della
+seconda; la somma di famiglia è affidabile e additiva, il singolo split va letto
+come attribuzione operativa, non come isolamento matematico.
+
+### 2K
+
+| # | Operazione / shader | GPU ms | GPU prefill | Invocazioni | Media ms | Forma |
+|---:|---|---:|---:|---:|---:|---|
+| 1 | MLP down / `matmul_q6k_batch_f16` | 4.707,35 | 28,51% | 1.664 | 2,828935 | DOWN |
+| 2 | MLP gate / `matmul_q4k_batch_f16` | 3.329,14 | 20,16% | 1.664 | 2,000685 | GATE |
+| 3 | output projection / `matmul_q4k_batch_f16` | 2.131,33 | 12,91% | 1.664 | 1,280847 | OUT |
+| 4 | MLP up / `matmul_q4k_batch_f16` | 1.971,97 | 11,94% | 1.664 | 1,185076 | UP |
+| 5 | Q projection / `matmul_q4k_batch_f16` | 1.939,48 | 11,74% | 1.664 | 1,165551 | Q |
+| 6 | `attention_prefill_wide` | 1.737,23 | 10,52% | 1.664 | 1,044008 | ATTN |
+| 7 | `logits_q6k` | 277,29 | 1,68% | 64 | 4,332691 | LOGITS |
+| 8 | V projection / `matmul_q6k_batch_f16` | 219,92 | 1,33% | 1.664 | 0,132160 | V |
+| 9 | `rmsnorm_x` | 28,25 | 0,17% | 3.392 | 0,008329 | NORM |
+| 10 | `rope` | 26,60 | 0,16% | 106.496 | 0,000250 | ROPE |
+
+### 8K
+
+| # | Operazione / shader | GPU ms | GPU prefill | Invocazioni | Media ms | Forma |
+|---:|---|---:|---:|---:|---:|---|
+| 1 | `attention_prefill_wide` | 25.942,66 | 30,75% | 6.656 | 3,897636 | ATTN |
+| 2 | MLP down / `matmul_q6k_batch_f16` | 18.620,11 | 22,07% | 6.656 | 2,797492 | DOWN |
+| 3 | MLP gate / `matmul_q4k_batch_f16` | 13.140,86 | 15,58% | 6.656 | 1,974287 | GATE |
+| 4 | output projection / `matmul_q4k_batch_f16` | 8.395,55 | 9,95% | 6.656 | 1,261350 | OUT |
+| 5 | MLP up / `matmul_q4k_batch_f16` | 7.858,53 | 9,32% | 6.656 | 1,180668 | UP |
+| 6 | Q projection / `matmul_q4k_batch_f16` | 7.681,57 | 9,11% | 6.656 | 1,154081 | Q |
+| 7 | `logits_q6k` | 1.084,71 | 1,29% | 256 | 4,237135 | LOGITS |
+| 8 | V projection / `matmul_q6k_batch_f16` | 885,74 | 1,05% | 6.656 | 0,133074 | V |
+| 9 | `rmsnorm_x` | 103,90 | 0,12% | 13.568 | 0,007658 | NORM |
+| 10 | `rope` | 97,36 | 0,12% | 425.984 | 0,000229 | ROPE |
+
+### 16K
+
+| # | Operazione / shader | GPU ms | GPU prefill | Invocazioni | Media ms | Forma |
+|---:|---|---:|---:|---:|---:|---|
+| 1 | `attention_prefill_wide` | 103.236,76 | 46,67% | 13.312 | 7,755165 | ATTN |
+| 2 | MLP down / `matmul_q6k_batch_f16` | 37.649,17 | 17,02% | 13.312 | 2,828213 | DOWN |
+| 3 | MLP gate / `matmul_q4k_batch_f16` | 26.338,66 | 11,91% | 13.312 | 1,978565 | GATE |
+| 4 | output projection / `matmul_q4k_batch_f16` | 16.815,22 | 7,60% | 13.312 | 1,263162 | OUT |
+| 5 | MLP up / `matmul_q4k_batch_f16` | 15.738,11 | 7,12% | 13.312 | 1,182249 | UP |
+| 6 | Q projection / `matmul_q4k_batch_f16` | 15.616,10 | 7,06% | 13.312 | 1,173084 | Q |
+| 7 | `logits_q6k` | 2.488,69 | 1,13% | 512 | 4,860721 | LOGITS |
+| 8 | V projection / `matmul_q6k_batch_f16` | 1.780,44 | 0,80% | 13.312 | 0,133747 | V |
+| 9 | `rmsnorm_x` | 214,94 | 0,10% | 27.136 | 0,007921 | NORM |
+| 10 | `rope` | 188,40 | 0,09% | 851.968 | 0,000221 | ROPE |
+
+### 28K
+
+| # | Operazione / shader | GPU ms | GPU prefill | Invocazioni | Media ms | Forma |
+|---:|---|---:|---:|---:|---:|---|
+| 1 | `attention_prefill_wide` | 351.270,94 | 62,95% | 22.750 | 15,440481 | ATTN |
+| 2 | MLP down / `matmul_q6k_batch_f16` | 66.123,48 | 11,85% | 22.750 | 2,906527 | DOWN |
+| 3 | MLP gate / `matmul_q4k_batch_f16` | 46.213,76 | 8,28% | 22.750 | 2,031374 | GATE |
+| 4 | output projection / `matmul_q4k_batch_f16` | 29.242,15 | 5,24% | 22.750 | 1,285369 | OUT |
+| 5 | MLP up / `matmul_q4k_batch_f16` | 27.289,54 | 4,89% | 22.750 | 1,199540 | UP |
+| 6 | Q projection / `matmul_q4k_batch_f16` | 27.277,77 | 4,89% | 22.750 | 1,199023 | Q |
+| 7 | `logits_q6k` | 4.707,32 | 0,84% | 875 | 5,379799 | LOGITS |
+| 8 | V projection / `matmul_q6k_batch_f16` | 3.019,16 | 0,54% | 22.750 | 0,132710 | V |
+| 9 | `rmsnorm_x` | 413,28 | 0,07% | 46.375 | 0,008912 | NORM |
+| 10 | residual + Silu | 390,88 | 0,07% | 68.250 | 0,005727 | ELEM |
+
+## Attribuzione del wall time
+
+Il profiler attribuisce 99,27–99,73% del GPU time. A 28K la ripartizione del
+wall è:
+
+| Componente | ms | % wall | Metodo |
+|---|---:|---:|---|
+| QK | ~161.041 | ~28,69% | stima da ablation causale 8K |
+| online softmax | ~6.358 | ~1,13% | stima da ablation causale 8K |
+| V read + AV + combine | ~184.874 | ~32,94% | stima da ablation causale 8K |
+| QKV projection | 30.278,72 | 5,39% | timestamp GPU |
+| output projection | 29.227,54 | 5,21% | timestamp GPU |
+| MLP gate/up/down | 139.521,14 | 24,86% | timestamp GPU |
+| norm + RoPE | 743,29 | 0,13% | timestamp GPU |
+| KV write | 24,44 | 0,004% | timestamp GPU |
+| embedding/elementwise/logits | 5.223,95 | 0,93% | timestamp GPU |
+| barrier/inter-kernel GPU residual | 1.530,31 | 0,27% | total meno kernel |
+| CPU command recording | 1.970,10 | 0,35% | clock CPU |
+| altro TTFT | ~325,28 | ~0,06% | residuo wall esclusivo |
+
+La scomposizione interna dell'attention è stata misurata direttamente a 8K:
+
+| Ablation | Attention GPU ms | Quota fused |
+|---|---:|---:|
+| QK-only | 11.859,64 | 45,72% |
+| QK + online softmax, senza V | 12.327,84 | 47,52% |
+| softmax incrementale | 468,20 | 1,81% |
+| V read + AV + combine incrementale | 13.614,83 | 52,48% |
+
+Le quote 28K sono estrapolazioni esplicitamente etichettate, non timestamp
+indipendenti: il kernel è fused. QK, softmax e AV eseguono tutti una iterazione
+per coppia causale, quindi condividono lo scaling quadratico osservato.
+
+## CPU, GPU e command path
+
+Il fence wait include l'esecuzione GPU e non va sommato ad essa. `Wait−GPU` è
+la parte esclusiva del wait.
+
+| N | Wall ms | GPU prefill ms | CPU record ms | Submit ms | Fence wait ms | Wait−GPU ms |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 935,71 | 929,88 | 8,86 | 0,15 | 930,44 | 0,56 |
+| 512 | 3.812,81 | 3.778,52 | 33,77 | 0,68 | 3.780,74 | 2,22 |
+| 2.048 | 16.662,53 | 16.516,48 | 134,99 | 2,70 | 16.525,45 | 8,97 |
+| 8.192 | 84.921,56 | 84.311,89 | 548,45 | 10,83 | 84.347,61 | 35,72 |
+| 16.384 | 222.110,16 | 220.863,54 | 1.133,65 | 22,03 | 220.935,14 | 71,59 |
+| 28.000 | 561.274,91 | 558.822,00 | 1.970,10 | 39,11 | 558.940,43 | 118,43 |
+
+Il tempo push-descriptor è 10,88 / 42,75 / 90,55 / 162,43 ms a
+2K/8K/16K/28K: 0,029% del wall a 28K ed è incluso nel record. Non ci sono
+`vkQueueWaitIdle` o `vkDeviceWaitIdle` nel percorso caldo, né submit/wait per
+layer: un command, submit e fence per chunk da 32.
+
+| N | Command/submission | Dispatch | Dispatch/token | Barrier |
+|---:|---:|---:|---:|---:|
+| 128 | 4 | 8.248 | 64,44 | 4.608 |
+| 512 | 16 | 32.992 | 64,44 | 18.432 |
+| 2.048 | 64 | 131.968 | 64,44 | 73.728 |
+| 8.192 | 256 | 527.872 | 64,44 | 294.912 |
+| 16.384 | 512 | 1.055.744 | 64,44 | 589.824 |
+| 28.000 | 875 | 1.804.250 | 64,44 | 1.008.000 |
+
+Le barrier sono compute-shader → compute-shader, shader-write →
+shader-read/write. Il loro upper bound è il residuo GPU 0,27–0,65%; non sono il
+bottleneck nonostante il conteggio elevato.
+
+## Attention e materializzazione
+
+`NxN materialization: NO`.
+
+- score buffer a 2K/8K/16K/28K: 0 byte;
+- scritture/letture score: 0/0;
+- pass separati QK/mask/softmax/AV: 0;
+- traffico DRAM da score intermedi: 0 byte;
+- barrier tra QK, softmax e AV: 0.
+
+`attention_prefill_wide` esegue QK, online softmax e AV in un solo shader. Ogni
+workgroup gestisce una coppia `(query head, query row)` e conserva max, somma e
+accumulatore nei registri/shared memory. La causa quadratica non è un buffer NxN,
+ma la scansione causale ripetuta della history per ogni query/head.
+
+## KV del solo prefill
+
+| Operazione KV | Costo/attività |
+|---|---|
+| write F16 | 5,21 ms a 8K; 12,78 ms a 16K; 24,44 ms a 28K |
+| copy separata | assente |
+| transpose | assente |
+| reformat | assente |
+| resize durante il prompt | assente |
+| allocazione contenuto KV | 2 buffer per richiesta; inclusa sotto |
+| totale gestione KV | 0,004–0,008% del prefill long-context |
+
+I read K/V interni al calcolo attention sono conteggiati in QK/AV, non in
+“KV management”. Le 13 allocazioni per richiesta (2 KV + 11 scratch) richiedono
+3.493.068.800 byte virtuali complessivi ma soltanto 0,379 ms nel campione; non
+crescono con N. Non avvengono map/unmap o copie staging nel prefill caldo.
+
+## Traffico e limiti hardware
+
+Per ogni coppia causale lo shader legge logicamente 512 byte (K+V F16) ed esegue
+circa 512 FLOP QK+AV. L'intensità è quindi ~1 FLOP/byte.
+
+| N | Traffico logico attention | Tempo | GB/s logici | TFLOP/s effettivi |
+|---:|---:|---:|---:|---:|
+| 2.048 | 0,894 TB | 1,737 s | 514,5 | 0,514 |
+| 8.192 | 14,295 TB | 25,943 s | 551,0 | 0,551 |
+| 16.384 | 57,178 TB | 103,237 s | 553,9 | 0,554 |
+| 28.000 | 166,992 TB | 351,271 s | 475,4 | 0,475 |
+
+Il dato è “logico” e può superare i ~432 GB/s fisici grazie alle cache. Dimostra
+comunque un kernel bandwidth/cache-reuse-bound, non SFU/compute-bound.
+
+Classificazione delle cinque famiglie più costose a 28K:
+
+| Famiglia | Throughput indicativo | Classificazione |
+|---|---:|---|
+| attention fused | 475 GB/s logici, 0,475 TFLOP/s | bandwidth/cache-reuse |
+| MLP down Q6_K | ~0,62 TFLOP/s | compute/dequant/occupancy |
+| MLP gate Q4_K | ~0,89 TFLOP/s | compute/dequant, sovrapposta con up |
+| output projection Q4_K | ~0,63 TFLOP/s | compute/dequant |
+| Q projection Q4_K | ~0,67 TFLOP/s | compute/dequant, sovrapposta con K |
+
+## Profilo per layer
+
+| N | Min layer ms | Mediana layer ms | Max layer ms |
+|---:|---:|---:|---:|
+| 2.048 | 607,37 | 625,21 | 634,77 |
+| 8.192 | 3.090,96 | 3.211,00 | 3.236,89 |
+| 16.384 | 8.104,81 | 8.385,15 | 8.518,75 |
+| 28.000 | 19.622,35 | 21.317,04 | 21.899,04 |
+
+Non ci sono layer anomali, resize periodici o copie localizzate. La dispersione
+28K segue soprattutto differenze Q4_K/Q6_K e scheduling, non outlier strutturali.
+
+## Esperimenti e decisioni
+
+| Revisione | Ipotesi | Quota/atteso | Risultato 8K | Correttezza | Decisione / revert |
+|---|---|---|---|---|---|
+| `aa13b6d` | ablation QK-only | isola QK | attention 11,860 s | output diagnostico | evidenza; `7bc8ca5` |
+| `5f0fce1` | QK+softmax senza V | separa softmax/AV | attention 12,328 s | output diagnostico | evidenza; `ef7b1dc` |
+| `5ade6a8` | due query/WG, un load K/V | −~50% traffico, +20–35% E2E | 96,47→71,56 tok/s, −25,8%; attention +104% | F16/INT8 max_err 0 | reject; `0c3d98e` |
+| `65e0763` | 1024 thread, 16 subgroup | +6–16% E2E long | 96,47→86,44 tok/s, −10,4%; attention +38,1% | F16/INT8 max_err 0 | reject; `8387a78` |
+| `2543896` | wave32 su WG 512 | più subgroup senza più LDS | 96,47→98,81 tok/s, +2,43%; attention −7,77% | F16/INT8 max_err 0 | interesting ma Amdahl 28K ≤5,14%; `6d1090a` |
+
+Il query-pair reuse dimezza i load ma raddoppia registri/shared per query e dimezza
+i workgroup: l'occupancy collassa. Il variant 1024 usa 33,3 KiB LDS e limita la
+residenza. Wave32 conserva LDS ma porta da 2 a 4 componenti per lane; il guadagno
+locale è reale ma troppo piccolo per giustificare feature/device/pipeline logic.
+
+Tre strategie strutturali distinte non hanno prodotto un beneficio proporzionato,
+soddisfacendo la condizione di arresto. Non sono state provate tile maggiori o
+taglie intermedie perché sarebbero varianti degli stessi meccanismi già falsificati.
+
+## Risultato finale
+
+Nessuna patch prestazionale è stata mantenuta. Shader, dispatch e pipeline finali
+sono identici alla baseline. Il controllo finale 8K è 96,34 tok/s, 85.031,08 ms,
+attention 25.947,33 ms: entro 0,14% dalla baseline a singola traccia.
+
+| Prompt | Baseline tok/s | Finale tok/s | Delta | Baseline TTFT | Finale TTFT | Delta |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 122,91 | 122,91 | 0% per identità codice | 16.662,53 ms | 16.662,53 ms | 0% |
+| 8K | 96,47 | 96,47 | 0% per identità codice | 84.921,56 ms | 84.921,56 ms | 0% |
+| 16K | 73,77 | 73,77 | 0% per identità codice | 222.110,16 ms | 222.110,16 ms | 0% |
+| 28K | 49,89 | 49,89 | 0% per identità codice | 561.274,91 ms | 561.274,91 ms | 0% |
+
+Decode regression finale: 0% per identità degli shader/dispatch; il controllo
+8K singolo è 29,99 tok/s contro 30,35–30,65 nei campioni baseline, entro il rumore
+di una singola rep e senza modifica del percorso decode.
+
+## Sintesi
+
+```text
+Prefill root cause:
+scansione causale ripetuta della history nel kernel attention fused
+
+Evidence:
+attention 10,5% a 2K, 30,8% a 8K, 46,7% a 16K, 63,0% a 28K;
+T_attention/N² quasi costante; GPU ≈ wall
+
+Dominant PREFILL component:
+attention_prefill_wide = 351,27 s / 62,95% GPU a 28K
+
+Scaling:
+attention ~N²; MLP/proiezioni/KV/command ~N
+
+CPU vs GPU:
+558,02 s GPU su 560,43 s wall nella traccia 28K
+
+NxN materialization:
+NO
+
+KV cost during PREFILL:
+KV write/management 0,004–0,008%; i read causali sono lavoro attention
+
+Highest-impact experiment:
+query-pair KV reuse, potenziale teorico alto ma −25,8% E2E per occupancy
+
+Fixes kept:
+solo profiler prefill dettagliato feature-gated
+
+Fixes rejected:
+query-pair reuse; 1024-thread; wave32 (segnale +2,43%, complessità non proporzionata)
+
+Prefill improvement:
+0% finale
+
+Decode regression:
+0% per identità codice
+
+Remaining PREFILL bottleneck:
+QK + V/AV bandwidth/cache-reuse nel kernel fused
+
+Next highest-impact structural optimization:
+un algoritmo multi-workgroup/tiled che riusi K/V mantenendo molti workgroup
+residenti, con partial state in scratch e riduzione separata; richiede nuova
+orchestrazione, buffer temporaneo e dispatch, quindi è fuori dal perimetro dei
+tre prototipi locali conclusi e va progettato come percorso prefill dedicato
+```

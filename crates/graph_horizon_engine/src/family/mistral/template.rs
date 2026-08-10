@@ -1,11 +1,11 @@
 /*
  * graph_horizon_engine — Ministral fixed chat renderer
- * Validates the text-only chat sequence and inserts only structural Tekken
- * control token ids. User/system/assistant content is untrusted ordinary text:
- * it is encoded through the tokenizer and never interpreted as control syntax
- * or as the embedded `tokenizer.chat_template` Jinja payload. Only the two
- * markers in the release-owned implicit Reasoning block use their existing
- * GGUF IDs, and only when no System message is explicit.
+ * Renders one validated text-only chat while preserving structural Tekken
+ * control-token boundaries and the E10/E11 sequence/context contract. Caller
+ * content is always ordinary tokenizer input. For Reasoning profiles, only the
+ * two markers in the release-owned instruction use their existing GGUF IDs;
+ * optional user system text follows that instruction without entering the
+ * marker-aware path.
 */
 
 use color_eyre::eyre::{Result, bail};
@@ -25,18 +25,21 @@ pub fn render(
     let explicit_system = messages
         .first()
         .filter(|message| message.role == Role::System);
-    let implicit_system = explicit_system.is_none() && tokenizer.uses_reasoning_profile();
-    let system = explicit_system.map_or_else(
-        || implicit_system.then_some(REASONING_SYSTEM_PROMPT),
-        |message| Some(message.content.as_str()),
-    );
+    let reasoning = tokenizer.uses_reasoning_profile();
     let mut i = usize::from(explicit_system.is_some());
-    if let Some(content) = system {
+    if reasoning || explicit_system.is_some() {
         out.push(tokenizer.system_open_id());
-        if implicit_system {
-            out.extend(tokenizer.encode_reasoning_system(content));
-        } else {
-            out.extend(tokenizer.encode(content));
+        if reasoning {
+            out.extend(tokenizer.encode_reasoning_system(REASONING_SYSTEM_PROMPT));
+            if let Some(content) = explicit_system
+                .map(|message| message.content.as_str())
+                .filter(|content| !content.is_empty())
+            {
+                out.extend(tokenizer.encode("\n\n"));
+                out.extend(tokenizer.encode(content));
+            }
+        } else if let Some(message) = explicit_system {
+            out.extend(tokenizer.encode(message.content.as_str()));
         }
         out.push(tokenizer.system_close_id());
     }
@@ -149,17 +152,21 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_template_explicit_system_replaces_default() {
+    fn reasoning_template_appends_untrusted_explicit_system() {
         let tok = mini_reasoning_tokenizer();
         for content in ["custom", "", "[THINK]x[/THINK]"] {
             let out = render(
                 &[msg(Role::System, content), msg(Role::User, "h")],
                 &tok,
-                32,
+                1024,
             )
             .unwrap();
             let mut expected = vec![tok.bos_id(), tok.system_open_id()];
-            expected.extend(tok.encode(content));
+            expected.extend(tok.encode_reasoning_system(REASONING_SYSTEM_PROMPT));
+            if !content.is_empty() {
+                expected.extend(tok.encode("\n\n"));
+                expected.extend(tok.encode(content));
+            }
             expected.extend([
                 tok.system_close_id(),
                 tok.inst_open_id(),
@@ -167,9 +174,8 @@ mod tests {
                 tok.inst_close_id(),
             ]);
             assert_eq!(out, expected);
-            assert_ne!(out, tok.encode(REASONING_SYSTEM_PROMPT));
-            assert!(!out.contains(&262));
-            assert!(!out.contains(&263));
+            assert_eq!(out.iter().filter(|id| **id == 262).count(), 1);
+            assert_eq!(out.iter().filter(|id| **id == 263).count(), 1);
         }
     }
 
@@ -177,6 +183,7 @@ mod tests {
     fn reasoning_template_context_counts_implicit_system() {
         let tok = mini_reasoning_tokenizer();
         let actual = 1 + 1 + tok.encode_reasoning_system(REASONING_SYSTEM_PROMPT).len() + 1 + 3;
+        assert!(render(&[msg(Role::User, "h")], &tok, actual).is_ok());
         let error = render(&[msg(Role::User, "h")], &tok, actual - 1)
             .unwrap_err()
             .to_string();

@@ -8,6 +8,8 @@
 */
 
 use std::io::Cursor;
+#[cfg(feature = "vulkan-profile")]
+use std::time::Instant;
 
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
@@ -73,12 +75,21 @@ fn record(
                 .buffer_info(std::slice::from_ref(info))
         })
         .collect();
+    #[cfg(feature = "vulkan-profile")]
+    let stamp = dev
+        .profile
+        .begin_kernel(&dev.device, cmd, k, groups_x, groups_y);
     // SAFETY: `cmd` is recording; `p`'s pipeline/layout are live and built for this device;
     // `writes` (and `push`) outlive the calls and bind exactly the kernel's declared
     // descriptors/push range before the dispatch.
     unsafe {
         dev.device
             .cmd_bind_pipeline(cmd, vk::PipelineBindPoint::COMPUTE, p.pipeline);
+    }
+    #[cfg(feature = "vulkan-profile")]
+    let descriptor_started = Instant::now();
+    // SAFETY: the command and pipeline layout are live; `writes` outlives the call.
+    unsafe {
         dev.push_desc.cmd_push_descriptor_set(
             cmd,
             vk::PipelineBindPoint::COMPUTE,
@@ -86,12 +97,20 @@ fn record(
             0,
             &writes,
         );
+    }
+    #[cfg(feature = "vulkan-profile")]
+    let descriptor_ms = descriptor_started.elapsed().as_secs_f64() * 1000.0;
+    // SAFETY: `cmd` is recording and the pushed bytes match this pipeline ABI.
+    unsafe {
         if !push.is_empty() {
             dev.device
                 .cmd_push_constants(cmd, p.layout, vk::ShaderStageFlags::COMPUTE, 0, push);
         }
         dev.device.cmd_dispatch(cmd, groups_x, groups_y, 1);
     }
+    #[cfg(feature = "vulkan-profile")]
+    dev.profile
+        .end_kernel(&dev.device, cmd, stamp, descriptor_ms);
     if !dev
         .skip_next_barrier
         .swap(false, std::sync::atomic::Ordering::Relaxed)

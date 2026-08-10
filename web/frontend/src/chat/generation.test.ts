@@ -1,7 +1,8 @@
 /*
- * Deterministic generation acceptance tests use controlled in-memory streams
- * for append, replacement, capacity, rollback, stop, timing, and checkpoints.
- * Svelte rendering, real network, and real browser storage are excluded.
+ * Controlled generation tests cover prompt-only capacity, request allowance,
+ * timeout/interruption rollback, voluntary Stop, first terminal outcome,
+ * timing, raw Reasoning retention, and checkpoints. Svelte rendering, real
+ * networking, and browser storage are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ import { hydrateTranscript } from './transcript.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
-const context: RuntimeContext = { contextLimit: 4096, maxTokens: 128, safeTotalBudget: 3686 };
+const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
@@ -61,6 +62,9 @@ function controlledFetch() {
       const data = JSON.stringify({ choices: [{ delta: { content } }] });
       streamController.enqueue(encoder.encode(`data: ${data}\n\n`));
     },
+    frame(value: unknown) {
+      streamController.enqueue(encoder.encode(`data: ${JSON.stringify(value)}\n\n`));
+    },
     done() {
       streamController.enqueue(encoder.encode('data: [DONE]\n\n'));
       streamController.close();
@@ -92,6 +96,7 @@ test('append streams without checkpoints and commits once after idle', async () 
     { role: 'assistant', content: 'prima risposta' },
     { role: 'user', content: 'nuova domanda' }
   ]);
+  assert.equal(stream.body().max_tokens, 4096);
   stream.delta('[THINK]π[/THINK]');
   await tick();
   assert.equal(get(store).collection.chats[0].messages.at(-1)?.content, '[THINK]π[/THINK]');
@@ -103,8 +108,20 @@ test('append streams without checkpoints and commits once after idle', async () 
   assert.deepEqual(checkpoints, [id]);
 });
 
+test('valid zero-delta completion retains the empty response and checkpoints', async () => {
+  const stream = controlledFetch();
+  const { store, checkpoints, generation } = harness();
+  const pending = generation.send('nessun token', context);
+  await tick();
+  stream.done();
+  await pending;
+  assert.equal(plain(get(store)).at(-1)?.content, '');
+  assert.equal(typeof get(store).generationMs, 'number');
+  assert.deepEqual(checkpoints, [id]);
+});
+
 test('append stop keeps empty or partial assistant and commits once', async () => {
-  for (const partial of ['', 'parziale']) {
+  for (const partial of ['', 'parziale', '[THINK]passo']) {
     const stream = controlledFetch();
     const { store, checkpoints, generation } = harness();
     const pending = generation.send('stop', context);
@@ -117,6 +134,7 @@ test('append stop keeps empty or partial assistant and commits once', async () =
     await pending;
     assert.equal(plain(get(store)).at(-1)?.content, partial);
     assert.equal(get(store).generationMs, null);
+    assert.equal(get(store).error, null);
     assert.deepEqual(checkpoints, [id]);
   }
 });
@@ -135,7 +153,7 @@ test('append transport failures roll back and never checkpoint', async () => {
       stream.close();
       await pending;
       assert.deepEqual(plain(get(store)), plain(original));
-      assert.equal(get(store).error, 'Connessione interrotta');
+      assert.equal(get(store).error, 'Risposta interrotta');
       assert.deepEqual(checkpoints, []);
       continue;
     }
@@ -181,7 +199,7 @@ test('edit trims the prompt, and a failed replacement restores the exact pair', 
   stream.close();
   await pending;
   assert.deepEqual(plain(get(store)), plain(original));
-  assert.equal(get(store).error, 'Connessione interrotta');
+  assert.equal(get(store).error, 'Risposta interrotta');
   assert.deepEqual(checkpoints, []);
 });
 
@@ -207,11 +225,73 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   await generation.editLastPrompt('   ', context);
   await generation.send('troppo lungo', {
     contextLimit: 10,
-    maxTokens: 9,
-    safeTotalBudget: 9
+    safePromptBudget: 9
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));
-  assert.match(get(store).error ?? '', /^Contesto insufficiente:/);
+  assert.equal(
+    get(store).error,
+    'Contesto insufficiente: ~11 token stimati superano il budget sicuro di 9 token'
+  );
   assert.deepEqual(checkpoints, []);
+});
+
+test('timeout wins over a later Stop and rolls back partial output', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const original = snapshot();
+  const stream = controlledFetch();
+  const { store, checkpoints, generation } = harness(original);
+  const pending = generation.send('timeout', context);
+  await Promise.resolve();
+  await Promise.resolve();
+  stream.delta('provvisoria');
+  await Promise.resolve();
+  await Promise.resolve();
+
+  t.mock.timers.tick(60_000);
+  generation.stop();
+  await pending;
+
+  assert.deepEqual(plain(get(store)), plain(original));
+  assert.equal(get(store).error, 'Risposta interrotta');
+  assert.equal(get(store).generationStartedAt, null);
+  assert.equal(get(store).generationMs, null);
+  assert.deepEqual(checkpoints, []);
+});
+
+test('Stop wins over the later watchdog and checkpoints once', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  controlledFetch();
+  const { store, checkpoints, generation } = harness();
+  const pending = generation.send('stop first', context);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  generation.stop();
+  t.mock.timers.tick(60_000);
+  await pending;
+
+  assert.equal(get(store).status, 'idle');
+  assert.equal(get(store).error, null);
+  assert.deepEqual(checkpoints, [id]);
+});
+
+test('engine and protocol error frames roll back without leaking details', async () => {
+  const original = snapshot();
+  for (const frame of [
+    { error: { message: 'E11 prompt has 5000 tokens but context is 4096' } },
+    { choices: [{ delta: { reasoning_content: 'hidden' } }] }
+  ]) {
+    const stream = controlledFetch();
+    const { store, checkpoints, generation } = harness(original);
+    const pending = generation.send('fallisce', context);
+    await tick();
+    stream.delta('provvisoria');
+    await tick();
+    stream.frame(frame);
+    await pending;
+    assert.deepEqual(plain(get(store)), plain(original));
+    assert.equal(get(store).error, 'Risposta interrotta');
+    assert.deepEqual(checkpoints, []);
+  }
 });

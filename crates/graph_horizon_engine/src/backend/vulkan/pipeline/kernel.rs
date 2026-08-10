@@ -1,11 +1,6 @@
 /*
- * graph_horizon_engine — Vulkan pipeline specification table
- * Defines the exhaustive reachable kernel set and maps each variant directly
- * to one compiled SPIR-V module, storage-binding count, and push-constant size.
- * It owns no device state, dispatch, or resource lifecycle.
+ * Vulkan pipeline specification: maps every reachable kernel to its SPIR-V module and ABI without owning device state or resources.
  */
-
-// One variant maps to one retained shader and one pipeline.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Kernel {
     MatmulF16,
@@ -25,7 +20,10 @@ pub(crate) enum Kernel {
     Residual,
     KvWrite,
     AttentionDecode,
+    AttentionDecodeWide,
+    AttentionDecode1024,
     AttentionPrefill,
+    AttentionPrefillWide,
     KvWriteInt8,
     AttentionDecodeInt8,
     AttentionPrefillInt8,
@@ -37,6 +35,46 @@ pub(crate) enum Kernel {
     MatmulQ4KCoopmatF16Out,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
+}
+
+#[cfg(feature = "vulkan-profile")]
+impl Kernel {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::MatmulF16 => "matmul_f16",
+            Self::MatmulQ4KTiled => "matmul_q4k_tiled",
+            Self::MatmulQ5K => "matmul_q5k",
+            Self::MatmulQ6K => "matmul_q6k",
+            Self::Logits => "logits_f16",
+            Self::LogitsQ4K => "logits_q4k",
+            Self::LogitsQ5K => "logits_q5k",
+            Self::LogitsQ6K => "logits_q6k",
+            Self::EmbedF16 => "embed_f16",
+            Self::EmbedQ4K => "embed_q4k",
+            Self::EmbedQ5K => "embed_q5k",
+            Self::EmbedQ6K => "embed_q6k",
+            Self::RmsNormX => "rmsnorm_x",
+            Self::Rope => "rope",
+            Self::Residual => "residual",
+            Self::KvWrite => "kv_write_f16",
+            Self::AttentionDecode => "attention_decode",
+            Self::AttentionDecodeWide => "attention_decode_wide",
+            Self::AttentionDecode1024 => "attention_decode_1024",
+            Self::AttentionPrefill => "attention_prefill",
+            Self::AttentionPrefillWide => "attention_prefill_wide",
+            Self::KvWriteInt8 => "kv_write_int8",
+            Self::AttentionDecodeInt8 => "attention_decode_int8",
+            Self::AttentionPrefillInt8 => "attention_prefill_int8",
+            Self::Argmax => "argmax",
+            Self::TopkPartial => "topk_partial",
+            Self::SiluMul => "silu_mul",
+            Self::MatmulQ4KBatchF16Out => "matmul_q4k_batch_f16",
+            Self::MatmulQ6KBatchF16Out => "matmul_q6k_batch_f16",
+            Self::MatmulQ4KCoopmatF16Out => "matmul_q4k_coopmat_f16",
+            Self::QuantAQ8F16 => "quant_a_q8_f16",
+            Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
+        }
+    }
 }
 
 // SPIR-V bytes, storage-buffer binding count, and push-constant bytes.
@@ -64,7 +102,10 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::Residual => (spv!("residual"), 2, 4),
         Kernel::KvWrite => (spv!("kv_write"), 4, 8),
         Kernel::AttentionDecode => (spv!("attention_decode"), 4, 32),
+        Kernel::AttentionDecodeWide => (spv!("attention_decode_wide"), 4, 32),
+        Kernel::AttentionDecode1024 => (spv!("attention_decode_1024"), 4, 32),
         Kernel::AttentionPrefill => (spv!("attention_prefill"), 4, 32),
+        Kernel::AttentionPrefillWide => (spv!("attention_prefill_wide"), 4, 32),
         Kernel::KvWriteInt8 => (spv!("kv_write_int8"), 4, 16),
         Kernel::AttentionDecodeInt8 => (spv!("attention_decode_int8"), 4, 32),
         Kernel::AttentionPrefillInt8 => (spv!("attention_prefill_int8"), 4, 36),

@@ -112,8 +112,13 @@ impl<'a, D: HybridDevice, G: LayeredGraph> PartitionedSession<'a, D, G> {
 impl<D: HybridDevice, G: LayeredGraph> RuntimeSession for PartitionedSession<'_, D, G> {
     type Graph = G;
 
-    fn prefill(&self, prompt: &[u32], before: &mut dyn FnMut() -> Result<()>) -> Result<()> {
-        prefill::run::<D, G>(self, prompt, before)
+    fn prefill(
+        &self,
+        prompt: &[u32],
+        base: usize,
+        before: &mut dyn FnMut() -> Result<()>,
+    ) -> Result<()> {
+        prefill::run::<D, G>(self, prompt, base, before)
     }
 
     fn token(&self, token: u32, position: usize) -> Result<()> {

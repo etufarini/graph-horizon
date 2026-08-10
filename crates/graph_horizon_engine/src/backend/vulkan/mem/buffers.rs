@@ -9,6 +9,8 @@
 
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
+#[cfg(feature = "vulkan-profile")]
+use std::time::Instant;
 
 use crate::backend::vulkan::device::Device;
 
@@ -42,6 +44,8 @@ pub(crate) struct GpuBuffer {
 
 impl GpuBuffer {
     pub(crate) fn alloc(dev: &Device, size: u64, host: bool) -> Result<GpuBuffer> {
+        #[cfg(feature = "vulkan-profile")]
+        let profile_started = Instant::now();
         let usage = vk::BufferUsageFlags::STORAGE_BUFFER
             | vk::BufferUsageFlags::TRANSFER_SRC
             | vk::BufferUsageFlags::TRANSFER_DST;
@@ -89,6 +93,12 @@ impl GpuBuffer {
             }
             return Err(eyre!("vulkan: bind buffer memory failed"));
         }
+        #[cfg(feature = "vulkan-profile")]
+        dev.profile.allocation(
+            req.size,
+            host,
+            profile_started.elapsed().as_secs_f64() * 1000.0,
+        );
         Ok(GpuBuffer {
             buffer,
             memory,

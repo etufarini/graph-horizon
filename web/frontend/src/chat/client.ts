@@ -1,13 +1,20 @@
 /*
- * Chat client.
- * Single responsibility: load immutable context properties and POST admitted
- * text-only chat requests while delegating SSE parsing.
+ * Web chat HTTP client.
+ * Loads immutable context properties and posts admitted text-only requests.
+ * Generation uses a linked internal controller so caller Stop remains distinct
+ * from 60-second inactivity cancellation; activity resets that watchdog, which
+ * is not a total-generation timeout.
  */
 import { parseRuntimeContext } from './context.ts';
 import { readChatStream } from './stream.ts';
 import type { ContextConfigResult, StreamDelta, WireMessage } from './types';
 
 const FAILED = 'Richiesta non riuscita';
+const INTERRUPTED = 'Connessione interrotta';
+const INACTIVITY_MS = 60_000;
+const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
+  byte.toString(16).padStart(2, '0')
+).join('');
 
 export async function loadRuntimeContext(signal: AbortSignal): Promise<ContextConfigResult> {
   const controller = new AbortController();
@@ -30,26 +37,58 @@ export async function loadRuntimeContext(signal: AbortSignal): Promise<ContextCo
 
 export async function streamAssistant(
   messages: WireMessage[],
-  maxTokens: number,
+  contextLimit: number,
   onDelta: (delta: StreamDelta) => void,
   signal: AbortSignal
 ): Promise<void> {
-  const response = await fetch('/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      messages,
-      max_tokens: maxTokens,
-      stream: true
-    }),
-    signal
-  });
+  const controller = new AbortController();
+  let cancellation: 'external' | 'timeout' | null = null;
+  let timeout: ReturnType<typeof setTimeout>;
+  const cancel = (kind: 'external' | 'timeout') => {
+    // The first terminal cancellation source owns the observable outcome.
+    if (cancellation) return;
+    cancellation = kind;
+    controller.abort();
+  };
+  const resetWatchdog = () => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => cancel('timeout'), INACTIVITY_MS);
+  };
+  const stop = () => cancel('external');
 
-  if (!response.ok || !response.body) {
-    throw new Error(FAILED);
+  resetWatchdog();
+  signal.addEventListener('abort', stop, { once: true });
+  if (signal.aborted) stop();
+  try {
+    const response = await fetch('/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-graph-horizon-cache': CACHE_KEY
+      },
+      body: JSON.stringify({
+        messages,
+        max_tokens: contextLimit,
+        stream: true
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok || !response.body) {
+      throw new Error(FAILED);
+    }
+
+    await readChatStream(response.body, onDelta, resetWatchdog);
+  } catch (error) {
+    if (cancellation === 'timeout') {
+      throw new Error(INTERRUPTED);
+    }
+    if (cancellation === 'external') {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout!);
+    signal.removeEventListener('abort', stop);
   }
-
-  await readChatStream(response.body, onDelta);
 }

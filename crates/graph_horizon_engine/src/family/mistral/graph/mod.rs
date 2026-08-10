@@ -96,10 +96,19 @@ impl LayeredGraph for MistralGraph {
         config: &Self::Config,
         kv: &Kv<B::Buffer>,
         prompt: &[u32],
+        base: usize,
         row_capacity: usize,
         before_batch: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()> {
-        prefill::prefill(backend, config, kv, prompt, row_capacity, before_batch)
+        prefill::prefill(
+            backend,
+            config,
+            kv,
+            prompt,
+            base,
+            row_capacity,
+            before_batch,
+        )
     }
 
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

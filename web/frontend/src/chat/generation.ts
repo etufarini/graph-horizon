@@ -1,7 +1,8 @@
 /*
- * Transactional generation lifecycle: owns capacity admission, one abort
- * controller, request timing, stream deltas, append/replacement rollback, stop
- * commit, and stable checkpoint signals. Chat-list, storage, and UI are excluded.
+ * Transactional generation lifecycle: admits prompt occupancy before visible
+ * mutation, then owns one request, timing, deltas, append/replacement rollback,
+ * voluntary Stop commit, and stable checkpoint signals. Chat-list, storage,
+ * Reasoning presentation, and UI are excluded.
  */
 import { get, type Writable } from 'svelte/store';
 import { streamAssistant } from './client.ts';
@@ -24,7 +25,7 @@ import type {
 } from './types.ts';
 
 const FAILED = 'Richiesta non riuscita';
-const INTERRUPTED = 'Connessione interrotta';
+const INTERRUPTED = 'Risposta interrotta';
 
 export function createGeneration(
   store: Writable<ChatSnapshot>,
@@ -75,7 +76,7 @@ export function createGeneration(
       store.set({
         ...current,
         status: 'error',
-        error: `Contesto insufficiente: ~${admission.estimatedTokens} token + ${admission.maxTokens} riservati superano il budget sicuro di ${admission.safeTotalBudget} token`
+        error: `Contesto insufficiente: ~${admission.estimatedTokens} token stimati superano il budget sicuro di ${admission.safePromptBudget} token`
       });
       return;
     }
@@ -106,7 +107,7 @@ export function createGeneration(
     try {
       await streamAssistant(
         wire,
-        context.maxTokens,
+        context.contextLimit,
         delta => applyDelta(chatId, assistantId, delta),
         request.signal
       );
@@ -119,9 +120,9 @@ export function createGeneration(
       }));
       checkpoint(chatId);
     } catch (error) {
-      const aborted = request.signal.aborted ||
-        (error instanceof DOMException && error.name === 'AbortError');
-      if (aborted) {
+      const stopped = request.signal.aborted &&
+        error instanceof DOMException && error.name === 'AbortError';
+      if (stopped) {
         store.update(snapshot => ({
           ...snapshot,
           status: 'idle',

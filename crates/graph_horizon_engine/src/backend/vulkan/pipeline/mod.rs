@@ -2,7 +2,7 @@
  * graph_horizon_engine — compute pipeline registry
  * Owns transactional construction, lookup, and destruction of the reachable
  * compute pipelines. The registry builds its unconditional set plus the
- * capability-gated FP16 coopmat and MMVQ pairs.
+ * capability-gated 512/1024-thread attention, FP16 coopmat, and MMVQ variants.
 */
 
 use std::collections::HashMap;
@@ -59,9 +59,20 @@ const KERNELS: [Kernel; 26] = [
     Kernel::MatmulQ6KBatchF16Out,
 ];
 
+const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
+const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
+
+fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
+    invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
+}
+
+fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
+    invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+}
+
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        Self::check_limits(dev)?;
+        let (wide_attention, attention_1024) = Self::check_limits(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -73,6 +84,17 @@ impl PipelineRegistry {
         let built = (|| -> Result<()> {
             for &k in &KERNELS {
                 map.insert(k, record::build_one(dev, cache, k)?);
+            }
+            if wide_attention {
+                for k in [Kernel::AttentionDecodeWide, Kernel::AttentionPrefillWide] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
+            }
+            if attention_1024 {
+                map.insert(
+                    Kernel::AttentionDecode1024,
+                    record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
+                );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
             if dev.coopmat.available {
@@ -103,25 +125,40 @@ impl PipelineRegistry {
     }
 
     pub(crate) fn get(&self, k: Kernel) -> &Pipeline {
-        // KERNELS covers every variant, so the lookup is always present.
+        // Dispatch selects capability-gated variants only after `contains` succeeds.
         self.map.get(&k).expect("pipeline built for every kernel")
     }
 
-    fn check_limits(dev: &Device) -> Result<()> {
-        // The kernels use up to 256-invocation workgroups and 36-byte push blocks
-        // (attention_prefill_int8); Vulkan guarantees maxPushConstantsSize >= 128.
+    pub(crate) fn contains(&self, k: Kernel) -> bool {
+        self.map.contains_key(&k)
+    }
+
+    fn check_limits(dev: &Device) -> Result<(bool, bool)> {
+        // Required kernels use up to 256 invocations; optional attention variants
+        // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // SAFETY: `dev.instance` is live and `dev.physical` is one of its enumerated devices.
         let l = unsafe {
             dev.instance
                 .get_physical_device_properties(dev.physical)
                 .limits
         };
-        if l.max_compute_work_group_invocations < 256 || l.max_push_constants_size < 36 {
+        if l.max_compute_work_group_invocations < 256
+            || l.max_compute_work_group_size[0] < 256
+            || l.max_push_constants_size < 36
+        {
             return Err(eyre!(
                 "vulkan: device workgroup/push-constant limits too small"
             ));
         }
-        Ok(())
+        let limits = (
+            l.max_compute_work_group_invocations,
+            l.max_compute_work_group_size[0],
+            l.max_compute_shared_memory_size,
+        );
+        Ok((
+            supports_wide_attention(limits.0, limits.1, limits.2),
+            supports_attention_1024(limits.0, limits.1, limits.2),
+        ))
     }
 
     pub(crate) fn destroy(&self, dev: &Device) {
@@ -135,5 +172,61 @@ impl PipelineRegistry {
             }
             dev.device.destroy_pipeline_cache(self.cache, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ATTENTION_1024_SHARED_BYTES, WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024,
+        supports_wide_attention,
+    };
+
+    #[test]
+    fn wide_attention_requires_every_resource_limit() {
+        assert!(supports_wide_attention(
+            512,
+            512,
+            WIDE_ATTENTION_SHARED_BYTES
+        ));
+        assert!(!supports_wide_attention(
+            511,
+            512,
+            WIDE_ATTENTION_SHARED_BYTES
+        ));
+        assert!(!supports_wide_attention(
+            512,
+            511,
+            WIDE_ATTENTION_SHARED_BYTES
+        ));
+        assert!(!supports_wide_attention(
+            512,
+            512,
+            WIDE_ATTENTION_SHARED_BYTES - 1
+        ));
+    }
+
+    #[test]
+    fn attention_1024_requires_every_resource_limit() {
+        assert!(supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1023,
+            1024,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1023,
+            ATTENTION_1024_SHARED_BYTES
+        ));
+        assert!(!supports_attention_1024(
+            1024,
+            1024,
+            ATTENTION_1024_SHARED_BYTES - 1
+        ));
     }
 }

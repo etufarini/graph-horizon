@@ -61,22 +61,29 @@ Every request uses `fetch` with:
 ```json
 {
   "messages": [],
-  "max_tokens": 1024,
+  "max_tokens": 32768,
   "stream": true
 }
 ```
 
-On page initialization the browser requests exact `/props` with a three-second
-timeout. Send remains disabled until positive safe integer values for `n_ctx`
-and `max_tokens` are known. A failed, timed-out, malformed, non-integer, unsafe,
-or non-positive response shows `Configurazione del contesto non disponibile`; a
-window whose reserve leaves no prompt space shows `max_tokens non lascia spazio
-al prompt`.
+The page also sends one random lowercase-hex `x-graph-horizon-cache` key for
+its lifetime. On the Vulkan profile, the server retains one KV allocation and
+reuses only an exact rendered-token prefix with the same key. Another page may
+replace that slot; requests without the header keep the uncached behavior.
 
-The browser consumes only `delta.content` and the `[DONE]` terminal sentinel.
-Usage frames are tolerated but do not drive presentation; missing or malformed
-usage does not affect the client timer. `reasoning_content` and tool frames
-remain protocol errors. The stop button aborts the fetch and retains the active
+On page initialization the browser requests exact `/props` with a three-second
+timeout. Send remains disabled until `n_ctx` and `max_tokens` are equal positive
+safe integers whose 90% prompt budget is non-zero. A failed, timed-out,
+malformed, unequal, non-integer, unsafe, or non-positive response shows
+`Configurazione del contesto non disponibile`.
+
+The browser consumes only non-empty string `delta.content` and requires `[DONE]`
+for successful completion. It stops reading immediately at that sentinel. Usage
+and final-stop frames are tolerated but do not drive presentation. Invalid JSON,
+server error objects, `reasoning_content`, and tool frames interrupt the response
+without exposing payload details. A 60-second inactivity watchdog starts before
+the request and resets on every non-empty body chunk; it is not a total
+generation timeout. The stop button aborts voluntarily and retains the active
 pair, including partial raw text, to preserve alternating history.
 
 The composer remains editable while a response is streaming, so the next
@@ -84,9 +91,10 @@ message can be prepared without starting a concurrent request. Send stays
 disabled until streaming ends, while Stop remains available. A failed request
 restores its submitted prompt only when no newer draft has been entered.
 
-`--provider` is ignored. `--context-tokens`, KV, threads, and placement configure
-the local engine. Web `max_tokens` defaults to `1024`; `/props` propagates an
-explicit `--max-tokens` to both browser admission and every request body.
+`--provider` and `--max-tokens` are ignored. `--context-tokens`, KV, threads, and
+placement configure the local engine. The Web wrapper publishes the loaded
+engine's `n_ctx` as both capacity fields.
+The browser sends `max_tokens` equal to `n_ctx`.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 qualified temperature `0.7` policy.
 
@@ -200,7 +208,9 @@ A rejected candidate leaves the stable transcript and archive unchanged.
 
 A new-send transport failure removes its uncommitted appended pair. A failed
 regenerate or edit-and-regenerate instead restores the exact prior user and
-assistant pair. Stop commits the candidate prompt and current replacement
+assistant pair. An unsuccessful or bodyless HTTP response shows `Richiesta non
+riuscita`; timeout, missing `[DONE]`, or protocol/transport failure shows
+`Risposta interrotta`. Stop commits the candidate prompt and current replacement
 response, including an empty assistant response, clears final timing, updates
 recency, and saves once after abort settles. Stream deltas are never persisted.
 
@@ -220,15 +230,16 @@ treatment, and remain visible when eligible rather than depending on hover.
 ## Context And Generation Status
 
 The canonical estimate and capacity gate are defined in
-[context.md](context.md). The browser uses the positive `max_tokens` reported by
-`/props` for both that gate and the request body. Idle occupancy includes the
+[context.md](context.md). The browser compares estimated prompt occupancy alone
+with the 90% safe prompt budget and sends the full context limit as request
+`max_tokens`. Idle occupancy includes the
 trimmed system prompt, every committed raw message, and the trimmed draft.
 Streaming occupancy includes the submitted user message and current partial raw
 assistant response.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
 chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
-the estimate, reserve, and safe budget. Imported conversations may display over
+the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
 Whenever configuration is valid, `Contesto N%` appears above a horizontal
@@ -240,12 +251,17 @@ minimum 0, maximum 100, and the accessible name `Occupazione del contesto`.
 An admitted request starts a `performance.now()` timer immediately before chat
 transport. `Generazione N.Ns` refreshes every 250 ms and measures connection
 wait, prefill, transport, and decode. Successful `[DONE]` completion freezes the
-exact elapsed duration. Stop, missing `[DONE]`, or failure clears timing without
-publishing a final value; a capacity rejection preserves the previous final
-duration because no generation started. Errors render in addition to a valid
-context bar.
+exact elapsed duration. Stop, inactivity, missing `[DONE]`, or failure clears
+timing without publishing a final value; a capacity rejection preserves the
+previous final duration because no generation started. Errors render in addition
+to a valid context bar.
 
 ## Reasoning Presentation
+
+For a supported Reasoning model, the release-owned internal system instruction
+is always rendered first. Non-empty explicit system text follows it after one
+blank line; empty explicit text adds no separator. User text that resembles a
+Reasoning or structural marker remains ordinary tokenizer input.
 
 Raw Reasoning text is recognized only when the assistant response begins, after
 leading whitespace, with the exact case-sensitive marker `[THINK]`. The first
@@ -264,7 +280,8 @@ remain literal content. Lowercase, mixed-case, misplaced, and otherwise malforme
 markers are ordinary text, not runtime errors.
 
 Stopping a partial web turn retains its raw content and derives the same view on
-the next render. Browser memory and version-1 import/export likewise retain raw
+the next render, so an unclosed leading `[THINK]` still shows `Risposta
+incompleta`. Browser memory and version-1 import/export likewise retain raw
 assistant content, including markers and leading whitespace; presentation is not
 stored as a separate Reasoning channel.
 

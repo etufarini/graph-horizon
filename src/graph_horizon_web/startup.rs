@@ -1,8 +1,8 @@
 /*
  * Graph Horizon web startup
- * Single responsibility: load the local chat engine and start the static web
- * wrapper around the headless server. It depends on app engine loading, web
- * assets/config, and graph_horizon_server state; it creates no tools or reasoning.
+ * Loads the local chat engine and assembles the static Web wrapper. The loaded
+ * engine context is the Web allowance used by both `/props.max_tokens` and the
+ * wrapped-server fallback; headless server configuration remains separate.
  */
 
 use color_eyre::eyre::{Result, eyre};
@@ -21,7 +21,8 @@ pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
     assets.ensure_index()?;
     let context_limit = engine::config::context_tokens_from_args();
     let chat = engine::load_chat_engine(&model, context_limit)?;
-    let chat_config = ServerConfig::chat(config.max_tokens);
+    // The engine has already resolved and validated the immutable context limit.
+    let chat_config = ServerConfig::chat(chat.context_limit() as usize);
     let state = ServerState::new(chat, chat_config);
     server::serve(config, assets, state).await
 }

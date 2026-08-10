@@ -14,6 +14,7 @@ use crate::runtime::contract::LayeredGraph;
 pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
     session: &PartitionedSession<'_, D, G>,
     prompt: &[u32],
+    base: usize,
     before_batch: &mut dyn FnMut() -> Result<()>,
 ) -> Result<()> {
     match (session.backends, session.state.as_ref()) {
@@ -22,6 +23,7 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             session.config,
             kv,
             prompt,
+            base,
             session.shape.gpu_prefill_rows,
             before_batch,
         ),
@@ -30,6 +32,7 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             session.config,
             kv,
             prompt,
+            base,
             session.shape.cpu_prefill_rows,
             before_batch,
         ),
@@ -48,8 +51,11 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             let gpu_batch = G::batch(gpu, session.config, rows)?;
             for (batch_index, tokens) in prompt.chunks(rows).enumerate() {
                 before_batch()?;
-                let base = batch_index
+                let offset = batch_index
                     .checked_mul(rows)
+                    .ok_or_else(|| eyre!("hybrid residual crossing overflow"))?;
+                let position = base
+                    .checked_add(offset)
                     .ok_or_else(|| eyre!("hybrid residual crossing overflow"))?;
                 G::record_batch(
                     cpu,
@@ -57,7 +63,7 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
                     cpu_kv,
                     &cpu_batch,
                     tokens,
-                    base,
+                    position,
                     true,
                     false,
                 )?;
@@ -77,7 +83,7 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
                     gpu_kv,
                     &gpu_batch,
                     tokens,
-                    base,
+                    position,
                     false,
                     true,
                 )?;

@@ -24,11 +24,13 @@
 // serial depth from pos to pos/G. The sum is grouped differently (numerics-changing,
 // f32-oracle gated, f16-level drift), not bit-identical.
 //
-// Invariants (already held by the call sites): head_dim <= 128 (the old kernel used
-// 128 threads = one per dim) and head_dim a multiple of the subgroup size on the
-// target (RTX 3060: S=32, head_dim=128 -> G=4, 4 dims/lane). MAX_DPL/MAX_G below are
-// sized to cover S>=16, head_dim<=128 with margin.
-layout(local_size_x = 128) in;
+// Invariants (already held by the call sites): head_dim <= 128 and a multiple of
+// the subgroup size. The build emits a 256-thread fallback and capability-gated
+// 512/1024-thread variants; MAX_DPL/MAX_G cover subgroup sizes down to 16.
+#ifndef ATTENTION_LOCAL_SIZE
+#define ATTENTION_LOCAL_SIZE 256
+#endif
+layout(local_size_x = ATTENTION_LOCAL_SIZE) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };   // [q_heads*head_dim]
 layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
@@ -46,7 +48,7 @@ layout(push_constant) uniform P {
 } p;
 
 const uint MAX_DPL = 8u;  // dims per lane: ceil(head_dim / subgroup_size), <=8 for S>=16
-const uint MAX_G = 8u;    // subgroups per workgroup: 128 / S, <=8 for S>=16
+const uint MAX_G = uint(ATTENTION_LOCAL_SIZE) / 16u;
 
 // Per-subgroup combine state. sh_acc holds each subgroup's partial output over the
 // full head_dim: sh_acc[g*head_dim + d].

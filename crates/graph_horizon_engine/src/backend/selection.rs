@@ -34,6 +34,8 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "vulkan")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::homogeneous::HomogeneousSession<'a, super::vulkan::VulkanBackend, G>;
+#[cfg(feature = "vulkan")]
+pub(crate) type CachedState = crate::kv_cache::Kv<<SelectedBackend as Backend>::Buffer>;
 #[cfg(feature = "vulkan-hybrid")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::partitioned::PartitionedSession<'a, super::vulkan::VulkanBackend, G>;
@@ -116,6 +118,31 @@ pub(crate) fn session<'a, G: LayeredGraph>(
             backend, config, shape, context, scheme,
         )
     }
+}
+
+#[cfg(feature = "vulkan")]
+pub(crate) fn cached_session<'a, G: LayeredGraph>(
+    backend: &'a SelectedBackend,
+    config: &'a G::Config,
+    shape: RuntimeShape,
+    context: usize,
+    scheme: KvQuant,
+    state: Option<CachedState>,
+) -> Result<SelectedSession<'a, G>> {
+    crate::runtime::homogeneous::HomogeneousSession::with_state(
+        backend,
+        config,
+        shape,
+        shape.gpu_prefill_rows,
+        context,
+        scheme,
+        state,
+    )
+}
+
+#[cfg(feature = "vulkan")]
+pub(crate) fn free_cached_state(backend: &SelectedBackend, state: CachedState) {
+    crate::kv_cache::free(backend, state);
 }
 
 pub(crate) fn configure(

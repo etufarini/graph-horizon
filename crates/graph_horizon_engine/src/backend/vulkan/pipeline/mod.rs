@@ -60,7 +60,7 @@ const KERNELS: [Kernel; 26] = [
 ];
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
-const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 4 * 128 * 2 + 4 * 64 * 4 + 4 * 3 * 4;
+const TILED_ATTENTION_SHARED_BYTES: u32 = 128 * 128 * 2 + 4 * 128 * 2 + 4 * 128 * 4 + 4 * 3 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {

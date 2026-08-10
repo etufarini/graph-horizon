@@ -728,3 +728,16 @@ wall misura 1,112×. Il target minimo è quindi già superato a 8K in una singol
 misura. `KV_TILE=128` richiede 35.888 byte shared, ancora sotto il limite 49.152,
 e dimezza nuovamente la densità di barrier; viene provato prima dei run ripetuti
 per verificare il crossover tra sincronizzazione e residenza/shared footprint.
+
+### MQ-B4 — tile phased K→V da 128
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-B4 | phased K→V, output distribuito | 4 | 128 | 512/32 | 1 | 35.888 B | nessuna array Function; 1 accumulatore FP32 | shared 2,16× baseline; 16 warp/WG | 3,575158 TB | 91,26 GB/s | 39.176,15 ms | 1,307× | 60,14 | 136.226,68 ms | reject |
+
+MQ-B4 resta migliore della baseline, ma perde il 5,27% attention rispetto a B3
+e scende a +9,48% tok/s. La proxy SPIR-V è invariata a 158 istruzioni e lo stato
+privato non cresce: la differenza controllata è la tile shared raddoppiata e la
+densità di barrier dimezzata. Il crossover attribuisce quindi la regressione al
+costo di residenza/shared/cache della tile da 35 KiB. `KV_TILE=64` viene
+ristabilita come configurazione migliore senza riscrivere la storia Git.

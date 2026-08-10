@@ -1,0 +1,153 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
+
+// Causal GQA prefill attention for two adjacent query rows. One 512-thread
+// workgroup keeps several history-partition subgroups per query and loads each
+// 32-position K/V tile once into workgroup memory. This preserves the baseline
+// online-softmax decomposition while removing the second query's global K/V
+// scan. Q/output are [n][q_heads][head_dim]; cache is
+// [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
+layout(local_size_x = 512) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint QUERY_TILE = 2u;
+const uint KV_TILE = 32u;
+const uint MAX_DPL = 8u;
+const uint MAX_G = 32u; // 512 threads at the baseline's minimum subgroup size 16.
+
+shared float16_t sh_k[KV_TILE * 128u];
+shared float16_t sh_v[KV_TILE * 128u];
+shared float sh_m[MAX_G];
+shared float sh_l[MAX_G];
+shared float sh_acc[MAX_G * 128u];
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (h >= p.q_heads || first >= p.n) return;
+
+    uint S = gl_SubgroupSize;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint lane = gl_SubgroupInvocationID;
+    uint rows = min(QUERY_TILE, p.n - first);
+    uint partitions = G / QUERY_TILE;
+    uint query = g / partitions;
+    uint part = g % partitions;
+    bool valid_query = query < rows;
+
+    uint group = p.q_heads / p.kv_heads;
+    uint kvh = h / group;
+    uint row = (first + min(query, rows - 1u)) * p.q_heads * p.head_dim;
+    uint pos = p.base + first + min(query, rows - 1u);
+    uint last_pos = p.base + first + rows - 1u;
+
+    // Each lane owns disjoint head dimensions; private state therefore stays
+    // constant when the workgroup gains another query subgroup family.
+    float qd[MAX_DPL];
+    float acc[MAX_DPL];
+    uint dpl = 0u;
+    for (uint j = 0u; j < MAX_DPL; j++) {
+        uint d = lane + j * S;
+        qd[j] = valid_query && d < p.head_dim ? float(q[row + h * p.head_dim + d]) : 0.0;
+        acc[j] = 0.0;
+        if (d < p.head_dim) dpl = j + 1u;
+    }
+
+    float m_part = -1e30;
+    float l_part = 0.0;
+    for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
+        uint count = min(KV_TILE, last_pos + 1u - tile);
+        uint elements = count * p.head_dim;
+        for (uint index = gl_LocalInvocationIndex; index < elements; index += 512u) {
+            uint key = index / p.head_dim;
+            uint d = index - key * p.head_dim;
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * p.head_dim + d;
+            sh_k[index] = kc[cache];
+            sh_v[index] = vc[cache];
+        }
+        barrier();
+
+        // Query subgroups read the same shared tile but own disjoint key
+        // positions. The final merge is the same stable online-state merge as
+        // the baseline kernel.
+        if (valid_query) {
+            for (uint key = part; key < count; key += partitions) {
+                uint t = tile + key;
+                if (t > pos) continue;
+                uint shared_base = key * p.head_dim;
+                float prod = 0.0;
+                for (uint j = 0u; j < dpl; j++) {
+                    prod += qd[j] * float(sh_k[shared_base + lane + j * S]);
+                }
+                float score = subgroupAdd(prod) * p.scale;
+                float m_new = max(m_part, score);
+                float alpha = exp(m_part - m_new);
+                float weight = exp(score - m_new);
+                l_part = l_part * alpha + weight;
+                for (uint j = 0u; j < dpl; j++) {
+                    float value = float(sh_v[shared_base + lane + j * S]);
+                    acc[j] = acc[j] * alpha + weight * value;
+                }
+                m_part = m_new;
+            }
+        }
+        // No invocation may overwrite the tile while another subgroup reads it.
+        barrier();
+    }
+
+    if (valid_query) {
+        if (subgroupElect()) {
+            sh_m[g] = m_part;
+            sh_l[g] = l_part;
+        }
+        for (uint j = 0u; j < dpl; j++) {
+            sh_acc[g * p.head_dim + lane + j * S] = acc[j];
+        }
+    }
+    barrier();
+
+    if (valid_query && part == 0u) {
+        uint first_partial = query * partitions;
+        float m_all = -1e30;
+        for (uint part = 0u; part < partitions; part++) {
+            m_all = max(m_all, sh_m[first_partial + part]);
+        }
+        float l_all = 0.0;
+        for (uint part = 0u; part < partitions; part++) {
+            uint partial = first_partial + part;
+            l_all += sh_l[partial] * exp(sh_m[partial] - m_all);
+        }
+        for (uint j = 0u; j < dpl; j++) {
+            uint d = lane + j * S;
+            float value = 0.0;
+            for (uint part = 0u; part < partitions; part++) {
+                uint partial = first_partial + part;
+                value += sh_acc[partial * p.head_dim + d]
+                       * exp(sh_m[partial] - m_all);
+            }
+            o[row + h * p.head_dim + d] = float16_t(value / l_all);
+        }
+    }
+}

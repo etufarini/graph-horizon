@@ -553,7 +553,8 @@ crates/graph_horizon_engine/
 ├── build.rs (~175 righe produttive, orchestrazione shader)
 └── src/backend/vulkan/
     ├── kernels/attention/mod.rs (~185 righe produttive, dispatch attention)
-    ├── pipeline/mod.rs (~155 righe produttive, registry e capability gate)
+    ├── exec/profile/category.rs (~160 righe produttive, classificazione profiler)
+    ├── pipeline/mod.rs (~170 righe produttive, registry e capability gate)
     ├── pipeline/kernel.rs (~125 righe produttive, ABI pipeline)
     └── shaders/attention/
         ├── attention_prefill.comp (115 righe produttive, baseline categoria K)
@@ -634,3 +635,37 @@ Le architetture da separare sperimentalmente sono:
 
 Il gate del prototipo resta triplo: riduzione reale/proxy dei byte, tempo
 attention inferiore e costo di risorse/residenza quantificato.
+
+### MQ-A1 — K/V simultanei in shared, subgroup history-partitioned
+
+Prima architettura: `Q_TILE=2`, `KV_TILE=32`, 512 thread, subgroup 32 e otto
+subgroup per query. K e V F16 occupano insieme 16.384 byte shared; stati parziali
+e accumulatori portano il dichiarato totale a 33.024 byte/workgroup, contro
+16.640 byte della baseline wide. Ogni invocation conserva le stesse due array
+private FP32 da otto elementi della baseline (`Q` e output accumulator), quindi
+non duplica lo stato per query nell'invocation.
+
+Il modello del codice prova una sola lettura globale K e V per tile/query-pair:
+il traffico stimato 8K scende da 14,295396 a 7,148570 TB, −49,994%, e
+l'intensità teorica sale da 1 a 2 FLOP/byte. Non sono disponibili contatori DRAM,
+cache o occupancy: Nsight Systems dichiara la RTX 3060 non supportata per GPU
+metrics e Nsight Compute non profila Vulkan. La proxy compilata SPIR-V passa da
+124 a 151 istruzioni statiche (+21,8%), conserva due sole variabili-array private
+e passa da una barrier statica a tre; le prime due barrier vengono eseguite per
+ogni tile da 32 chiavi. Spill e registri ISA restano non misurabili.
+
+Misura 8K, un run senza warm-up dedicata perché il candidato è regressivo:
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-A1 | K+V shared, 8 subgroup history/query | 2 | 32 | 512/32 | 1 | 33.024 B | 2 array private × 8 FP32; 151 istruzioni SPIR-V | shared 1,98×; warp/WG invariati | 7,148570 TB | 123,14 GB/s | 58.051,43 ms | 0,882× | 52,72 | 155.392,95 ms | reject |
+
+La baseline comparabile è 51.206,35 ms attention, 54,93 tok/s e 149.138,63 ms
+wall. MQ-A1 peggiora attention dell'11,79% e tok/s del 4,02%; il modello di
+Amdahl predice 0,956× end-to-end e il wall misura 0,960×. Il tempo GPU non
+attention resta 96,53 s contro 97,07 s baseline, quindi la regressione è locale
+al kernel. Il dimezzamento dei byte è reale per costruzione, ma 33 KiB shared,
+barrier ogni 32 chiavi e minore parallelismo history per query riducono la banda
+utile abbastanza da perdere il beneficio. Il prossimo candidato separa le fasi
+K e V, dimezza la tile shared, materializza soltanto 32 score/query in shared e
+distribuisce le dimensioni output tra subgroup.

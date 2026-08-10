@@ -156,10 +156,12 @@ pub(crate) fn attention_prefill(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    let kernel = if reg.contains(Kernel::AttentionPrefillWide) {
-        Kernel::AttentionPrefillWide
+    let (kernel, rows) = if reg.contains(Kernel::AttentionPrefillTiled) {
+        (Kernel::AttentionPrefillTiled, n.div_ceil(2))
+    } else if reg.contains(Kernel::AttentionPrefillWide) {
+        (Kernel::AttentionPrefillWide, n)
     } else {
-        Kernel::AttentionPrefill
+        (Kernel::AttentionPrefill, n)
     };
     dispatch_2d(
         dev,
@@ -174,6 +176,6 @@ pub(crate) fn attention_prefill(
         ],
         &push,
         q_heads,
-        n,
+        rows,
     );
 }

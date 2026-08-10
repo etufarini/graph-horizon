@@ -690,3 +690,23 @@ iniziale e quattro eseguite per tile. Il minor live state/shared vince quindi su
 costo di sincronizzazione, ma il risultato 8K non supera ancora lo split-KV.
 `Q_TILE=4` è ora plausibile: mantiene 512 thread, assegna quattro subgroup sia ai
 key sia alle 128 dimensioni di ogni query e porta il traffico previsto a −75%.
+
+### MQ-B2 — quattro query, tile phased K→V
+
+`Q_TILE=4`, `KV_TILE=32`, WG 512: quattro subgroup per query partizionano i key
+e coprono esattamente le 128 dimensioni output su subgroup 32. Il totale shared
+sale soltanto a 9.776 byte e la proxy SPIR-V resta identica a B1: 161 istruzioni,
+cinque subgroup operation, nessuna variabile Function e quattro barrier/tile.
+
+| ID | Architettura | Q_TILE | KV_TILE | WG/subgroup | GQA reuse | Shared/WG | Registri/proxy | Occupancy/proxy | K/V stimati | Banda su byte stimati | Attention | Speedup attention | Tok/s | Wall | Decisione |
+|---|---|---:|---:|---|---:|---:|---|---|---:|---:|---:|---:|---:|---:|---|
+| MQ-B2 | phased K→V, output distribuito | 4 | 32 | 512/32 | 1 | 9.776 B | nessuna array Function; 1 accumulatore FP32 | shared −41% vs baseline; 16 warp/WG | 3,575158 TB | 91,81 GB/s | 38.940,93 ms | 1,315× | 60,31 | 135.821,35 ms | keep per sweep |
+
+Rispetto alla baseline 8K, MQ-B2 riduce attention del 23,95%, aumenta tok/s del
+9,79% e riduce wall dell'8,93%. Amdahl predice 1,090× end-to-end e il wall misura
+1,098×. La banda calcolata sui byte globali stimati scende perché il kernel
+esegue lo stesso lavoro aritmetico su un quarto dei byte; rapportata al lavoro
+logico originale è 367,10 GB/s. Il risultato prova insieme riduzione effettiva
+per costruzione, maggiore intensità (4 FLOP/byte) e beneficio attention. Prima
+del benchmark long-context viene provato `KV_TILE=64`: stesso traffico asintotico,
+metà barrier, ma 18.480 byte shared e loop score/V doppi.

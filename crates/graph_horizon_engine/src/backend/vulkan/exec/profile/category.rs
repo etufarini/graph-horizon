@@ -100,6 +100,7 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
+        | Kernel::AttentionPrefillTiledCoopQk
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
@@ -145,6 +146,7 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
+        | Kernel::AttentionPrefillTiledCoopQk
         | Kernel::AttentionPrefillInt8 => Some(Phase::Prefill),
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
@@ -210,6 +212,10 @@ mod tests {
     fn attention_and_reduction_select_command_phase() {
         assert!(matches!(
             phase(Kernel::AttentionPrefillWide),
+            Some(Phase::Prefill)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionPrefillTiledCoopQk),
             Some(Phase::Prefill)
         ));
         assert!(matches!(

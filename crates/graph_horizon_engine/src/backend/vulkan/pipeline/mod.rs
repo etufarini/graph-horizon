@@ -11,6 +11,7 @@ use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
 use super::device::Device;
+use crate::backend::vulkan::coopmat::CoopmatCaps;
 
 mod kernel;
 mod record;
@@ -61,6 +62,7 @@ const KERNELS: [Kernel; 26] = [
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
+const COOP_QK_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 4 + 8 * 3 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
@@ -83,9 +85,17 @@ fn supports_tiled_attention(
         && matches!(subgroup_size, 16 | 32 | 64)
 }
 
+fn supports_coop_qk_attention(tiled: bool, shared_bytes: u32, coop: CoopmatCaps) -> bool {
+    tiled
+        && shared_bytes >= COOP_QK_ATTENTION_SHARED_BYTES
+        && coop.available
+        && (coop.m, coop.n, coop.k) == (16, 16, 16)
+}
+
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let (wide_attention, tiled_attention, attention_1024) = Self::check_limits(dev)?;
+        let (wide_attention, tiled_attention, coop_qk_attention, attention_1024) =
+            Self::check_limits(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -107,6 +117,12 @@ impl PipelineRegistry {
                 map.insert(
                     Kernel::AttentionPrefillTiled,
                     record::build_one(dev, cache, Kernel::AttentionPrefillTiled)?,
+                );
+            }
+            if coop_qk_attention {
+                map.insert(
+                    Kernel::AttentionPrefillTiledCoopQk,
+                    record::build_one(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
                 );
             }
             if attention_1024 {
@@ -152,7 +168,7 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<(bool, bool, bool)> {
+    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool)> {
         // Required kernels use up to 256 invocations; optional attention variants
         // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // Query core limits and the default subgroup width in one properties chain.
@@ -178,9 +194,12 @@ impl PipelineRegistry {
             l.max_compute_work_group_size[0],
             l.max_compute_shared_memory_size,
         );
+        let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, vulkan11.subgroup_size);
+        let coop_qk = supports_coop_qk_attention(tiled, limits.2, dev.coopmat);
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
-            supports_tiled_attention(limits.0, limits.1, limits.2, vulkan11.subgroup_size),
+            tiled,
+            coop_qk,
             supports_attention_1024(limits.0, limits.1, limits.2),
         ))
     }
@@ -202,9 +221,11 @@ impl PipelineRegistry {
 #[cfg(test)]
 mod tests {
     use super::{
-        ATTENTION_1024_SHARED_BYTES, TILED_ATTENTION_SHARED_BYTES, WIDE_ATTENTION_SHARED_BYTES,
-        supports_attention_1024, supports_tiled_attention, supports_wide_attention,
+        ATTENTION_1024_SHARED_BYTES, COOP_QK_ATTENTION_SHARED_BYTES, TILED_ATTENTION_SHARED_BYTES,
+        WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024, supports_coop_qk_attention,
+        supports_tiled_attention, supports_wide_attention,
     };
+    use crate::backend::vulkan::coopmat::CoopmatCaps;
 
     #[test]
     fn wide_attention_requires_every_resource_limit() {
@@ -285,6 +306,36 @@ mod tests {
             512,
             TILED_ATTENTION_SHARED_BYTES,
             8,
+        ));
+    }
+
+    #[test]
+    fn coop_qk_attention_requires_exact_shape_and_shared_memory() {
+        let supported = CoopmatCaps {
+            available: true,
+            m: 16,
+            n: 16,
+            k: 16,
+        };
+        assert!(supports_coop_qk_attention(
+            true,
+            COOP_QK_ATTENTION_SHARED_BYTES,
+            supported,
+        ));
+        assert!(!supports_coop_qk_attention(
+            false,
+            COOP_QK_ATTENTION_SHARED_BYTES,
+            supported,
+        ));
+        assert!(!supports_coop_qk_attention(
+            true,
+            COOP_QK_ATTENTION_SHARED_BYTES - 1,
+            supported,
+        ));
+        assert!(!supports_coop_qk_attention(
+            true,
+            COOP_QK_ATTENTION_SHARED_BYTES,
+            CoopmatCaps { m: 8, ..supported },
         ));
     }
 }

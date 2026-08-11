@@ -49,25 +49,6 @@ void scale_min(uint sco, uint j, out uint sc, out uint mn) {
     }
 }
 
-float dequant_w(uint row, uint k, uint nsb) {
-    uint s = k >> 8u;
-    uint kk = k & 255u;
-    uint blk = (row * nsb + s) * 144u;
-    float d = hf(blk);
-    float dmin = hf(blk + 2u);
-    uint sco = blk + 4u;
-    uint qso = blk + 16u;
-    uint jb = kk >> 6u;
-    uint rem = kk & 63u;
-    uint sub = jb * 2u + (rem >> 5u);
-    uint l = rem & 31u;
-    uint byteval = gb(qso + jb * 32u + l);
-    uint qv = (rem < 32u) ? (byteval & 0xFu) : (byteval >> 4u);
-    uint sc, mn;
-    scale_min(sco, sub, sc, mn);
-    return d * float(sc) * float(qv) - dmin * float(mn);
-}
-
 void main() {
     uint tid = gl_LocalInvocationID.x;
     uint subgroup = tid / 32u;
@@ -91,13 +72,32 @@ void main() {
                 ? a[gcol * p.in_dim + kbase + kk]
                 : float16_t(0.0);
         }
-        for (uint li = tid; li < T * T; li += 64u) {
-            uint kk = li / T;  // K
-            uint nn = li % T;  // N (output row)
-            uint grow = row_base + nn;
-            bs[li] = (grow < p.out_dim)
-                ? float16_t(dequant_w(grow, kbase + kk, nsb))
-                : float16_t(0.0);
+        uint nn = tid % T;
+        uint kk0 = tid / T;
+        uint grow = row_base + nn;
+        if (grow < p.out_dim) {
+            uint k0 = kbase + kk0;
+            uint block = (grow * nsb + (k0 >> 8u)) * 144u;
+            uint rem256 = k0 & 255u;
+            uint rem64 = rem256 & 63u;
+            uint group = rem256 >> 6u;
+            uint sc, mn;
+            scale_min(block + 4u, group * 2u + (rem64 >> 5u), sc, mn);
+            float ds = hf(block) * float(sc);
+            float dm = hf(block + 2u) * float(mn);
+
+            // A 16-wide K tile cannot cross a 32-value scale group, so these
+            // four values share metadata while retaining their packed nibbles.
+            for (uint slot = 0u; slot < 4u; slot++) {
+                uint li = tid + slot * 64u;
+                uint rem = (rem64 + slot * 4u) & 63u;
+                uint packed = gb(block + 16u + group * 32u + (rem & 31u));
+                uint qv = (rem < 32u) ? (packed & 0xFu) : (packed >> 4u);
+                bs[li] = float16_t(ds * float(qv) - dm);
+            }
+        } else {
+            for (uint slot = 0u; slot < 4u; slot++)
+                bs[tid + slot * 64u] = float16_t(0.0);
         }
         barrier();
 

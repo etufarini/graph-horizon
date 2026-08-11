@@ -2,10 +2,11 @@
  * graph_horizon_engine — cooperative-matrix capability detection
  * Detects, for a chosen physical device, whether a usable VK_KHR_cooperative_matrix
  * shape exists for the measured NVIDIA prefill path: f16 inputs (A/B), f32
- * accumulation (C/result), and 32-wide subgroups. This file only DESCRIBES the capability — it owns no Vulkan
- * resource, issues no dispatch, and never panics or propagates an error: an absent
- * extension, a failed enumeration, or no matching shape all yield `available = false`,
- * so the caller silently falls back to the f16×f16 tiled GEMM.
+ * accumulation (C/result), and 32-wide subgroups. This file only DESCRIBES the
+ * capability — it owns no Vulkan resource, issues no dispatch, and never panics
+ * or propagates an error: an absent extension, a failed enumeration, or no
+ * matching shape all yield `available = false`, so the caller silently falls
+ * back to the f16×f16 tiled GEMM.
  *
  * The result feeds device bootstrap, which enables the extension only when
  * usable, and dense prefill routing, which checks the selected MMA tile.

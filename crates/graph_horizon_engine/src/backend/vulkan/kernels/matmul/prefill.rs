@@ -189,31 +189,16 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
-        let mut max_abs = 0.0f32;
-        let mut max_relative = 0.0f32;
-        let mut mean_abs = 0.0f32;
-        let mut mean_relative = 0.0f32;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
-            let relative = absolute / reference.abs().max(1e-6);
-            max_abs = max_abs.max(absolute);
-            max_relative = max_relative.max(relative);
-            mean_abs += absolute;
-            mean_relative += relative;
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
-        let count = expected.len() as f32;
-        eprintln!(
-            "batched Q4_K parity max_abs={max_abs} max_relative={max_relative} mean_abs={} mean_relative={}",
-            mean_abs / count,
-            mean_relative / count
-        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);

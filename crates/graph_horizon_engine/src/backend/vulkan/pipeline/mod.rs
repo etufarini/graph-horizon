@@ -133,10 +133,12 @@ impl PipelineRegistry {
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
             if dev.coopmat.available {
-                map.insert(
+                for k in [
                     Kernel::MatmulQ4KCoopmatF16Out,
-                    record::build_one(dev, cache, Kernel::MatmulQ4KCoopmatF16Out)?,
-                );
+                    Kernel::MatmulQ6KCoopmatF16Out,
+                ] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
             }
             if dev.dp4a {
                 map.insert(

@@ -12,18 +12,24 @@ pub(super) const LAYER_LIMIT: usize = 128;
 #[derive(Clone, Copy)]
 pub(super) enum MatmulPath {
     Q4Coopmat,
+    Q6Coopmat,
     Q4Fallback,
     Q6Fallback,
 }
 
 impl MatmulPath {
-    pub(super) const COUNT: usize = 3;
-    pub(super) const ALL: [Self; Self::COUNT] =
-        [Self::Q4Coopmat, Self::Q4Fallback, Self::Q6Fallback];
+    pub(super) const COUNT: usize = 4;
+    pub(super) const ALL: [Self; Self::COUNT] = [
+        Self::Q4Coopmat,
+        Self::Q6Coopmat,
+        Self::Q4Fallback,
+        Self::Q6Fallback,
+    ];
 
     pub(super) const fn name(self) -> &'static str {
         match self {
             Self::Q4Coopmat => "matmul_q4k_coopmat_f16",
+            Self::Q6Coopmat => "matmul_q6k_coopmat_f16",
             Self::Q4Fallback => "matmul_q4k_batch_f16",
             Self::Q6Fallback => "matmul_q6k_batch_f16",
         }
@@ -32,6 +38,7 @@ impl MatmulPath {
     const fn from_kernel(kernel: Kernel) -> Option<Self> {
         match kernel {
             Kernel::MatmulQ4KCoopmatF16Out => Some(Self::Q4Coopmat),
+            Kernel::MatmulQ6KCoopmatF16Out => Some(Self::Q6Coopmat),
             Kernel::MatmulQ4KBatchF16Out => Some(Self::Q4Fallback),
             Kernel::MatmulQ6KBatchF16Out => Some(Self::Q6Fallback),
             _ => None,

@@ -53,7 +53,19 @@ pub(crate) fn matmul_batched_q4k(
         && coopmat_shape(in_dim)
     {
         trace::log_batched_path_once(true);
-        super::super::coopmat::dispatch_coopmat(dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps);
+        super::super::coopmat::dispatch_coopmat(
+            dev,
+            reg,
+            cmd,
+            out,
+            a,
+            w,
+            in_dim,
+            out_dim,
+            n,
+            caps,
+            Kernel::MatmulQ4KCoopmatF16Out,
+        );
         return;
     }
     trace::log_batched_path_once(false);
@@ -88,6 +100,30 @@ pub(crate) fn matmul_batched_q6k(
     out_dim: u32,
     n: u32,
 ) {
+    let caps = dev.coopmat;
+    if coopmat_enabled()
+        && w.quant == WeightFormat::Q6K
+        && caps.available
+        && caps.m == 16
+        && caps.n == 16
+        && caps.k == 16
+        && coopmat_shape(in_dim)
+    {
+        super::super::coopmat::dispatch_coopmat(
+            dev,
+            reg,
+            cmd,
+            out,
+            a,
+            w,
+            in_dim,
+            out_dim,
+            n,
+            caps,
+            Kernel::MatmulQ6KCoopmatF16Out,
+        );
+        return;
+    }
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());
@@ -221,10 +257,10 @@ mod tests {
                 return;
             }
         };
-        let in_dim = 256usize;
+        let in_dim = 3072usize;
         let out_dim = 70usize;
         let rows = 5usize;
-        let mut qbytes = vec![0u8; out_dim * 210];
+        let mut qbytes = vec![0u8; out_dim * (in_dim / 256) * 210];
         for (block_index, block) in qbytes.chunks_exact_mut(210).enumerate() {
             for (index, byte) in block[..192].iter_mut().enumerate() {
                 *byte = (index as u8)

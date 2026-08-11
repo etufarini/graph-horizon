@@ -110,6 +110,7 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::MatmulQ4KBatchF16Out
         | Kernel::MatmulQ6KBatchF16Out
         | Kernel::MatmulQ4KCoopmatF16Out
+        | Kernel::MatmulQ6KCoopmatF16Out
         | Kernel::QuantAQ8F16
         | Kernel::MatmulQ4KMmvqF16Out => Category::Matmul,
         Kernel::Logits | Kernel::LogitsQ4K | Kernel::LogitsQ5K | Kernel::LogitsQ6K => {
@@ -137,6 +138,7 @@ const fn is_projection_matmul(kernel: Kernel) -> bool {
             | Kernel::MatmulQ4KBatchF16Out
             | Kernel::MatmulQ6KBatchF16Out
             | Kernel::MatmulQ4KCoopmatF16Out
+            | Kernel::MatmulQ6KCoopmatF16Out
             | Kernel::MatmulQ4KMmvqF16Out
     )
 }

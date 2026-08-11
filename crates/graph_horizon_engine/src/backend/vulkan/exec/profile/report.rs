@@ -5,7 +5,7 @@
  */
 
 use super::category::{Category, Phase};
-use super::summary::PhaseTotals;
+use super::summary::{MatmulPath, PhaseTotals};
 
 pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: f64) {
     eprintln!(
@@ -47,6 +47,23 @@ pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: 
                 average,
                 totals.category_groups[index],
             );
+            for path in MatmulPath::ALL {
+                let path_count = totals.matmul_path_count[index][path as usize];
+                if path_count == 0 {
+                    continue;
+                }
+                let path_ms = totals.matmul_path_ms[index][path as usize];
+                eprintln!(
+                    "vulkan_profile phase={} category={} matmul_path={} gpu_ms={:.3} pct={:.2} invocations={} avg_ms={:.6}",
+                    phase.name(),
+                    category.name(),
+                    path.name(),
+                    path_ms,
+                    path_ms / total_ms * 100.0,
+                    path_count,
+                    path_ms / path_count as f64,
+                );
+            }
         }
         let mut layers = totals
             .layer_ms

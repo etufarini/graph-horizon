@@ -27,7 +27,7 @@ fn coopmat_enabled() -> bool {
 }
 
 fn coopmat_shape(in_dim: u32) -> bool {
-    matches!(in_dim, 3072 | 9216)
+    matches!(in_dim, 3072 | 4096 | 9216)
 }
 
 pub(crate) fn matmul_batched_q4k(
@@ -48,8 +48,9 @@ pub(crate) fn matmul_batched_q4k(
         && caps.m == 16
         && caps.n == 16
         && caps.k == 16
-        // Only the measured 3B projection/MLP K dimensions select coopmat. In
-        // particular K=4096 output projection regresses and keeps the fallback.
+        // Only measured 3B projection/MLP K dimensions select coopmat. K=4096
+        // is viable with the retained two-subgroup B reuse; the earlier
+        // one-subgroup candidate for that shape had regressed.
         && coopmat_shape(in_dim)
     {
         trace::log_batched_path_once(true);
@@ -162,7 +163,9 @@ mod tests {
                 return;
             }
         };
-        let in_dim = 3072usize;
+        // K=4096 is the output-projection route added after the original
+        // K=3072/9216 cooperative paths were already qualified.
+        let in_dim = 4096usize;
         let out_dim = 70usize;
         let rows = 37usize;
         let mut seed = 0x9e3779b9u32;
@@ -244,7 +247,7 @@ mod tests {
     fn cooperative_route_is_limited_to_measured_k_dimensions() {
         assert!(super::coopmat_shape(3072));
         assert!(super::coopmat_shape(9216));
-        assert!(!super::coopmat_shape(4096));
+        assert!(super::coopmat_shape(4096));
         assert!(!super::coopmat_shape(256));
     }
 

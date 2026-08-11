@@ -1095,3 +1095,199 @@ senza ampliare architettura, API, allocazioni o dipendenze.
 
 `docs_contract` resta escluso per lo stesso `VALIDATION.md` assente dalla
 baseline già documentato sopra; non è toccato da questo follow-up.
+
+## Refinement compute/serialization — 2026-08-11
+
+La baseline di questa fase è il commit pulito `2f7527e`; il risultato finale è
+`0b76273`. La tupla resta RTX 3060, driver 595.84, modello e SHA-256 dichiarati
+in apertura, Vulkan puro, KV F16, contesto 32.768, prompt `" a"` calibrato a N
+token e due token richiesti. La baseline fresca usa un campione per punto; il
+risultato finale usa una warm-up e tre repliche misurate. I timestamp finali del
+profiler aggregano quattro run e nelle tabelle sono divisi per quattro.
+
+### Nuova baseline end-to-end e gate
+
+| Prompt | GPU prefill | Attention | MLP | Proiezioni | Norm + RoPE | Altro | Attention/GPU |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 26.353,698 ms | 1.987,565 ms | 16.114,869 ms | 7.655,844 ms | 257,029 ms | 338,391 ms | 7,54% |
+| 8K | 129.135,892 ms | 31.594,332 ms | 64.552,314 ms | 30.604,937 ms | 1.038,517 ms | 1.345,792 ms | 24,47% |
+| 16K | 323.619,555 ms | 127.715,823 ms | 129.524,453 ms | 61.589,954 ms | 2.079,264 ms | 2.710,061 ms | 39,46% |
+| 28K | 715.051,649 ms | 376.913,813 ms | 223.207,666 ms | 106.728,252 ms | 3.551,964 ms | 4.649,954 ms | 52,71% |
+
+Attention non è il maggiore componente a 2K/8K e a 16K è appena sotto MLP;
+resta però il maggiore componente singolo a 28K. Il gate ha quindi autorizzato
+solo candidati attention semplici con un upper bound end-to-end credibile. Dopo
+le due patch mantenute, l'insieme dei sette matmul batched supera attention anche
+a 28K: 50,99% contro 47,74%. MLP è già dominante da 2K a 16K.
+
+### Attribuzione intra-kernel e dependency graph
+
+Il kernel contiene cinque siti SPIR-V `OpControlBarrier`: uno dopo
+l'inizializzazione di Q/stato e quattro per ogni KV tile, dopo K staging, QK,
+V staging e AV. Tutti e quattro i barrier nel loop sono workgroup-wide: i dati
+sono prodotti da invocation diverse da quelle che li consumano e lo stesso tile
+shared viene sovrascritto nella fase successiva. Subgroup scope non preserva
+queste dipendenze. L'ablation `KV_TILE=32` già acquisita assegna 5,00% della
+baseline ai barrier espliciti, pari al 6,13% del kernel finale perché il numero
+dei barrier non cambia mentre il kernel si accorcia.
+
+Per un full tile sulla RTX 3060:
+
+| Fase | Operazioni / KV tile | Catena dipendente | Lavoro indipendente / esito |
+|---|---|---|---|
+| K staging | 16 load F16 per invocation | indirizzo per iterazione nella baseline | dimensione lane invariata; tre divisioni hot complessive eliminate fra Q/K/V |
+| QK | 32 key per subgroup, 4 prodotti FP32/lane per dot | 4 add/mul più subgroup reduction e scale | dot di key diverse; lo split pari/dispari QK precedente diede solo −0,89% |
+| max | 2 score/lane più `subgroupMax` | 2 max e una reduction | 32 lane e otto query indipendenti |
+| exp/sum | 2 score exp/lane più un alpha exp/lane | 2 add per lane, `subgroupAdd`, un update `(m,l)` | otto softmax subgroup indipendenti; due stati online diedero solo −0,56% |
+| V staging | 16 load F16 per invocation | come K nella baseline | si sovrappone al softmax, poi barrier workgroup |
+| AV baseline | 64 FMA per dimensione, 2 dimensioni/invocation | 2 catene da 32 FMA | due segmenti output indipendenti |
+| AV finale | stesso lavoro matematico | 4 catene da 16 FMA con merge bilanciato | quattro catene coprono la latenza FMA senza cambiare traffico |
+| output | 2 divisioni e store F16/invocation | normalizzazione finale | costo O(N), sotto la risoluzione rispetto al loop O(N²) |
+
+La stima di lavoro per lo scheduler è una FMA FP32 dipendente ogni circa quattro
+cicli e una warp instruction emettibile per ciclo/scheduler: servono quindi
+circa quattro catene indipendenti per coprire la latenza. Non è un contatore ISA
+del driver, ma predice il risultato dello sweep: una catena era la baseline
+precedente a `b268e8b`, due catene hanno dato −5,53–6,23% attention, quattro
+catene danno un ulteriore −4,37–4,69% senza spill e con un solo registro in più.
+
+L'interleaving già sicuro è V staging in parallelo alla trasformazione softmax
+dei subgroup eletti. AV deve invece attendere pesi e V, mentre QK del tile
+successivo richiede di sovrascrivere la stessa `sh_tile`: anticiparlo esige un
+secondo fragment shared o ownership differente. Con tutti i barrier limitati al
+6,13% locale e shared già esclusa come collo, il suo upper bound non giustifica
+il buffering e il controllo aggiuntivi. Per lo stesso motivo non è stata riaperta
+la pipeline K/V simultanea già falsificata.
+
+L'attribuzione sottrattiva finale usa lo stesso metodo causale della baseline.
+Non è un contatore hardware di stall; il driver non espone tali contatori sul
+percorso Vulkan. La quota residua `dependency/control` resta volutamente
+combinata perché subgroup reduction, lane inattive, controllo e phase wait non
+sono separabili con gli strumenti disponibili.
+
+| Limite finale | Quota attention | Evidenza |
+|---|---:|---|
+| QK compute/issue | 45,05% | ablation QK baseline, byte e lavoro invariati |
+| AV compute/issue | 28,37% | ablation AV corretta per il guadagno AV4 |
+| trascendentali | 0,64% | ablation lineare delle `exp`, costo assoluto invariato |
+| dependency serialization + control residui | 18,60% | residuo dopo le ablation e la rimozione degli indici costosi |
+| sincronizzazione esplicita | 6,13% | sweep barrier-density 32/64 |
+| global/cache | 1,21% | hot-set baseline, byte globali invariati |
+
+Il profilo sintetico delle `exp` conta una chiamata per score e un alpha
+ridondante per lane del subgroup softmax: 1,515 / 1,504 / 1,502 / 1,501 chiamate
+per coppia causale a 2K/8K/16K/28K, rispettivamente 2,645 / 41,988 / 167,729 /
+489,601 miliardi di invocation shader. Nonostante il numero elevato, sostituire
+tutte le `exp` aveva ridotto attention soltanto dello 0,52%; eliminare solo gli
+alpha ridondanti ha quindi un upper bound locale inferiore a 0,2%.
+
+### Instruction-level findings
+
+Shaderc ottimizzato è usato come rappresentazione statica comparabile; la build
+runtime continua a lasciare l'ottimizzazione finale al driver. Il driver espone
+statistiche eseguibili ma non testo ISA NVIDIA né contatori di stall Vulkan.
+
+| SPIR-V statico ottimizzato | Baseline | Finale |
+|---|---:|---:|
+| byte binary | 9.436 | 10.116 |
+| siti instruction nel body | 457 | 492 |
+| `OpUDiv` | 7 | 4 |
+| `OpIMul` | 31 | 30 |
+| `OpISub` | 8 | 5 |
+| shift + mask | 0 | 6 |
+| FP add / mul | 7 / 6 | 11 / 8 |
+| conversioni F16→FP32 | 5 | 7 |
+| subgroup add / max / elect | 2 / 1 / 2 | invariati |
+| barrier | 5 | 5 |
+
+Il totale statico cresce per le quattro catene AV e non predice da solo il
+tempo: la modifica vincente elimina tre divisioni dinamiche nei loop Q/K/V e
+aggiunge ILP FP32. SPIR-V esprime mul/add separati; l'eventuale fusione FMA è una
+decisione del driver. Le statistiche driver finali sono subgroup 32, 40
+registri/thread, stack 0, 20.576 B shared/workgroup e binary 16.640 B. Contro i
+39 registri della baseline mantenuta, tre workgroup da 512 richiedono 61.440
+registri e 61.728 B shared: restano 48 warp/SM e 100% occupancy thread.
+
+Q, K e V restano F16 in storage; QK, max, argomento exp, somma softmax, AV e
+normalizzazione restano FP32. Ridurli a F16 allungherebbe il percorso numerico e
+non attacca il limite misurato. FP16 dot/cooperative matrix sono esposti dal
+device, ma interessano soprattutto QK, il cui candidato ILP precedente è stato
+falsificato e il cui layout ridotto non giustifica un nuovo percorso hardware.
+
+### Esperimenti e Amdahl a due livelli
+
+| ID | Target | Ipotesi | Delta locale | Delta totale | Esito |
+|---|---|---|---:|---:|---|
+| IDX128 | address/issue | specializzare head dimension e usare shift/mask | −15,12% 2K; −14,14% 8K attention | −1,65% 2K; −3,57% 8K wall | keep `650579a` |
+| AV4 | dependency AV | quattro catene nascondono la latenza FMA | −4,69% 2K; −4,37% 8K incrementale | −0,76% 2K; −1,17% 8K wall | keep `0b76273` |
+| ADDR-IND | addressing | cache pointer incrementale | −0,59% attention 2K | −0,28% wall | reject, entro rumore/complessità |
+| SOFT2 | online softmax | due stati alternati spezzano la recurrence | −0,56% attention 2K | non attribuibile oltre rumore | reject, +10,7% SPIR-V e barriera finale |
+| QK2 precedente | QK dependency | due catene nel dot | −0,89% attention | insignificante | reject |
+| BAR-SCOPE | barrier | restringere scope | upper bound 5,00% attention per tutti i barrier | ≤2,64% a 28K se eliminati tutti | reject semantico; producer/consumer workgroup-wide |
+
+Per IDX128, Amdahl kernel prevede circa 14–15% perché rimuove tre divisioni hot;
+la misura è 14,14–15,12%. A 8K, `24,47% × 14,14% = 3,46%` GPU prefill,
+coerente con −3,57% wall. Per AV4, AV valeva 27,12% attention e il guadagno
+incrementale di 4,37% attention equivale a circa 1,19× sulla sola porzione AV;
+al livello prefill vale circa 0,9% GPU a 8K e circa 2% al vecchio mix 28K.
+
+Riepilogo delle due catene richieste: AV baseline di fase è due accumulatori da
+32 FMA, AV best è quattro da 16 con merge bilanciato; online-softmax baseline è
+un solo stato stabile `(m, l, o)` aggiornato una volta per tile. Il best provato
+a due stati alternati misura appena −0,56% attention, aggiunge 10,7% di SPIR-V e
+una merge/barriera finale: il best mantenuto resta quindi lo stato singolo.
+
+### Risultato finale ripetuto
+
+| Prompt | Attention baseline | Attention finale | Delta attention | Wall baseline | Wall finale | Delta wall | Tok/s baseline/finale | Delta tok/s | CV finale |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 1.987,565 ms | 1.621,397 ms | −18,42% | 26.593,88 ms | 26.157,68 ms | −1,64% | 77,01 / 78,29 | +1,66% | 0,04% |
+| 8K | 31.594,332 ms | 26.102,069 ms | −17,38% | 129.940,00 ms | 124.677,93 ms | −4,05% | 63,04 / 65,71 | +4,24% | 0,03% |
+| 16K | 127.715,823 ms | 104.551,929 ms | −18,14% | 325.186,73 ms | 302.106,96 ms | −7,10% | 50,38 / 54,23 | +7,64% | 0,01% |
+| 28K | 376.913,813 ms | 307.360,813 ms | −18,45% | 717.678,20 ms | 646.633,07 ms | −9,90% | 39,01 / 43,30 | +11,00% | 0,01% |
+
+Breakdown GPU finale:
+
+| Prompt | GPU prefill | Attention | MLP | Proiezioni | Norm + RoPE | Altro |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 25.887,074 ms | 6,26% | 62,09% | 29,37% | 0,99% | 1,29% |
+| 8K | 123.807,547 ms | 21,08% | 52,25% | 24,74% | 0,84% | 1,09% |
+| 16K | 300.431,986 ms | 34,80% | 43,12% | 20,49% | 0,69% | 0,90% |
+| 28K | 643.828,076 ms | 47,74% | 34,52% | 16,47% | 0,55% | 0,72% |
+
+Decode finale è 31,41 / 19,68 / 13,01 / 8,87 tok/s a 2K/8K/16K/28K,
+rispettivamente −0,41% / +0,51% / +0,46% / +0,23% contro i controlli baseline:
+nessuna regressione oltre la soglia 5%.
+
+Il test focalizzato conserva identità esatta F16/INT8 fra prefill e decode
+sequenziale. Contro CPU F16, i massimi restano `2,94e-5` attention e `3,37e-6`
+logits; i massimi mean absolute sono `5,52e-6` e `6,22e-7`, e i massimi mean
+relative `1,66e-4` e `7,66e-3` per logits prossimi allo zero.
+
+### Stop condition e prossimo componente
+
+Attention resta il maggiore kernel singolo soltanto a 28K, ma non è più il
+maggiore candidato pratico end-to-end. MLP domina fino a 16K e tutti i matmul
+batched insieme valgono 50,99% anche a 28K. Le restanti leve attention hanno
+upper bound misurati piccoli: tutte le exp 0,64% finale, tutti i barrier 6,13%
+ma workgroup-wide, multi-state softmax 0,56%, address induction 0,59%, QK split
+0,89%. Percorsi mixed/native o una pipeline K/V più complessa hanno quindi un
+rapporto guadagno/complessità peggiore del matmul batched.
+
+La maggiore catena residua è QK (45,05% attention), ma il candidato semplice è
+già falsificato; il maggiore componente successivo da profilare è il matmul
+batched condiviso da MLP e proiezioni, iniziando da MLP gate/up/down. Questa
+conclusione soddisfa il gate di abbandono del micro-tuning attention.
+
+### Verifica finale refinement
+
+- `cargo fmt --all -- --check`: pass;
+- `git diff --check`: pass;
+- Clippy `--all-targets -D warnings`, feature `vulkan-profile`: pass;
+- suite library `vulkan-profile`: 144 pass, 2 test autenticati ignorati;
+- suite semantica Vulkan: 12 pass, 1 test autenticato ignorato;
+- family-agnostic: 4 test eseguibili pass, 1 autenticato ignorato;
+- build release del benchmark `vulkan-profile`: pass.
+
+`docs_contract` resta escluso per il `VALIDATION.md` assente già registrato nella
+baseline; nessuna modifica di questa fase interessa quel contratto.

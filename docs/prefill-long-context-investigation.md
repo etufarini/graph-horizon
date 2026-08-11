@@ -1291,3 +1291,215 @@ conclusione soddisfa il gate di abbandono del micro-tuning attention.
 
 `docs_contract` resta escluso per il `VALIDATION.md` assente già registrato nella
 baseline; nessuna modifica di questa fase interessa quel contratto.
+
+## Follow-up MLP e matmul batched — RTX 3060, 2026-08-11
+
+Questa fase parte dal risultato attention `937e630` su un worktree pulito e dal
+branch dedicato `perf/vulkan-prefill-mlp`. La tupla resta RTX 3060, driver
+595.84, Vulkan puro, contesto 32.768, KV F16 e lo stesso modello 3B/SHA-256
+dichiarato sopra. Il candidato mantenuto è `d150a8b`. Attention non è stata
+modificata e compare soltanto come controllo di regressione.
+
+### Baseline e scomposizione
+
+Un nuovo run pulito, prima di ogni modifica produttiva, ha confermato la
+baseline pubblica precedente. I tempi seguenti sono un singolo campione
+diagnostico; la tabella finale usa invece una warm-up e tre ripetizioni per
+entrambi gli stati.
+
+| Prompt | Wall / TTFT | Tok/s | GPU prefill | Attention | Q | K | V | Output | Gate | Up | Down |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 26.179,41 | 78,23 | 25.941,864 | 1.622,435 | 2.761,351 | 1.156,087 | 1.177,712 | 2.533,106 | 5.230,623 | 5.270,245 | 5.594,160 |
+| 8K | 124.247,09 | 65,93 | 123.436,659 | 26.005,422 | 11.013,840 | 4.652,656 | 4.704,056 | 10.192,506 | 21.011,054 | 21.103,188 | 22.377,475 |
+| 16K | 301.792,60 | 54,29 | 300.219,932 | 104.629,313 | 22.084,942 | 9.294,223 | 9.400,139 | 20.689,502 | 42.259,213 | 42.266,612 | 44.833,115 |
+| 28K | 646.346,73 | 43,32 | 643.699,316 | 307.257,846 | 37.847,519 | 15.918,701 | 16.086,594 | 36.181,669 | 72.854,456 | 72.632,335 | 76.734,136 |
+
+A 28K i sette matmul valgono 328.255,410 ms, cioè 50,99% del GPU
+prefill; attention vale 47,73%. Gate/up/down da soli valgono 222.220,927 ms
+(34,52%). Norm e RoPE valgono 3.548,593 ms; embedding, logits, KV write,
+elementwise e residuo GPU completano il profilo, attribuito al 99,94%.
+
+Il profiler iniziale aggregava `silu_mul` e residual. La sola modifica
+diagnostica che li separa misura a 2K 18,133 ms di attivazione e 13,633 ms di
+residual; l'attivazione è appena 0,07% del GPU prefill. Il costo cresce
+linearmente e raggiunge circa 0,25 s a 28K, confermato dal candidato finale
+(253,212 ms). Questo separa esplicitamente gate, up, attivazione e down senza
+attribuire al SiLU il costo dei tre GEMM.
+
+### Inventario dei matmul reali
+
+Ogni layer riceve chunk FP16 di `M=32`; a 28K sono 875 chunk e 22.750
+invocazioni per operazione. Input e output sono FP16, l'accumulatore è FP32. Le
+weight sono row-major in super-block quantizzati, non materializzate in un
+buffer dequantizzato: Q4_K usa 144 byte per 256 pesi, Q6_K 210 byte.
+
+| Ordine 28K | Operazione | M×N×K per invocazione | Quantizzazione nei 26 layer | GPU ms | TFLOP/s effettivi | GB/s logici minimi |
+|---:|---|---|---|---:|---:|---:|
+| 1 | MLP down | 32×3072×9216 | 13 Q4_K + 13 Q6_K | 76.734,136 | 0,537 | 6,04 |
+| 2 | MLP gate | 32×9216×3072 | 26 Q4_K | 72.854,456 | 0,566 | 5,22 |
+| 3 | MLP up | 32×9216×3072 | 26 Q4_K | 72.632,335 | 0,568 | 5,23 |
+| 4 | Q projection | 32×4096×3072 | 26 Q4_K | 37.847,519 | 0,484 | 4,53 |
+| 5 | output projection | 32×3072×4096 | 26 Q4_K | 36.181,669 | 0,506 | 4,74 |
+| 6 | V projection | 32×1024×3072 | 13 Q4_K + 13 Q6_K | 16.086,594 | 0,285 | 3,45 |
+| 7 | K projection | 32×1024×3072 | 26 Q4_K | 15.918,701 | 0,288 | 2,90 |
+
+Gate/up/down eseguono ciascuno 1,812 GFLOP per invocazione; Q/output 0,805
+GFLOP, K/V 0,201 GFLOP. Per gate/up il minimo logico per invocazione è 15,925
+MiB di weight più 0,786 MiB di input/output; down usa in media 19,575 MiB di
+weight più 0,786 MiB di I/O. L'intensità gate è circa 108 FLOP/byte, ben oltre
+il crossover roofline teorico della RTX 3060, ma raggiunge soltanto il 4–5% del
+picco FP32. Anche i 2,9–6,0 GB/s logici sono lontani dalla banda DRAM. Il limite
+non è quindi la banda globale pura: il kernel generico spende issue in FMA
+scalari, unpack/dequant Q4/Q6, indirizzamento, shared-memory e barrier.
+
+Il kernel generico usa tile `M=32, N=64, K=32`, workgroup 256 e dequantizza
+ogni weight Q4_K una volta in shared per il batch. I layout sono già contigui
+per riga quantizzata; cambiare layout o materializzare pesi FP16 aumenterebbe
+memoria e traffico senza attaccare il limite misurato.
+
+### Intermedi MLP e gate/up fusion
+
+Un tensore intermedio `[prompt,9216]` FP16 occupa 36 / 144 / 288 / 492,188
+MiB a 2K/8K/16K/28K. Non è tutto residente contemporaneamente per layer: gli
+scratch sono riusati, ma il traffico logico corrente è otto volte la sua
+dimensione per layer:
+
+1. gate e up scrivono due tensori (`2S`);
+2. SiLU legge entrambi, scrive l'attivazione e la copia volatile necessaria a
+   preservare l'esatto arrotondamento, poi rilegge e riscrive l'output (`5S`
+   complessivi nella fase);
+3. down rilegge l'attivazione (`S`), oltre alle letture già incluse sopra.
+
+Il totale è `8S`, 107,348 GB sui 26 layer a 28K. Una fusione gate+up+SiLU
+potrebbe eliminare al massimo `6S`, 80,511 GB, più 4,473 GB di seconda lettura
+dell'input condiviso. Tuttavia il kernel SiLU misurato costa soltanto ~0,25 s;
+il residuo GPU che include barrier e dispatch è 0,36 s su 1,804 milioni di
+dispatch. Anche attribuendo in modo irrealisticamente favorevole tutti questi
+costi alla fusione, l'upper bound è sotto 0,4 s: meno dello 0,06% del GPU
+prefill e dello 0,2% del tempo MLP a 28K.
+
+La fusione parziale non elimina il down né la dequantizzazione dominante; una
+fusione producer→down risparmierebbe soltanto gli ultimi `2S` (26,837 GB) e
+richiederebbe di mantenere o ricomputare un tile FFN molto ampio. Per questo non
+ha superato il gate Amdahl per un esperimento produttivo: il rischio di pressione
+registri, shader più complesso e semantica FP16 diversa è maggiore del beneficio
+massimo misurabile. L'intervento è stato concentrato sul GEMM stesso.
+
+### Esperimenti cooperative-matrix
+
+La RTX 3060 espone `VK_KHR_cooperative_matrix`, subgroup 32 e la forma
+16×16×16 FP16×FP16→FP32. Tutti i candidati mantengono accumulo FP32 e store
+FP16. L'uscita K=4096 è stata misurata separatamente, non inclusa per analogia.
+
+| Candidato 2K | Routing | Wall | Delta wall | Risultato locale |
+|---|---|---:|---:|---|
+| generico | tutti i matmul generici | 26.005,45 ms | — | baseline A/B del ciclo |
+| MMA-1-all | un subgroup per tile, include output K=4096 | 22.240,42 ms | −14,48% | MLP ~−20,7%, ma output +27%; reject routing |
+| MMA-1-select | un subgroup, solo K=3072/9216 | 21.605,51 ms | −16,92% | MLP ~−20,7%, proiezioni ~−15,3% |
+| MMA-2-select | due subgroup condividono B, K=3072/9216 | 16.065,68 ms | −38,22% | MLP −45,7%, proiezioni −34,6%; keep |
+
+Il candidato mantenuto assegna allo stesso workgroup due tile M16 adiacenti.
+I due subgroup caricano A separatamente ma condividono un tile B dequantizzato:
+tile effettivo `M=32, N=16, K=16`, workgroup 64 e griglia
+`ceil(M/32) × ceil(N/16)`. Usa 3.584 byte shared/workgroup: 1.024 byte A,
+512 byte B e 2.048 byte C. I tail M/N sono azzerati e gli store sono guardati;
+K è multiplo del super-block Q4_K e non ha tail.
+
+Le statistiche eseguibili NVIDIA riportano subgroup 32, 34 registri/thread,
+stack 0, 3.584 byte shared e binary 33.920 byte. Con 2.176 registri e 3,5 KiB
+per workgroup, registri e shared non limitano la residenza; il limite di 16
+workgroup/SM dà 1.024 thread, 32 warp, cioè 66,7% dell'occupancy thread
+modellata. Non sono contatori di stall: Nsight non espone GPU metrics su questa
+scheda tramite il percorso disponibile.
+
+Il riuso fra i due subgroup dimezza l'unpack rispetto al candidato MMA a un
+subgroup, che doveva dequantizzare la stessa B due volte per le 32 righe. Non
+riduce invece il carico teorico sotto il kernel generico, che già carica ogni
+weight una volta per batch: il guadagno viene dalla sostituzione delle FMA
+scalari con MMA native e dal riuso necessario a rendere efficiente quel tiling.
+
+Il routing è volutamente stretto: Q4_K, device NVIDIA `0x10de`, subgroup 32,
+forma esatta 16×16×16 e `K=3072` o `K=9216`. Q, K, gate e up usano il nuovo
+kernel; i 13 down Q4_K lo usano, mentre i 13 down Q6_K e tutte le V Q6_K
+mantengono il kernel generico. Output K=4096 resta generico per la regressione
+misurata. Device, forma o formato non supportati fanno fallback silenzioso.
+`GRAPH_HORIZON_PREFILL_COOPMAT=0` disabilita il percorso per A/B e recovery;
+il decode non attraversa questo routing.
+
+### Correttezza
+
+Il test CPU-oracle del matmul Q4_K usa `K=3072`, `M=37`, `N=70`, quindi
+esercita il percorso mantenuto e i tail su entrambi gli assi. Ha misurato
+`max_abs=4,442383`, `max_relative=4,7589e-4`, `mean_abs=1,962477` e
+`mean_relative=1,9103e-4`; il grande errore assoluto riflette i valori sintetici
+di riferimento, mentre tutti gli elementi rispettano `abs <= 0,05` oppure
+`rel <= 0,5%`. Il test Q6_K CPU-oracle continua a passare sul fallback.
+
+La suite library `vulkan-profile` passa 145 test con due test autenticati
+ignorati. Il profiler passa i tre test di attribuzione e un run reale 2K con KV
+INT8 completa il prefill senza valori non finiti: 18.861,40 ms, 108,58 tok/s,
+18.641,161 ms GPU; il routing MMA è visibile su Q/K/gate/up e il decode resta
+sui kernel originali. La tupla prestazionale pubblica resta F16.
+
+La parità full-model con il server esterno pinned non è stata dichiarata pass:
+il repository richiede llama.cpp `13f2b28b`, mentre il solo eseguibile locale è
+`9bebfcb4b`. Il controllo si ferma correttamente come verifica esterna non
+disponibile. Le verifiche locali coprono direttamente gli output intermedi
+FP16 del matmul contro CPU, formati Q4/Q6, tail, fallback, KV F16/INT8 e prompt
+reali lunghi; nessun dato del server non pinned è stato usato come oracle.
+
+### Risultato finale ripetuto
+
+Una warm-up separata e tre ripetizioni misurate producono CV sotto 0,5% su ogni
+prompt:
+
+| Prompt | Wall baseline | Wall finale | Delta wall | Tok/s baseline/finale | Delta tok/s | CV finale | Decode baseline/finale |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 26.157,68 | 16.194,26 | −38,09% | 78,29 / 126,47 | +61,54% | 0,39% | 31,41 / 31,71 |
+| 8K | 124.677,93 | 85.002,95 | −31,82% | 65,71 / 96,37 | +46,66% | 0,32% | 19,68 / 19,42 |
+| 16K | 302.106,96 | 222.786,06 | −26,26% | 54,23 / 73,54 | +35,61% | 0,04% | 13,01 / 12,97 |
+| 28K | 646.633,07 | 511.075,56 | −20,96% | 43,30 / 54,79 | +26,54% | 0,02% | 8,87 / 8,83 |
+
+Breakdown GPU finale, media delle quattro esecuzioni profiler incluse warm-up e
+ripetizioni:
+
+| Prompt | GPU prefill | Attention | Q/K/V/output | Gate/up/act/down | Norm+RoPE | Altro |
+|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 15.934,967 | 1.619,477 | 4.980,917 | 8.755,185 | 262,090 | 317,298 |
+| 8K | 84.078,532 | 26.178,396 | 20.144,279 | 35.415,905 | 1.055,497 | 1.284,455 |
+| 16K | 221.168,461 | 104.825,171 | 40.591,226 | 71.076,177 | 2.112,058 | 2.563,829 |
+| 28K | 508.409,440 | 308.205,287 | 70.235,308 | 121.977,558 | 3.601,082 | 4.390,205 |
+
+A 28K attention è ora 60,62% del GPU prefill. MLP è 23,99%, proiezioni
+13,81%, norm+RoPE 0,70% e altro 0,88%. Attention cambia soltanto di +0,27%
+rispetto alla baseline ripetuta, entro la variabilità di un componente non
+modificato. Il decode cambia da +0,96% a −1,32% secondo il prompt, molto sotto
+la soglia di regressione 5%.
+
+I sette matmul scendono da 328.255,410 ms nella baseline pulita a 191.959,654
+ms nel finale 28K, −41,52% locale. Amdahl prevede `50,995% × 41,52% = 21,17%`
+di riduzione GPU; la misura ripetuta è −21,03% GPU e −20,96% wall. La
+coincidenza chiude l'attribuzione: il guadagno proviene dal matmul, non da
+attention, CPU recording o rumore.
+
+### Stop condition
+
+La condizione di arresto è soddisfatta: MLP e proiezioni insieme scendono dal
+50,99% al 37,80%, mentre attention sale al 60,62% ed è nuovamente il maggiore
+collo di bottiglia. Ulteriori fusioni MLP hanno un upper bound inferiore allo
+0,06% e Q6_K richiederebbe un nuovo kernel/rapporto numerico non giustificato
+dal target già raggiunto. Il maggiore limite residuo è quindi attention, già
+caratterizzato nelle sezioni precedenti; questa fase non lo riapre.
+
+### Verifica finale MLP
+
+- `cargo fmt --all -- --check`: pass;
+- `git diff --check`: pass;
+- Clippy `--all-targets -D warnings`, feature `vulkan-profile`: pass;
+- suite library `vulkan-profile`: 145 pass, 2 test autenticati ignorati;
+- test focalizzati matmul `vulkan-hybrid`: 3 pass;
+- family-agnostic: 4 pass, 1 autenticato ignorato, `docs_contract` fallisce
+  soltanto per il `VALIDATION.md` assente già presente nella baseline.
+
+Il probe temporaneo delle statistiche pipeline è stato rimosso; la build finale
+non stampa né richiede `VK_KHR_pipeline_executable_properties`.

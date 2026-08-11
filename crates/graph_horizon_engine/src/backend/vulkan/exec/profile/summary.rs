@@ -152,6 +152,10 @@ mod tests {
             Some(MatmulPath::Q4Coopmat)
         ));
         assert!(matches!(
+            MatmulPath::from_kernel(Kernel::MatmulQ6KCoopmatF16Out),
+            Some(MatmulPath::Q6Coopmat)
+        ));
+        assert!(matches!(
             MatmulPath::from_kernel(Kernel::MatmulQ4KBatchF16Out),
             Some(MatmulPath::Q4Fallback)
         ));

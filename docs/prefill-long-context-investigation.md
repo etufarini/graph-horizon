@@ -1534,6 +1534,21 @@ warm-up. La premessa è confermata: a 28K attention vale 308.379,017 ms, il
 | 16K | 222.708,16 ms | 73,57 | 0,03% | 221.073,370 ms | 104.760,976 ms | 47,39% | 12,99 |
 | 28K | 511.300,16 ms | 54,76 | 0,02% | 508.562,285 ms | 308.379,017 ms | 60,64% | 8,83 |
 
+Breakdown richiesto della baseline corrente:
+
+| Prompt | Attention GPU | Matmul GPU | Other GPU | Attention / Matmul / Other |
+|---:|---:|---:|---:|---:|
+| 2K | 1.621,662 ms | 13.719,298 ms | 598,667 ms | 10,17 / 86,07 / 3,76% |
+| 8K | 26.051,592 ms | 55.159,646 ms | 2.396,111 ms | 31,16 / 65,97 / 2,87% |
+| 16K | 104.760,976 ms | 111.497,963 ms | 4.814,432 ms | 47,39 / 50,43 / 2,18% |
+| 28K | 308.379,017 ms | 191.948,848 ms | 8.234,420 ms | 60,64 / 37,74 / 1,62% |
+
+La riga 8K completa una riga categoria troncata nell'output ripetuto con un
+controllo scalare singolo separato, stesso artefatto e tupla: total 83.607,349
+ms, attention 26.051,592 ms e sette matmul 55.159,646 ms. Le altre righe sono
+le medie fresche ripetute. `Other` include residuo profiler e tutte le categorie
+diverse da attention e dai sette matmul.
+
 Il gate Amdahl autorizza quindi una modifica QK: nella precedente attribuzione
 del kernel scalare QK era il primo limite, 45,05% attention. AV era 28,37%,
 dependency/control 18,60%, barrier espliciti 6,13%, global/cache 1,21% e
@@ -1605,6 +1620,13 @@ aritmetico residuo è AV, non QK. La classe dependency/control resta combinata:
 senza stall counter Vulkan non è corretto attribuirla artificialmente a branch,
 shared latency o attese di phase issue individuali.
 
+La classe dinamica dominante è quindi AV: load shared dello score e di V,
+conversione V FP16→FP32 e quattro catene da 16 multiply/add FP32. La catena
+aritmetica dipendente più lunga è una catena AV da 16 aggiornamenti; QK ha otto
+MMA dipendenti sullo stesso accumulatore, mentre softmax concatena max → `m_new`
+→ exp → sum → update `(m,l)` una volta per tile. Il principale issue limit è la
+combinazione AV scalar-FP32/shared-load e phase wait workgroup, non le exp.
+
 Il fast path causale preesistente evita il mask branch quando tutto il tile è
 visibile. Ponderato per score, copre 96,94 / 99,23 / 99,62 / 99,78% a
 2K/8K/16K/28K. Un nuovo candidato causal-full ha quindi upper bound inferiore
@@ -1652,6 +1674,23 @@ Per ogni coppia causale e testa, QK e AV eseguono ciascuno 256 FLOP; insieme
 token a 2K/8K/16K/28K. Il candidato esegue inoltre le otto righe QK padded; i
 valori restano deliberatamente il lavoro matematico utile, non le MMA emesse.
 
+Per un workgroup e un full KV tile il lavoro richiesto è 65.536 FMA QK e
+65.536 FMA AV, cioè 131.072 FLOP per fase. La forma cooperative emette 131.072
+FMA QK perché calcola 16 anziché 8 righe: il doppio del lavoro QK utile, ma su
+unità tensor. Softmax esegue 512 scale/max, 512 exp score, 256 exp `alpha`, otto
+`subgroupMax`, otto `subgroupAdd` e otto merge online. AV converte dinamicamente
+65.536 valori V FP16→FP32. Lo store finale normalizza e converte 1.024 output
+FP32→FP16. K e V caricano ciascuno 8.192 elementi globali F16 e riusano la
+stessa tile shared; quattro barrier per KV tile proteggono K, score, V e AV,
+oltre al barrier di inizializzazione per dispatch.
+
+Il lavoro matematicamente inevitabile è QK+AV sui pair causali, max/exp/sum e
+la normalizzazione stabile. L'overhead implementativo è il padding QK 2×, gli
+exp `alpha` per tutte le lane, gli indici/branch, gli store score shared e i
+barrier producer→consumer. Le misure mostrano però che rimuovere tutto il blocco
+softmax vale soltanto 1,80%; il padding MMA resta vantaggioso 3,117× sul QK
+scalare e i barrier sono necessari all'ownership corrente.
+
 | Prompt | TFLOP/s utili scalare | TFLOP/s utili cooperative |
 |---:|---:|---:|
 | 2K | 0,551 | 1,079 |
@@ -1689,7 +1728,35 @@ saturazione pura di DRAM o unità aritmetiche.
 L'accordo Amdahl chiude l'attribuzione. Il decode varia da −0,32% a +0,10%,
 molto sotto il limite 5%. Sullo screen 28K i sette matmul invariati valgono
 190.154,878 ms, 52,56% GPU, contro attention 45,17%: a livello sistema il
-collo maggiore torna all'insieme matmul; dentro attention AV è la prima classe.
+collo maggiore torna all'insieme matmul; `other` vale 8.222,364 ms, 2,27%.
+Dentro attention AV è la prima classe.
+
+### Registro delle ipotesi ordinate
+
+Prima dell'integrazione, il QK-only misurato prevedeva un risparmio di
+13.775,793 ms rispetto ai 26.144,495 ms attention 8K, upper bound −52,69%
+attention. Con le quote baseline ciò prevedeva −16,40% GPU a 8K e −31,95% a
+28K; il full kernel misura −47,20/−46,83% attention e −14,98/−28,60% GPU.
+
+| ID | Target e frazione | Ipotesi / cambio ISA | Registri / occupancy | 8K / 28K locale e totale | Correttezza | Decisione |
+|---|---|---|---|---|---|---|
+| QK-CM | QK, 45,05% scalare | loop FMA+reduction → 2 load + 1 MMA + 1 store cooperative | 40→40, 100%→100% | attention −47,20/−46,83%; GPU −14,98/−28,60% | F16/INT8/tail pass | keep `4fe17c9` |
+| CAUSAL-FULL | mask diagonale, 0,225% score a 28K | fast path è già presente; nessun cambio | invariati | upper bound <0,23% attention, <0,11% GPU | semantica invariata | reject prima della patch |
+| REDUCE | softmax completo, 1,80% candidato | shuffle/manual tree al posto di subgroup max/add | non misurati | upper bound <0,81% GPU 28K anche eliminando tutto | non eseguito | reject per Amdahl |
+| PIPE-MINI | dependency+barrier, 37,91% | prefetch frammento successivo durante compute | richiede nuovo live/shared state | removable fraction non dimostrata senza stall counter | non eseguito | defer: attention non è più target n.1 |
+| SPEC-2 | address/control residuo | fixed GQA e ulteriore unroll | rischio code-size; 4 `UDiv` statici | mapping GQA è fuori dal loop KV; precedente address induction −0,59% attention | path corrente pass | reject per operation count |
+| AV-CM | AV, 32,15% candidato | probabilities×V su MMA/native packed | forma richiede 16 righe e input F16 | ceiling ipotetico ~−21% attention, ~−9,7% GPU 28K | richiederebbe nuovo gate precisione | defer: conversione/materializzazione non giustificata nello scope corrente |
+| AV-VEC | AV, 32,15% candidato | vec2/vec4/packed FMA | SPIR-V resta scalar FP32; nessuna primitive provata | beneficio non dimostrato | non eseguito | defer insieme ad AV-CM |
+| EXP2 | softmax, 1,80% candidato | `exp2(x·log2(e))` | unknown | upper bound <0,81% GPU 28K | richiederebbe nuovo gate numerico | reject per Amdahl |
+
+La pipeline mini e AV native non sono dichiarate falsificate: sono direzioni
+future con rischio o informazione insufficiente. La condizione di arresto usata
+è la n.1 della missione, non il semplice successo architetturale: dopo QK-CM i
+matmul valgono 52,56% e attention 45,17% del GPU prefill 28K. Il prossimo target
+end-to-end evidence-led è quindi il matmul Q6_K batched (soprattutto down, poi
+V); se una fase futura riapre attention, AV-CM è l'ipotesi con upper bound più
+alto, ma deve preservare probabilità/accumulo FP32 o dimostrare separatamente il
+proprio errore.
 
 ### Correttezza, decisione e stop
 

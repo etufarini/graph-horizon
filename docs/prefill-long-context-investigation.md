@@ -981,3 +981,117 @@ obbligatoriamente `VALIDATION.md`, assente sia dal worktree sia dal tree Git del
 commit baseline `43f2da5`. È lo stesso limite documentato prima dell'esperimento
 e non è causato dal kernel. Lo stato finale conserva MQ-C1 e il report; tutti i
 candidati rigettati restano soltanto nella storia Git e nelle tabelle.
+
+## Follow-up MQ-C1 — attribuzione e latenza AV, 2026-08-11
+
+La nuova baseline richiesta è `9c1527f`. Prima di modificare il kernel è stato
+ripetuto un run pulito 8K, stessa tupla RTX 3060/F16/contesto 32.768 e un solo
+campione senza warm-up: 62,71 tok/s, 130.624,45 ms wall e 33.132,90 ms attention.
+Il timestamp attention differisce dello 0,10% dai 33.166,26 ms ripetuti di MQ-C1,
+quindi il profilo precedente è riproducibile. Il profiler attribuisce il 99,92%
+del GPU prefill; Nsight Systems conferma che questa RTX 3060 non espone GPU
+metrics e Nsight Compute non accetta il percorso Vulkan.
+
+### Risorse hardware e metodo causale
+
+Una query temporanea `VK_KHR_pipeline_executable_properties`, rimossa dallo
+stato finale, ha restituito per MQ-C1: subgroup 32, 38 registri/thread, stack
+0 B e 20.576 B shared/workgroup. La GPU espone 65.536 registri, 102.400 B shared
+e 1.536 thread per SM. Tre workgroup da 512 richiedono 58.368 registri prima
+dell'arrotondamento di allocazione e 61.728 B shared: la baseline raggiunge
+quindi 48 warp/SM, il 100% del limite thread, senza spill. Il candidato finale
+usa 39 registri, stack 0 e la stessa shared, restando alla stessa residenza.
+
+Le ablation usano 2K per contenere il costo, con lo stesso shader, griglia,
+traffico globale e numero di dispatch salvo la singola variabile dichiarata.
+Il timestamp baseline fresco è 2.049,345 ms. Sono diagnostiche non numericamente
+corrette e sono state rimosse; in particolare l'hot-set non è un nuovo candidato
+di riuso K/V.
+
+| Ablation | Attention | Delta | Interpretazione |
+|---|---:|---:|---|
+| baseline `KV_TILE=64` | 2.049,345 ms | — | 38 registri, 20.576 B shared, 3 WG/SM |
+| K/V hot-set, istruzioni invariate | 2.029,116 ms | −0,99% | upper bound global/cache stall |
+| `KV_TILE=32`, occupancy invariata | 2.151,849 ms | +5,00% | densità barrier circa doppia |
+| `KV_TILE=128`, 2 WG/SM | 2.153,376 ms | +5,08% | costo della residenza 66,7% nonostante metà barrier |
+| un prodotto QK/lane su quattro | 1.484,418 ms | −27,57% | QK completo estrapolato 36,75% |
+| una key AV per tile su 64 | 1.502,271 ms | −26,70% | AV completo estrapolato 27,12% |
+| softmax lineare dipendente dagli score | 2.038,738 ms | −0,52% | upper bound delle `exp` |
+
+A 8K il kernel richiede 14,2954 TFLOP QK+AV e, contando in modo conservativo
+ogni lettura score per lane prima del broadcast shared, 35,7385 TB shared. Le
+bande osservate sono soltanto 0,431 TFLOP/s e 1,079 TB/s: 3,4% del picco FP32
+e 16,7% del picco shared teorico di circa 6,45 TB/s. Gli accessi Q/K/V sono
+contigui per lane e gli score sono broadcast; non emerge un limite di bandwidth
+shared. Il traffico K/V stimato è 1,788 TB, 54 GB/s contro 360 GB/s globali
+teorici, coerente con l'hot-set quasi piatto.
+
+L'attribuzione sottrattiva assegna il 100% del tempo 2K, superando il gate 95%:
+
+| Limite | Quota GPU | Evidenza |
+|---|---:|---|
+| compute/issue QK + AV + SFU | 64,39% | ablation estrapolate 36,75% + 27,12% + 0,52% |
+| sincronizzazione/serializzazione interna | 34,62% | barrier 5,00% + residuo phased/subgroup 29,62% |
+| global bandwidth/cache | 0,99% | hot-set a istruzioni e occupancy costanti |
+| shared-memory bandwidth | 0% come limite attivo | richiesta conservativa 16,7% del picco, accessi senza conflitti |
+| register pressure/occupancy | 0% come limite attivo | 38 registri, stack 0, 3 WG/SM e 48 warp/SM |
+
+Il residuo interno è assegnato per esclusione dopo le ablation: comprende
+riduzioni subgroup, subgroup inattivi durante softmax, controllo/indirizzamento
+tile e attese fra le fasi K, softmax, V e AV. Non è presentato come contatore di
+stall hardware. Lo sweep 32/64 ne misura direttamente 5 punti percentuali come
+barrier; il resto è serializzazione phased non separabile con i contatori
+disponibili. Il maggiore upper bound isolato è QK, 36,75%.
+
+### Candidati e risultato mantenuto
+
+Il primo candidato ha diviso il dot QK in due catene pari/dispari. Il driver ha
+mantenuto 38 registri e la stessa binary size; a 2K ha ottenuto soltanto −0,89%
+attention. È stato rimosso: il compilatore schedulava già il dot corto.
+
+Il candidato mantenuto `b268e8b` applica lo stesso principio al vero tratto
+limitante seriale: per ogni dimensione AV accumula key pari e dispari in due
+somme indipendenti da 32 FMA, poi le fonde una volta nello stato online. Layout,
+byte K/V, shared, barrier, griglia e riuso temporale Q_TILE=8 restano invariati;
+non viene introdotto riuso K/V tra head o tile. Il driver misura 39 registri,
+stack 0 e 20.576 B shared, quindi la residenza resta 3 WG/SM.
+
+| Prompt | Baseline attention | Candidato attention | Delta | Baseline wall | Candidato wall | Delta wall | Tok/s baseline/candidato |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 2.049,345 ms | 1.921,570 ms | −6,23% | 26.184,54 ms | 26.033,82 ms | −0,58% | 78,21 / 78,67 |
+| 8K | 33.132,900 ms | 31.158,092 ms | −5,96% | 130.624,45 ms | 128.202,56 ms | −1,85% | 62,71 / 63,90 |
+| 28K | 395.863,270 ms | 373.977,473 ms | −5,53% | 731.075,26 ms | 709.476,42 ms | −2,95% | 38,30 / 39,47 |
+
+I punti 2K/8K sono baseline e candidato singoli freschi; la baseline 28K è il
+run MQ-C1 ripetuto già registrato sopra e il candidato è un singolo run. Il
+beneficio attention è monotono e stabile fra 5,53% e 6,23%. A 28K il prompt
+migliora del 3,05%; decode è 8,94 contro 8,91 tok/s baseline (+0,34%), quindi
+non emerge regressione. Il test focalizzato conserva identità esatta F16/INT8
+contro decode sequenziale; contro CPU F16 restano i massimi baseline:
+`2,94e-5` attention e `3,37e-6` logits.
+
+La conferma pubblica 8K completa, una warm-up e tre repliche, produce 63,50
+tok/s, CV 0,05%, wall 129.010,83 ms e 125.277,727 ms attention aggregati sui
+quattro run, cioè 31.319,432 ms/run. Contro la baseline MQ-C1 ripetuta
+`9c1527f` (62,67 tok/s, 130.714,95 ms wall, 33.166,26 ms attention) sono
+rispettivamente +1,32%, −1,30% e −5,57%. Decode è 19,72 contro 19,83 tok/s,
+−0,55% e ampiamente entro il controllo 5%.
+
+Il collo residuo resta la combinazione compute/issue e serializzazione phased,
+non global/shared bandwidth né occupancy. L'ottimizzazione AV usa il maggiore
+upper bound rimasto dopo il candidato QK falsificato e riduce la catena critica
+senza ampliare architettura, API, allocazioni o dipendenze.
+
+### Verifica finale follow-up
+
+- `cargo fmt --all -- --check`: pass;
+- Clippy `--all-targets -D warnings`, feature `vulkan-profile`: pass;
+- suite library `vulkan-profile`: 144 pass, 2 test autenticati ignorati;
+- suite semantica: 12 pass, 1 test autenticato ignorato;
+- family-agnostic: 4 test eseguibili pass, 1 autenticato ignorato;
+- test CPU/Vulkan focalizzato: pass, inclusi F16/INT8 e boundary tiled;
+- build release del benchmark Vulkan profile: pass;
+- `git diff --check`: pass.
+
+`docs_contract` resta escluso per lo stesso `VALIDATION.md` assente dalla
+baseline già documentato sopra; non è toccato da questo follow-up.

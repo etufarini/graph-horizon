@@ -160,17 +160,29 @@ void main() {
             for (uint j = 0u; j < OUTPUT_DPL; j++) {
                 uint d = part * S + lane + j * key_parts * S;
                 if (d >= HEAD_DIM) continue;
-                float even_sum = 0.0;
-                float odd_sum = 0.0;
-                for (uint key = 0u; key < count; key += 2u) {
-                    even_sum += sh_score[query * KV_TILE + key]
-                              * float(sh_tile[key * HEAD_DIM + d]);
+                float sum0 = 0.0;
+                float sum1 = 0.0;
+                float sum2 = 0.0;
+                float sum3 = 0.0;
+                // Four independent FMA chains cover the scheduler latency; the
+                // balanced merge avoids replacing them with one serial tail.
+                for (uint key = 0u; key < count; key += 4u) {
+                    sum0 += sh_score[query * KV_TILE + key]
+                          * float(sh_tile[key * HEAD_DIM + d]);
                     if (key + 1u < count) {
-                        odd_sum += sh_score[query * KV_TILE + key + 1u]
-                                 * float(sh_tile[(key + 1u) * HEAD_DIM + d]);
+                        sum1 += sh_score[query * KV_TILE + key + 1u]
+                              * float(sh_tile[(key + 1u) * HEAD_DIM + d]);
+                    }
+                    if (key + 2u < count) {
+                        sum2 += sh_score[query * KV_TILE + key + 2u]
+                              * float(sh_tile[(key + 2u) * HEAD_DIM + d]);
+                    }
+                    if (key + 3u < count) {
+                        sum3 += sh_score[query * KV_TILE + key + 3u]
+                              * float(sh_tile[(key + 3u) * HEAD_DIM + d]);
                     }
                 }
-                acc[j] = acc[j] * sh_alpha[query] + even_sum + odd_sum;
+                acc[j] = acc[j] * sh_alpha[query] + (sum0 + sum1) + (sum2 + sum3);
             }
         }
         // The V tile remains live until every output owner finishes consuming it.

@@ -158,11 +158,17 @@ void main() {
             for (uint j = 0u; j < OUTPUT_DPL; j++) {
                 uint d = part * S + lane + j * key_parts * S;
                 if (d >= p.head_dim) continue;
-                acc[j] *= sh_alpha[query];
-                for (uint key = 0u; key < count; key++) {
-                    acc[j] += sh_score[query * KV_TILE + key]
-                            * float(sh_tile[key * p.head_dim + d]);
+                float even_sum = 0.0;
+                float odd_sum = 0.0;
+                for (uint key = 0u; key < count; key += 2u) {
+                    even_sum += sh_score[query * KV_TILE + key]
+                              * float(sh_tile[key * p.head_dim + d]);
+                    if (key + 1u < count) {
+                        odd_sum += sh_score[query * KV_TILE + key + 1u]
+                                 * float(sh_tile[(key + 1u) * p.head_dim + d]);
+                    }
                 }
+                acc[j] = acc[j] * sh_alpha[query] + even_sum + odd_sum;
             }
         }
         // The V tile remains live until every output owner finishes consuming it.

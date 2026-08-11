@@ -33,6 +33,8 @@ layout(push_constant) uniform P {
 
 const uint QUERY_TILE = 8u;
 const uint KV_TILE = 64u;
+// The sole supported model family validates power-of-two, 128-wide K/V tensors.
+const uint HEAD_DIM = 128u;
 const uint MAX_DPL = 8u;
 const uint OUTPUT_DPL = 2u;
 
@@ -61,18 +63,18 @@ void main() {
     uint group = p.q_heads / p.kv_heads;
     uint kvh = h / group;
     uint query_row = first + min(query, rows - 1u);
-    uint row = query_row * p.q_heads * p.head_dim;
+    uint row = query_row * p.q_heads * HEAD_DIM;
     uint pos = p.base + query_row;
     uint last_pos = p.base + first + rows - 1u;
 
     // Q is shared because every history-partition subgroup for the same query
     // computes independent scores from the same vector.
-    uint query_elements = rows * p.head_dim;
+    uint query_elements = rows * HEAD_DIM;
     for (uint index = gl_LocalInvocationIndex; index < query_elements; index += 512u) {
-        uint query_index = index / p.head_dim;
-        uint d = index - query_index * p.head_dim;
+        uint query_index = index >> 7u;
+        uint d = index & (HEAD_DIM - 1u);
         uint source_row = first + query_index;
-        sh_q[index] = q[(source_row * p.q_heads + h) * p.head_dim + d];
+        sh_q[index] = q[(source_row * p.q_heads + h) * HEAD_DIM + d];
     }
     if (gl_LocalInvocationIndex < QUERY_TILE) {
         sh_m[gl_LocalInvocationIndex] = -1e30;
@@ -88,12 +90,12 @@ void main() {
 
     for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
         uint count = min(KV_TILE, last_pos + 1u - tile);
-        uint elements = count * p.head_dim;
+        uint elements = count * HEAD_DIM;
         for (uint index = gl_LocalInvocationIndex; index < elements; index += 512u) {
-            uint key = index / p.head_dim;
-            uint d = index - key * p.head_dim;
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
             uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
-                       * p.head_dim + d;
+                       * HEAD_DIM + d;
             sh_tile[index] = kc[cache];
         }
         barrier();
@@ -107,9 +109,9 @@ void main() {
                 float product = 0.0;
                 for (uint j = 0u; j < MAX_DPL; j++) {
                     uint d = lane + j * S;
-                    if (d < p.head_dim) {
-                        product += float(sh_q[query * p.head_dim + d])
-                                 * float(sh_tile[key * p.head_dim + d]);
+                    if (d < HEAD_DIM) {
+                        product += float(sh_q[query * HEAD_DIM + d])
+                                 * float(sh_tile[key * HEAD_DIM + d]);
                     }
                 }
                 score = subgroupAdd(product) * p.scale;
@@ -146,10 +148,10 @@ void main() {
         // All K reads finished at the preceding barrier, so V may overwrite the
         // shared tile while the elected subgroups transform independent scores.
         for (uint index = gl_LocalInvocationIndex; index < elements; index += 512u) {
-            uint key = index / p.head_dim;
-            uint d = index - key * p.head_dim;
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
             uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
-                       * p.head_dim + d;
+                       * HEAD_DIM + d;
             sh_tile[index] = vc[cache];
         }
         barrier();
@@ -157,15 +159,15 @@ void main() {
         if (valid_query) {
             for (uint j = 0u; j < OUTPUT_DPL; j++) {
                 uint d = part * S + lane + j * key_parts * S;
-                if (d >= p.head_dim) continue;
+                if (d >= HEAD_DIM) continue;
                 float even_sum = 0.0;
                 float odd_sum = 0.0;
                 for (uint key = 0u; key < count; key += 2u) {
                     even_sum += sh_score[query * KV_TILE + key]
-                              * float(sh_tile[key * p.head_dim + d]);
+                              * float(sh_tile[key * HEAD_DIM + d]);
                     if (key + 1u < count) {
                         odd_sum += sh_score[query * KV_TILE + key + 1u]
-                                 * float(sh_tile[(key + 1u) * p.head_dim + d]);
+                                 * float(sh_tile[(key + 1u) * HEAD_DIM + d]);
                     }
                 }
                 acc[j] = acc[j] * sh_alpha[query] + even_sum + odd_sum;
@@ -178,8 +180,8 @@ void main() {
     if (valid_query) {
         for (uint j = 0u; j < OUTPUT_DPL; j++) {
             uint d = part * S + lane + j * key_parts * S;
-            if (d < p.head_dim) {
-                o[row + h * p.head_dim + d] = float16_t(acc[j] / sh_l[query]);
+            if (d < HEAD_DIM) {
+                o[row + h * HEAD_DIM + d] = float16_t(acc[j] / sh_l[query]);
             }
         }
     }

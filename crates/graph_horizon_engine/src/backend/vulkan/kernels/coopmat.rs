@@ -20,8 +20,9 @@ use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
 const MAX_GROUPS_X: u32 = 65535;
 
 // Dispatches a coopmat GEMM Y[n][out_dim] = A[n][in_dim] · Wᵀ over a 2D grid of MMA tiles:
-// x over positions (M = `n`, tile `caps.m`), y over output rows (N = `out_dim`, tile
-// `caps.n`). The retained pipeline uses three bindings (A FP16, W Q4_K, Y FP16) and the
+// x over positions (M = `n`, two `caps.m` tiles sharing one weight tile), y over output
+// rows (N = `out_dim`, tile `caps.n`). The retained pipeline uses three bindings
+// (A FP16, W Q4_K, Y FP16) and the
 // (in_dim,out_dim,n) push. Edge tiles are zero-padded inside the shader, so `n`/`out_dim`
 // need not be multiples of the tile; the caller has already checked that the weight is Q4_K,
 // in_dim % 256 == 0, and the caps shape matches the kernel's 16×16×16 MMA.
@@ -52,7 +53,7 @@ pub(crate) fn dispatch_coopmat(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        n.div_ceil(caps.m).min(MAX_GROUPS_X),
+        n.div_ceil(caps.m * 2).min(MAX_GROUPS_X),
         out_dim.div_ceil(caps.n).min(MAX_GROUPS_X),
     );
 }

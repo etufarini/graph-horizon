@@ -17,8 +17,9 @@
 // a[col*in_dim+k]; W Q4_K row-major; Y token-major float16_t y[col*out_dim+grow]. Fixed
 // 16×16×16 shape (the device's f16→f32 subgroup shape on the Ampere bench target); the
 // routing selects this only when the detected CoopmatCaps match it, else the batched
-// f16-out fallback. 32-lane workgroup assumes a 32-wide subgroup (NVIDIA).
-layout(local_size_x = 32) in;
+// f16-out fallback. Two 32-lane subgroups consume adjacent prompt tiles while sharing
+// one dequantized B tile, so every Q4_K weight is unpacked once per 32-row batch.
+layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [n][in_dim] token-major
 layout(std430, binding = 1) readonly buffer W { uint q[]; };        // Q4_K bytes
@@ -27,10 +28,11 @@ layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [n][out_d
 layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
 
 const uint T = 16u;  // MMA tile (M=N=K=16)
+const uint SUBGROUPS = 2u;
 
-shared float16_t as_[T * T];  // A tile [M][K] row-major  (M = position)
-shared float16_t bs[T * T];   // B tile [K][N] row-major  (N = output row), B[k][n]=W[n][k]
-shared float cs[T * T];       // C tile [M][N] row-major (f32 accumulator)
+shared float16_t as_[SUBGROUPS * T * T]; // Two A tiles [M][K], one per subgroup.
+shared float16_t bs[T * T];              // Shared B tile [K][N], B[k][n]=W[n][k].
+shared float cs[SUBGROUPS * T * T];       // Two C tiles [M][N], one per subgroup.
 
 uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
 float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
@@ -68,22 +70,28 @@ float dequant_w(uint row, uint k, uint nsb) {
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
+    uint subgroup = tid / 32u;
+    uint lane = tid % 32u;
     uint nsb = p.in_dim / 256u;
-    uint col_base = gl_WorkGroupID.x * T;  // first position (M) of this tile
+    uint col_base = gl_WorkGroupID.x * (SUBGROUPS * T) + subgroup * T;
     uint row_base = gl_WorkGroupID.y * T;  // first output row (N) of this tile
+    uint a_offset = subgroup * T * T;
+    uint c_offset = subgroup * T * T;
 
     coopmat<float, gl_ScopeSubgroup, T, T, gl_MatrixUseAccumulator> acc =
         coopmat<float, gl_ScopeSubgroup, T, T, gl_MatrixUseAccumulator>(0.0);
 
     // in_dim is a multiple of 256 (Q4_K super-block), hence of T=16: K has no tail.
     for (uint kbase = 0u; kbase < p.in_dim; kbase += T) {
-        for (uint li = tid; li < T * T; li += 32u) {
+        for (uint li = lane; li < T * T; li += 32u) {
             uint mm = li / T;  // M (position)
             uint kk = li % T;  // K
             uint gcol = col_base + mm;
-            as_[li] = (gcol < p.n) ? a[gcol * p.in_dim + kbase + kk] : float16_t(0.0);
+            as_[a_offset + li] = (gcol < p.n)
+                ? a[gcol * p.in_dim + kbase + kk]
+                : float16_t(0.0);
         }
-        for (uint li = tid; li < T * T; li += 32u) {
+        for (uint li = tid; li < T * T; li += 64u) {
             uint kk = li / T;  // K
             uint nn = li % T;  // N (output row)
             uint grow = row_base + nn;
@@ -95,21 +103,21 @@ void main() {
 
         coopmat<float16_t, gl_ScopeSubgroup, T, T, gl_MatrixUseA> matA;
         coopmat<float16_t, gl_ScopeSubgroup, T, T, gl_MatrixUseB> matB;
-        coopMatLoad(matA, as_, 0u, T, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(matA, as_, a_offset, T, gl_CooperativeMatrixLayoutRowMajor);
         coopMatLoad(matB, bs, 0u, T, gl_CooperativeMatrixLayoutRowMajor);
         acc = coopMatMulAdd(matA, matB, acc);
         barrier();
     }
 
     // Store the f32 result tile to shared, then scatter guarded into Y, narrowing to f16.
-    coopMatStore(acc, cs, 0u, T, gl_CooperativeMatrixLayoutRowMajor);
+    coopMatStore(acc, cs, c_offset, T, gl_CooperativeMatrixLayoutRowMajor);
     barrier();
-    for (uint li = tid; li < T * T; li += 32u) {
+    for (uint li = lane; li < T * T; li += 32u) {
         uint mm = li / T;
         uint nn = li % T;
         uint gcol = col_base + mm;
         uint grow = row_base + nn;
         if (gcol < p.n && grow < p.out_dim)
-            y[gcol * p.out_dim + grow] = float16_t(cs[li]);
+            y[gcol * p.out_dim + grow] = float16_t(cs[c_offset + li]);
     }
 }

@@ -1,8 +1,8 @@
 /*
  * graph_horizon_engine — cooperative-matrix capability detection
  * Detects, for a chosen physical device, whether a usable VK_KHR_cooperative_matrix
- * shape exists for the prefill path: f16 inputs (A/B), f32 accumulation (C/result),
- * in the subgroup scope. This file only DESCRIBES the capability — it owns no Vulkan
+ * shape exists for the measured NVIDIA prefill path: f16 inputs (A/B), f32
+ * accumulation (C/result), and 32-wide subgroups. This file only DESCRIBES the capability — it owns no Vulkan
  * resource, issues no dispatch, and never panics or propagates an error: an absent
  * extension, a failed enumeration, or no matching shape all yield `available = false`,
  * so the caller silently falls back to the f16×f16 tiled GEMM.
@@ -37,6 +37,15 @@ pub(crate) fn detect(
     instance: &ash::Instance,
     physical: vk::PhysicalDevice,
 ) -> CoopmatCaps {
+    let mut subgroup = vk::PhysicalDeviceVulkan11Properties::default();
+    let mut device = vk::PhysicalDeviceProperties2::default().push_next(&mut subgroup);
+    // SAFETY: `instance` and `physical` are live; the driver only fills the
+    // stack-owned property chain used to enforce the shader's subgroup contract.
+    unsafe { instance.get_physical_device_properties2(physical, &mut device) };
+    if device.properties.vendor_id != 0x10de || subgroup.subgroup_size != 32 {
+        return CoopmatCaps::default();
+    }
+
     // The extension must be advertised before its instance-level query is loaded and
     // called; otherwise the function pointer is unresolved (a panic in ash's stub).
     // SAFETY: `instance` and `physical` are live handles from a successful Vulkan init;

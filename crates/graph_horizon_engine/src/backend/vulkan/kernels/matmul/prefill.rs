@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — Vulkan batched matmul dispatch
- * Records Q4_K and Q6_K batched projections, selecting Q4_K coopmat only under
- * the preserved opt-in capability gate. Decode and diagnostics stay outside.
+ * Records Q4_K and Q6_K batched projections, selecting the measured Q4_K
+ * cooperative path only for its supported device and prefill shapes. Decode
+ * and diagnostics stay outside.
  */
 
 use ash::vk;
@@ -15,13 +16,18 @@ fn coopmat_enabled() -> bool {
     use std::sync::OnceLock;
     static FLAG: OnceLock<bool> = OnceLock::new();
     *FLAG.get_or_init(|| {
-        matches!(
-            std::env::var("GRAPH_HORIZON_PREFILL_COOPMAT")
-                .ok()
-                .as_deref(),
-            Some("1") | Some("true") | Some("yes")
-        )
+        match std::env::var("GRAPH_HORIZON_PREFILL_COOPMAT")
+            .ok()
+            .as_deref()
+        {
+            None | Some("1" | "true" | "yes") => true,
+            Some(_) => false,
+        }
     })
+}
+
+fn coopmat_shape(in_dim: u32) -> bool {
+    matches!(in_dim, 3072 | 9216)
 }
 
 pub(crate) fn matmul_batched_q4k(
@@ -42,7 +48,9 @@ pub(crate) fn matmul_batched_q4k(
         && caps.m == 16
         && caps.n == 16
         && caps.k == 16
-        && in_dim.is_multiple_of(256)
+        // Only the measured 3B projection/MLP K dimensions select coopmat. In
+        // particular K=4096 output projection regresses and keeps the fallback.
+        && coopmat_shape(in_dim)
     {
         trace::log_batched_path_once(true);
         super::super::coopmat::dispatch_coopmat(dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps);
@@ -118,7 +126,7 @@ mod tests {
                 return;
             }
         };
-        let in_dim = 256usize;
+        let in_dim = 3072usize;
         let out_dim = 70usize;
         let rows = 37usize;
         let mut seed = 0x9e3779b9u32;
@@ -126,7 +134,9 @@ mod tests {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
             seed
         };
-        let mut qbytes: Vec<u8> = (0..out_dim * 144).map(|_| (rng() >> 16) as u8).collect();
+        let mut qbytes: Vec<u8> = (0..out_dim * (in_dim / 256) * 144)
+            .map(|_| (rng() >> 16) as u8)
+            .collect();
         let f16le = |value: f32| {
             let bytes = f32_to_f16_bytes(&value.to_le_bytes());
             [bytes[0], bytes[1]]
@@ -179,19 +189,42 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
+        let mut max_abs = 0.0f32;
+        let mut max_relative = 0.0f32;
+        let mut mean_abs = 0.0f32;
+        let mut mean_relative = 0.0f32;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
+            let absolute = (got - reference).abs();
+            let relative = absolute / reference.abs().max(1e-6);
+            max_abs = max_abs.max(absolute);
+            max_relative = max_relative.max(relative);
+            mean_abs += absolute;
+            mean_relative += relative;
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
-                (got - reference).abs() <= 5e-2
-                    || (got - reference).abs() <= 5e-3 * reference.abs().max(1.0),
+                absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
+        let count = expected.len() as f32;
+        eprintln!(
+            "batched Q4_K parity max_abs={max_abs} max_relative={max_relative} mean_abs={} mean_relative={}",
+            mean_abs / count,
+            mean_relative / count
+        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);
+    }
+
+    #[test]
+    fn cooperative_route_is_limited_to_measured_k_dimensions() {
+        assert!(super::coopmat_shape(3072));
+        assert!(super::coopmat_shape(9216));
+        assert!(!super::coopmat_shape(4096));
+        assert!(!super::coopmat_shape(256));
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub(super) enum Category {
     ProjectionOutput,
     MlpGate,
     MlpUp,
+    MlpActivation,
     MlpDown,
     Matmul,
     Normalization,
@@ -47,7 +48,7 @@ pub(super) enum Category {
 }
 
 impl Category {
-    pub(super) const COUNT: usize = 16;
+    pub(super) const COUNT: usize = 17;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::Attention,
         Self::ProjectionQ,
@@ -56,6 +57,7 @@ impl Category {
         Self::ProjectionOutput,
         Self::MlpGate,
         Self::MlpUp,
+        Self::MlpActivation,
         Self::MlpDown,
         Self::Matmul,
         Self::Normalization,
@@ -76,6 +78,7 @@ impl Category {
             Self::ProjectionOutput => "projection_output",
             Self::MlpGate => "mlp_gate",
             Self::MlpUp => "mlp_up",
+            Self::MlpActivation => "mlp_activation",
             Self::MlpDown => "mlp_down",
             Self::Matmul => "matmul_other",
             Self::Normalization => "normalization",
@@ -116,7 +119,8 @@ const fn direct(kernel: Kernel) -> Category {
         }
         Kernel::RmsNormX => Category::Normalization,
         Kernel::Rope => Category::Rope,
-        Kernel::Residual | Kernel::SiluMul => Category::Elementwise,
+        Kernel::SiluMul => Category::MlpActivation,
+        Kernel::Residual => Category::Elementwise,
         Kernel::KvWrite | Kernel::KvWriteInt8 => Category::KvCache,
         Kernel::Argmax | Kernel::TopkPartial => Category::Reduction,
     }
@@ -214,5 +218,16 @@ mod tests {
         ));
         assert!(matches!(phase(Kernel::Argmax), Some(Phase::Sampling)));
         assert!(phase(Kernel::Rope).is_none());
+    }
+
+    #[test]
+    fn fused_silu_multiply_is_mlp_activation() {
+        let mut slot = 0;
+        assert_eq!(
+            profiled(Kernel::SiluMul, &mut slot).name(),
+            "mlp_activation"
+        );
+        assert_eq!(profiled(Kernel::Residual, &mut slot).name(), "elementwise");
+        assert_eq!(slot, 0);
     }
 }

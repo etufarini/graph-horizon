@@ -2015,7 +2015,7 @@ La parity esterna pinned non è dichiarata pass: il repository richiede
 llama.cpp `13f2b28b`, mentre l'eseguibile locale disponibile è `9bebfcb4b`.
 Non è stato sostituito l'oracle fissato con una revisione diversa.
 
-Verifica finale:
+Verifica al checkpoint shared-A:
 
 - `cargo fmt --all -- --check` e `git diff --check`: pass;
 - Clippy workspace `--all-targets -D warnings`, `vulkan-profile`: pass;
@@ -2437,4 +2437,150 @@ Verifica finale:
   conserva il fallimento baseline perché `VALIDATION.md` è assente;
 - parity esterna pinned non sostituita: resta indisponibile per la revisione
   llama.cpp locale incompatibile già registrata nella fase 2 matmul;
-- worktree finale privo di probe, ablation e output temporanei.
+- checkpoint privo di probe, ablation e output temporanei.
+
+### Attribuzione completa gate/up
+
+La tabella seguente chiude il dettaglio richiesto senza trasformare stime in
+contatori hardware. I probe sono causali e si sovrappongono: le righe marcate
+non additive non vanno sommate. Il driver Vulkan NVIDIA non espone qui un
+contatore che separi load globale A, transazione shared e attesa della stessa
+catena.
+
+| Classe gate+up baseline | 8K / 28K | Evidenza e limite |
+|---|---:|---|
+| A global load + shared write/read | 5.433,718 / 18.876,894 ms, 55,04% | ablation mantenendo weight e MMA; massimo causale combinato, non separabile ulteriormente |
+| A synchronization | 200,859 ms per due catene aggiunte a 8K; ~686,6 ms a 28K | probe barrier; una copia duplicata vale ~100,430 / 343,3 ms, non additiva alla riga A |
+| weight global load + metadata/unpack/dequant | 4.683,423 / 16.270,346 ms, 47,44% | ablation weight-side; i due pesi restano distinti |
+| metadata load/address mapping | almeno 1.878,133 / 6.332,431 ms rimossi | variante finale riduce di 4× i load metadata, lasciando invariati weight bytes, unpack quant e MMA |
+| unpack/dequant residui | inclusi nel bucket weight | non isolabili stabilmente dal load weight con gli strumenti disponibili |
+| cooperative MMA | sotto la risoluzione sottrattiva separata | stessa sequenza MMA in tutti i candidati; nessun cambio di precisione |
+| output store FP16 | sotto 0,5% nella precedente ablation | store e layout globali preservati |
+| addressing/control/overlap | residuo non additivo | include latenza nascosta da cache e scheduling; nessuna percentuale inventata |
+
+Il ceiling A combinato era quindi volutamente favorevole. SA-P2 è il controllo
+che lo falsifica: elimina metà load globali e transazioni shared A modellati,
+ma migliora gate+up soltanto dello 0,74%. Il probe sync mostra inoltre che la
+sola sincronizzazione duplicata vale circa l'1,02% di gate+up, non il 27,52%
+teorico del bucket A.
+
+Conteggio esatto delle barrier per workgroup: le due proiezioni separate fanno
+`2×385 = 770`; SA-C fa 385, SA-P1 769 e SA-P2 385. Su 576 workgroup sono
+443.520, 221.760, 442.944 e 221.760 eventi rispettivamente per invocazione
+gate/up. SA-P1 conserva quasi tutte le barrier del baseline; SA-P2 dimezza
+anche gli eventi, senza però rivelare un guadagno end-to-end sufficiente.
+
+### Candidato weight-side mantenuto
+
+Il successivo esperimento conserva il kernel Q4_K cooperativo 16×16×16 e
+cambia soltanto l'ownership dei metadata del tile B. Nel mapping storico
+quattro lane caricavano separatamente gli stessi `d`, `dmin`, scale e min per
+una output row. Il nuovo mapping assegna quattro lane adiacenti alla stessa
+row: la lane `kk0=0` carica e combina i metadata, poi `subgroupShuffle` diffonde
+`ds/dm`; ogni lane continua a leggere e dequantizzare i propri quattro valori
+Q4 packed. A, accumulatori FP32, MMA, barrier, store FP16 e byte weight globali
+restano invariati.
+
+Il prototipo W-A ha applicato il mapping a ogni `out_dim`. Ha dimostrato il
+beneficio su gate/up, ma ha fatto regredire le proiezioni strette `N=1024`
+(K +10,7% a 8K). W-B mantiene quindi un secondo SPIR-V ottenuto dallo stesso
+shader categoria K e lo instrada soltanto sulle larghezze misurate
+`3072|4096|9216`. `N=1024`, forme non note, device senza subgroup 32/shuffle e
+`GRAPH_HORIZON_PREFILL_Q4_METADATA=0` usano il percorso storico. Il gate
+cooperative preesistente e `GRAPH_HORIZON_PREFILL_COOPMAT=0` conservano anche
+il fallback scalar/batched.
+
+| ID | Scope metadata | Gate+up 8K / 28K | GPU 8K / 28K | Wall 8K / 28K | Decisione |
+|---|---|---:|---:|---:|---|
+| W-A | tutte le larghezze cooperative | −18,97% / −18,44% | −9,96% / −6,42% | −9,54% / −6,35% | reject: regressione N=1024 |
+| W-B | `out_dim=3072|4096|9216` | −19,02% / −18,46% | −10,34% / −6,64% | −9,94% / −6,60% | keep `89fe8f6` |
+
+Il driver riporta per W-B 37 registri/thread contro 42 nel Q4 storico,
+3.584 byte shared, stack 0, binary 43.776 byte e nessuno spill. Sedici
+workgroup da 64 thread richiedono 37.888 registri, 57.344 byte shared e 1.024
+thread/SM: occupancy thread modellata 66,7%, invariata. La riduzione registri
+non è acquistata con nuovi buffer o nuove barrier; l'unico requisito aggiunto
+è `VK_SUBGROUP_FEATURE_SHUFFLE_BIT` con subgroup 32.
+
+### Risultato finale ripetuto
+
+Le misure 8K/28K usano la baseline fresca di questa fase. 2K/16K usano la
+matrice finale autenticata del commit baseline `480f270`, con identica tupla.
+Ogni riga finale usa una warm-up e tre repliche; i timestamp GPU sono la media
+delle quattro esecuzioni profiler.
+
+| Prompt | Wall baseline/finale | Delta wall | Tok/s baseline/finale | Delta tok/s | CV finale | GPU baseline/finale | Delta GPU |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 7.075,61 / 6.289,38 ms | −11,11% | 289,45 / 325,63 | +12,50% | 0,14% | 6.832,101 / 6.052,276 ms | −11,41% |
+| 8K | 32.885,85 / 29.618,20 ms | −9,94% | 249,10 / 276,59 | +11,04% | 0,25% | 32.067,279 / 28.750,341 ms | −10,34% |
+| 16K | 79.290,91 / 72.645,75 ms | −8,38% | 206,63 / 225,53 | +9,15% | 0,13% | 77.608,670 / 71.041,242 ms | −8,46% |
+| 28K | 168.784,54 / 157.651,02 ms | −6,60% | 165,89 / 177,61 | +7,06% | 0,08% | 165.939,362 / 154.925,347 ms | −6,64% |
+
+Il target preferenziale del 5% è superato su tutte le lunghezze. Decode non
+usa il nuovo kernel: a 8K è 8,84 contro 8,83 tok/s baseline (+0,11%) e a 16K
+la variazione è +0,38%, entrambe entro rumore. Il run modello completo INT8 a
+2K termina con output finito, `attention_prefill_int8` e
+`matmul_q4k_coopmat_metadata_f16` attivi; non viene usato come benchmark
+comparativo perché è una singola replica di qualifica.
+
+Breakdown finale:
+
+| Prompt | Attention | Sette matmul | Other |
+|---:|---:|---:|---:|
+| 2K | 390,491 ms (6,45%) | 5.067,945 ms (83,74%) | 593,840 ms (9,81%) |
+| 8K | 6.119,517 ms (21,29%) | 20.252,751 ms (70,44%) | 2.378,073 ms (8,27%) |
+| 16K | 25.410,182 ms (35,77%) | 40.830,649 ms (57,48%) | 4.800,411 ms (6,76%) |
+| 28K | 76.435,887 ms (49,34%) | 70.233,770 ms (45,33%) | 8.255,691 ms (5,33%) |
+
+A 8K tutti i matmul scendono del 13,98%; a 28K del 13,59%. Gate+up passa da
+9.872,308 a 7.994,175 ms (1,235×) e da 34.296,683 a 27.964,252 ms (1,226×).
+Attention varia −0,48% / −0,11%: il guadagno non arriva da una regressione o
+da un cambio del percorso attention. Down migliora del 4,37% / 5,05% perché
+metà dei layer Q4_K usa W-B; la metà Q6_K e l'activation restano invariate.
+
+### Correttezza e fallback
+
+L'oracolo CPU Q4 ora esercita la shape reale metadata `K=N=3072, M=3`, quindi
+anche una tail M, oltre alla shape stretta legacy `K=4096, N=70, M=37`. Il caso
+metadata candidato e il legacy forzato producono gli stessi errori contro CPU:
+max abs 4,55664, mean abs 1,96561, max relativo 4,787e-4, mean relativo
+1,902e-4. Il fallback non-cooperative passa con max relativo 4,744e-4; la tail
+stretta passa con 4,047e-4. Il controllo Q6_K passa con max abs 7,330e-3 e max
+relativo 2,279e-3. Tutti gli output sono finiti.
+
+Il test attention rapido F16/INT8 resta verde. La qualifica esplicita lenta
+2K/8K/28K passa: F16 attention max abs ≤1,526e-5 e CPU max abs ≤1,168e-5;
+INT8 attention e logits coincidono esattamente col percorso sequenziale. Sono
+quindi preservati causal mask, tail query/KV, logits e i due formati KV.
+
+Verifica finale:
+
+- `cargo fmt --all`, `git diff --check`: pass;
+- Clippy workspace release `--all-targets -D warnings`, `vulkan-profile`: pass;
+- engine `vulkan-hybrid`: 207 pass, tre ignored; profiler: 149 pass, tre ignored;
+- qualifica attention long-context ignorata eseguita esplicitamente: pass in
+  189,91 s;
+- semantic: 12 pass, un autenticato ignored;
+- `source_structure`: pass, `pipeline/mod.rs` resta a 200 righe produttive;
+- `docs_contract` conserva l'errore family-agnostic baseline
+  `VALIDATION.md` assente;
+- nessun probe, shader shared-A scartato, output o allocazione temporanea resta
+  nello stato finale.
+
+### Amdahl, stop e prossimo limite
+
+A 8K il breakdown passa da attention/matmul/other
+19,18/73,42/7,40% a 21,29/70,44/8,27%; a 28K passa da
+46,12/48,98/4,91% a 49,34/45,33/5,33%. Le ottimizzazioni semplici MLP rimaste
+sono sotto il gate: shared-A SA-P2 misura solo −0,43% GPU, activation fusion ha
+ceiling ~0,2–0,3% e intermediate→down ~0,045%.
+
+La condizione di successo è soddisfatta e il maggiore componente globale torna
+attention, senza evidenza nuova che autorizzi un'altra patch attention in
+questa fase. Anche eliminare idealmente tutto il gate+up residuo sarebbe un
+ceiling non realistico; i candidati concretamente misurati matmul/MLP sono ora
+inferiori al prossimo limite attention. Si arresta quindi senza ulteriore
+complessità. Una fase successiva dovrebbe ripartire dal residuo
+dependency/control/sync di attention oppure da Q6 metadata, ma soltanto dopo un
+nuovo upper bound causale. API, dipendenze, allocazioni globali e semantica
+numerica non sono cambiate.

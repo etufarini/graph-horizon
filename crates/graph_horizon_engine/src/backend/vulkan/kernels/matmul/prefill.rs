@@ -172,15 +172,15 @@ mod tests {
 
     #[test]
     fn batched_q4k_metadata_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 3072, 3, "q4_metadata");
+        q4k_cpu_oracle(3072, 3072, 3);
     }
 
     #[test]
     fn batched_q4k_small_output_matches_cpu_oracle() {
-        q4k_cpu_oracle(4096, 70, 37, "q4_small_output");
+        q4k_cpu_oracle(4096, 70, 37);
     }
 
-    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) {
+    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize) {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
@@ -248,31 +248,16 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
-        let mut max_abs = 0.0f32;
-        let mut mean_abs = 0.0f64;
-        let mut max_relative = 0.0f32;
-        let mut mean_relative = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
-            let relative = absolute / reference.abs().max(1.0);
-            max_abs = max_abs.max(absolute);
-            mean_abs += f64::from(absolute);
-            max_relative = max_relative.max(relative);
-            mean_relative += f64::from(relative);
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
-        let count = raw.len() as f64 / 2.0;
-        println!(
-            "{label} max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
-            mean_abs / count,
-            mean_relative / count
-        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);
@@ -364,31 +349,16 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
-        let mut max_abs = 0.0f32;
-        let mut mean_abs = 0.0f64;
-        let mut max_relative = 0.0f32;
-        let mut mean_relative = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
-            let relative = absolute / reference.abs().max(1.0);
-            max_abs = max_abs.max(absolute);
-            mean_abs += f64::from(absolute);
-            max_relative = max_relative.max(relative);
-            mean_relative += f64::from(relative);
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
-        let count = raw.len() as f64 / 2.0;
-        println!(
-            "q6_control max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
-            mean_abs / count,
-            mean_relative / count
-        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);

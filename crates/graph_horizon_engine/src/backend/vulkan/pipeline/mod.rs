@@ -99,7 +99,7 @@ fn supports_coop_qk_attention(
         && (coop.m, coop.n, coop.k) == (16, 16, 16)
 }
 
-fn supports_q4(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool {
+fn supports_q4_metadata(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool {
     subgroup_size == 32 && operations.contains(vk::SubgroupFeatureFlags::SHUFFLE)
 }
 
@@ -216,7 +216,7 @@ impl PipelineRegistry {
             tiled,
             coop_qk,
             supports_attention_1024(limits.0, limits.1, limits.2),
-            supports_q4(subgroup, vulkan11.subgroup_supported_operations),
+            supports_q4_metadata(subgroup, vulkan11.subgroup_supported_operations),
         ))
     }
 
@@ -241,7 +241,7 @@ mod tests {
     use super::{
         ATTENTION_1024_SHARED_BYTES, COOP_QK_ATTENTION_SHARED_BYTES, TILED_ATTENTION_SHARED_BYTES,
         WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024, supports_coop_qk_attention,
-        supports_q4, supports_tiled_attention, supports_wide_attention,
+        supports_q4_metadata, supports_tiled_attention, supports_wide_attention,
     };
     use crate::backend::vulkan::coopmat::CoopmatCaps;
 
@@ -375,8 +375,8 @@ mod tests {
 
     #[test]
     fn q4_metadata_requires_subgroup_shuffle() {
-        assert!(supports_q4(32, vk::SubgroupFeatureFlags::SHUFFLE));
-        assert!(!supports_q4(16, vk::SubgroupFeatureFlags::SHUFFLE));
-        assert!(!supports_q4(32, vk::SubgroupFeatureFlags::BASIC));
+        assert!(supports_q4_metadata(32, vk::SubgroupFeatureFlags::SHUFFLE));
+        assert!(!supports_q4_metadata(16, vk::SubgroupFeatureFlags::SHUFFLE));
+        assert!(!supports_q4_metadata(32, vk::SubgroupFeatureFlags::BASIC));
     }
 }

@@ -30,6 +30,20 @@ fn coopmat_shape(in_dim: u32) -> bool {
     matches!(in_dim, 3072 | 4096 | 9216)
 }
 
+fn q4_metadata_enabled() -> bool {
+    use std::sync::OnceLock;
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        match std::env::var("GRAPH_HORIZON_PREFILL_Q4_METADATA")
+            .ok()
+            .as_deref()
+        {
+            None | Some("1" | "true" | "yes") => true,
+            Some(_) => false,
+        }
+    })
+}
+
 pub(crate) fn matmul_batched_q4k(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -54,18 +68,16 @@ pub(crate) fn matmul_batched_q4k(
         && coopmat_shape(in_dim)
     {
         trace::log_batched_path_once(true);
+        let kernel = if out_dim >= 3072
+            && q4_metadata_enabled()
+            && reg.contains(Kernel::MatmulQ4KCoopmatMetadataF16Out)
+        {
+            Kernel::MatmulQ4KCoopmatMetadataF16Out
+        } else {
+            Kernel::MatmulQ4KCoopmatF16Out
+        };
         super::super::coopmat::dispatch_coopmat(
-            dev,
-            reg,
-            cmd,
-            out,
-            a,
-            w,
-            in_dim,
-            out_dim,
-            n,
-            caps,
-            Kernel::MatmulQ4KCoopmatF16Out,
+            dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps, kernel,
         );
         return;
     }

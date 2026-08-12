@@ -1,8 +1,10 @@
 #version 450
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require
-#extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#ifdef Q4_METADATA_BROADCAST
+#extension GL_KHR_shader_subgroup_shuffle : require
+#endif
 
 // AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K cooperativa.
 
@@ -73,10 +75,15 @@ void main() {
                 ? a[gcol * p.in_dim + kbase + kk]
                 : float16_t(0.0);
         }
-        // Four adjacent lanes own one output row, allowing its dequant metadata
-        // to be loaded once and broadcast while each lane keeps four packed values.
+#ifdef Q4_METADATA_BROADCAST
+        // Four adjacent lanes own one output row, allowing its metadata to be
+        // loaded once while each lane retains four packed values.
         uint nn = tid / 4u;
         uint kk0 = tid & 3u;
+#else
+        uint nn = tid % T;
+        uint kk0 = tid / T;
+#endif
         uint grow = row_base + nn;
         if (grow < p.out_dim) {
             uint k0 = kbase + kk0;
@@ -84,8 +91,8 @@ void main() {
             uint rem256 = k0 & 255u;
             uint rem64 = rem256 & 63u;
             uint group = rem256 >> 6u;
-            float ds = 0.0;
-            float dm = 0.0;
+#ifdef Q4_METADATA_BROADCAST
+            float ds = 0.0, dm = 0.0;
             if (kk0 == 0u) {
                 uint sc, mn;
                 scale_min(block + 4u, group * 2u + (rem64 >> 5u), sc, mn);
@@ -95,19 +102,34 @@ void main() {
             uint metadata_lane = lane & ~3u;
             ds = subgroupShuffle(ds, metadata_lane);
             dm = subgroupShuffle(dm, metadata_lane);
+#else
+            uint sc, mn;
+            scale_min(block + 4u, group * 2u + (rem64 >> 5u), sc, mn);
+            float ds = hf(block) * float(sc);
+            float dm = hf(block + 2u) * float(mn);
+#endif
 
             // A 16-wide K tile cannot cross a 32-value scale group, so these
             // four values share metadata while retaining their packed nibbles.
             for (uint slot = 0u; slot < 4u; slot++) {
+#ifdef Q4_METADATA_BROADCAST
                 uint li = (kk0 + slot * 4u) * T + nn;
+#else
+                uint li = tid + slot * 64u;
+#endif
                 uint rem = (rem64 + slot * 4u) & 63u;
                 uint packed = gb(block + 16u + group * 32u + (rem & 31u));
                 uint qv = (rem < 32u) ? (packed & 0xFu) : (packed >> 4u);
                 bs[li] = float16_t(ds * float(qv) - dm);
             }
         } else {
-            for (uint slot = 0u; slot < 4u; slot++)
+            for (uint slot = 0u; slot < 4u; slot++) {
+#ifdef Q4_METADATA_BROADCAST
                 bs[(kk0 + slot * 4u) * T + nn] = float16_t(0.0);
+#else
+                bs[tid + slot * 64u] = float16_t(0.0);
+#endif
+            }
         }
         barrier();
 

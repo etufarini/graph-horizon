@@ -99,9 +99,16 @@ fn supports_coop_qk_attention(
         && (coop.m, coop.n, coop.k) == (16, 16, 16)
 }
 
+fn supports_q4_metadata_broadcast(
+    subgroup_size: u32,
+    operations: vk::SubgroupFeatureFlags,
+) -> bool {
+    subgroup_size == 32 && operations.contains(vk::SubgroupFeatureFlags::SHUFFLE)
+}
+
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let (wide_attention, tiled_attention, coop_qk_attention, attention_1024) =
+        let (wide_attention, tiled_attention, coop_qk_attention, attention_1024, q4_metadata) =
             Self::check_limits(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
@@ -146,6 +153,12 @@ impl PipelineRegistry {
                 ] {
                     map.insert(k, record::build_one(dev, cache, k)?);
                 }
+                if q4_metadata {
+                    map.insert(
+                        Kernel::MatmulQ4KCoopmatMetadataF16Out,
+                        record::build_one(dev, cache, Kernel::MatmulQ4KCoopmatMetadataF16Out)?,
+                    );
+                }
             }
             if dev.dp4a {
                 map.insert(
@@ -177,7 +190,7 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool)> {
+    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool, bool)> {
         // Required kernels use up to 256 invocations; optional attention variants
         // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // Query core limits and the default subgroup width in one properties chain.
@@ -211,6 +224,10 @@ impl PipelineRegistry {
             tiled,
             coop_qk,
             supports_attention_1024(limits.0, limits.1, limits.2),
+            supports_q4_metadata_broadcast(
+                vulkan11.subgroup_size,
+                vulkan11.subgroup_supported_operations,
+            ),
         ))
     }
 

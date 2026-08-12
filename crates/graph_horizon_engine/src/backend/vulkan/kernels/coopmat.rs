@@ -41,7 +41,9 @@ pub(crate) fn dispatch_coopmat(
 ) {
     debug_assert!(matches!(
         kernel,
-        Kernel::MatmulQ4KCoopmatF16Out | Kernel::MatmulQ6KCoopmatF16Out
+        Kernel::MatmulQ4KCoopmatF16Out
+            | Kernel::MatmulQ4KCoopmatMetadataF16Out
+            | Kernel::MatmulQ6KCoopmatF16Out
     ));
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());

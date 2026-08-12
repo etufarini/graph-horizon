@@ -40,23 +40,28 @@ fn compile_vulkan_shader(
     name: &str,
     out_dir: &std::path::Path,
 ) {
-    let variants: &[(&str, &str)] = match name {
+    let variants: &[(&str, &str, &str)] = match name {
         "attention_decode" => &[
-            ("attention_decode_wide", "512"),
-            ("attention_decode_1024", "1024"),
+            ("attention_decode_wide", "ATTENTION_LOCAL_SIZE", "512"),
+            ("attention_decode_1024", "ATTENTION_LOCAL_SIZE", "1024"),
         ],
-        "attention_prefill" => &[("attention_prefill_wide", "512")],
+        "attention_prefill" => &[("attention_prefill_wide", "ATTENTION_LOCAL_SIZE", "512")],
+        "matmul_q4_k_coopmat_f16out" => &[(
+            "matmul_q4_k_coopmat_metadata_f16out",
+            "Q4_METADATA_BROADCAST",
+            "1",
+        )],
         _ => &[],
     };
     let variants = variants
         .iter()
-        .map(|&(variant, size)| (variant, Some(size)));
-    for (variant, local_size) in std::iter::once((name, None)).chain(variants) {
+        .map(|&(variant, macro_name, value)| (variant, Some((macro_name, value))));
+    for (variant, macro_definition) in std::iter::once((name, None)).chain(variants) {
         let mut options = shaderc::CompileOptions::new().expect("shaderc: cannot create options");
         let vulkan13 = shaderc::EnvVersion::Vulkan1_3 as u32;
         options.set_target_env(shaderc::TargetEnv::Vulkan, vulkan13);
-        if let Some(local_size) = local_size {
-            options.add_macro_definition("ATTENTION_LOCAL_SIZE", Some(local_size));
+        if let Some((macro_name, value)) = macro_definition {
+            options.add_macro_definition(macro_name, Some(value));
         }
         let artifact = compiler
             .compile_into_spirv(

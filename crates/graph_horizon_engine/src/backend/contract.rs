@@ -162,27 +162,6 @@ pub(crate) trait Backend: Sized {
             self.matmul(enc, &oi, &ai, w, in_dim, out_dim);
         }
     }
-
-    // Computes the two MLP input projections that consume the same activation.
-    // Backends without a joint kernel retain the exact existing two-dispatch
-    // behavior; the first result is independent until both projections finish.
-    #[allow(clippy::too_many_arguments)]
-    fn mlp_gate_up(
-        &self,
-        enc: &Self::Encoder,
-        gate: &Self::Buffer,
-        up: &Self::Buffer,
-        a: &Self::Buffer,
-        gate_w: &Self::Buffer,
-        up_w: &Self::Buffer,
-        in_dim: u32,
-        out_dim: u32,
-        n: u32,
-    ) {
-        self.no_barrier();
-        self.matmul_batched(enc, gate, a, gate_w, in_dim, out_dim, n);
-        self.matmul_batched(enc, up, a, up_w, in_dim, out_dim, n);
-    }
     // Same as matmul but the output is the FP32 vocab-sized logits.
     #[allow(clippy::too_many_arguments)]
     fn logits(

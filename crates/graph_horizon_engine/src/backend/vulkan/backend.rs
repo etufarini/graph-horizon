@@ -36,7 +36,7 @@ use super::kernels::attention::{
 };
 use super::kernels::elementwise::{residual_add, rmsnorm_x};
 use super::kernels::fused;
-use super::kernels::matmul::{logits, shared_a};
+use super::kernels::matmul::logits;
 use super::kernels::reduce;
 
 // AGENTS deroga I: singolo `impl Backend for VulkanBackend` di delegatori sottili.
@@ -186,28 +186,6 @@ impl Backend for VulkanBackend {
         n: u32,
     ) {
         dispatch::matmul_batched(self, enc, out, a, w, in_dim, out_dim, n);
-    }
-
-    fn mlp_gate_up(
-        &self,
-        enc: &vk::CommandBuffer,
-        gate: &GpuBuffer,
-        up: &GpuBuffer,
-        a: &GpuBuffer,
-        gate_w: &GpuBuffer,
-        up_w: &GpuBuffer,
-        in_dim: u32,
-        out_dim: u32,
-        n: u32,
-    ) {
-        if shared_a::dispatch(
-            &self.dev, &self.reg, *enc, gate, up, a, gate_w, up_w, in_dim, out_dim, n,
-        ) {
-            return;
-        }
-        self.no_barrier();
-        dispatch::matmul_batched(self, enc, gate, a, gate_w, in_dim, out_dim, n);
-        dispatch::matmul_batched(self, enc, up, a, up_w, in_dim, out_dim, n);
     }
 
     fn logits(

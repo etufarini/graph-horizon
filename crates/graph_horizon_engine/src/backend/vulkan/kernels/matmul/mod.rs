@@ -8,7 +8,6 @@
 
 mod decode;
 mod prefill;
-pub(crate) mod shared_a;
 mod trace;
 
 use ash::vk;

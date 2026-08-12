@@ -36,7 +36,6 @@ pub(crate) enum Kernel {
     MatmulQ6KBatchF16Out,
     MatmulQ4KCoopmatF16Out,
     MatmulQ6KCoopmatF16Out,
-    MlpGateUpQ4KCoopmat,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
 }
@@ -78,7 +77,6 @@ impl Kernel {
             Self::MatmulQ6KBatchF16Out => "matmul_q6k_batch_f16",
             Self::MatmulQ4KCoopmatF16Out => "matmul_q4k_coopmat_f16",
             Self::MatmulQ6KCoopmatF16Out => "matmul_q6k_coopmat_f16",
-            Self::MlpGateUpQ4KCoopmat => "mlp_gate_up_q4k_coopmat_shared_a",
             Self::QuantAQ8F16 => "quant_a_q8_f16",
             Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
         }
@@ -126,7 +124,6 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::MatmulQ6KBatchF16Out => (spv!("matmul_q6_k_batch_f16"), 3, 12),
         Kernel::MatmulQ4KCoopmatF16Out => (spv!("matmul_q4_k_coopmat_f16out"), 3, 12),
         Kernel::MatmulQ6KCoopmatF16Out => (spv!("matmul_q6_k_coopmat_f16out"), 3, 12),
-        Kernel::MlpGateUpQ4KCoopmat => (spv!("mlp_gate_up_q4_k_coopmat"), 5, 12),
         Kernel::QuantAQ8F16 => (spv!("quant_a_q8_f16"), 3, 4),
         Kernel::MatmulQ4KMmvqF16Out => (spv!("matmul_q4_k_mmvq_f16out"), 4, 8),
     }

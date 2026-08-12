@@ -143,7 +143,6 @@ impl PipelineRegistry {
                 for k in [
                     Kernel::MatmulQ4KCoopmatF16Out,
                     Kernel::MatmulQ6KCoopmatF16Out,
-                    Kernel::MlpGateUpQ4KCoopmat,
                 ] {
                     map.insert(k, record::build_one(dev, cache, k)?);
                 }

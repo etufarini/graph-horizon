@@ -35,7 +35,6 @@ pub(super) enum Category {
     ProjectionOutput,
     MlpGate,
     MlpUp,
-    MlpGateUp,
     MlpActivation,
     MlpDown,
     Matmul,
@@ -49,7 +48,7 @@ pub(super) enum Category {
 }
 
 impl Category {
-    pub(super) const COUNT: usize = 18;
+    pub(super) const COUNT: usize = 17;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::Attention,
         Self::ProjectionQ,
@@ -58,7 +57,6 @@ impl Category {
         Self::ProjectionOutput,
         Self::MlpGate,
         Self::MlpUp,
-        Self::MlpGateUp,
         Self::MlpActivation,
         Self::MlpDown,
         Self::Matmul,
@@ -80,7 +78,6 @@ impl Category {
             Self::ProjectionOutput => "projection_output",
             Self::MlpGate => "mlp_gate",
             Self::MlpUp => "mlp_up",
-            Self::MlpGateUp => "mlp_gate_up",
             Self::MlpActivation => "mlp_activation",
             Self::MlpDown => "mlp_down",
             Self::Matmul => "matmul_other",
@@ -116,7 +113,6 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::MatmulQ6KCoopmatF16Out
         | Kernel::QuantAQ8F16
         | Kernel::MatmulQ4KMmvqF16Out => Category::Matmul,
-        Kernel::MlpGateUpQ4KCoopmat => Category::MlpGateUp,
         Kernel::Logits | Kernel::LogitsQ4K | Kernel::LogitsQ5K | Kernel::LogitsQ6K => {
             Category::Logits
         }
@@ -164,12 +160,6 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
 }
 
 pub(super) fn profiled(kernel: Kernel, matmul_slot: &mut usize) -> Category {
-    if kernel == Kernel::MlpGateUpQ4KCoopmat {
-        // One fused command replaces gate and up, so down must retain slot six.
-        debug_assert_eq!(*matmul_slot % 7, 4);
-        *matmul_slot += 2;
-        return Category::MlpGateUp;
-    }
     if !is_projection_matmul(kernel) {
         return direct(kernel);
     }

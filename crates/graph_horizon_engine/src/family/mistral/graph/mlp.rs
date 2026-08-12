@@ -28,20 +28,12 @@ pub(crate) fn record<B: Backend>(
         cfg.rms_epsilon,
         rows,
     );
-    backend.no_barrier();
-    backend.matmul_batched(
+    backend.mlp_gate_up(
         enc,
         &scratch.gate,
-        &scratch.normed,
-        &layer.ffn_gate,
-        hidden,
-        ffn,
-        rows,
-    );
-    backend.matmul_batched(
-        enc,
         &scratch.up,
         &scratch.normed,
+        &layer.ffn_gate,
         &layer.ffn_up,
         hidden,
         ffn,

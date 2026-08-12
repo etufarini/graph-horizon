@@ -13,15 +13,17 @@ pub(super) const LAYER_LIMIT: usize = 128;
 pub(super) enum MatmulPath {
     Q4Coopmat,
     Q6Coopmat,
+    Q4SharedA,
     Q4Fallback,
     Q6Fallback,
 }
 
 impl MatmulPath {
-    pub(super) const COUNT: usize = 4;
+    pub(super) const COUNT: usize = 5;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::Q4Coopmat,
         Self::Q6Coopmat,
+        Self::Q4SharedA,
         Self::Q4Fallback,
         Self::Q6Fallback,
     ];
@@ -30,6 +32,7 @@ impl MatmulPath {
         match self {
             Self::Q4Coopmat => "matmul_q4k_coopmat_f16",
             Self::Q6Coopmat => "matmul_q6k_coopmat_f16",
+            Self::Q4SharedA => "mlp_gate_up_q4k_coopmat_shared_a",
             Self::Q4Fallback => "matmul_q4k_batch_f16",
             Self::Q6Fallback => "matmul_q6k_batch_f16",
         }
@@ -39,6 +42,7 @@ impl MatmulPath {
         match kernel {
             Kernel::MatmulQ4KCoopmatF16Out => Some(Self::Q4Coopmat),
             Kernel::MatmulQ6KCoopmatF16Out => Some(Self::Q6Coopmat),
+            Kernel::MlpGateUpQ4KCoopmat => Some(Self::Q4SharedA),
             Kernel::MatmulQ4KBatchF16Out => Some(Self::Q4Fallback),
             Kernel::MatmulQ6KBatchF16Out => Some(Self::Q6Fallback),
             _ => None,

@@ -86,9 +86,15 @@ fn supports_tiled_attention(
         && matches!(subgroup_size, 16 | 32 | 64)
 }
 
-fn supports_coop_qk_attention(tiled: bool, shared_bytes: u32, coop: CoopmatCaps) -> bool {
+fn supports_coop_qk_attention(
+    tiled: bool,
+    shared_bytes: u32,
+    subgroup_size: u32,
+    coop: CoopmatCaps,
+) -> bool {
     tiled
         && shared_bytes >= COOP_QK_ATTENTION_SHARED_BYTES
+        && matches!(subgroup_size, 16 | 32)
         && coop.available
         && (coop.m, coop.n, coop.k) == (16, 16, 16)
 }
@@ -198,7 +204,8 @@ impl PipelineRegistry {
             l.max_compute_shared_memory_size,
         );
         let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, vulkan11.subgroup_size);
-        let coop_qk = supports_coop_qk_attention(tiled, limits.2, dev.coopmat);
+        let coop_qk =
+            supports_coop_qk_attention(tiled, limits.2, vulkan11.subgroup_size, dev.coopmat);
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
             tiled,
@@ -323,21 +330,37 @@ mod tests {
         assert!(supports_coop_qk_attention(
             true,
             COOP_QK_ATTENTION_SHARED_BYTES,
+            32,
+            supported,
+        ));
+        assert!(supports_coop_qk_attention(
+            true,
+            COOP_QK_ATTENTION_SHARED_BYTES,
+            16,
             supported,
         ));
         assert!(!supports_coop_qk_attention(
             false,
             COOP_QK_ATTENTION_SHARED_BYTES,
+            32,
             supported,
         ));
         assert!(!supports_coop_qk_attention(
             true,
             COOP_QK_ATTENTION_SHARED_BYTES - 1,
+            32,
             supported,
         ));
         assert!(!supports_coop_qk_attention(
             true,
             COOP_QK_ATTENTION_SHARED_BYTES,
+            64,
+            supported,
+        ));
+        assert!(!supports_coop_qk_attention(
+            true,
+            COOP_QK_ATTENTION_SHARED_BYTES,
+            32,
             CoopmatCaps { m: 8, ..supported },
         ));
     }

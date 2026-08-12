@@ -2142,6 +2142,9 @@ score/probability è stato aggiunto.
 Il driver riporta subgroup 32, 37 registri/thread, stack 0, 26.816 byte shared
 e binary 10.240 byte. Tre WG da 512 richiedono 56.832 registri, 80.448 byte
 shared e 1.536 thread/SM: 48 warp, occupancy thread modellata 100%, nessun spill.
+Il routing full-MMA richiede subgroup 16/32, shared sufficiente e forma
+16×16×16 esatta; subgroup 64 e device incompatibili mantengono il fallback
+tiled/scalare, evitando `G / Q_TILE = 0`.
 
 ### Timing cooperative AV
 

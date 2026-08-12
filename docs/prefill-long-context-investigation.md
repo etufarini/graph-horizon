@@ -2584,3 +2584,218 @@ complessità. Una fase successiva dovrebbe ripartire dal residuo
 dependency/control/sync di attention oppure da Q6 metadata, ma soltanto dopo un
 nuovo upper bound causale. API, dipendenze, allocazioni globali e semantica
 numerica non sono cambiate.
+
+## Fase 4 attention: pipeline full-MMA — RTX 3060, 2026-08-12
+
+Questa fase riparte esattamente da `perf/vulkan-prefill-matmul-phase3` al
+commit `34cc318`, su un branch dedicato
+`perf/vulkan-prefill-attention-phase4`. L'artefatto è
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2.147.023.008 byte, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+La macchina resta RTX 3060 12 GB, driver NVIDIA 595.84, Vulkan 1.4.329;
+durante il profilo il clock osservato è circa 1.972 MHz e la GPU è al 100%.
+
+La tupla è invariata: Vulkan puro `release`, feature `vulkan-profile`, contesto
+32.768, KV F16, prompt sintetico autenticato da 8.192 o 28.000 token, due token
+richiesti, una warm-up e tre repliche. I probe causali usano una replica senza
+warm-up e modificano una sola classe di lavoro per volta. Prima della prima
+patch produttiva il worktree era pulito; ogni probe è stato rimosso prima del
+successivo.
+
+### Baseline fresca e breakdown globale
+
+| Prompt | Wall | Tok/s | CV | GPU prefill | Attention | Decode |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8K | 29.581,73 ms | 276,93 | 0,24% | 28.722,524 ms | 6.123,270 ms (21,32%) | 19,68 tok/s |
+| 28K | 157.609,82 ms | 177,65 | 0,07% | 154.820,726 ms | 76.401,627 ms (49,35%) | 8,83 tok/s |
+
+I timestamp GPU includono warm-up e repliche e sono divisi per quattro. A 28K
+il profiler attribuisce il 99,76% del tempo GPU: attention 76.401,627 ms
+(49,35%), sette matmul 70.158,521 ms (45,32%) e other 8.260,579 ms
+(5,34%). La variazione rispetto all'endpoint Phase 3 è rumore di run, non un
+cambio del percorso.
+
+### Modello esecutivo, shared memory e barrier
+
+Il workgroup ha 512 thread, 16 subgroup da 32 lane e produce una query tile
+16×128 contro KV tile da 64. Quattro subgroup producono QK e quattro producono
+AV per ciascuna metà dell'output. Il driver riporta 37 registri/thread, stack
+zero, 26.816 byte shared e binary 10.240 byte. Tre workgroup restano residenti:
+1.536 thread, 48 warp e occupancy thread modellata 100%. Per conservare quella
+residenza restano soltanto 490 byte shared per workgroup; anche un frammento
+F16 16×16 aggiuntivo da 512 byte la ridurrebbe.
+
+| Regione shared | Byte | Vita e dipendenza |
+|---|---:|---|
+| `sh_q` | 4.096 | caricata una volta; viva per tutti i tile QK |
+| `sh_tile` | 16.384 | prima K fino a QK, poi sovrascritta da V fino ad AV |
+| `sh_prob` | 2.048 | prodotta dal softmax, consumata da entrambe le metà AV |
+| `sh_score` | 4.096 | score QK→softmax; poi scratch output AV→merge, due riusi |
+| `sh_m/l/alpha` | 192 | stato online per tutta la scansione KV |
+
+Non esistono score o probabilità globali N×N. Il riuso di `sh_score` e
+`sh_tile` è quindi un'invariante sia semantica sia di occupancy.
+
+Lo shader ha sei siti `barrier()` statici: inizializzazione Q/stato, K ready,
+QK ready, V/probabilità ready, output AV ready e riuso dello scratch output.
+Poiché gli ultimi due sono eseguiti per entrambe le metà, il conteggio dinamico
+è una barrier iniziale più sette per KV tile. Produttori e consumatori
+attraversano subgroup diversi: salvo il secondo riuso output, restringere lo
+scope a subgroup sarebbe errato. Il secondo riuso può affidarsi alla K-ready
+del tile seguente, oppure alla fine del kernel per l'ultimo tile; il probe
+produttivo dedicato mostra però che rimuoverlo non è misurabile.
+
+### Attribuzione causale aggiornata
+
+La replica 8K di riferimento per le sottrazioni misura 6.107,687 ms attention.
+I probe seguenti conservano geometria, buffer, numero di tile e store di forma;
+producono intenzionalmente valori non utilizzabili e servono soltanto a
+misurare il costo causale. Le righe fini possono sovrapporsi e non vanno
+sommate. La chiusura additiva è fornita dalla tabella successiva.
+
+| Probe 8K | Attention | Delta causale |
+|---|---:|---:|
+| QK fragment load + MMA rimossi | 4.934,545 ms | 1.173,142 ms (19,21%) |
+| K global load rimosso, shared write conservato | 5.266,633 ms | 841,054 ms (13,77%) |
+| V global load rimosso, shared write conservato | 5.755,234 ms | 352,453 ms (5,77%) |
+| score/softmax/P sostituiti da pesi uniformi | 5.817,452 ms | 290,235 ms (4,75%) |
+| AV fragment load + MMA rimossi | 4.908,473 ms | 1.199,214 ms (19,64%) |
+| rescale/merge online rimossi | 5.839,489 ms | 268,198 ms (4,39%) |
+| Q global load rimosso | 6.406,680 ms | regressione 4,90%, sotto risoluzione/overlap |
+| sola `exp` sostituita | 6.172,153 ms | regressione 1,06%, sotto risoluzione |
+| conversione/store P isolati | 6.100,160–6.144,016 ms | ≤0,59%, sotto risoluzione |
+| divisione finale rimossa | 6.114,482 ms | regressione 0,11%, sotto risoluzione |
+
+I frammenti Q e K costano separatamente circa 9,52% ciascuno; mantenendo tutte
+le MMA ma usando entrambi i frammenti costanti restano solo 12,105 ms rispetto
+al probe senza QK, cioè 0,20% attention per le istruzioni MMA QK isolate. Per
+AV, il frammento P vale circa 7,81%, il movimento shared del frammento V circa
+1,90% dopo aver sottratto il global load, e le MMA isolate 26,546 ms (0,44%).
+Il residuo congiunto di sequencing/dipendenza AV è circa 9,49%. Queste
+sottrazioni non dimostrano che le Tensor Core siano inattive: i load e le MMA
+si sovrappongono, perciò sono envelope causali, non contatori di stall.
+
+Per chiudere almeno il 95% richiesto è stato eseguito uno scheletro che conserva
+dispatch, tile, shared write di forma, controllo e tutte le barrier, ma elimina
+Q/K/V globali, softmax e QK/AV. Una seconda variante elimina le sei barrier,
+ora prive di producer/consumer. Sono misure dirette sia a 8K sia a 28K.
+
+| Bucket additivo | 8K | 28K | Evidenza |
+|---|---:|---:|---|
+| dati, frammenti, matematica e dipendenze eliminate | 4.745,809 ms (77,70%) | 60.654,337 ms (79,39%) | baseline meno scheletro con barrier |
+| barrier esplicite nello scheletro | 170,125 ms (2,79%) | 2.009,277 ms (2,63%) | scheletro meno variante barrier-free |
+| geometria, addressing, loop e shared write residui | 1.191,753 ms (19,51%) | 13.738,013 ms (17,98%) | variante barrier-free |
+| totale attribuito | 6.107,687 ms (100,00%) | 76.401,627 ms (100,00%) | chiusura |
+
+Il bucket eliminato 8K può essere partizionato, senza doppio conteggio, in QK
+19,21%, K global 13,77%, V global 5,77%, softmax/P 4,75%, AV 19,64%, merge
+4,39% e dipendenze/overlap esposti soltanto dallo scheletro 10,17%. A 28K la
+chiusura grossolana è diretta; non si trasferiscono come misurate le frazioni
+fini 8K.
+
+Il 2,63–2,79% delle barrier nello scheletro è un ceiling causale favorevole,
+non costo rimovibile dal kernel corretto: cinque dei sei siti proteggono dati
+cross-subgroup e il solo sito eliminabile misura zero nel candidato reale.
+
+### SPIR-V, cooperative MMA e limiti degli strumenti
+
+Il runtime SPIR-V disassemblato contiene 229 `OpLoad`, 101 store, 52
+`OpAccessChain`, 48 add interi, 32 multiply interi, 30 branch condizionali, 13
+loop, sei `OpControlBarrier`, quattro siti `CooperativeMatrixLoadKHR`, due
+`CooperativeMatrixMulAddKHR`, due cooperative store, una riduzione subgroup
+max/add/elect, due conversioni FP16 e due `Exp`. Per KV tile vengono eseguite
+32 MMA 16×16×16 QK e 32 AV: 524.288 FLOP utili per workgroup/tile.
+
+A 28K QK e AV valgono circa 83,5 TFLOP utili ciascuno, 167 TFLOP totali. Al
+clock osservato, 112 Tensor Core Ampere × 256 operazioni/ciclo danno un ceiling
+denso di circa 56,54 TFLOP/s. Il tempo attivo fisico minimo è quindi 2,95 s,
+almeno il 3,86% dei 76,40 s attention; il throughput utile sull'intero kernel è
+2,19 TFLOP/s, 3,87% del ceiling. Non è disponibile il tempo attivo reale delle
+MMA: i delta istruzione-only 0,20% + 0,44% sono inferiori al minimo fisico
+perché rimuovere i load cambia scheduling e overlap.
+
+`VK_KHR_pipeline_executable_properties` espone statistiche del pipeline ma
+zero rappresentazioni interne sul driver NVIDIA, quindi non fornisce SASS.
+Nsight Compute è CUDA-only per questo percorso Vulkan e non sono esposti
+contatori stall Tensor/LSU. Il report distingue pertanto SPIR-V statico,
+statistiche driver e inferenze da probe; non inventa cache miss o stall.
+
+La GPU espone `VK_NV_cooperative_matrix2`: workgroup scope, flexible
+dimensions, reduction, conversion, per-element, tensor e block load risultano
+supportati. Il limite workgroup-scope dichiarato è però 256 thread contro i 512
+attuali; inoltre `ash 0.38` e gli header Vulkan vendorizzati dal progetto non
+contengono ancora le definizioni NV2. Un producer diretto di frammenti P o
+score richiederebbe quindi nuovo binding FFI/dipendenza, nuova geometria e un
+percorso vendor-specific. È un candidato architetturale futuro, non una patch
+locale autorizzata da questa misura.
+
+### Esperimenti di pipeline
+
+| ID | Cambiamento | Risorse driver | 8K attention / wall | Correttezza | Decisione |
+|---|---|---|---:|---|---|
+| BAR-REUSE | rimuove la seconda barrier di riuso output | invariate | 6.108,022 ms (+0,006%); wall invariato | F16/INT8 pass | reject: nullo |
+| QK-FP2 | doppio slot Q/K, load del frammento successivo prima della MMA corrente | 36 reg, binary +11,25%, occupancy invariata | 6.402,276 ms (+4,82%); wall +0,96% | pass | reject |
+| K-PF32 | prefetch dei primi 32 valori K del tile seguente prima di softmax/AV | 36 reg, binary +23,75%, occupancy invariata | 6.493,258 ms (+6,31%); wall +0,86% | pass | reject |
+| FULL-HOIST | hoist del ramo full/partial fuori dal loop score | 36 reg, binary/shared invariati | 6.060,698 ms (−0,77%); wall −0,53% | pass | reject: sotto soglia |
+
+QK-FP2 conserva ordine e numero delle MMA ma peggiora lo scheduling scelto dal
+driver. K-PF32 conserva numero di load globali e barrier ma non crea overlap
+utile. FULL-HOIST è il solo segnale positivo, ma vale circa 0,16% del GPU
+prefill 8K e aumenta la duplicazione del sorgente; resta molto sotto il gate
+1,5–2% per patch semplici. Tre ceiling ad alta priorità—barrier eliminabile,
+pipeline QK esplicita e prefetch K/V—sono quindi falsificati senza cambiare
+semantica o precisione.
+
+### Stato finale, correttezza e matrice prefill
+
+Nessuna modifica produttiva è mantenuta. Lo shader finale è byte-per-byte
+quello di `34cc318`; non cambiano API, dipendenze, dispatch, allocazioni,
+precisione, causal mask, online softmax, KV F16/INT8 o fallback. Di conseguenza
+baseline e finale coincidono. I punti 2K/16K sono la matrice autenticata Phase
+3 dello stesso commit; 8K/28K sono le misure fresche sopra.
+
+| Prompt | Wall finale | Tok/s finale | GPU prefill finale | Delta da `34cc318` |
+|---:|---:|---:|---:|---:|
+| 2K | 6.289,38 ms | 325,63 | 6.052,276 ms | 0% |
+| 8K | 29.581,73 ms | 276,93 | 28.722,524 ms | 0% |
+| 16K | 72.645,75 ms | 225,53 | 71.041,242 ms | 0% |
+| 28K | 157.609,82 ms | 177,65 | 154.820,726 ms | 0% |
+
+Verifica finale:
+
+- `cargo fmt --all -- --check` e `git diff --check`: pass;
+- Clippy release workspace `--all-targets -D warnings`, `vulkan-profile`: pass;
+- engine unit `vulkan-profile`: 149 pass, tre ignored;
+- test attention rapido F16/INT8: pass incluso nella suite;
+- qualifica numerica esplicita 2K/8K/28K: pass in 190,64 s;
+- F16 attention max abs ≤1,526e-5 e CPU max abs ≤1,168e-5;
+- INT8 attention e logits: uguaglianza esatta col percorso sequenziale;
+- nessun probe, binario diagnostico o shader candidato resta nel worktree.
+
+### Ranking globale del costo realisticamente rimovibile
+
+Il ranking combina quota fresca 28K e una frazione rimovibile sostenuta da
+misure, non il ceiling assurdo di cancellare un componente intero.
+
+| Componente | Quota prefill 28K | Frazione realisticamente rimovibile | Saving prefill atteso | Confidenza |
+|---|---:|---:|---:|---|
+| down projection | 11,24% | 4–5% | 0,45–0,56% | media: metà Q4 migliorò 5,05%; metà Q6 metadata resta da misurare |
+| attention, patch KHR locale | 49,35% | ≤1% | ≤0,49% | alta sul limite: miglior candidato −0,77% attention |
+| altre proiezioni Q/K/V/O | 16,04% | 1–2% | 0,16–0,32% | bassa-media: shape strette e metà V Q6 escluse dal metadata Q4 |
+| other | 5,34% | ~5% | ~0,27% | bassa: bucket eterogeneo, nessun singolo kernel dominante |
+| gate + up | 18,03% | ≤0,74% | ≤0,13% | alta: shared-A SA-P2 misurato |
+
+Il maggiore bottleneck assoluto resta attention e, al suo interno, il movimento
+e la dipendenza dei frammenti Q/K/P/V, non le sole MMA né la barrier
+eliminabile. Il prossimo esperimento locale per saving atteso è il broadcast
+metadata Q6_K nel ramo down, circa 0,45–0,56% prefill se replica il beneficio
+Q4: è sotto il gate 1,5–2% e non viene aperto in questa fase. L'unica direzione
+attention con un ceiling potenzialmente superiore è un redesign
+`VK_NV_cooperative_matrix2` a workgroup 256 con produzione diretta dei
+frammenti; richiede però ampliare dipendenze/FFI e percorso vendor, quindi resta
+fuori dallo scope senza autorizzazione esplicita.
+
+Le condizioni di stop sono soddisfatte: attribuzione diretta 100% a 8K e 28K,
+quattro esperimenti coerenti con i limiti misurati, tre ipotesi ad alta priorità
+falsificate, nessun candidato sopra soglia e stato produttivo ripristinato. La
+fase si chiude sul branch dedicato con sola documentazione dell'evidenza.

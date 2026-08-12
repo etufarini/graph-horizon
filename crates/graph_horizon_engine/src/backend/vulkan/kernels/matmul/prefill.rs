@@ -1,8 +1,8 @@
 /*
  * graph_horizon_engine — Vulkan batched matmul dispatch
- * Records Q4_K and Q6_K batched projections, selecting the measured Q4_K
- * cooperative path only for its supported device and prefill shapes. Decode
- * and diagnostics stay outside.
+ * Records Q4_K and Q6_K batched projections, selecting their measured
+ * cooperative paths only for supported devices and prefill shapes. Decode and
+ * diagnostics stay outside.
  */
 
 use ash::vk;
@@ -228,31 +228,16 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
-        let mut maximum_absolute = 0.0f32;
-        let mut maximum_relative = 0.0f32;
-        let mut absolute_sum = 0.0f64;
-        let mut relative_sum = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
-            let relative = absolute / reference.abs().max(1.0);
-            maximum_absolute = maximum_absolute.max(absolute);
-            maximum_relative = maximum_relative.max(relative);
-            absolute_sum += absolute as f64;
-            relative_sum += relative as f64;
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
-        let samples = expected.len() as f64;
-        eprintln!(
-            "Q4_K parity: max_abs={maximum_absolute:.6}, mean_abs={:.6}, max_rel={maximum_relative:.6}, mean_rel={:.6}",
-            absolute_sum / samples,
-            relative_sum / samples
-        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);
@@ -335,31 +320,16 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
-        let mut maximum_absolute = 0.0f32;
-        let mut maximum_relative = 0.0f32;
-        let mut absolute_sum = 0.0f64;
-        let mut relative_sum = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
-            let relative = absolute / reference.abs().max(1.0);
-            maximum_absolute = maximum_absolute.max(absolute);
-            maximum_relative = maximum_relative.max(relative);
-            absolute_sum += absolute as f64;
-            relative_sum += relative as f64;
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
-        let samples = expected.len() as f64;
-        eprintln!(
-            "Q6_K parity: max_abs={maximum_absolute:.6}, mean_abs={:.6}, max_rel={maximum_relative:.6}, mean_rel={:.6}",
-            absolute_sum / samples,
-            relative_sum / samples
-        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);

@@ -34,11 +34,29 @@ fn q4_metadata_shape(out_dim: u32) -> bool {
     matches!(out_dim, 3072 | 4096 | 9216)
 }
 
+fn matrix2_shape(in_dim: u32, out_dim: u32) -> bool {
+    coopmat_shape(in_dim) && matches!(out_dim, 1024 | 3072 | 4096 | 9216)
+}
+
 fn q4_metadata_enabled() -> bool {
     use std::sync::OnceLock;
     static FLAG: OnceLock<bool> = OnceLock::new();
     *FLAG.get_or_init(|| {
         match std::env::var("GRAPH_HORIZON_PREFILL_Q4_METADATA")
+            .ok()
+            .as_deref()
+        {
+            None | Some("1" | "true" | "yes") => true,
+            Some(_) => false,
+        }
+    })
+}
+
+fn matrix2_enabled() -> bool {
+    use std::sync::OnceLock;
+    static FLAG: OnceLock<bool> = OnceLock::new();
+    *FLAG.get_or_init(|| {
+        match std::env::var("GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2")
             .ok()
             .as_deref()
         {
@@ -61,6 +79,28 @@ pub(crate) fn matmul_batched_q4k(
 ) {
     let caps = dev.coopmat;
     if coopmat_enabled()
+        && matrix2_enabled()
+        && w.quant == WeightFormat::Q4K
+        && dev.coopmat2.available
+        && matrix2_shape(in_dim, out_dim)
+        && reg.contains(Kernel::MatmulQ4KMatrix2F16Out)
+    {
+        trace::log_batched_path_once(Kernel::MatmulQ4KMatrix2F16Out);
+        super::super::coopmat::dispatch_matrix2(
+            dev,
+            reg,
+            cmd,
+            out,
+            a,
+            w,
+            in_dim,
+            out_dim,
+            n,
+            Kernel::MatmulQ4KMatrix2F16Out,
+        );
+        return;
+    }
+    if coopmat_enabled()
         && w.quant == WeightFormat::Q4K
         && caps.available
         && caps.m == 16
@@ -71,7 +111,6 @@ pub(crate) fn matmul_batched_q4k(
         // one-subgroup candidate for that shape had regressed.
         && coopmat_shape(in_dim)
     {
-        trace::log_batched_path_once(true);
         let kernel = if q4_metadata_shape(out_dim)
             && q4_metadata_enabled()
             && reg.contains(Kernel::MatmulQ4KCoopmatMetadataF16Out)
@@ -80,12 +119,13 @@ pub(crate) fn matmul_batched_q4k(
         } else {
             Kernel::MatmulQ4KCoopmatF16Out
         };
+        trace::log_batched_path_once(kernel);
         super::super::coopmat::dispatch_coopmat(
             dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps, kernel,
         );
         return;
     }
-    trace::log_batched_path_once(false);
+    trace::log_batched_path_once(Kernel::MatmulQ4KBatchF16Out);
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());
@@ -118,6 +158,27 @@ pub(crate) fn matmul_batched_q6k(
     n: u32,
 ) {
     let caps = dev.coopmat;
+    if coopmat_enabled()
+        && matrix2_enabled()
+        && w.quant == WeightFormat::Q6K
+        && dev.coopmat2.available
+        && matrix2_shape(in_dim, out_dim)
+        && reg.contains(Kernel::MatmulQ6KMatrix2F16Out)
+    {
+        super::super::coopmat::dispatch_matrix2(
+            dev,
+            reg,
+            cmd,
+            out,
+            a,
+            w,
+            in_dim,
+            out_dim,
+            n,
+            Kernel::MatmulQ6KMatrix2F16Out,
+        );
+        return;
+    }
     if coopmat_enabled()
         && w.quant == WeightFormat::Q6K
         && caps.available
@@ -173,6 +234,11 @@ mod tests {
     #[test]
     fn batched_q4k_metadata_matches_cpu_oracle() {
         q4k_cpu_oracle(3072, 3072, 3, "q4_metadata");
+    }
+
+    #[test]
+    fn batched_q4k_matrix2_matches_cpu_oracle() {
+        q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail");
     }
 
     #[test]
@@ -296,7 +362,25 @@ mod tests {
     }
 
     #[test]
+    fn matrix2_route_is_limited_to_wide_measured_shapes() {
+        assert!(super::matrix2_shape(3072, 9216));
+        assert!(super::matrix2_shape(4096, 3072));
+        assert!(super::matrix2_shape(9216, 3072));
+        assert!(super::matrix2_shape(3072, 1024));
+        assert!(!super::matrix2_shape(256, 9216));
+    }
+
+    #[test]
     fn batched_q6k_matches_cpu_oracle() {
+        q6k_cpu_oracle(3072, 70, 5, "q6_control");
+    }
+
+    #[test]
+    fn batched_q6k_matrix2_matches_cpu_oracle() {
+        q6k_cpu_oracle(3072, 3072, 3, "q6_matrix2_tail");
+    }
+
+    fn q6k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
@@ -304,9 +388,6 @@ mod tests {
                 return;
             }
         };
-        let in_dim = 3072usize;
-        let out_dim = 70usize;
-        let rows = 5usize;
         let mut qbytes = vec![0u8; out_dim * (in_dim / 256) * 210];
         for (block_index, block) in qbytes.chunks_exact_mut(210).enumerate() {
             for (index, byte) in block[..192].iter_mut().enumerate() {
@@ -385,7 +466,7 @@ mod tests {
         }
         let count = raw.len() as f64 / 2.0;
         println!(
-            "q6_control max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
+            "{label} max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
             mean_abs / count,
             mean_relative / count
         );

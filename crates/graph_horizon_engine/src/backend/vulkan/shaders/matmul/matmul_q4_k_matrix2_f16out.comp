@@ -1,0 +1,140 @@
+#version 460
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_shuffle : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+
+// AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K matrix2.
+
+// NVIDIA workgroup-scope Q4_K prefill matmul. One 256-thread workgroup owns a
+// 32x32 output tile. Tensor addressing loads the FP16 activation tile directly;
+// one metadata owner per output row dequantizes a 32x32 weight tile to shared
+// FP16, and matrix2 accumulates in FP32 before the guarded FP16 output store.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };
+layout(std430, binding = 1) readonly buffer W { uint q[]; };
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
+
+const uint M_TILE = 32u;
+const uint N_TILE = 32u;
+const uint K_TILE = 32u;
+
+shared float16_t bs[K_TILE * N_TILE];
+shared float cs[M_TILE * N_TILE];
+
+uint gb(uint byte_offset) {
+    return (q[byte_offset >> 2u] >> ((byte_offset & 3u) * 8u)) & 0xFFu;
+}
+
+float hf(uint byte_offset) {
+    return unpackHalf2x16(gb(byte_offset) | (gb(byte_offset + 1u) << 8u)).x;
+}
+
+void scale_min(uint scale_offset, uint group, out uint scale, out uint minimum) {
+    if (group < 4u) {
+        scale = gb(scale_offset + group) & 63u;
+        minimum = gb(scale_offset + group + 4u) & 63u;
+    } else {
+        uint high = gb(scale_offset + group + 4u);
+        uint low = gb(scale_offset + group - 4u);
+        scale = (high & 0xFu) | ((low >> 6u) << 4u);
+        minimum = (high >> 4u) | ((gb(scale_offset + group) >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint tid = gl_LocalInvocationIndex;
+    uint row_base = gl_WorkGroupID.x * M_TILE;
+    uint output_base = gl_WorkGroupID.y * N_TILE;
+    uint super_blocks = p.in_dim / 256u;
+
+    coopmat<float, gl_ScopeWorkgroup, M_TILE, N_TILE,
+            gl_MatrixUseAccumulator> accumulator =
+        coopmat<float, gl_ScopeWorkgroup, M_TILE, N_TILE,
+                gl_MatrixUseAccumulator>(0.0);
+
+    // K is a multiple of the 256-value Q4_K super-block, so it has no tail.
+    for (uint kbase = 0u; kbase < p.in_dim; kbase += K_TILE) {
+        uint output_row = tid / 8u;
+        uint first_k = (tid & 7u) * 4u;
+        uint global_output = output_base + output_row;
+        float dequant_scale = 0.0;
+        float dequant_minimum = 0.0;
+        uint block = 0u;
+        uint remaining_64 = 0u;
+        uint quant_group = 0u;
+
+        if (global_output < p.out_dim) {
+            uint k = kbase + first_k;
+            block = (global_output * super_blocks + (k >> 8u)) * 144u;
+            uint remaining_256 = k & 255u;
+            remaining_64 = remaining_256 & 63u;
+            quant_group = remaining_256 >> 6u;
+            if (first_k == 0u) {
+                uint scale;
+                uint minimum;
+                scale_min(
+                    block + 4u,
+                    quant_group * 2u + (remaining_64 >> 5u),
+                    scale,
+                    minimum);
+                dequant_scale = hf(block) * float(scale);
+                dequant_minimum = hf(block + 2u) * float(minimum);
+            }
+        }
+        uint metadata_lane = gl_SubgroupInvocationID & ~7u;
+        dequant_scale = subgroupShuffle(dequant_scale, metadata_lane);
+        dequant_minimum = subgroupShuffle(dequant_minimum, metadata_lane);
+
+        for (uint slot = 0u; slot < 4u; slot++) {
+            uint local_k = first_k + slot;
+            float value = 0.0;
+            if (global_output < p.out_dim) {
+                uint remaining = remaining_64 + slot;
+                uint packed = gb(block + 16u + quant_group * 32u + (remaining & 31u));
+                uint quant = remaining < 32u ? packed & 0xFu : packed >> 4u;
+                value = dequant_scale * float(quant) - dequant_minimum;
+            }
+            bs[local_k * N_TILE + output_row] = float16_t(value);
+        }
+        barrier();
+
+        coopmat<float16_t, gl_ScopeWorkgroup, M_TILE, K_TILE,
+                gl_MatrixUseA> activation =
+            coopmat<float16_t, gl_ScopeWorkgroup, M_TILE, K_TILE,
+                    gl_MatrixUseA>(float16_t(0.0));
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> activation_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        activation_layout = setTensorLayoutDimensionNV(
+            activation_layout, p.n, p.in_dim);
+        activation_layout = sliceTensorLayoutNV(
+            activation_layout, int(row_base), M_TILE, int(kbase), K_TILE);
+        coopMatLoadTensorNV(activation, a, 0u, activation_layout);
+
+        coopmat<float16_t, gl_ScopeWorkgroup, K_TILE, N_TILE,
+                gl_MatrixUseB> weight;
+        coopMatLoad(weight, bs, 0u, N_TILE, gl_CooperativeMatrixLayoutRowMajor);
+        accumulator = coopMatMulAdd(activation, weight, accumulator);
+
+        // Every invocation has consumed `bs` before the next K tile overwrites it.
+        barrier();
+    }
+
+    coopMatStore(
+        accumulator, cs, 0u, N_TILE, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint index = gl_LocalInvocationIndex; index < M_TILE * N_TILE; index += 256u) {
+        uint row = index / N_TILE;
+        uint output_row = index % N_TILE;
+        uint global_row = row_base + row;
+        uint global_output = output_base + output_row;
+        if (global_row < p.n && global_output < p.out_dim) {
+            y[global_row * p.out_dim + global_output] = float16_t(cs[index]);
+        }
+    }
+}

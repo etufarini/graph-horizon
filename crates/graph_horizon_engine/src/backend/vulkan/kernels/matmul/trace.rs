@@ -32,14 +32,16 @@ pub(crate) fn log_path_once(kernel: Kernel) {
     });
 }
 
-pub(super) fn log_batched_path_once(coopmat: bool) {
+pub(super) fn log_batched_path_once(kernel: Kernel) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         if enabled() {
-            let path = if coopmat {
-                "Q4_K coopmat (f16-out)"
-            } else {
-                "Q4_K batched f16-out"
+            let path = match kernel {
+                Kernel::MatmulQ4KMatrix2F16Out => "Q4_K matrix2 (f16-out)",
+                Kernel::MatmulQ4KCoopmatF16Out | Kernel::MatmulQ4KCoopmatMetadataF16Out => {
+                    "Q4_K coopmat (f16-out)"
+                }
+                _ => "Q4_K batched f16-out",
             };
             eprintln!("matmul_batched: path={path}");
         }

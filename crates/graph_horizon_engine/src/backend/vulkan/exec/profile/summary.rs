@@ -14,16 +14,20 @@ pub(super) enum MatmulPath {
     Q4Coopmat,
     Q4Metadata,
     Q6Coopmat,
+    Q4Matrix2,
+    Q6Matrix2,
     Q4Fallback,
     Q6Fallback,
 }
 
 impl MatmulPath {
-    pub(super) const COUNT: usize = 5;
+    pub(super) const COUNT: usize = 7;
     pub(super) const ALL: [Self; Self::COUNT] = [
         Self::Q4Coopmat,
         Self::Q4Metadata,
         Self::Q6Coopmat,
+        Self::Q4Matrix2,
+        Self::Q6Matrix2,
         Self::Q4Fallback,
         Self::Q6Fallback,
     ];
@@ -33,6 +37,8 @@ impl MatmulPath {
             Self::Q4Coopmat => "matmul_q4k_coopmat_f16",
             Self::Q4Metadata => "matmul_q4k_coopmat_metadata_f16",
             Self::Q6Coopmat => "matmul_q6k_coopmat_f16",
+            Self::Q4Matrix2 => "matmul_q4k_matrix2_wg256_m32_n32_k32",
+            Self::Q6Matrix2 => "matmul_q6k_matrix2_wg256_m32_n32_k32",
             Self::Q4Fallback => "matmul_q4k_batch_f16",
             Self::Q6Fallback => "matmul_q6k_batch_f16",
         }
@@ -43,6 +49,8 @@ impl MatmulPath {
             Kernel::MatmulQ4KCoopmatF16Out => Some(Self::Q4Coopmat),
             Kernel::MatmulQ4KCoopmatMetadataF16Out => Some(Self::Q4Metadata),
             Kernel::MatmulQ6KCoopmatF16Out => Some(Self::Q6Coopmat),
+            Kernel::MatmulQ4KMatrix2F16Out => Some(Self::Q4Matrix2),
+            Kernel::MatmulQ6KMatrix2F16Out => Some(Self::Q6Matrix2),
             Kernel::MatmulQ4KBatchF16Out => Some(Self::Q4Fallback),
             Kernel::MatmulQ6KBatchF16Out => Some(Self::Q6Fallback),
             _ => None,
@@ -158,6 +166,14 @@ mod tests {
         assert!(matches!(
             MatmulPath::from_kernel(Kernel::MatmulQ6KCoopmatF16Out),
             Some(MatmulPath::Q6Coopmat)
+        ));
+        assert!(matches!(
+            MatmulPath::from_kernel(Kernel::MatmulQ4KMatrix2F16Out),
+            Some(MatmulPath::Q4Matrix2)
+        ));
+        assert!(matches!(
+            MatmulPath::from_kernel(Kernel::MatmulQ6KMatrix2F16Out),
+            Some(MatmulPath::Q6Matrix2)
         ));
         assert!(matches!(
             MatmulPath::from_kernel(Kernel::MatmulQ4KBatchF16Out),

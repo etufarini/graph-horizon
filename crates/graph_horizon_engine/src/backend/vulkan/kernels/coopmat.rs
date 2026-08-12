@@ -64,3 +64,41 @@ pub(crate) fn dispatch_coopmat(
         out_dim.div_ceil(caps.n).min(MAX_GROUPS_X),
     );
 }
+
+// Dispatches a fixed matrix2 quantized matmul. Its workgroup owns 32 prompt
+// rows and 32 output rows; tails are clamped or guarded inside each shader.
+pub(crate) fn dispatch_matrix2(
+    dev: &Device,
+    reg: &PipelineRegistry,
+    cmd: vk::CommandBuffer,
+    out: &GpuBuffer,
+    a: &GpuBuffer,
+    w: &GpuBuffer,
+    in_dim: u32,
+    out_dim: u32,
+    n: u32,
+    kernel: Kernel,
+) {
+    debug_assert!(matches!(
+        kernel,
+        Kernel::MatmulQ4KMatrix2F16Out | Kernel::MatmulQ6KMatrix2F16Out
+    ));
+    let mut push = Vec::with_capacity(12);
+    push.extend_from_slice(&in_dim.to_le_bytes());
+    push.extend_from_slice(&out_dim.to_le_bytes());
+    push.extend_from_slice(&n.to_le_bytes());
+    dispatch_2d(
+        dev,
+        reg,
+        cmd,
+        kernel,
+        &[
+            (a.buffer, a.offset, a.size),
+            (w.buffer, w.offset, w.size),
+            (out.buffer, out.offset, out.size),
+        ],
+        &push,
+        n.div_ceil(32).min(MAX_GROUPS_X),
+        out_dim.div_ceil(32).min(MAX_GROUPS_X),
+    );
+}

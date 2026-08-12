@@ -37,7 +37,9 @@ pub(crate) enum Kernel {
     MatmulQ6KBatchF16Out,
     MatmulQ4KCoopmatF16Out,
     MatmulQ4KCoopmatMetadataF16Out,
+    MatmulQ4KMatrix2F16Out,
     MatmulQ6KCoopmatF16Out,
+    MatmulQ6KMatrix2F16Out,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
 }
@@ -80,7 +82,9 @@ impl Kernel {
             Self::MatmulQ6KBatchF16Out => "matmul_q6k_batch_f16",
             Self::MatmulQ4KCoopmatF16Out => "matmul_q4k_coopmat_f16",
             Self::MatmulQ4KCoopmatMetadataF16Out => "matmul_q4k_coopmat_metadata_f16",
+            Self::MatmulQ4KMatrix2F16Out => "matmul_q4k_matrix2_wg256_m32_n32_k32",
             Self::MatmulQ6KCoopmatF16Out => "matmul_q6k_coopmat_f16",
+            Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m32_n32_k32",
             Self::QuantAQ8F16 => "quant_a_q8_f16",
             Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
         }
@@ -131,7 +135,9 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::MatmulQ4KCoopmatMetadataF16Out => {
             (spv!("matmul_q4_k_coopmat_metadata_f16out"), 3, 12)
         }
+        Kernel::MatmulQ4KMatrix2F16Out => (spv!("matmul_q4_k_matrix2_f16out"), 3, 12),
         Kernel::MatmulQ6KCoopmatF16Out => (spv!("matmul_q6_k_coopmat_f16out"), 3, 12),
+        Kernel::MatmulQ6KMatrix2F16Out => (spv!("matmul_q6_k_matrix2_f16out"), 3, 12),
         Kernel::QuantAQ8F16 => (spv!("quant_a_q8_f16"), 3, 4),
         Kernel::MatmulQ4KMmvqF16Out => (spv!("matmul_q4_k_mmvq_f16out"), 4, 8),
     }

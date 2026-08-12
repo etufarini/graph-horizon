@@ -2091,13 +2091,39 @@ tile KV: K ready, QK ready, V ready e store/consume per due onde AV. I dati
 attraversano invocation diverse, quindi lo scope workgroup è semanticamente
 necessario. Le cooperative operation sono subgroup-local.
 
+Dettaglio richiesto sul run diagnostico 8K da 13.747,764 ms; una regressione
+quando l'operazione viene rimossa significa che il costo è sotto la risoluzione
+causale/overlap, non un costo negativo:
+
+| Sottocomponente | GPU / quota attention | Attribuzione |
+|---|---:|---|
+| K staging/cache | 1.538,728 ms / 11,19% | hot-set storage-buffer, indirizzo e load preservati |
+| cooperative QK | 1.992,980 ms / 14,50% | loop load/MMA rimosso, store score preservato |
+| score fragment handling | <14 ms / <0,10% | store cooperative sostituito da store scalar equivalente |
+| scaling | sotto risoluzione | scala unitaria regredisce 0,93% per overlap |
+| max reduction | 40,387 ms / 0,29% | `subgroupMax` rimosso |
+| exp score | sotto risoluzione isolata | due sostituzioni lineari regrediscono 0,40–0,90% |
+| softmax sum/update | 70,965 ms / 0,52% | `subgroupAdd` rimosso; update incluso |
+| online rescaling | sotto risoluzione | alpha unitario regredisce 0,68% per overlap |
+| V staging/cache | 628,794 ms / 4,57% | hot-set storage-buffer, indirizzo e load preservati |
+| AV accumulation | 4.496,721 ms / 32,71% | quattro chain e shared read rimossi |
+| AV merge scalar | incluso in AV, sotto risoluzione separata | tre add bilanciate/dimensione; no-AV è il bound affidabile |
+| barrier esplicite | 426,182 ms / 3,10% | probe K/V/tile-reuse per sito |
+| subgroup synchronization | 111,352 ms / 0,81% | max + sum reduction; non additivo al softmax |
+| dependency serialization | incluso nel residuo 32,17% | nessun contatore stall Vulkan disponibile |
+| addressing/control | incluso nello stesso residuo | separarlo artificialmente non è supportato da evidenza |
+| normalizzazione/store finale | sotto risoluzione | divisione rimossa con store preservato regredisce 0,77% |
+
+Le righe sovrapposte (subgroup synchronization dentro max/sum) non vanno
+sommate. Le sei macro-classi precedenti restano la decomposizione additiva.
+
 Il conteggio per query-row/KV-tile a 28K è 6.111.445 full causal e 27.563
 diagonali/parziali per head/layer: 99,55% usa il fast path già presente. Non è
 stato aggiunto un secondo ramo perché il controllo full-tile era già eliminato.
 
 ### Gate economico e modello operativo
 
-Il lavoro AV utile a 28K è 83,496 TFLOP. Il percorso scalare impiega 56,978 s,
+Il lavoro AV utile a 28K è 41,748 tera-FMA, cioè 83,496 TFLOP. Il percorso scalare impiega 56,978 s,
 1,465 TFLOP/s effettivi; il dato è lavoro utile, non picco marketing. Prima del
 prototipo, un conservativo 2× AV locale prevedeva −17,31% attention e −11,20%
 GPU prefill. Era il maggiore tempo realisticamente rimovibile.

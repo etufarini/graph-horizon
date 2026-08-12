@@ -2799,3 +2799,205 @@ Le condizioni di stop sono soddisfatte: attribuzione diretta 100% a 8K e 28K,
 quattro esperimenti coerenti con i limiti misurati, tre ipotesi ad alta priorità
 falsificate, nessun candidato sopra soglia e stato produttivo ripristinato. La
 fase si chiude sul branch dedicato con sola documentazione dell'evidenza.
+
+## Fase 5 attention: workgroup cooperative matrix2 — RTX 3060, 2026-08-12
+
+Questa fase parte dal risultato Phase 4 `297a32a` sul branch dedicato
+`perf/vulkan-prefill-attention-phase5`. Prima della prima modifica il worktree
+era pulito. Modello, prompt e protocollo restano identici: Vulkan puro
+`release`, feature `vulkan-profile`, contesto 32.768, KV F16, due token, una
+warm-up e tre repliche. L'artefatto è ancora
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2.147.023.008 byte, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+
+L'invariante è stretto: stessa causal mask, GQA, online softmax e precisione
+F16/FP32; nessuno score N×N globale; INT8, query tail, shape non-128 e device
+senza NV2 devono continuare sul percorso precedente. Non cambiano API,
+dipendenze o formato KV.
+
+### Baseline, upper bound e gate prima del codice
+
+La baseline fresca Phase 4 sullo stesso codice di partenza è:
+
+| Prompt | Wall | Tok/s | CV | GPU prefill | Attention | Matmul / other a 28K |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8K | 29.581,73 ms | 276,93 | 0,24% | 28.722,524 ms | 6.123,270 ms (21,32%) | — |
+| 28K | 157.609,82 ms | 177,65 | 0,07% | 154.820,726 ms | 76.401,627 ms (49,35%) | 45,32% / 5,34% |
+
+L'attribuzione additiva Phase 4 assegna a dati, frammenti, matematica e
+dipendenze il 79,39% di attention 28K; barrier esplicite 2,63%, scheletro di
+geometria/addressing 17,98%. Il gate pre-edit assume conservativamente che il
+redesign rimuova il 20% del primo bucket: 15,88% attention e 7,84% GPU prefill
+attesi a 28K. Per superare il gate locale del 2% GPU bastava rimuovere il 5,11%
+del bucket interessato. L'esperimento era quindi redditizio prima di
+considerare i risultati, non una micro-ottimizzazione cieca.
+
+### Gate hardware, dimensioni e toolchain
+
+Device di qualifica: NVIDIA GeForce RTX 3060 12 GiB, PCI `0x2487`, driver
+595.84, Vulkan device API 1.4.329. `VK_NV_cooperative_matrix2` è esposta e
+tutte le feature interrogate risultano vere: workgroup scope, flexible
+dimensions, reductions, conversions, per-element operations, tensor
+addressing e block loads. I limiti sono workgroup 256, dimensione 1.024 e
+8.192 byte shared riservati dal driver.
+
+La query flexible restituisce 25 record. `other` indica i tipi float8 esposti
+dagli header correnti ma non usati dal backend; nessuna forma usa saturating
+accumulation.
+
+| Scope | Invocazioni | A/B | C/result | M×N×K granularity |
+|---|---:|---|---|---|
+| subgroup | 0 | F16/F16 | F16/F16 | 16×16×16 |
+| subgroup | 0 | F16/F16 | F32/F32 | 16×16×16 |
+| subgroup | 0 | U8/U8 | U32/U32 | 16×16×32 |
+| subgroup | 0 | I8/I8 | I32/I32 | 16×16×32 |
+| subgroup | 0 | other/other | F32/F32 | 16×16×16 |
+| workgroup | 32 | F16/F16 | F16/F16 | 16×16×16 |
+| workgroup | 32 | F16/F16 | F32/F32 | 16×16×16 |
+| workgroup | 32 | U8/U8 | U32/U32 | 16×16×32 |
+| workgroup | 32 | I8/I8 | I32/I32 | 16×16×32 |
+| workgroup | 32 | other/other | F32/F32 | 16×16×16 |
+| workgroup | 64 | F16/F16 | F16/F16 | 16×16×16 |
+| workgroup | 64 | F16/F16 | F32/F32 | 16×16×16 |
+| workgroup | 64 | U8/U8 | U32/U32 | 16×16×32 |
+| workgroup | 64 | I8/I8 | I32/I32 | 16×16×32 |
+| workgroup | 64 | other/other | F32/F32 | 16×16×16 |
+| workgroup | 128 | F16/F16 | F16/F16 | 32×16×16 |
+| workgroup | 128 | F16/F16 | F32/F32 | 32×16×16 |
+| workgroup | 128 | U8/U8 | U32/U32 | 32×16×32 |
+| workgroup | 128 | I8/I8 | I32/I32 | 32×16×32 |
+| workgroup | 128 | other/other | F32/F32 | 32×16×16 |
+| workgroup | 256 | F16/F16 | F16/F16 | 32×32×16 |
+| workgroup | 256 | F16/F16 | F32/F32 | 32×32×16 |
+| workgroup | 256 | U8/U8 | U32/U32 | 32×32×32 |
+| workgroup | 256 | I8/I8 | I32/I32 | 32×32×32 |
+| workgroup | 256 | other/other | F32/F32 | 32×32×16 |
+
+`ash 0.38` non contiene ancora NV2: il backend mantiene quindi solo i record
+ABI C necessari, senza nuova dipendenza. Compilatore `shaderc 2026.1-1`,
+glslang 16.1.0-1, Rust/Cargo 1.95.0. Un probe minimale reduction è compilato e
+validato; un secondo probe crea pipeline, dispatcha una row-sum workgroup e
+restituisce errore massimo zero. Lo SPIR-V produttivo 1.6 passa
+SPIRV-Tools; dichiara per-element e tensor-addressing NV2, non reduction o
+conversion perché la variante finale non le abilita.
+
+### Mapping finale e modello esecutivo
+
+Un workgroup da 256 thread possiede 32 query di un head e scorre tile da 64 KV.
+Per ogni blocco K da 16, Q 32×16 e K trasposta 16×64 sono caricati direttamente
+dai buffer strided con tensor layout e clamp; otto `coopMatMulAdd` formano lo
+score FP32 32×64. `coopMatPerElementNV` applica scale e mask causale senza
+materializzare Q/K in shared.
+
+Lo score è scritto nello scratch condiviso. Otto subgroup calcolano max e sum
+per riga in FP32 e materializzano probabilità F16 32×64. La riduzione manuale
+è intenzionale: la riduzione cooperativa NV2 misurata è più lenta e raddoppia
+la pressione registri. P 32×64 e V 64×128, caricata direttamente dal KV cache
+con tensor addressing, producono un unico AV FP32 32×128. Lo scratch è riusato
+per AV e ogni thread conserva 16 output FP32 per l'online merge. Il risultato
+finale resta F16.
+
+| Proprietà | Percorso Phase 4 | Matrix2 finale |
+|---|---:|---:|
+| query tile / KV tile | 16 / 64 | 32 / 64 |
+| thread / subgroup | 512 / 16 | 256 / 8 |
+| Q/K/V staging shared | sì | no, tensor load diretto |
+| explicit barrier dinamiche | 1 + 7/KV tile | 1 + 4/KV tile |
+| shared dichiarata dallo shader | 26.816 B | 20.864 B |
+| registri/thread | 37 | 125 |
+| shared driver | 26.816 B | 38.272 B |
+| binary / stack | 10.240 B / 0 | 143.744 B / 0 |
+| residenza modellata RTX 3060 | 3 WG, 48 warp, 100% | 2 WG, 16 warp, 33,3% |
+
+La minore occupancy è compensata da tile doppia, workgroup MMA, assenza dello
+staging K/V e tre barrier in meno per tile. Il contatore driver “Local Memory
+Size” vale l'impossibile 64 GiB in entrambi i pipeline ed è scartato; stack
+zero e registro/shared non indicano spill dimostrabili.
+
+### Registro degli esperimenti
+
+I probe usano una replica senza warm-up e modificano una sola dimensione. Il
+vecchio percorso diretto 8K misura wall 29.480,01 ms, GPU 28.663,188 ms e
+attention 6.100,770 ms.
+
+| ID | Cambio isolato | Risorse driver | 8K wall / attention | 28K wall / attention | Decisione |
+|---|---|---|---:|---:|---|
+| WG64 | Q16, 64 thread, reduce cooperativa | 255 reg, 33.728 B shared | 30.527,56 / 6.949,260 ms | — | reject: regressione |
+| WG128 | Q32, 128 thread, reduce cooperativa | 255 reg, 49.024 B shared | 27.757,33 / 4.438,192 ms | — | reject: inferiore a WG256 |
+| WG256-R | Q32, 256 thread, reduce/conversion NV2 | 255 reg, 34.176 B shared | 27.613,42 / 4.246,482 ms | 128.881,76 / 48.402,882 ms | reject: pressione registri |
+| WG256-M | stessa MMA, softmax subgroup manuale | 125 reg, 38.272 B shared | 27.548,58 / 4.043,462 ms | 127.414,45 / 46.836,036 ms | keep |
+| STD-LOAD | WG256-M, cooperative load standard al posto tensor | 255 reg, 20.864 B shared | 30.131,70 / 6.757,009 ms | — | reject: tensor addressing è causale |
+
+WG256-M batte WG256-R del 4,78% attention a 8K e del 3,24% a 28K; il vantaggio
+GPU 28K è 1,12%. STD-LOAD peggiora anche rispetto alla baseline, perciò il
+guadagno non è attribuito genericamente alle MMA workgroup: il load tensor
+diretto è parte necessaria del redesign. Le varianti respinte e i relativi
+shader non restano nel branch.
+
+### Capability gate, fallback e correttezza
+
+Il device abilita soltanto workgroup scope, flexible dimensions, per-element,
+tensor addressing e Vulkan memory model dopo aver verificato estensione,
+feature, limite 256 e la forma esatta F16/F16→F32/F32 32×32×16. Il limite
+shared include gli 8.192 byte riservati. Se la creazione pipeline fallisce,
+il registro semplicemente non contiene matrix2 e l'inizializzazione continua.
+
+Il dispatch matrix2 è predefinito solo per F16, head dimension 128 e `n`
+divisibile per 32. INT8, tail, altre shape e device non compatibili usano il
+precedente full-MMA/tiled/generic. `GRAPH_HORIZON_PREFILL_MATRIX2=0` forza lo
+stesso fallback per diagnosi; unset, `1`, `true` e `yes` abilitano il percorso.
+
+La qualifica rapida copre `(base,n) = (0,3), (0,64), (33,32), (65,9)` su F16
+e INT8, quindi inizio sequenza, tile piena, diagonale causale e tail. La
+qualifica lunga ripete tile 32 e tail 16 a 2K/8K/28K:
+
+| Confronto | Attention max abs | Logits max abs | Esito |
+|---|---:|---:|---|
+| matrix2 F16 vs decode sequenziale, 2K/8K/28K | 1,526e-5 | 2,471e-6 | pass |
+| matrix2 F16 vs CPU, 2K/8K/28K | 1,168e-5 | 2,333e-6 | pass |
+| F16 rapido, inclusi base 0 e tail | 6,104e-5 | 4,665e-6 | pass |
+| INT8, rapido e 2K/8K/28K | 0 | 0 | pass esatto |
+| fallback forzato F16/INT8 | stessi limiti sopra | stessi limiti sopra | pass |
+
+### Matrice stabile finale
+
+I timestamp profiler includono warm-up e tre repliche e sono divisi per
+quattro. Tutti i CV restano sotto 0,3%.
+
+| Prompt | Wall old / matrix2 | Δ wall | Tok/s old / matrix2 | Δ tok/s | GPU old / matrix2 | Δ GPU | Attention matrix2 | Decode matrix2 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 6.289,38 / 6.103,13 ms | −2,96% | 325,63 / 335,57 | +3,05% | 6.052,276 / 5.868,842 ms | −3,03% | 262,263 ms | 32,15 tok/s |
+| 8K | 29.581,73 / 27.550,97 ms | −6,86% | 276,93 / 297,34 | +7,37% | 28.722,524 / 26.716,075 ms | −6,99% | 4.090,689 ms (−33,19%) | 19,58 tok/s |
+| 16K | 72.645,75 / 63.185,16 ms | −13,02% | 225,53 / 259,30 | +14,97% | 71.041,242 / 61.596,090 ms | −13,30% | 16.173,996 ms | 13,08 tok/s |
+| 28K | 157.609,82 / 127.400,41 ms | −19,17% | 177,65 / 219,78 | +23,72% | 154.820,726 / 124.795,754 ms | −19,39% | 46.898,309 ms (−38,62%) | 8,83 tok/s |
+
+Il decode-control Phase 4 era 19,68 tok/s a 8K e 8,83 a 28K: −0,51% e 0,00%,
+quindi non spiega il guadagno. A 28K i 30.025 ms GPU risparmiati coincidono
+entro rumore con i 29.503 ms rimossi da attention.
+
+### Breakdown finale, ceiling e stato
+
+| Classe GPU 28K | Baseline | Matrix2 | Quota finale |
+|---|---:|---:|---:|
+| attention | 76.401,627 ms | 46.898,309 ms | 37,58% |
+| sette matmul | 70.158,521 ms | 69.703,891 ms | 55,85% |
+| other + residuo profiler | 8.260,579 ms | 8.193,555 ms | 6,57% |
+| totale | 154.820,726 ms | 124.795,754 ms | 100,00% |
+
+Il redesign supera la stima pre-edit di 7,84% GPU e sposta il bottleneck
+assoluto sui matmul. Il minimo fisico QK+AV Phase 4, circa 2,95 s a 28K, resta
+un ceiling teorico non raggiungibile: non include tensor load, softmax, mask,
+store, merge o controllo. L'evidenza utile è più stretta: reduction NV2,
+geometrie minori e load standard sono già falsificati. Un futuro collegamento
+diretto score→softmax→AV che evitasse parte dei due scratch potrebbe
+ragionevolmente rimuovere un altro 10–15% di attention, cioè circa 3,8–5,6%
+del GPU prefill finale; è una stima, non una misura. Il maggiore target
+misurato immediato è ora matmul al 55,85%.
+
+Stato finale: checkpoint produttivo `ce78087`, un solo shader categoria K e
+nessun probe. La query NV2 resta in `coopmat2.rs`; il gate dei limiti è isolato
+nel già esistente dominio `pipeline/` per mantenere ogni file di orchestrazione
+sotto 200 linee produttive. SPIR-V validation, formatting, Clippy, test rapido,
+fallback forzato e qualifica numerica lunga passano. La complessità aumenta
+soltanto nel confine vendor necessario; resta isolata e opzionale, mentre il
+dispatch esistente conserva tutti i fallback.

@@ -101,6 +101,7 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
         | Kernel::AttentionPrefillTiledCoopQk
+        | Kernel::AttentionPrefillMatrix2
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
@@ -151,6 +152,7 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
         | Kernel::AttentionPrefillTiledCoopQk
+        | Kernel::AttentionPrefillMatrix2
         | Kernel::AttentionPrefillInt8 => Some(Phase::Prefill),
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
@@ -220,6 +222,10 @@ mod tests {
         ));
         assert!(matches!(
             phase(Kernel::AttentionPrefillTiledCoopQk),
+            Some(Phase::Prefill)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionPrefillMatrix2),
             Some(Phase::Prefill)
         ));
         assert!(matches!(

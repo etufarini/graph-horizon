@@ -12,6 +12,7 @@ use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
 use crate::backend::vulkan::coopmat::{self, CoopmatCaps};
+use crate::backend::vulkan::coopmat2::{self, Coopmat2Caps};
 
 const PUSH_DESCRIPTOR: &std::ffi::CStr = ash::khr::push_descriptor::NAME;
 const MEMORY_BUDGET: &std::ffi::CStr = ash::ext::memory_budget::NAME;
@@ -22,6 +23,7 @@ pub(super) struct DeviceBoot {
     pub queue: vk::Queue,
     pub memory_budget_enabled: bool,
     pub coopmat: CoopmatCaps,
+    pub coopmat2: Coopmat2Caps,
     pub dp4a: bool,
     pub push_desc: ash::khr::push_descriptor::Device,
     pub cmd_pool: vk::CommandPool,
@@ -51,6 +53,11 @@ pub(super) fn create_device(
 
     // Coopmat shape (f16→f32) if exposed; absence means fallback.
     let coopmat = coopmat::detect(entry, instance, physical);
+    let coopmat2 = if coopmat.available {
+        coopmat2::detect(entry, instance, physical)
+    } else {
+        Coopmat2Caps::default()
+    };
 
     // dp4a for the mmvq Q4_K decode GEMV; absence means float GEMV.
     let dp4a = {
@@ -75,10 +82,16 @@ pub(super) fn create_device(
     if coopmat.available {
         ext.push(coopmat::COOPERATIVE_MATRIX.as_ptr());
     }
+    if coopmat.available && coopmat2.available {
+        ext.push(coopmat2::COOPERATIVE_MATRIX2.as_ptr());
+    }
     let mut f11 = vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
-    let mut f12 = vk::PhysicalDeviceVulkan12Features::default().shader_float16(true);
+    let mut f12 = vk::PhysicalDeviceVulkan12Features::default()
+        .shader_float16(true)
+        .vulkan_memory_model(coopmat2.available);
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
+    let mut coop2_feat = coopmat2::enabled_features();
     let mut f13 = vk::PhysicalDeviceVulkan13Features::default().shader_integer_dot_product(true);
     let mut dci = vk::DeviceCreateInfo::default()
         .queue_create_infos(&qci)
@@ -87,6 +100,9 @@ pub(super) fn create_device(
         .push_next(&mut f12);
     if coopmat.available {
         dci = dci.push_next(&mut coop_feat);
+    }
+    if coopmat.available && coopmat2.available {
+        dci = dci.push_next(&mut coop2_feat);
     }
     if dp4a {
         dci = dci.push_next(&mut f13);
@@ -119,6 +135,7 @@ pub(super) fn create_device(
         queue,
         memory_budget_enabled,
         coopmat,
+        coopmat2,
         dp4a,
         push_desc,
         cmd_pool,

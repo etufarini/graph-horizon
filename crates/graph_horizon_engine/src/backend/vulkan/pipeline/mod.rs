@@ -64,6 +64,7 @@ const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
 const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
     64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
+const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
@@ -105,8 +106,14 @@ fn supports_q4(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool
 
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let (wide_attention, tiled_attention, coop_qk_attention, attention_1024, q4_metadata) =
-            Self::check_limits(dev)?;
+        let (
+            wide_attention,
+            tiled_attention,
+            coop_qk_attention,
+            matrix2_attention,
+            attention_1024,
+            q4_metadata,
+        ) = Self::check_limits(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -135,6 +142,14 @@ impl PipelineRegistry {
                     Kernel::AttentionPrefillTiledCoopQk,
                     record::build_one(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
                 );
+            }
+            if matrix2_attention {
+                // A driver may advertise NV2 but reject this exact SPIR-V shape.
+                // Pipeline absence is therefore a capability fallback, not fatal.
+                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2)
+                {
+                    map.insert(Kernel::AttentionPrefillMatrix2, pipeline);
+                }
             }
             if attention_1024 {
                 map.insert(
@@ -182,7 +197,7 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool, bool)> {
+    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)> {
         // Required kernels use up to 256 invocations; optional attention variants
         // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
         // Query core limits and the default subgroup width in one properties chain.
@@ -211,10 +226,13 @@ impl PipelineRegistry {
         let subgroup = vulkan11.subgroup_size;
         let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, subgroup);
         let coop_qk = supports_coop_qk_attention(tiled, limits.2, subgroup, dev.coopmat);
+        let matrix2 = dev.coopmat2.available
+            && limits.2 >= MATRIX2_ATTENTION_SHARED_BYTES + dev.coopmat2.reserved_shared_memory;
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
             tiled,
             coop_qk,
+            matrix2,
             supports_attention_1024(limits.0, limits.1, limits.2),
             supports_q4(subgroup, vulkan11.subgroup_supported_operations),
         ))

@@ -15,6 +15,7 @@ mod loader;
 mod mem;
 
 pub(crate) mod coopmat;
+pub(crate) mod coopmat2;
 pub(crate) mod kernels;
 pub(crate) mod pipeline;
 
@@ -813,7 +814,7 @@ mod cpu_vulkan_parity {
             }
         };
         for scheme in [KvQuant::F16, KvQuant::Int8] {
-            for (base, n) in [(0, 3), (33, 32), (65, 9)] {
+            for (base, n) in [(0, 3), (0, 64), (33, 32), (65, 9)] {
                 attention_prefill_decode_for_scheme(&backend, scheme, base, n);
             }
         }
@@ -831,6 +832,9 @@ mod cpu_vulkan_parity {
         };
         for scheme in [KvQuant::F16, KvQuant::Int8] {
             for context in [2_048, 8_192, 28_000] {
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 32, 32);
+                // A query tail not divisible by the matrix tile must remain on
+                // the established generic path at every qualified context.
                 attention_prefill_decode_for_scheme(&backend, scheme, context - 16, 16);
             }
         }

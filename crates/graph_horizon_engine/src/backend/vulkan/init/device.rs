@@ -23,6 +23,7 @@ use color_eyre::eyre::{Result, eyre};
 
 use super::bootstrap;
 use crate::backend::vulkan::coopmat::CoopmatCaps;
+use crate::backend::vulkan::coopmat2::Coopmat2Caps;
 #[cfg(feature = "vulkan-profile")]
 use crate::backend::vulkan::exec::profile::Profile;
 
@@ -38,6 +39,8 @@ pub(crate) struct Device {
     // the device exposes no usable f16→f32 shape — the extension/feature are then NOT
     // enabled and the prefill routing keeps the f16×f16 tiled fallback.
     pub coopmat: CoopmatCaps,
+    // NVIDIA workgroup cooperative-matrix2 support; never exposed outside Vulkan.
+    pub coopmat2: Coopmat2Caps,
     // True when the device exposes integer dot product (dp4a, core 1.3): gates the mmvq
     // Q4_K decode GEMV. False means decode keeps the float GEMV.
     pub dp4a: bool,
@@ -114,6 +117,7 @@ impl Device {
             min_storage_buffer_offset_alignment,
             memory_budget_enabled: boot.memory_budget_enabled,
             coopmat: boot.coopmat,
+            coopmat2: boot.coopmat2,
             dp4a: boot.dp4a,
             push_desc: boot.push_desc,
             cmd_pool: boot.cmd_pool,

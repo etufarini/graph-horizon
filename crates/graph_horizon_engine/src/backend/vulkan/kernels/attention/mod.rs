@@ -14,6 +14,19 @@ use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
 
+fn matrix2_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        matches!(
+            std::env::var("GRAPH_HORIZON_PREFILL_MATRIX2")
+                .ok()
+                .as_deref(),
+            None | Some("1" | "true" | "yes")
+        )
+    })
+}
+
 pub(crate) fn attention_decode_int8(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -158,7 +171,13 @@ pub(crate) fn attention_prefill(
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
     // The tiled shader specializes the approved Ministral K/V width; generic
     // mistral3 shapes keep the existing runtime-dimension fallback.
-    let (kernel, rows) = if head_dim == 128 && reg.contains(Kernel::AttentionPrefillTiledCoopQk) {
+    let (kernel, rows) = if head_dim == 128
+        && n.is_multiple_of(32)
+        && matrix2_enabled()
+        && reg.contains(Kernel::AttentionPrefillMatrix2)
+    {
+        (Kernel::AttentionPrefillMatrix2, n / 32)
+    } else if head_dim == 128 && reg.contains(Kernel::AttentionPrefillTiledCoopQk) {
         (Kernel::AttentionPrefillTiledCoopQk, n.div_ceil(16))
     } else if head_dim == 128 && reg.contains(Kernel::AttentionPrefillTiled) {
         (Kernel::AttentionPrefillTiled, n.div_ceil(8))

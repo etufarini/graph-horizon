@@ -8,11 +8,12 @@
 
 // AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
 
-// Causal GQA prefill attention for eight adjacent query rows. A 512-thread
+// Causal GQA prefill attention for sixteen adjacent query rows. A 512-thread
 // workgroup loads one 64-position tile in two phases: K produces shared scores,
 // then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
-// workgroup tile. Four subgroups produce QK with FP16×FP16→FP32 cooperative
-// MMA; all 16 subgroups retain the established AV output ownership.
+// workgroup tile. Four subgroups produce QK and eight subgroups produce AV with
+// FP16×FP16→FP32 cooperative MMA. Softmax stays FP32; only the transient
+// probability tile is rounded to FP16 and no score reaches global memory.
 // Q/output are [n][q_heads][head_dim]; cache is
 // [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
 layout(local_size_x = 512) in;
@@ -33,16 +34,17 @@ layout(push_constant) uniform P {
     float scale;
 } p;
 
-const uint QUERY_TILE = 8u;
+const uint QUERY_TILE = 16u;
 const uint KV_TILE = 64u;
 const uint MMA_TILE = 16u;
 // The sole supported model family validates power-of-two, 128-wide K/V tensors.
 const uint HEAD_DIM = 128u;
 const uint MAX_DPL = 8u;
-const uint OUTPUT_DPL = 2u;
+const uint OUTPUT_DPL = 4u;
 
 shared float16_t sh_tile[KV_TILE * 128u];
 shared float16_t sh_q[MMA_TILE * 128u];
+shared float16_t sh_prob[MMA_TILE * KV_TILE];
 shared float sh_score[MMA_TILE * KV_TILE];
 shared float sh_m[QUERY_TILE];
 shared float sh_l[QUERY_TILE];
@@ -90,8 +92,7 @@ void main() {
     }
     barrier();
 
-    // With two key subgroups/query on subgroup 32, each lane owns two output
-    // dimensions. This bounds private state while Q_TILE doubles from four.
+    // One subgroup owns each query; four dimensions/lane cover head_dim 128.
     float acc[OUTPUT_DPL];
     for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
 
@@ -108,6 +109,11 @@ void main() {
                 value = kc[cache];
             }
             sh_tile[index] = value;
+        }
+        for (uint index = gl_LocalInvocationIndex;
+             index < MMA_TILE * KV_TILE;
+             index += 512u) {
+            sh_prob[index] = float16_t(0.0);
         }
         barrier();
 
@@ -152,7 +158,7 @@ void main() {
             float lane_l = 0.0;
             for (uint key = lane; key < count; key += S) {
                 float weight = exp(sh_score[query * KV_TILE + key] - m_new);
-                sh_score[query * KV_TILE + key] = weight;
+                sh_prob[query * KV_TILE + key] = float16_t(weight);
                 lane_l += weight;
             }
             float tile_l = subgroupAdd(lane_l);
@@ -176,37 +182,48 @@ void main() {
         }
         barrier();
 
-        if (valid_query) {
-            for (uint j = 0u; j < OUTPUT_DPL; j++) {
-                uint d = part * S + lane + j * key_parts * S;
-                if (d >= HEAD_DIM) continue;
-                float sum0 = 0.0;
-                float sum1 = 0.0;
-                float sum2 = 0.0;
-                float sum3 = 0.0;
-                // Four independent FMA chains cover the scheduler latency; the
-                // balanced merge avoids replacing them with one serial tail.
-                for (uint key = 0u; key < count; key += 4u) {
-                    sum0 += sh_score[query * KV_TILE + key]
-                          * float(sh_tile[key * HEAD_DIM + d]);
-                    if (key + 1u < count) {
-                        sum1 += sh_score[query * KV_TILE + key + 1u]
-                              * float(sh_tile[(key + 1u) * HEAD_DIM + d]);
-                    }
-                    if (key + 2u < count) {
-                        sum2 += sh_score[query * KV_TILE + key + 2u]
-                              * float(sh_tile[(key + 2u) * HEAD_DIM + d]);
-                    }
-                    if (key + 3u < count) {
-                        sum3 += sh_score[query * KV_TILE + key + 3u]
-                              * float(sh_tile[(key + 3u) * HEAD_DIM + d]);
+        // Reuse the dead score tile for four output fragments at a time. This
+        // keeps the 2 KiB probability tile as the only shared-memory growth,
+        // preserving three resident workgroups on the target GPU.
+        for (uint output_part = 0u; output_part < 2u; output_part++) {
+            if (g < 4u) {
+                uint local_base = g * MMA_TILE;
+                uint output_base = output_part * (HEAD_DIM / 2u) + local_base;
+                coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                        gl_MatrixUseAccumulator> output_tile =
+                    coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseAccumulator>(0.0);
+                for (uint key_base = 0u; key_base < KV_TILE; key_base += MMA_TILE) {
+                    coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseA> probability_fragment;
+                    coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseB> value_fragment;
+                    coopMatLoad(probability_fragment, sh_prob, key_base, KV_TILE,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(value_fragment, sh_tile,
+                                key_base * HEAD_DIM + output_base, HEAD_DIM,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    output_tile = coopMatMulAdd(
+                        probability_fragment, value_fragment, output_tile);
+                }
+                coopMatStore(output_tile, sh_score, local_base, HEAD_DIM / 2u,
+                             gl_CooperativeMatrixLayoutRowMajor);
+            }
+            barrier();
+
+            if (valid_query) {
+                for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                    uint d = part * S + lane + j * key_parts * S;
+                    uint part_base = output_part * (HEAD_DIM / 2u);
+                    if (d >= part_base && d < part_base + HEAD_DIM / 2u) {
+                        acc[j] = acc[j] * sh_alpha[query]
+                               + sh_score[query * (HEAD_DIM / 2u) + d - part_base];
                     }
                 }
-                acc[j] = acc[j] * sh_alpha[query] + (sum0 + sum1) + (sum2 + sum3);
             }
+            // The next output half overwrites the same shared score tile.
+            barrier();
         }
-        // The V tile remains live until every output owner finishes consuming it.
-        barrier();
     }
 
     if (valid_query) {

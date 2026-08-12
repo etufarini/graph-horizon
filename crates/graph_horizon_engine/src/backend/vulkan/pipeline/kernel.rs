@@ -66,7 +66,7 @@ impl Kernel {
             Self::AttentionPrefill => "attention_prefill",
             Self::AttentionPrefillWide => "attention_prefill_wide",
             Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q8_kv64",
-            Self::AttentionPrefillTiledCoopQk => "attention_prefill_tiled_coopqk_phased_q8_kv64",
+            Self::AttentionPrefillTiledCoopQk => "attention_prefill_tiled_fullmma_q16_kv64",
             Self::KvWriteInt8 => "kv_write_int8",
             Self::AttentionDecodeInt8 => "attention_decode_int8",
             Self::AttentionPrefillInt8 => "attention_prefill_int8",

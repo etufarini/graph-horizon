@@ -62,7 +62,8 @@ const KERNELS: [Kernel; 26] = [
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
-const COOP_QK_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 4 + 8 * 3 * 4;
+const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
+    64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {

@@ -2269,6 +2269,116 @@ plausibile è invece sotto quel limite. Si arresta quindi per la condizione 1:
 attention non è più il target col maggiore upper bound end-to-end. Nessuna
 semantica attention, API, dipendenza o allocazione globale è cambiata.
 
+## Fase 3 matmul: shared-A gate/up — RTX 3060, 2026-08-12
+
+La nuova baseline è `480f270`, stato finale di attention full-MMA, e il branch
+dedicato è `perf/vulkan-prefill-matmul-phase3`. Target esclusivo: prefill;
+decode e attention sono controlli. La variabile iniziale è il riuso dello stesso
+input A fra gate e up Q4_K senza cambiare MMA, metadata reuse o precisione.
+
+Tupla invariata: RTX 3060 12 GiB, driver NVIDIA 595.84, Vulkan device 1.4.329,
+Vulkan puro, KV F16, contesto 32.768, greedy, due token, una warm-up e tre
+repliche. L'artefatto `3b-instruct` è stato riautenticato: 2.147.023.008 byte e
+SHA-256 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+
+### Baseline fresca gate/up
+
+I timestamp sono medie delle quattro esecuzioni profiler. `Other matmul` somma
+Q, K, V e output; il totale matmul aggiunge gate, up e down.
+
+| Prompt | Wall | Tok/s | CV | GPU prefill | Gate | Up | Down | Other matmul | Attention |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8K | 32.885,85 ms | 249,10 | 0,03% | 32.067,279 ms | 4.935,712 ms | 4.936,597 ms | 5.294,743 ms | 8.377,315 ms | 6.148,849 ms |
+| 28K | 168.784,54 ms | 165,89 | 0,01% | 165.939,362 ms | 17.389,083 ms | 16.907,600 ms | 18.316,889 ms | 28.661,011 ms | 76.522,926 ms |
+
+Gate+up vale 30,79% del GPU prefill 8K e 20,67% a 28K. Il routing resta
+cooperative Q4_K in ogni invocazione; gate e up differiscono soltanto per la
+matrice peso.
+
+### Modello A duplicato e upper bound
+
+La shape reale è `M=32, N=9216, K=3072`, input/output FP16, accumulatori FP32,
+weight Q4_K. Ogni proiezione usa 576 tile output, 192 tile K e due tile A
+16×16 FP16: 1.024 byte A per workgroup/tile K. Ne segue:
+
+| Quantità per invocazione gate o up | Valore |
+|---|---:|
+| A globale letto | 113.246.208 B (108 MiB) |
+| A scritto e riletto in shared | 113.246.208 B per direzione |
+| weight Q4_K uniche | 15.925.248 B (15,1875 MiB) |
+| barrier per workgroup | 385 = 2×192+1 |
+| eventi workgroup-barrier | 221.760 |
+
+I byte A sono lavoro logico shader, non contatori DRAM: la cache può servire
+molte riletture. Il riuso gate/up elimina al massimo una delle due copie:
+
+| Prompt | Invocazioni/proiezione | A gate+up totale | A duplicato rimovibile | Eventi barrier duplicati |
+|---:|---:|---:|---:|---:|
+| 2K | 1.664 | 376,883 GB | 188,442 GB | 369.008.640 |
+| 8K | 6.656 | 1.507,534 GB | 753,767 GB | 1.476.034.560 |
+| 16K | 13.312 | 3.015,067 GB | 1.507,534 GB | 2.952.069.120 |
+| 28K | 22.750 | 5.152,702 GB | 2.576,351 GB | 5.045.040.000 |
+
+L'ablation causale già acquisita dopo il metadata hoist attribuisce 55,04% al
+carico/staging A e 47,44% a load/unpack/dequant weight; le quote non sono
+additive per overlap. I pesi sono distinti e la seconda quota non è rimovibile.
+Eliminare una sola delle due copie A dà quindi il ceiling favorevole:
+
+| Prompt | Gate+up | A duplicato, tempo massimo | Quota GPU prefill | Speedup gate/up massimo |
+|---:|---:|---:|---:|---:|
+| 8K | 9.872,308 ms | 2.716,859 ms | 8,47% | 1,380× |
+| 28K | 34.296,683 ms | 9.438,447 ms | 5,69% | 1,380× |
+
+Un probe temporaneo correctness-preserving ha inserito una barrier fra staging A
+e preparazione weight. A 8K gate+up passa a 10.073,167 ms: +200,859 ms per due
+barrier-chain aggiunte. Una catena duplicata vale quindi circa 100,430 ms a 8K
+e 343,3 ms a 28K per scaling esatto delle invocazioni, cioè 1,02% gate+up e
+0,21–0,31% GPU prefill. Il resto del ceiling A è load/shared staging e overlap;
+il probe è stato rimosso.
+
+### Intermedi e precisione activation
+
+Gate, up, activated gate e gated output hanno ciascuno `[prompt,9216]` FP16.
+L'activated gate non è un buffer distinto: `silu_mul` lo scrive in `act`, lo
+rilegge volatile per preservare il round-trip FP16, moltiplica per up in FP32 e
+sovrascrive `act` con il gated output FP16. Down rilegge quest'ultimo.
+
+| Prompt | Dimensione singolo intermedio | Write+read correnti (8S) | Rimovibili gate/up/gating (6S) | Finali prima di down (2S) |
+|---:|---:|---:|---:|---:|
+| 2K | 36 MiB | 7,852 GB | 5,889 GB | 1,963 GB |
+| 8K | 144 MiB | 31,407 GB | 23,555 GB | 7,852 GB |
+| 16K | 288 MiB | 62,814 GB | 47,110 GB | 15,703 GB |
+| 28K | 492,188 MiB | 107,348 GB | 80,511 GB | 26,837 GB |
+
+L'ordine numerico da preservare è: accumulo gate/up FP32, store FP16, SiLU
+FP32 da gate FP16, round-trip activated gate FP16, multiply FP32 con up FP16,
+store gated FP16. L'activation separata vale soltanto 73,521 / 251,511 ms a
+8K/28K; la fusion activation sarà quindi valutata dopo il solo shared-A e non
+usata per giustificare in anticipo un'architettura maggiore.
+
+### Struttura candidati approvata dall'upper bound
+
+Non si crea una nuova directory: `matmul` è già un dominio multi-file.
+
+```text
+crates/graph_horizon_engine/src/
+├── backend/contract.rs (+~25 righe, singolo metodo trait con fallback)
+├── backend/vulkan/backend.rs (+~30 righe, delegatore e routing)
+├── backend/vulkan/exec/profile/category.rs (+~20 righe, attribuzione fused)
+├── backend/vulkan/kernels/matmul/
+│   └── shared_a.rs (~100 righe produttive, dispatch/routing)
+├── backend/vulkan/pipeline/{kernel.rs,mod.rs} (+~15 righe, wiring)
+├── backend/vulkan/shaders/matmul/
+│   └── mlp_gate_up_q4_k_coopmat.comp (~155 righe, categoria K)
+└── family/mistral/graph/mlp.rs (+~5 righe, operazione gate/up unica)
+```
+
+Il primo candidato concurrent usa quattro subgroup: due gate, due up, A
+staged una volta, weight distinti, 6.144 B shared e le MMA native esistenti.
+Il secondo candidato phased usa due subgroup e riusa il fragment A fra MMA gate
+e up sequenziali, accettando più accumulatori live e più barrier. Entrambi
+mantengono fallback esplicito e flag A/B; attention non viene modificata.
+
 Verifica finale:
 
 - `cargo fmt --all`, `git diff --check`: pass;

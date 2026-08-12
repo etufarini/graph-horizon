@@ -11,8 +11,8 @@ use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
 use super::device::Device;
-use crate::backend::vulkan::coopmat::CoopmatCaps;
 
+mod caps;
 mod kernel;
 mod record;
 
@@ -60,50 +60,6 @@ const KERNELS: [Kernel; 26] = [
     Kernel::MatmulQ6KBatchF16Out,
 ];
 
-const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
-const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
-const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
-    64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
-const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
-const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
-
-fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
-}
-
-fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
-}
-
-fn supports_tiled_attention(
-    invocations: u32,
-    size_x: u32,
-    shared_bytes: u32,
-    subgroup_size: u32,
-) -> bool {
-    invocations >= 512
-        && size_x >= 512
-        && shared_bytes >= TILED_ATTENTION_SHARED_BYTES
-        && matches!(subgroup_size, 16 | 32 | 64)
-}
-
-fn supports_coop_qk_attention(
-    tiled: bool,
-    shared_bytes: u32,
-    subgroup_size: u32,
-    coop: CoopmatCaps,
-) -> bool {
-    tiled
-        && shared_bytes >= COOP_QK_ATTENTION_SHARED_BYTES
-        && matches!(subgroup_size, 16 | 32)
-        && coop.available
-        && (coop.m, coop.n, coop.k) == (16, 16, 16)
-}
-
-fn supports_q4(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool {
-    subgroup_size == 32 && operations.contains(vk::SubgroupFeatureFlags::SHUFFLE)
-}
-
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
         let (
@@ -113,7 +69,7 @@ impl PipelineRegistry {
             matrix2_attention,
             attention_1024,
             q4_metadata,
-        ) = Self::check_limits(dev)?;
+        ) = caps::check(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -197,47 +153,6 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)> {
-        // Required kernels use up to 256 invocations; optional attention variants
-        // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
-        // Query core limits and the default subgroup width in one properties chain.
-        let mut vulkan11 = vk::PhysicalDeviceVulkan11Properties::default();
-        let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut vulkan11);
-        // SAFETY: `dev.instance` is live, `dev.physical` belongs to it, and the
-        // complete output chain outlives the read-only driver query.
-        unsafe {
-            dev.instance
-                .get_physical_device_properties2(dev.physical, &mut properties)
-        };
-        let l = properties.properties.limits;
-        if l.max_compute_work_group_invocations < 256
-            || l.max_compute_work_group_size[0] < 256
-            || l.max_push_constants_size < 36
-        {
-            return Err(eyre!(
-                "vulkan: device workgroup/push-constant limits too small"
-            ));
-        }
-        let limits = (
-            l.max_compute_work_group_invocations,
-            l.max_compute_work_group_size[0],
-            l.max_compute_shared_memory_size,
-        );
-        let subgroup = vulkan11.subgroup_size;
-        let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, subgroup);
-        let coop_qk = supports_coop_qk_attention(tiled, limits.2, subgroup, dev.coopmat);
-        let matrix2 = dev.coopmat2.available
-            && limits.2 >= MATRIX2_ATTENTION_SHARED_BYTES + dev.coopmat2.reserved_shared_memory;
-        Ok((
-            supports_wide_attention(limits.0, limits.1, limits.2),
-            tiled,
-            coop_qk,
-            matrix2,
-            supports_attention_1024(limits.0, limits.1, limits.2),
-            supports_q4(subgroup, vulkan11.subgroup_supported_operations),
-        ))
-    }
-
     pub(crate) fn destroy(&self, dev: &Device) {
         // SAFETY: caller ensures the device is idle and the registry is dropped once; each
         // pipeline's pipeline/layout/set-layout are destroyed before the shared cache.
@@ -249,152 +164,5 @@ impl PipelineRegistry {
             }
             dev.device.destroy_pipeline_cache(self.cache, None);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use ash::vk;
-
-    use super::{
-        ATTENTION_1024_SHARED_BYTES, COOP_QK_ATTENTION_SHARED_BYTES, TILED_ATTENTION_SHARED_BYTES,
-        WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024, supports_coop_qk_attention,
-        supports_q4, supports_tiled_attention, supports_wide_attention,
-    };
-    use crate::backend::vulkan::coopmat::CoopmatCaps;
-
-    #[test]
-    fn wide_attention_requires_every_resource_limit() {
-        assert!(supports_wide_attention(
-            512,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            511,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            512,
-            511,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            512,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES - 1
-        ));
-    }
-
-    #[test]
-    fn attention_1024_requires_every_resource_limit() {
-        assert!(supports_attention_1024(
-            1024,
-            1024,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1023,
-            1024,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1024,
-            1023,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1024,
-            1024,
-            ATTENTION_1024_SHARED_BYTES - 1
-        ));
-    }
-
-    #[test]
-    fn tiled_attention_requires_every_resource_limit() {
-        assert!(supports_tiled_attention(
-            512,
-            512,
-            TILED_ATTENTION_SHARED_BYTES,
-            32,
-        ));
-        assert!(!supports_tiled_attention(
-            511,
-            512,
-            TILED_ATTENTION_SHARED_BYTES,
-            32,
-        ));
-        assert!(!supports_tiled_attention(
-            512,
-            511,
-            TILED_ATTENTION_SHARED_BYTES,
-            32,
-        ));
-        assert!(!supports_tiled_attention(
-            512,
-            512,
-            TILED_ATTENTION_SHARED_BYTES - 1,
-            32,
-        ));
-        assert!(!supports_tiled_attention(
-            512,
-            512,
-            TILED_ATTENTION_SHARED_BYTES,
-            8,
-        ));
-    }
-
-    #[test]
-    fn coop_qk_attention_requires_exact_shape_and_shared_memory() {
-        let supported = CoopmatCaps {
-            available: true,
-            m: 16,
-            n: 16,
-            k: 16,
-        };
-        assert!(supports_coop_qk_attention(
-            true,
-            COOP_QK_ATTENTION_SHARED_BYTES,
-            32,
-            supported,
-        ));
-        assert!(supports_coop_qk_attention(
-            true,
-            COOP_QK_ATTENTION_SHARED_BYTES,
-            16,
-            supported,
-        ));
-        assert!(!supports_coop_qk_attention(
-            false,
-            COOP_QK_ATTENTION_SHARED_BYTES,
-            32,
-            supported,
-        ));
-        assert!(!supports_coop_qk_attention(
-            true,
-            COOP_QK_ATTENTION_SHARED_BYTES - 1,
-            32,
-            supported,
-        ));
-        assert!(!supports_coop_qk_attention(
-            true,
-            COOP_QK_ATTENTION_SHARED_BYTES,
-            64,
-            supported,
-        ));
-        assert!(!supports_coop_qk_attention(
-            true,
-            COOP_QK_ATTENTION_SHARED_BYTES,
-            32,
-            CoopmatCaps { m: 8, ..supported },
-        ));
-    }
-
-    #[test]
-    fn q4_metadata_requires_subgroup_shuffle() {
-        assert!(supports_q4(32, vk::SubgroupFeatureFlags::SHUFFLE));
-        assert!(!supports_q4(16, vk::SubgroupFeatureFlags::SHUFFLE));
-        assert!(!supports_q4(32, vk::SubgroupFeatureFlags::BASIC));
     }
 }

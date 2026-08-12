@@ -819,6 +819,23 @@ mod cpu_vulkan_parity {
         }
     }
 
+    #[test]
+    #[ignore = "long-context numeric qualification"]
+    fn vulkan_prefill_attention_long_context_numeric_qualification() {
+        let backend = match VulkanBackend::bare() {
+            Ok(b) => b,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            for context in [2_048, 8_192, 28_000] {
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 16, 16);
+            }
+        }
+    }
+
     fn attention_prefill_decode_for_scheme(
         backend: &VulkanBackend,
         scheme: KvQuant,
@@ -1120,11 +1137,13 @@ mod cpu_vulkan_parity {
     fn assert_vec_close(label: &str, got: &[f32], want: &[f32], base_tol: f32) {
         assert_eq!(got.len(), want.len());
         let mut max_err = 0.0f32;
+        let mut max_relative = 0.0f32;
         let mut total_err = 0.0f32;
         let mut total_relative = 0.0f32;
         for (i, (g, w)) in got.iter().zip(want).enumerate() {
             let err = (*g - *w).abs();
             max_err = max_err.max(err);
+            max_relative = max_relative.max(err / w.abs().max(1e-6));
             total_err += err;
             total_relative += err / w.abs().max(1e-6);
             let tol = base_tol + base_tol * w.abs();
@@ -1132,7 +1151,7 @@ mod cpu_vulkan_parity {
         }
         let count = got.len().max(1) as f32;
         println!(
-            "{label} max_abs={max_err} mean_abs={} mean_relative={}",
+            "{label} max_abs={max_err} mean_abs={} max_relative={max_relative} mean_relative={}",
             total_err / count,
             total_relative / count
         );

@@ -2045,3 +2045,210 @@ precedente lo misura al 32,15% del kernel attention candidato, davanti a QK
 cooperative, mentre fusioni MLP, ulteriore down e logits M=1 hanno ceiling
 inferiori. Se una fase futura riapre l'ottimizzazione, AV native/packed deve
 preservare probabilità e accumulo FP32 o superare un nuovo gate numerico.
+
+## Fase 3 attention: QK e AV cooperative full-MMA — RTX 3060, 2026-08-12
+
+La baseline prestazionale richiesta è `836f685`; il branch dedicato è
+`perf/vulkan-prefill-attention-phase3` e il candidato mantenuto è `917ac24`.
+HEAD iniziale includeva soltanto il successivo `d7dfdf5`, che riduce diagnostica
+test-only matmul e non cambia shader o percorso runtime. La baseline fresca
+conferma il report precedente entro lo 0,02% a 28K.
+
+Tupla: RTX 3060 12 GiB, driver 595.84, Vulkan 1.4.329, Vulkan puro, KV F16,
+contesto 32.768, greedy, due token richiesti, una warm-up e tre ripetizioni.
+Modello, byte e SHA-256 restano quelli dichiarati nella fase 2 matmul. Il prompt
+`" a"` ripetuto N−3 volte produce esattamente N token renderizzati.
+
+### Baseline fresca e attribuzione intra-attention
+
+| Prompt | Wall | Tok/s | CV | GPU prefill | Attention | Matmul | Other |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8K | 40.626,11 ms | 201,64 | 0,09% | 39.744,331 ms | 13.824,866 ms (34,78%) | 23.551,080 ms | 2.368,385 ms |
+| 28K | 257.193,07 ms | 108,87 | 0,01% | 254.418,631 ms | 164.566,312 ms (64,68%) | 81.701,500 ms | 8.150,819 ms |
+
+Il profiler attribuisce 99,73% / 99,86% del GPU prefill a 8K / 28K. Poiché
+NVIDIA non espone stall counter sul percorso Vulkan, l'attribuzione interna usa
+ablation causali compile-time sullo stesso shader, griglia, buffer e loop KV.
+I probe sono stati rimossi dallo stato finale. QK e AV hanno anche una misura
+diretta 28K; le classi minori trasferiscono a 28K la quota fresca 8K, non una
+percentuale storica.
+
+| Classe 28K | GPU | Attention | Evidenza |
+|---|---:|---:|---|
+| cooperative QK load/MMA | 24.139,753 ms | 14,67% | `no-QK` diretto 28K; score store preservato |
+| score handling + softmax FP32 | 2.896,367 ms | 1,76% | `no-softmax` 8K; max 0,29%, sum 0,52%, exp/scale/stato nel residuo 0,95% |
+| AV shared load + quattro catene FP32 | 56.977,829 ms | 34,62% | `no-AV` diretto 28K; V staging preservato |
+| K/V staging e cache | 25.935,651 ms | 15,76% | hot-set storage-buffer 8K: K 11,19%, V 4,57% |
+| barrier workgroup esplicite | 5.101,556 ms | 3,10% | probe per sito: K 1,25%, V 1,75%, tile reuse 0,10% |
+| dependency/control/shared residui | 49.515,157 ms | 30,09% | residuo dopo le classi sopra |
+
+L'attribuzione chiude il 100% del timestamp attention, sopra il gate 95%.
+Scaling e output finale sono sotto la risoluzione sottrattiva; le riduzioni
+subgroup sono conteggiate nel softmax. La classe residua include attesa fra
+fasi, lane inattive, addressing e controllo: non viene presentata come un
+contatore hardware inesistente. Il kernel ha una barrier iniziale e sette per
+tile KV: K ready, QK ready, V ready e store/consume per due onde AV. I dati
+attraversano invocation diverse, quindi lo scope workgroup è semanticamente
+necessario. Le cooperative operation sono subgroup-local.
+
+Il conteggio per query-row/KV-tile a 28K è 6.111.445 full causal e 27.563
+diagonali/parziali per head/layer: 99,55% usa il fast path già presente. Non è
+stato aggiunto un secondo ramo perché il controllo full-tile era già eliminato.
+
+### Gate economico e modello operativo
+
+Il lavoro AV utile a 28K è 83,496 TFLOP. Il percorso scalare impiega 56,978 s,
+1,465 TFLOP/s effettivi; il dato è lavoro utile, non picco marketing. Prima del
+prototipo, un conservativo 2× AV locale prevedeva −17,31% attention e −11,20%
+GPU prefill. Era il maggiore tempo realisticamente rimovibile.
+
+| Candidato | Quota attention | Frazione realisticamente rimovibile | Speedup locale plausibile | Gain attention atteso | Gain prefill atteso |
+|---|---:|---:|---:|---:|---:|
+| AV MMA | 34,62% | 50% | 2,0× | 17,31% | 11,20% |
+| K/V staging | 15,76% | 20% | 1,25× | 3,15% | 2,04% |
+| dependency/control | 30,09% | 10% | 1,11× | 3,01% | 1,95% |
+| QK già MMA | 14,67% | 16,7% | 1,20× | 2,45% | 1,58% |
+| softmax intero | 1,76% | 30% | 1,43× | 0,53% | 0,34% |
+
+Con attention 64,68%, un ipotetico speedup attention 1,20× produce
+`1 / ((1 - 0,6468) + 0,6468 / 1,20) = 1,121×`, cioè −10,78% tempo
+prefill. Il ceiling giustificava una nuova architettura AV.
+
+### Architettura mantenuta
+
+Il percorso finale resta un singolo dispatch fused e non materializza NxN:
+
+```text
+Q/K F16 shared -> QK 16x16x16 MMA -> score FP32 shared
+-> max/exp/sum/stato FP32 -> probability F16 shared (2 KiB)
+-> V F16 shared -> AV 16x16x16 MMA -> block output FP32 shared
+-> merge online FP32 -> normalizzazione/store F16
+```
+
+`Q_TILE=16`, `KV_TILE=64`, `head_dim=128`. QK usa quattro subgroup per i 64
+score; AV usa quattro subgroup per volta e due onde per le 128 colonne. Ogni
+fragment AV esegue quattro MMA lungo K. La probability è row-major F16, V è
+caricata direttamente row-major nel layout fragment-friendly richiesto: nessun
+transpose/reorder. Lo score FP32, ormai morto dopo softmax, viene riusato come
+scratch 16×64 per le due onde output; questo evita un tile FP32 aggiuntivo.
+Lo stato `(m,l,O)` resta FP32 e usa lo stesso merge online stabile. Righe/key
+tail sono zero-filled; il percorso diagonale conserva mask e causalità.
+
+SPIR-V `glslc -O`, target Vulkan 1.3: quattro siti cooperative load, due MMA,
+due store, due `exp`, una reduction max, una sum e sei siti barrier statici
+(i due nel loop output eseguono due volte). Nessun binding o accesso globale
+score/probability è stato aggiunto.
+
+Il driver riporta subgroup 32, 37 registri/thread, stack 0, 26.816 byte shared
+e binary 10.240 byte. Tre WG da 512 richiedono 56.832 registri, 80.448 byte
+shared e 1.536 thread/SM: 48 warp, occupancy thread modellata 100%, nessun spill.
+
+### Timing cooperative AV
+
+Il primo prototipo Q8 con output FP32 shared dedicato misura a 8K:
+
+| Fase | GPU |
+|---|---:|
+| scalar AV baseline | 4.496,721 ms |
+| probability conversion | sotto risoluzione; la sostituzione costante non migliora |
+| staging/sync/occupancy, merge escluso | 3.954 ms incrementali |
+| cooperative load/MMA/store | 2.253 ms |
+| merge FP32 | 120 ms |
+| cooperative AV totale | 6.327 ms, 0,711× |
+
+La MMA era circa 2× più veloce della FMA scalare, ma il tile output da 8 KiB
+portava shared a 34.912 byte e residenza da tre a due WG/SM. La strategia non è
+stata falsificata: è stato eliminato il costo di staging che annullava il gain.
+
+Nel candidato finale Q16, a 8K il `no-AV` diretto attribuisce:
+
+| Fase | GPU |
+|---|---:|
+| conversion/probability + wave staging/sync, merge escluso | 462 ms |
+| cooperative load/MMA/store | 1.188 ms |
+| merge FP32 | 33 ms |
+| AV totale | 1.683 ms |
+
+A 28K il no-AV diretto dà 25.885 s contro 56.978 s scalari: AV 2,201× e
+throughput utile 1,465→3,226 TFLOP/s, inclusi conversione, shared, barrier e
+merge. L'intera attention migliora 2,150× nella misura ripetuta 28K.
+
+### Registro esperimenti
+
+| ID | Architettura / target | Q / KV | QK / AV | P / layout P,V | Registri / shared / occupancy | Delta AV / attention / prefill | Correctness | Decisione |
+|---|---|---|---|---|---|---|---|---|
+| AV-A | Q8, output FP32 dedicato | 8 / 64 | MMA / MMA half-filled | F16 / row,row | n.d. / 34.912 B / 2 WG | 0,711×; attention +13,31%; wall +4,38% 8K | pass | reject: staging e occupancy |
+| AV-B | Q8, score scratch riciclato | 8 / 64 | MMA / MMA in due onde | F16 / row,row | n.d. / 26.720 B / 3 WG modellati | AV 1,60×; attention −12,27%; wall −4,19% 8K | pass | utile, superato da Q16 |
+| AV-C | Q16 full-MMA, score scratch | 16 / 64 | MMA piena / MMA piena | F16 / row,row | 37 / 26.816 B / 3 WG, 100% | AV 2,201×; attention −53,50%; wall −34,32% 28K | pass | keep `917ac24` |
+
+Non è stata provata una variante pack-2×Q8 separata: Q16 esprime lo stesso
+mapping logico senza duplicare ownership e ha superato ampiamente il gate. La
+variante half-filled e due ownership/layout shared distinti sono stati misurati.
+
+### Correttezza numerica
+
+Il test rapido copre `(base,n)` `(0,3)`, `(33,32)`, `(65,9)` per F16/INT8:
+tail query, tile piena, tile KV parziale e diagonale causale. Il nuovo test
+ignorato `vulkan_prefill_attention_long_context_numeric_qualification` copre
+2K/8K/28K, Q_TILE piena, F16 e INT8, confrontando attention e una proiezione
+logits deterministica con decode sequenziale/current path.
+
+| Contesto | Attention max abs / mean abs / max rel | Logits max abs / mean abs / max rel |
+|---:|---:|---:|
+| 2K F16 | 1,526e-5 / 1,006e-6 / 5,110e-4 | 1,678e-6 / 2,916e-7 / 2,699e-2 |
+| 8K F16 | 1,526e-5 / 1,177e-6 / 5,092e-4 | 1,770e-6 / 3,651e-7 / 2,563e-2 |
+| 28K F16 | 1,526e-5 / 9,798e-7 / 5,089e-4 | 1,343e-6 / 3,504e-7 / 1,560e-2 |
+| 2K/8K/28K INT8 | 0 / 0 / 0 | 0 / 0 / 0 |
+
+I massimi relativi logits sono su valori prossimi a zero; gli assoluti restano
+<1,8e-6. Contro CPU F16 a 28K: attention max abs 1,168e-5, mean abs 3,879e-6,
+max rel 3,891e-4; logits max abs 2,333e-6. Tutti gli output sono finiti.
+
+### Risultato finale ripetuto
+
+| Prompt | Wall baseline/finale | Delta wall | Tok/s baseline/finale | Delta tok/s | CV finale | Attention finale / delta | GPU finale / delta | Decode delta |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 7.512,45 / 7.075,61 ms | −5,81% | 272,61 / 289,45 | +6,18% | 0,27% | 394,998 ms / −53,10% | 6.832,101 ms / −6,10% | −1,26% |
+| 8K | 40.626,11 / 32.939,44 ms | −18,92% | 201,64 / 248,70 | +23,34% | 0,19% | 6.157,030 ms / −55,46% | 32.075,258 ms / −19,30% | +0,15% |
+| 16K | 109.764,30 / 79.290,91 ms | −27,76% | 149,27 / 206,63 | +38,43% | 0,07% | 25.487,092 ms / −54,41% | 77.608,670 ms / −28,24% | +0,23% |
+| 28K | 257.193,07 / 168.900,40 ms | −34,32% | 108,87 / 165,78 | +52,27% | 0,01% | 76.554,631 ms / −53,48% | 166.042,180 ms / −34,74% | −0,79% |
+
+Breakdown finale GPU 28K:
+
+| Classe | GPU | Quota |
+|---|---:|---:|
+| attention full-MMA | 76.554,631 ms | 46,11% |
+| sette matmul cooperative | 81.348,201 ms | 48,99% |
+| other | 8.139,349 ms | 4,90% |
+
+I sette matmul variano −0,43% rispetto alla baseline, con routing cooperative
+Q4_K/Q6_K su tutte le forme: nessuna regressione indiretta. Decode resta entro
+1,26% su tutta la matrice e non è stato modificato.
+
+### Reprofiling, stop e prossimo target
+
+Il profilo post-win 8K attribuisce: AV cooperative 27,56%, QK cooperative
+19,47%, softmax completo 4,86%, K staging 5,08%, V staging 1,75% e residuo
+dependency/control/sync 41,28%. AV resta la maggiore classe aritmetica singola,
+ma il suo ceiling realistico è ormai limitato da staging/barrier e non giustifica
+un altro salto locale prima del componente globale maggiore.
+
+A 28K matmul torna sopra attention: 48,99% contro 46,11%. Il prossimo candidato
+già quantificato è condividere lo staging A di gate/up, ceiling favorevole
+~3,4% del vecchio GPU prefill prima degli overhead; il prossimo attention patch
+plausibile è invece sotto quel limite. Si arresta quindi per la condizione 1:
+attention non è più il target col maggiore upper bound end-to-end. Nessuna
+semantica attention, API, dipendenza o allocazione globale è cambiata.
+
+Verifica finale:
+
+- `cargo fmt --all`, `git diff --check`: pass;
+- Clippy release `--all-targets -D warnings`, feature `vulkan-profile`: pass;
+- engine unit: 148 pass, tre test autenticati/long-context ignored;
+- qualifica numerica long-context ignorata eseguita esplicitamente: pass;
+- semantic: 12 pass, un test autenticato ignored;
+- family-agnostic: quattro pass, un autenticato ignored; `docs_contract`
+  conserva il fallimento baseline perché `VALIDATION.md` è assente;
+- parity esterna pinned non sostituita: resta indisponibile per la revisione
+  llama.cpp locale incompatibile già registrata nella fase 2 matmul;
+- worktree finale privo di probe, ablation e output temporanei.

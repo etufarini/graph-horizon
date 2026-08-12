@@ -8,9 +8,9 @@
 /*
  * Shared-A phased MLP gate/up projection for the measured 3B prefill shape.
  * Two subgroups own adjacent M16 tiles. For each K tile they stage A once,
- * retain its cooperative fragment, prepare distinct gate/up Q4_K weight tiles,
- * and consume them sequentially with native 16x16x16 FP16xFP16->FP32 MMA. Both
- * accumulators stay FP32 and outputs narrow only on store. Generic fallback remains.
+ * retain its cooperative fragment, and consume gate then up Q4_K weight tiles
+ * sequentially with native 16x16x16 FP16xFP16->FP32 MMA. Both accumulators stay
+ * FP32 and the separate outputs narrow only on store. Generic fallback remains.
  */
 layout(local_size_x = 64) in;
 
@@ -26,7 +26,7 @@ const uint T = 16u;
 const uint POSITION_TILES = 2u;
 
 shared float16_t as_[POSITION_TILES * T * T];
-shared float16_t bs[2u * T * T];
+shared float16_t bs[T * T];
 shared float cs[2u * POSITION_TILES * T * T];
 
 uint gb(uint projection, uint b) {
@@ -71,11 +71,11 @@ void stage_weight(uint projection, uint worker, uint row_base, uint kbase, uint 
             uint rem = (rem64 + slot * 4u) & 63u;
             uint packed = gb(projection, block + 16u + group * 32u + (rem & 31u));
             uint qv = rem < 32u ? packed & 0xFu : packed >> 4u;
-            bs[projection * T * T + li] = float16_t(ds * float(qv) - dm);
+            bs[li] = float16_t(ds * float(qv) - dm);
         }
     } else {
         for (uint slot = 0u; slot < 4u; slot++)
-            bs[projection * T * T + worker + slot * 64u] = float16_t(0.0);
+            bs[worker + slot * 64u] = float16_t(0.0);
     }
 }
 
@@ -105,7 +105,6 @@ void main() {
                 : float16_t(0.0);
         }
         stage_weight(0u, tid, row_base, kbase, nsb);
-        stage_weight(1u, tid, row_base, kbase, nsb);
         barrier();
 
         // The A fragment remains live and is reused by the sequential up MMA.
@@ -114,7 +113,11 @@ void main() {
         coopMatLoad(matA, as_, a_offset, T, gl_CooperativeMatrixLayoutRowMajor);
         coopMatLoad(matB, bs, 0u, T, gl_CooperativeMatrixLayoutRowMajor);
         gate_acc = coopMatMulAdd(matA, matB, gate_acc);
-        coopMatLoad(matB, bs, T * T, T, gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+
+        stage_weight(1u, tid, row_base, kbase, nsb);
+        barrier();
+        coopMatLoad(matB, bs, 0u, T, gl_CooperativeMatrixLayoutRowMajor);
         up_acc = coopMatMulAdd(matA, matB, up_acc);
         barrier();
     }

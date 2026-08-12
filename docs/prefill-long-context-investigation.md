@@ -2379,6 +2379,53 @@ Il secondo candidato phased usa due subgroup e riusa il fragment A fra MMA gate
 e up sequenziali, accettando più accumulatori live e più barrier. Entrambi
 mantengono fallback esplicito e flag A/B; attention non viene modificata.
 
+### Esperimenti shared-A e falsificazione
+
+Tutti i candidati riducono del 50% i byte A global/shared modellati e lasciano
+invariati i byte weight. Le misure 8K usano la stessa tupla ripetuta della
+baseline. Occupancy è il limite thread modellato da statistiche driver, non uno
+stall counter hardware.
+
+| ID | Ownership | WG / subgroup | Registri | Shared | Barrier/K | Occupancy | Gate+up delta | GPU / wall delta | Decisione |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| SA-C | concurrent, due subgroup gate + due up | 128 / 4 | 40 | 6.144 B | 2 | 12 WG, 100% | +0,66% | +0,21 / +0,31% | reject |
+| SA-P1 | phased, B unico, A fragment persistente | 64 / 2 | 58 | 5.632 B | 4 | 16 WG, 66,7% | +0,42% | −0,04 / +0,15% | reject |
+| SA-P2 | phased, due B, A fragment persistente | 64 / 2 | 55 | 6.144 B | 2 | 16 WG, 66,7% | −0,74% | −0,43 / −0,21% | reject: sotto soglia |
+
+Stack e spill sono zero in tutti e tre. SA-C richiede 61.440 registri, 73.728 B
+shared e 1.536 thread/SM: non perde occupancy, quindi la regressione è
+scheduling/control dei due stream weight. SA-P1 mantiene la stessa occupancy
+66,7% della baseline, ma le due barrier aggiuntive per tile annullano il riuso.
+SA-P2 rimuove quella tassa, prepara entrambi i B prima della prima barrier e
+riusa un solo fragment A per due MMA: è la falsificazione più favorevole.
+
+SA-P2 porta gate+up da 9.872,308 a 9.798,773 ms a 8K, soltanto 1,0075× locale.
+Il 50% del traffico A logico è stato rimosso, le MMA e il metadata reuse sono
+preservati, non ci sono spill e la sincronizzazione è dimezzata, ma il guadagno
+netto resta 0,74%. La differenza fra ceiling 27,52% e misura mostra che le
+riletture A sono servite da cache/overlap e non costituiscono tempo additivo;
+weight load/unpack/dequant distinto resta il limite. I tre checkpoint locali
+sono `d449646`, `cb27562` e `896bc23`; il percorso produttivo viene rimosso.
+
+### Gate activation-fusion
+
+Gli 80,511 GB intermedi teoricamente rimovibili a 28K valgono 223,6 ms anche
+assumendo il roof DRAM nominale 360 GB/s. `silu_mul` misura 251,511 ms e lo store
+output gate/up era sotto 0,5% nell'ablation acquisita: l'upper bound realistico
+resta circa 0,2–0,3% GPU prefill, molto sotto il gate 3–4% end-to-end. Una fusion
+activation richiederebbe inoltre riprodurre con shared volatile il round-trip
+FP16 che il compilatore non conserva in registro. Non viene implementata.
+
+Anche intermediate→down non supera il gate: 26,837 GB write/read valgono 74,5 ms
+al roof nominale, 0,045% GPU prefill, mentre down è già cooperative e misura
+18.316,889 ms. La full MLP fusion è respinta prima della patch.
+
+La decisione passa quindi al ramo C: ridurre il costo weight/metadata Q4_K senza
+toccare attention. Nel mapping corrente quattro thread appartenenti a due
+subgroup ricaricano gli stessi `d/dmin/scale/min` per una output row e tile K.
+Il prossimo esperimento raggruppa quei quattro lane nello stesso subgroup e usa
+un broadcast, mantenendo i quattro quant unpack per thread già acquisiti.
+
 Verifica finale:
 
 - `cargo fmt --all`, `git diff --check`: pass;

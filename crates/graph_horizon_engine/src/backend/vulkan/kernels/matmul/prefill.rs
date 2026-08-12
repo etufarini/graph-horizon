@@ -30,6 +30,10 @@ fn coopmat_shape(in_dim: u32) -> bool {
     matches!(in_dim, 3072 | 4096 | 9216)
 }
 
+fn q4_metadata_shape(out_dim: u32) -> bool {
+    matches!(out_dim, 3072 | 4096 | 9216)
+}
+
 fn q4_metadata_enabled() -> bool {
     use std::sync::OnceLock;
     static FLAG: OnceLock<bool> = OnceLock::new();
@@ -68,7 +72,7 @@ pub(crate) fn matmul_batched_q4k(
         && coopmat_shape(in_dim)
     {
         trace::log_batched_path_once(true);
-        let kernel = if out_dim >= 3072
+        let kernel = if q4_metadata_shape(out_dim)
             && q4_metadata_enabled()
             && reg.contains(Kernel::MatmulQ4KCoopmatMetadataF16Out)
         {
@@ -167,7 +171,16 @@ mod tests {
     use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
 
     #[test]
-    fn batched_q4k_matches_cpu_oracle() {
+    fn batched_q4k_metadata_matches_cpu_oracle() {
+        q4k_cpu_oracle(3072, 3072, 3, "q4_metadata");
+    }
+
+    #[test]
+    fn batched_q4k_small_output_matches_cpu_oracle() {
+        q4k_cpu_oracle(4096, 70, 37, "q4_small_output");
+    }
+
+    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
@@ -175,11 +188,6 @@ mod tests {
                 return;
             }
         };
-        // K=4096 is the output-projection route added after the original
-        // K=3072/9216 cooperative paths were already qualified.
-        let in_dim = 4096usize;
-        let out_dim = 70usize;
-        let rows = 37usize;
         let mut seed = 0x9e3779b9u32;
         let mut rng = || {
             seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
@@ -240,16 +248,31 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
+        let mut max_abs = 0.0f32;
+        let mut mean_abs = 0.0f64;
+        let mut max_relative = 0.0f32;
+        let mut mean_relative = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
+            let relative = absolute / reference.abs().max(1.0);
+            max_abs = max_abs.max(absolute);
+            mean_abs += f64::from(absolute);
+            max_relative = max_relative.max(relative);
+            mean_relative += f64::from(relative);
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
+        let count = raw.len() as f64 / 2.0;
+        println!(
+            "{label} max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
+            mean_abs / count,
+            mean_relative / count
+        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);
@@ -261,6 +284,15 @@ mod tests {
         assert!(super::coopmat_shape(9216));
         assert!(super::coopmat_shape(4096));
         assert!(!super::coopmat_shape(256));
+    }
+
+    #[test]
+    fn metadata_route_is_limited_to_measured_output_dimensions() {
+        assert!(super::q4_metadata_shape(3072));
+        assert!(super::q4_metadata_shape(4096));
+        assert!(super::q4_metadata_shape(9216));
+        assert!(!super::q4_metadata_shape(1024));
+        assert!(!super::q4_metadata_shape(5000));
     }
 
     #[test]
@@ -332,16 +364,31 @@ mod tests {
         let raw = backend
             .read_bytes(&output, rows * out_dim * 2)
             .expect("read output");
+        let mut max_abs = 0.0f32;
+        let mut mean_abs = 0.0f64;
+        let mut max_relative = 0.0f32;
+        let mut mean_relative = 0.0f64;
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];
             let absolute = (got - reference).abs();
+            let relative = absolute / reference.abs().max(1.0);
+            max_abs = max_abs.max(absolute);
+            mean_abs += f64::from(absolute);
+            max_relative = max_relative.max(relative);
+            mean_relative += f64::from(relative);
             assert!(got.is_finite(), "value {index}: non-finite result");
             assert!(
                 absolute <= 5e-2 || absolute <= 5e-3 * reference.abs().max(1.0),
                 "value {index}: got={got} want={reference}"
             );
         }
+        let count = raw.len() as f64 / 2.0;
+        println!(
+            "q6_control max_abs={max_abs} mean_abs={} max_relative={max_relative} mean_relative={}",
+            mean_abs / count,
+            mean_relative / count
+        );
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);

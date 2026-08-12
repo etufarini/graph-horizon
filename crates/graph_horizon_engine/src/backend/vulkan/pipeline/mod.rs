@@ -99,10 +99,7 @@ fn supports_coop_qk_attention(
         && (coop.m, coop.n, coop.k) == (16, 16, 16)
 }
 
-fn supports_q4_metadata_broadcast(
-    subgroup_size: u32,
-    operations: vk::SubgroupFeatureFlags,
-) -> bool {
+fn supports_q4(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool {
     subgroup_size == 32 && operations.contains(vk::SubgroupFeatureFlags::SHUFFLE)
 }
 
@@ -161,14 +158,9 @@ impl PipelineRegistry {
                 }
             }
             if dev.dp4a {
-                map.insert(
-                    Kernel::QuantAQ8F16,
-                    record::build_one(dev, cache, Kernel::QuantAQ8F16)?,
-                );
-                map.insert(
-                    Kernel::MatmulQ4KMmvqF16Out,
-                    record::build_one(dev, cache, Kernel::MatmulQ4KMmvqF16Out)?,
-                );
+                for k in [Kernel::QuantAQ8F16, Kernel::MatmulQ4KMmvqF16Out] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
             }
             Ok(())
         })();
@@ -216,18 +208,15 @@ impl PipelineRegistry {
             l.max_compute_work_group_size[0],
             l.max_compute_shared_memory_size,
         );
-        let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, vulkan11.subgroup_size);
-        let coop_qk =
-            supports_coop_qk_attention(tiled, limits.2, vulkan11.subgroup_size, dev.coopmat);
+        let subgroup = vulkan11.subgroup_size;
+        let tiled = supports_tiled_attention(limits.0, limits.1, limits.2, subgroup);
+        let coop_qk = supports_coop_qk_attention(tiled, limits.2, subgroup, dev.coopmat);
         Ok((
             supports_wide_attention(limits.0, limits.1, limits.2),
             tiled,
             coop_qk,
             supports_attention_1024(limits.0, limits.1, limits.2),
-            supports_q4_metadata_broadcast(
-                vulkan11.subgroup_size,
-                vulkan11.subgroup_supported_operations,
-            ),
+            supports_q4(subgroup, vulkan11.subgroup_supported_operations),
         ))
     }
 
@@ -247,10 +236,12 @@ impl PipelineRegistry {
 
 #[cfg(test)]
 mod tests {
+    use ash::vk;
+
     use super::{
         ATTENTION_1024_SHARED_BYTES, COOP_QK_ATTENTION_SHARED_BYTES, TILED_ATTENTION_SHARED_BYTES,
         WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024, supports_coop_qk_attention,
-        supports_tiled_attention, supports_wide_attention,
+        supports_q4, supports_tiled_attention, supports_wide_attention,
     };
     use crate::backend::vulkan::coopmat::CoopmatCaps;
 
@@ -380,5 +371,12 @@ mod tests {
             32,
             CoopmatCaps { m: 8, ..supported },
         ));
+    }
+
+    #[test]
+    fn q4_metadata_requires_subgroup_shuffle() {
+        assert!(supports_q4(32, vk::SubgroupFeatureFlags::SHUFFLE));
+        assert!(!supports_q4(16, vk::SubgroupFeatureFlags::SHUFFLE));
+        assert!(!supports_q4(32, vk::SubgroupFeatureFlags::BASIC));
     }
 }

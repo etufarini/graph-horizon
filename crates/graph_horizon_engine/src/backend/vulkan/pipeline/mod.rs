@@ -68,6 +68,7 @@ impl PipelineRegistry {
             coop_qk_attention,
             matrix2,
             attention_1024,
+            gqa_decode,
             q4_metadata,
         ) = caps::check(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
@@ -120,6 +121,8 @@ impl PipelineRegistry {
                     Kernel::AttentionDecode1024,
                     record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
                 );
+            }
+            if gqa_decode {
                 map.insert(
                     Kernel::AttentionDecodeGqaSplit,
                     record::build_one(dev, cache, Kernel::AttentionDecodeGqaSplit)?,

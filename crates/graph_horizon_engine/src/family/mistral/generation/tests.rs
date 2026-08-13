@@ -370,8 +370,13 @@ fn real_vulkan_greedy_sequence_matches_reference() {
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    if let Ok(expected) = std::env::var("GRAPH_HORIZON_EXPECTED_GREEDY_IDS") {
-        assert_eq!(actual, expected, "greedy token sequence changed");
+    match std::env::var("GRAPH_HORIZON_EXPECTED_GREEDY_IDS") {
+        Ok(expected) => assert_eq!(actual, expected, "greedy token sequence changed"),
+        Err(_) if std::env::var("GRAPH_HORIZON_DECODE_GQA").as_deref() == Ok("0") => {
+            // The forced fallback run prints the stable reference consumed by
+            // the automatic-routing run; it is not itself the candidate gate.
+        }
+        Err(_) => panic!("GRAPH_HORIZON_EXPECTED_GREEDY_IDS required for automatic GQA routing"),
     }
     println!(
         "vulkan-greedy-sequence: prompt={} ids={actual}",

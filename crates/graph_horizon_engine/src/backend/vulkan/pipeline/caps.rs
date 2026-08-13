@@ -17,6 +17,7 @@ const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
 const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
 const MATRIX2_MATMUL_SHARED_BYTES: u32 = 128 * 32 * 2 + 32 * 32 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
+const GQA_DECODE_SHARED_BYTES: u32 = 16 * 2 * 4 + 16 * 32 * 4 * 4;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
     invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
@@ -24,6 +25,18 @@ fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> 
 
 fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
     invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+}
+
+fn supports_gqa_decode(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+) -> bool {
+    invocations >= 512
+        && size_x >= 512
+        && shared_bytes >= GQA_DECODE_SHARED_BYTES
+        && subgroup_size == 32
 }
 
 fn supports_tiled_attention(
@@ -63,7 +76,7 @@ fn supports_matrix2(shared_bytes: u32, reserved_bytes: u32, available: bool) -> 
             .is_some_and(|required| shared_bytes >= required)
 }
 
-pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)> {
+pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool, bool)> {
     // Required kernels use up to 256 invocations; optional attention variants
     // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
     let mut vulkan11 = vk::PhysicalDeviceVulkan11Properties::default();
@@ -101,6 +114,7 @@ pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)
         coop_qk,
         matrix2,
         supports_attention_1024(available.0, available.1, available.2),
+        supports_gqa_decode(available.0, available.1, available.2, subgroup),
         supports_q4(subgroup, vulkan11.subgroup_supported_operations),
     ))
 }
@@ -157,6 +171,20 @@ mod tests {
             1024,
             ATTENTION_1024_SHARED_BYTES - 1
         ));
+    }
+
+    #[test]
+    fn gqa_decode_requires_its_exact_subgroup_and_resources() {
+        assert!(supports_gqa_decode(512, 512, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(!supports_gqa_decode(511, 512, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(!supports_gqa_decode(512, 511, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(!supports_gqa_decode(
+            512,
+            512,
+            GQA_DECODE_SHARED_BYTES - 1,
+            32
+        ));
+        assert!(!supports_gqa_decode(512, 512, GQA_DECODE_SHARED_BYTES, 64));
     }
 
     #[test]

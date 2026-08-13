@@ -55,9 +55,9 @@ target/release/examples/bench <model.gguf> \
 ```
 
 `GRAPH_HORIZON_DECODE_GQA=0` forces the baseline decode attention path. The new
-path is selected only for F16, `head_dim=128`, and exact 4:1 GQA on a device for
-which its pipelines were registered. INT8 and unsupported shapes retain their
-previous kernels.
+path is selected only for F16, `head_dim=128`, exact 4:1 GQA, sufficient reused
+scratch, and a device with 512-thread workgroups, 8,320 B of shared memory, and
+32-lane subgroups. INT8 and unsupported shapes retain their previous kernels.
 
 ## Decode Scaling
 

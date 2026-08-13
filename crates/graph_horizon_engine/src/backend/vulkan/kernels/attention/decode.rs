@@ -40,13 +40,16 @@ pub(crate) fn f16(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
+    let scratch_fits = partial.size >= u64::from(q_heads) * 128 * 16
+        && state.size >= u64::from(q_heads) * 4 * 2 * 4;
     if head_dim == 128
-        && q_heads == kv_heads * 4
+        && kv_heads.checked_mul(4) == Some(q_heads)
+        && scratch_fits
         && gqa_enabled()
         && reg.contains(Kernel::AttentionDecodeGqaSplit)
     {
-        // The partial/state aliases are dead after sampling/projections and are
-        // fully consumed before output projection can reuse their allocations.
+        // These aliases are fully consumed here before their normal projection
+        // and sampling users can overwrite the same scratch allocations.
         dispatch_2d(
             dev,
             reg,

@@ -55,6 +55,14 @@ fn supports_q4(subgroup_size: u32, operations: vk::SubgroupFeatureFlags) -> bool
     subgroup_size == 32 && operations.contains(vk::SubgroupFeatureFlags::SHUFFLE)
 }
 
+fn supports_matrix2(shared_bytes: u32, reserved_bytes: u32, available: bool) -> bool {
+    let shader_bytes = MATRIX2_ATTENTION_SHARED_BYTES.max(MATRIX2_MATMUL_SHARED_BYTES);
+    available
+        && shader_bytes
+            .checked_add(reserved_bytes)
+            .is_some_and(|required| shared_bytes >= required)
+}
+
 pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)> {
     // Required kernels use up to 256 invocations; optional attention variants
     // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
@@ -82,9 +90,11 @@ pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)
     let subgroup = vulkan11.subgroup_size;
     let tiled = supports_tiled_attention(available.0, available.1, available.2, subgroup);
     let coop_qk = supports_coop_qk_attention(tiled, available.2, subgroup, dev.coopmat);
-    let matrix2_shared = MATRIX2_ATTENTION_SHARED_BYTES.max(MATRIX2_MATMUL_SHARED_BYTES);
-    let matrix2 = dev.coopmat2.available
-        && available.2 >= matrix2_shared + dev.coopmat2.reserved_shared_memory;
+    let matrix2 = supports_matrix2(
+        available.2,
+        dev.coopmat2.reserved_shared_memory,
+        dev.coopmat2.available,
+    );
     Ok((
         supports_wide_attention(available.0, available.1, available.2),
         tiled,
@@ -234,5 +244,14 @@ mod tests {
         assert!(supports_q4(32, vk::SubgroupFeatureFlags::SHUFFLE));
         assert!(!supports_q4(16, vk::SubgroupFeatureFlags::SHUFFLE));
         assert!(!supports_q4(32, vk::SubgroupFeatureFlags::BASIC));
+    }
+
+    #[test]
+    fn matrix2_requires_available_feature_and_checked_shared_sum() {
+        let shader = MATRIX2_ATTENTION_SHARED_BYTES.max(MATRIX2_MATMUL_SHARED_BYTES);
+        assert!(supports_matrix2(shader + 8192, 8192, true));
+        assert!(!supports_matrix2(shader + 8191, 8192, true));
+        assert!(!supports_matrix2(u32::MAX, u32::MAX, true));
+        assert!(!supports_matrix2(u32::MAX, 0, false));
     }
 }

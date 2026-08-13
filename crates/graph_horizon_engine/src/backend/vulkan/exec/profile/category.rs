@@ -97,6 +97,8 @@ const fn direct(kernel: Kernel) -> Category {
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
+        | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaReduce
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
@@ -161,6 +163,8 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
+        | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaReduce
         | Kernel::AttentionDecodeInt8 => Some(Phase::Decode),
         Kernel::Argmax | Kernel::TopkPartial => Some(Phase::Sampling),
         _ => None,
@@ -234,6 +238,14 @@ mod tests {
         ));
         assert!(matches!(
             phase(Kernel::AttentionDecode1024),
+            Some(Phase::Decode)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionDecodeGqaSplit),
+            Some(Phase::Decode)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionDecodeGqaReduce),
             Some(Phase::Decode)
         ));
         assert!(matches!(phase(Kernel::Argmax), Some(Phase::Sampling)));

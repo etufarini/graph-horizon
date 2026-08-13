@@ -1081,8 +1081,8 @@ mod cpu_vulkan_parity {
     fn attention_meta() -> ModelMetadata {
         ModelMetadata {
             block_count: 1,
-            embedding_length: 256,
-            head_count: 2,
+            embedding_length: 512,
+            head_count: 4,
             head_count_kv: 1,
             head_dim: 128,
             feed_forward_length: 256,

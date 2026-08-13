@@ -27,6 +27,13 @@ fn matrix2_enabled() -> bool {
     })
 }
 
+fn decode_gqa_enabled() -> bool {
+    matches!(
+        std::env::var("GRAPH_HORIZON_DECODE_GQA").ok().as_deref(),
+        Some("1" | "true" | "yes")
+    )
+}
+
 pub(crate) fn attention_decode_int8(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -113,6 +120,8 @@ pub(crate) fn attention_decode(
     q: &GpuBuffer,
     kc: &GpuBuffer,
     vc: &GpuBuffer,
+    partial: &GpuBuffer,
+    state: &GpuBuffer,
     head_dim: u32,
     kv_heads: u32,
     q_heads: u32,
@@ -125,6 +134,42 @@ pub(crate) fn attention_decode(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
+    if head_dim == 128
+        && q_heads == kv_heads * 4
+        && decode_gqa_enabled()
+        && reg.contains(Kernel::AttentionDecodeGqaSplit)
+    {
+        dispatch_2d(
+            dev,
+            reg,
+            cmd,
+            Kernel::AttentionDecodeGqaSplit,
+            &[
+                (q.buffer, q.offset, q.size),
+                (kc.buffer, kc.offset, kc.size),
+                (vc.buffer, vc.offset, vc.size),
+                (partial.buffer, partial.offset, partial.size),
+                (state.buffer, state.offset, state.size),
+            ],
+            &push,
+            kv_heads,
+            4,
+        );
+        dispatch(
+            dev,
+            reg,
+            cmd,
+            Kernel::AttentionDecodeGqaReduce,
+            &[
+                (partial.buffer, partial.offset, partial.size),
+                (state.buffer, state.offset, state.size),
+                (out.buffer, out.offset, out.size),
+            ],
+            &push,
+            q_heads,
+        );
+        return;
+    }
     let kernel = if reg.contains(Kernel::AttentionDecode1024) {
         Kernel::AttentionDecode1024
     } else if reg.contains(Kernel::AttentionDecodeWide) {

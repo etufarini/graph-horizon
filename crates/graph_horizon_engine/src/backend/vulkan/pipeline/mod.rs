@@ -120,6 +120,14 @@ impl PipelineRegistry {
                     Kernel::AttentionDecode1024,
                     record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
                 );
+                map.insert(
+                    Kernel::AttentionDecodeGqaSplit,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
+                );
+                map.insert(
+                    Kernel::AttentionDecodeGqaReduce,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
+                );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
             if dev.coopmat.available {

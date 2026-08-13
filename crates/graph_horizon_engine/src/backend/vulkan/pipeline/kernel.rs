@@ -69,7 +69,7 @@ impl Kernel {
             Self::AttentionDecode => "attention_decode",
             Self::AttentionDecodeWide => "attention_decode_wide",
             Self::AttentionDecode1024 => "attention_decode_1024",
-            Self::AttentionDecodeGqaSplit => "attention_decode_gqa_split4_q4_vec4",
+            Self::AttentionDecodeGqaSplit => "attention_decode_gqa_split4_q4_vec4_wg512",
             Self::AttentionDecodeGqaReduce => "attention_decode_gqa_reduce4_q4_vec4",
             Self::AttentionPrefill => "attention_prefill",
             Self::AttentionPrefillWide => "attention_prefill_wide",

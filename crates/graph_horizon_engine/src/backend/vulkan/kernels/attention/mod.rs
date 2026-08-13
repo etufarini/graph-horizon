@@ -1,18 +1,21 @@
 /*
- * Vulkan attention dispatch: selects causal GQA decode/prefill variants while the sibling module owns KV-cache mutation.
+ * Vulkan prefill-attention dispatch and module boundary; decode routing and
+ * KV-cache mutation are owned by dedicated sibling modules.
  */
 
 #![allow(clippy::too_many_arguments)]
 
+mod decode;
 mod write;
 
+pub(crate) use decode::{f16 as attention_decode, int8 as attention_decode_int8};
 pub(crate) use write::{kv_write, kv_write_int8};
 
 use ash::vk;
 
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
-use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
+use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
 
 fn matrix2_enabled() -> bool {
     use std::sync::OnceLock;
@@ -25,50 +28,6 @@ fn matrix2_enabled() -> bool {
             None | Some("1" | "true" | "yes")
         )
     })
-}
-
-fn decode_gqa_enabled() -> bool {
-    matches!(
-        std::env::var("GRAPH_HORIZON_DECODE_GQA").ok().as_deref(),
-        Some("1" | "true" | "yes")
-    )
-}
-
-pub(crate) fn attention_decode_int8(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    out: &GpuBuffer,
-    q: &GpuBuffer,
-    kc: &GpuBuffer,
-    vc: &GpuBuffer,
-    head_dim: u32,
-    kv_heads: u32,
-    q_heads: u32,
-    pos: u32,
-    layer: u32,
-    context: u32,
-    meta_base: u32,
-) {
-    let mut push = Vec::with_capacity(32);
-    for value in [head_dim, kv_heads, q_heads, pos, layer, context, meta_base] {
-        push.extend_from_slice(&value.to_le_bytes());
-    }
-    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    dispatch(
-        dev,
-        reg,
-        cmd,
-        Kernel::AttentionDecodeInt8,
-        &[
-            (q.buffer, q.offset, q.size),
-            (kc.buffer, kc.offset, kc.size),
-            (vc.buffer, vc.offset, vc.size),
-            (out.buffer, out.offset, out.size),
-        ],
-        &push,
-        q_heads,
-    );
 }
 
 pub(crate) fn attention_prefill_int8(
@@ -109,87 +68,6 @@ pub(crate) fn attention_prefill_int8(
         &push,
         q_heads,
         n,
-    );
-}
-
-pub(crate) fn attention_decode(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    out: &GpuBuffer,
-    q: &GpuBuffer,
-    kc: &GpuBuffer,
-    vc: &GpuBuffer,
-    partial: &GpuBuffer,
-    state: &GpuBuffer,
-    head_dim: u32,
-    kv_heads: u32,
-    q_heads: u32,
-    pos: u32,
-    layer: u32,
-    context: u32,
-) {
-    let mut push = Vec::with_capacity(32);
-    for value in [head_dim, kv_heads, q_heads, pos, layer, context] {
-        push.extend_from_slice(&value.to_le_bytes());
-    }
-    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    if head_dim == 128
-        && q_heads == kv_heads * 4
-        && decode_gqa_enabled()
-        && reg.contains(Kernel::AttentionDecodeGqaSplit)
-    {
-        dispatch_2d(
-            dev,
-            reg,
-            cmd,
-            Kernel::AttentionDecodeGqaSplit,
-            &[
-                (q.buffer, q.offset, q.size),
-                (kc.buffer, kc.offset, kc.size),
-                (vc.buffer, vc.offset, vc.size),
-                (partial.buffer, partial.offset, partial.size),
-                (state.buffer, state.offset, state.size),
-            ],
-            &push,
-            kv_heads,
-            4,
-        );
-        dispatch(
-            dev,
-            reg,
-            cmd,
-            Kernel::AttentionDecodeGqaReduce,
-            &[
-                (partial.buffer, partial.offset, partial.size),
-                (state.buffer, state.offset, state.size),
-                (out.buffer, out.offset, out.size),
-            ],
-            &push,
-            q_heads,
-        );
-        return;
-    }
-    let kernel = if reg.contains(Kernel::AttentionDecode1024) {
-        Kernel::AttentionDecode1024
-    } else if reg.contains(Kernel::AttentionDecodeWide) {
-        Kernel::AttentionDecodeWide
-    } else {
-        Kernel::AttentionDecode
-    };
-    dispatch(
-        dev,
-        reg,
-        cmd,
-        kernel,
-        &[
-            (q.buffer, q.offset, q.size),
-            (kc.buffer, kc.offset, kc.size),
-            (vc.buffer, vc.offset, vc.size),
-            (out.buffer, out.offset, out.size),
-        ],
-        &push,
-        q_heads,
     );
 }
 

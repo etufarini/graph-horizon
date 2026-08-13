@@ -129,8 +129,10 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         let reduce = (kernels::reduce::TOPK_GROUPS as u64)
             .checked_mul(kernels::reduce::MAX_K as u64)
             .and_then(|bytes| bytes.checked_mul(8))
+            .map(|bytes| bytes.max(kernels::attention::GQA_DECODE_PARTIAL_BYTES))
             .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
-        let mmvq = MMVQ_SCRATCH_IN_DIM + MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4;
+        let mmvq = MMVQ_SCRATCH_IN_DIM
+            + (MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4).max(kernels::attention::GQA_DECODE_STATE_BYTES);
         Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
             host: logits,
             device: logits

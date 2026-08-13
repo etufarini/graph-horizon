@@ -6,10 +6,10 @@
 
 // AGENTS deroga K: kernel numerico split-KV della sola attention decode F16 GQA.
 
-// One workgroup owns one of four disjoint history splits for one KV head and
+// One workgroup owns one of eight disjoint history splits for one KV head and
 // reuses every packed K/V load across all four query heads in its 4:1 GQA group.
 // It emits unnormalized FP32 online-softmax partials for the reduction kernel.
-layout(local_size_x = 512) in;
+layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer Q { f16vec4 q[]; };
 layout(std430, binding = 1) readonly buffer KC { f16vec4 kc[]; };
@@ -28,8 +28,8 @@ layout(push_constant) uniform P {
 } p;
 
 const uint Q_GROUP = 4u;
-const uint SPLITS = 4u;
-const uint MAX_G = 16u;
+const uint SPLITS = 8u;
+const uint MAX_G = 8u;
 
 shared float sh_m[MAX_G];
 shared float sh_l[MAX_G];

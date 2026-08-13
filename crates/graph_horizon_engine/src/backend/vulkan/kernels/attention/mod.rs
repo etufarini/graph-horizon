@@ -8,6 +8,10 @@
 mod decode;
 mod write;
 
+pub(crate) const GQA_DECODE_SPLITS: u32 = 8;
+pub(crate) const GQA_DECODE_PARTIAL_BYTES: u64 = 32 * GQA_DECODE_SPLITS as u64 * 128 * 4;
+pub(crate) const GQA_DECODE_STATE_BYTES: u64 = 32 * GQA_DECODE_SPLITS as u64 * 2 * 4;
+
 pub(crate) use decode::{f16 as attention_decode, int8 as attention_decode_int8};
 pub(crate) use write::{kv_write, kv_write_int8};
 

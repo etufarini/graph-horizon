@@ -17,7 +17,7 @@ const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
 const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
 const MATRIX2_MATMUL_SHARED_BYTES: u32 = 128 * 32 * 2 + 32 * 32 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
-const GQA_DECODE_SHARED_BYTES: u32 = 16 * 2 * 4 + 16 * 32 * 4 * 4;
+const GQA_DECODE_SHARED_BYTES: u32 = 8 * 2 * 4 + 8 * 32 * 4 * 4;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
     invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
@@ -33,8 +33,8 @@ fn supports_gqa_decode(
     shared_bytes: u32,
     subgroup_size: u32,
 ) -> bool {
-    invocations >= 512
-        && size_x >= 512
+    invocations >= 256
+        && size_x >= 256
         && shared_bytes >= GQA_DECODE_SHARED_BYTES
         && subgroup_size == 32
 }
@@ -175,16 +175,16 @@ mod tests {
 
     #[test]
     fn gqa_decode_requires_its_exact_subgroup_and_resources() {
-        assert!(supports_gqa_decode(512, 512, GQA_DECODE_SHARED_BYTES, 32));
-        assert!(!supports_gqa_decode(511, 512, GQA_DECODE_SHARED_BYTES, 32));
-        assert!(!supports_gqa_decode(512, 511, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(supports_gqa_decode(256, 256, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(!supports_gqa_decode(255, 256, GQA_DECODE_SHARED_BYTES, 32));
+        assert!(!supports_gqa_decode(256, 255, GQA_DECODE_SHARED_BYTES, 32));
         assert!(!supports_gqa_decode(
-            512,
-            512,
+            256,
+            256,
             GQA_DECODE_SHARED_BYTES - 1,
             32
         ));
-        assert!(!supports_gqa_decode(512, 512, GQA_DECODE_SHARED_BYTES, 64));
+        assert!(!supports_gqa_decode(256, 256, GQA_DECODE_SHARED_BYTES, 64));
     }
 
     #[test]

@@ -11,7 +11,7 @@ use color_eyre::eyre::Result;
 use super::device::Device;
 use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
-use crate::backend::vulkan::kernels::reduce;
+use crate::backend::vulkan::kernels::{attention, reduce};
 use crate::backend::vulkan::loader;
 #[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::budget::device_budget;
@@ -73,7 +73,8 @@ impl VulkanBackend {
         buf: crate::backend::buffers::Buffers<GpuBuffer>,
         logits_host: GpuBuffer,
     ) -> Result<Self> {
-        let reduce_bytes = reduce::TOPK_GROUPS as u64 * reduce::MAX_K as u64 * 8;
+        let reduce_bytes = (reduce::TOPK_GROUPS as u64 * reduce::MAX_K as u64 * 8)
+            .max(attention::GQA_DECODE_PARTIAL_BYTES);
         let reduce = match GpuBuffer::alloc(&dev, reduce_bytes, false) {
             Ok(reduce) => reduce,
             Err(err) => {
@@ -108,7 +109,8 @@ impl VulkanBackend {
     // plus per-32-block (d, s) f32 pairs, sized to MMVQ_SCRATCH_IN_DIM.
     fn alloc_mmvq_scratch(dev: &Device) -> Result<(GpuBuffer, GpuBuffer)> {
         let qs = GpuBuffer::alloc(dev, MMVQ_SCRATCH_IN_DIM, false)?;
-        let ds = match GpuBuffer::alloc(dev, MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4, false) {
+        let ds_bytes = (MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4).max(attention::GQA_DECODE_STATE_BYTES);
+        let ds = match GpuBuffer::alloc(dev, ds_bytes, false) {
             Ok(ds) => ds,
             Err(err) => {
                 qs.destroy(dev);

@@ -7,6 +7,7 @@
 
 use ash::vk;
 
+use super::GQA_DECODE_SPLITS;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
@@ -40,8 +41,8 @@ pub(crate) fn f16(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    let scratch_fits = partial.size >= u64::from(q_heads) * 128 * 16
-        && state.size >= u64::from(q_heads) * 4 * 2 * 4;
+    let scratch_fits = partial.size >= u64::from(q_heads) * 128 * u64::from(GQA_DECODE_SPLITS) * 4
+        && state.size >= u64::from(q_heads) * u64::from(GQA_DECODE_SPLITS) * 2 * 4;
     if head_dim == 128
         && kv_heads.checked_mul(4) == Some(q_heads)
         && scratch_fits
@@ -64,7 +65,7 @@ pub(crate) fn f16(
             ],
             &push,
             kv_heads,
-            4,
+            GQA_DECODE_SPLITS,
         );
         dispatch(
             dev,

@@ -15,6 +15,7 @@ const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 
 const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
     64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
 const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
+const MATRIX2_MATMUL_SHARED_BYTES: u32 = 128 * 32 * 2 + 32 * 32 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 
 fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
@@ -81,8 +82,9 @@ pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool)
     let subgroup = vulkan11.subgroup_size;
     let tiled = supports_tiled_attention(available.0, available.1, available.2, subgroup);
     let coop_qk = supports_coop_qk_attention(tiled, available.2, subgroup, dev.coopmat);
+    let matrix2_shared = MATRIX2_ATTENTION_SHARED_BYTES.max(MATRIX2_MATMUL_SHARED_BYTES);
     let matrix2 = dev.coopmat2.available
-        && available.2 >= MATRIX2_ATTENTION_SHARED_BYTES + dev.coopmat2.reserved_shared_memory;
+        && available.2 >= matrix2_shared + dev.coopmat2.reserved_shared_memory;
     Ok((
         supports_wide_attention(available.0, available.1, available.2),
         tiled,

@@ -66,7 +66,7 @@ impl PipelineRegistry {
             wide_attention,
             tiled_attention,
             coop_qk_attention,
-            matrix2_attention,
+            matrix2,
             attention_1024,
             q4_metadata,
         ) = caps::check(dev)?;
@@ -99,8 +99,8 @@ impl PipelineRegistry {
                     record::build_one(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
                 );
             }
-            if matrix2_attention {
-                // A driver may advertise NV2 but reject this exact SPIR-V shape.
+            if matrix2 {
+                // A driver may advertise NV2 but reject an exact SPIR-V shape.
                 // Pipeline absence is therefore a capability fallback, not fatal.
                 if let Ok(pipeline) = record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2)
                 {

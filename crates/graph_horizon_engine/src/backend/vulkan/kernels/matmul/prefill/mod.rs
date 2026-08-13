@@ -12,59 +12,12 @@ use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
 
-fn coopmat_enabled() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
-        match std::env::var("GRAPH_HORIZON_PREFILL_COOPMAT")
-            .ok()
-            .as_deref()
-        {
-            None | Some("1" | "true" | "yes") => true,
-            Some(_) => false,
-        }
-    })
-}
+mod policy;
 
-fn coopmat_shape(in_dim: u32) -> bool {
-    matches!(in_dim, 3072 | 4096 | 9216)
-}
-
-fn q4_metadata_shape(out_dim: u32) -> bool {
-    matches!(out_dim, 3072 | 4096 | 9216)
-}
-
-fn matrix2_shape(in_dim: u32, out_dim: u32) -> bool {
-    coopmat_shape(in_dim) && matches!(out_dim, 1024 | 3072 | 4096 | 9216)
-}
-
-fn q4_metadata_enabled() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
-        match std::env::var("GRAPH_HORIZON_PREFILL_Q4_METADATA")
-            .ok()
-            .as_deref()
-        {
-            None | Some("1" | "true" | "yes") => true,
-            Some(_) => false,
-        }
-    })
-}
-
-fn matrix2_enabled() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(|| {
-        match std::env::var("GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2")
-            .ok()
-            .as_deref()
-        {
-            None | Some("1" | "true" | "yes") => true,
-            Some(_) => false,
-        }
-    })
-}
+use policy::{
+    coopmat_enabled, coopmat_shape, matrix2_enabled, matrix2_shape, q4_metadata_enabled,
+    q4_metadata_shape,
+};
 
 pub(crate) fn matmul_batched_q4k(
     dev: &Device,

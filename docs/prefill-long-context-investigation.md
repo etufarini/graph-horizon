@@ -3001,3 +3001,133 @@ sotto 200 linee produttive. SPIR-V validation, formatting, Clippy, test rapido,
 fallback forzato e qualifica numerica lunga passano. La complessità aumenta
 soltanto nel confine vendor necessario; resta isolata e opzionale, mentre il
 dispatch esistente conserva tutti i fallback.
+
+## Fase 4 matmul: workgroup matrix2 quantizzato — RTX 3060, 2026-08-13
+
+Questa fase parte dal risultato attention Matrix2 `f333898` sul branch dedicato
+`perf/vulkan-prefill-matmul-phase4`. Prima della prima modifica il worktree era
+pulito. Modello, SHA-256, macchina, driver e protocollo sono quelli della Fase 5
+attention: Vulkan puro `release`, feature `vulkan-profile`, contesto 32.768, KV
+F16, prompt sintetici esatti, due token, una warm-up e tre repliche.
+
+L'invariante è: stesso matmul `Y=A·Wᵀ`, pesi Q4_K/Q6_K originali, input/output
+FP16 e accumulo FP32; nessun buffer dequantizzato persistente, nuova
+allocazione, dispatch aggiuntivo, API o dipendenza. Decode, logits, shape non
+misurate, device senza NV2 e fallimento di creazione pipeline devono conservare
+il percorso precedente. Il target esclusivo resta prefill e decode è controllo.
+
+### Baseline e upper bound
+
+La baseline autenticata è la matrice finale Phase 5 attention, sul commit di
+partenza esatto:
+
+| Prompt | Wall | Tok/s | CV | GPU prefill | Attention | Sette matmul | Decode |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 6.103,13 ms | 335,57 | <0,3% | 5.868,842 ms | 262,263 ms | — | 32,15 tok/s |
+| 8K | 27.550,97 ms | 297,34 | <0,3% | 26.716,075 ms | 4.090,689 ms | — | 19,58 tok/s |
+| 16K | 63.185,16 ms | 259,30 | <0,3% | 61.596,090 ms | 16.173,996 ms | — | 13,08 tok/s |
+| 28K | 127.400,41 ms | 219,78 | <0,3% | 124.795,754 ms | 46.898,309 ms | 69.703,891 ms | 8,83 tok/s |
+
+A 28K i matmul sono il maggiore componente, 55,85% del GPU prefill. Un
+redesign che ne rimuovesse soltanto il 20% avrebbe quindi un saving GPU atteso
+di 11,17%, molto sopra il gate 2%. La forma ricorrente `M=32` e l'estensione
+NV2 già qualificata permettono un confronto diretto senza cambiare grafo.
+
+### Percorso Matrix2 e K tile
+
+Il checkpoint iniziale `692e944` introduce due shader categoria K. Un
+workgroup da 256 thread possiede un tile output 32×32. L'attivazione FP16 viene
+letta direttamente con tensor addressing; le weight restano quantizzate e
+vengono dequantizzate in un tile B shared; una Matrix2 workgroup accumula FP32
+e lo store finale restringe a FP16. Il routing è limitato alle dimensioni 3B
+misurate `K=3072|4096|9216`, `N=1024|3072|4096|9216`.
+
+Il candidato iniziale usa `K_TILE=32`. Lo sweep finale mantiene M/N/workgroup e
+porta K a 128. Il tile B cresce da 2.048 a 8.192 byte e, con lo scratch C da
+4.096 byte, dichiara 12.288 byte shared. Per `K=3072/4096/9216`, le barrier
+dinamiche matmul scendono rispettivamente da 193/257/577 a 49/65/145 per
+workgroup. Workgroup, byte weight, MMA utili, precisione e store non cambiano;
+diminuiscono quattro volte loop setup, tensor load A e sincronizzazioni.
+
+L'orchestrazione è divisa per responsabilità in
+`matmul/prefill/{mod.rs,policy.rs}`: circa 178 linee produttive per il dispatch e
+37 per flag/shape. Il gate shared Matrix2 copre esplicitamente il massimo fra
+attention e matmul più gli 8.192 byte riservati dal driver. Le due categorie K
+restano coese e prive di dispatch, I/O o ownership.
+
+### Sweep isolato 8K
+
+Ogni probe è una replica senza warm-up sullo stesso binario/protocollo. La
+baseline usa `GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2=0`; attention Matrix2 e ogni
+altra parte del runtime restano identiche. I tempi matmul sommano le sette
+classi del profiler.
+
+| ID | Geometria | Wall | GPU prefill | Sette matmul | Decisione |
+|---|---|---:|---:|---:|---|
+| fallback | coopmat Phase 5 | 26.984,13 ms | 26.217,915 ms | 19.908,011 ms | baseline |
+| K32 | M32×N32×K32 | 21.656,93 ms | 20.890,544 ms | 14.530,129 ms (−27,01%) | keep per sweep |
+| N64 | M32×N64×K32 | 24.121,88 ms | 23.349,400 ms | 17.033,216 ms (+17,23% vs K32) | reject |
+| K64 | M32×N32×K64 | 19.566,06 ms | 18.790,692 ms | 12.479,887 ms (−14,11% vs K32) | keep per sweep |
+| K128 | M32×N32×K128 | 18.788,53 ms | 18.026,536 ms | 11.696,206 ms (−6,28% vs K64) | keep finale |
+| Q4-K256 | Q4 K256, Q6 K128 | 19.881,57 ms | 19.110,743 ms | 12.772,770 ms (+9,20% vs K128) | reject |
+
+N64 dimezza i workgroup ma peggiora ogni proiezione Matrix2, con la regressione
+maggiore nel down Q6. K256 dimezza ancora loop e barrier Q4, ma il tile B da
+16.384 byte annulla il beneficio. Non vengono attribuiti spill o stall senza
+contatori: i risultati falsificano direttamente entrambe le geometrie. Nessun
+codice N64/K256 resta nel branch.
+
+### Matrice finale stabile
+
+Il risultato mantenuto è `0ae685d`. I timestamp profiler aggregano warm-up e
+tre repliche e sono divisi per quattro; wall, tok/s e CV escludono la warm-up.
+
+| Prompt | Wall old / finale | Δ wall | Tok/s old / finale | Δ tok/s | CV finale | GPU old / finale | Δ GPU | Attention finale / Δ |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2K | 6.103,13 / 3.982,01 ms | −34,75% | 335,57 / 514,31 | +53,26% | 0,07% | 5.868,842 / 3.757,536 ms | −35,97% | 258,757 ms / −1,34% |
+| 8K | 27.550,97 / 18.940,18 ms | −31,25% | 297,34 / 432,52 | +45,46% | 0,23% | 26.716,075 / 18.142,720 ms | −32,09% | 4.021,034 ms / −1,70% |
+| 16K | 63.185,16 / 46.041,91 ms | −27,13% | 259,30 / 355,85 | +37,23% | 0,14% | 61.596,090 / 44.500,021 ms | −27,76% | 16.039,121 ms / −0,83% |
+| 28K | 127.400,41 / 98.052,86 ms | −23,04% | 219,78 / 285,56 | +29,93% | 0,02% | 124.795,754 / 95.389,904 ms | −23,56% | 46.657,919 ms / −0,51% |
+
+Decode finale è 32,38 / 19,95 / 13,18 / 8,93 tok/s: variazioni entro 1,9%
+dalla baseline e molto sotto il controllo 5%. A 28K i sette matmul scendono da
+69.703,891 a 40.616,664 ms (−41,73%) e valgono il 42,58% finale; attention vale
+46.657,919 ms (48,91%), other 8.115,320 ms (8,51%). I 29.405,850 ms GPU
+rimossi coincidono entro 1,1% con i 29.087,227 ms rimossi dai matmul.
+
+### Correttezza, fallback e stop
+
+Gli oracoli sintetici esercitano tail `M=3` sulle shape reali. Q4 Matrix2 contro
+CPU ha max relativo `4,934e-4` e mean relativo `1,943e-4`; Q6 ha max relativo
+`2,245e-3` e mean relativo `4,123e-4`. Gli errori coincidono con l'ordine di
+grandezza dei percorsi precedenti e tutti gli output sono finiti. Il benchmark
+modello completo termina a ogni lunghezza.
+
+`GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2=0`, NV2 assente, shape non misurata o
+pipeline rifiutata selezionano i coopmat/fallback precedenti. Le pipeline Q4 e
+Q6 vengono inserite indipendentemente: il fallimento di una non disabilita
+l'altra né rende fatale l'inizializzazione.
+
+Il bottleneck assoluto torna attention. Le geometrie locali ovvie N64 e K256
+sono falsificate; K64 e K128 mostrano il punto di rendimento decrescente. Un
+altro raddoppio Q6 richiederebbe due scale live per lane e lo stesso aumento
+shared già regressivo in Q4. Non esiste quindi un candidato locale misurato con
+ceiling superiore al nuovo limite attention. La condizione di successo è
+ampiamente superata e la fase si arresta senza ulteriore complessità.
+
+Verifica finale sullo stato `06f518f` più questo report:
+
+- `cargo fmt --all -- --check` e `git diff --check`: pass;
+- Clippy release workspace `--all-targets -D warnings`, `vulkan-profile`: pass;
+- engine library `vulkan-hybrid`: 211 pass, tre ignored;
+- engine library `vulkan-profile`: 150 pass, tre ignored;
+- semantic: 12 pass, un test autenticato ignored;
+- family-agnostic: cinque pass, un autenticato ignored; `docs_contract`
+  conserva il fallimento baseline perché `VALIDATION.md` è assente;
+- otto test matmul focalizzati, inclusi Q4/Q6 Matrix2 e fallback: pass;
+- fallback forzato Q4 tracciato come `Q4_K coopmat (f16-out)` con gli stessi
+  errori numerici; fallback Q6: pass;
+- build release/SPIR-V dei due shader K=128: pass;
+- benchmark modello completo F16 2K/8K/16K/28K: output finito e matrice stabile;
+- controllo modello completo INT8 2K: output finito, attention/KV INT8 e matmul
+  Matrix2 Q4/Q6 attivi.

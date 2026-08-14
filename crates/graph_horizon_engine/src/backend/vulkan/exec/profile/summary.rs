@@ -79,6 +79,9 @@ pub(super) struct Totals {
     pub(super) matmul_path_count: [[u64; MatmulPath::COUNT]; Category::COUNT],
     pub(super) layer_ms: [f64; LAYER_LIMIT],
     pub(super) layer_attention_count: [u64; LAYER_LIMIT],
+    pub(super) gap_ms: f64,
+    pub(super) gap_count: u64,
+    pub(super) gap_max_ms: f64,
     pub(super) cpu_ms: [f64; 4],
 }
 
@@ -95,6 +98,9 @@ impl Default for Totals {
             matmul_path_count: [[0; MatmulPath::COUNT]; Category::COUNT],
             layer_ms: [0.0; LAYER_LIMIT],
             layer_attention_count: [0; LAYER_LIMIT],
+            gap_ms: 0.0,
+            gap_count: 0,
+            gap_max_ms: 0.0,
             cpu_ms: [0.0; 4],
         }
     }
@@ -113,7 +119,16 @@ impl Totals {
         tick_ms: f64,
     ) {
         let mut kernel_ms = 0.0;
+        let mut previous_end = None;
         for mark in marks {
+            if let Some(end) = previous_end {
+                let gap = values[mark.start as usize].wrapping_sub(values[end]) as f64 * tick_ms;
+                if gap >= 0.05 {
+                    self.gap_ms += gap;
+                    self.gap_count += 1;
+                    self.gap_max_ms = self.gap_max_ms.max(gap);
+                }
+            }
             let elapsed = values[mark.end as usize].wrapping_sub(values[mark.start as usize])
                 as f64
                 * tick_ms;
@@ -139,6 +154,7 @@ impl Totals {
                 self.layer_attention_count[layer] +=
                     u64::from(mark.category == Category::Attention);
             }
+            previous_end = Some(mark.end as usize);
         }
         self.counts[0] += 1;
         self.counts[1] += dispatches;

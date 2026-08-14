@@ -1,8 +1,8 @@
 /*
- * graph_horizon_engine — single-slot Vulkan prompt-prefix cache
- * Reuses one request KV allocation only when a caller key and rendered token
- * prefix match exactly. It owns cache replacement and failure invalidation; the
- * shared generation driver continues to own prefill, decode, and terminal data.
+ * graph_horizon_engine — single-slot Vulkan request-session cache
+ * Retains one KV allocation between serialized requests and optionally reuses a
+ * caller-keyed token prefix. It owns cache replacement and failure invalidation;
+ * the shared generation driver continues to own prefill, decode, and terminal data.
  */
 
 use color_eyre::eyre::Result;
@@ -14,22 +14,26 @@ use crate::api::event::{GenerationStats, Terminal};
 use crate::api::request::Request;
 use crate::backend::selection;
 
-pub(in crate::family::mistral) struct PrefixCache {
+pub(in crate::family::mistral) struct SessionCache {
+    prefix: Option<CachedPrefix>,
+    state: selection::CachedState,
+}
+
+struct CachedPrefix {
     key: [u8; 16],
     tokens: Vec<u32>,
-    state: selection::CachedState,
 }
 
 pub(super) fn execute(
     model: &RuntimeModel,
     request: &Request,
-    key: [u8; 16],
+    key: Option<[u8; 16]>,
     terminal: &mut Terminal<'_>,
 ) -> Result<Option<GenerationStats>> {
     let mut slot = model
-        .prefix_cache
+        .session_cache
         .lock()
-        .map_err(|_| color_eyre::eyre::eyre!("prompt cache unavailable"))?;
+        .map_err(|_| color_eyre::eyre::eyre!("session cache unavailable"))?;
     let previous = slot.take();
     let prompt = match template::render(&request.messages, &model.tokenizer, model.context) {
         Ok(prompt) => prompt,
@@ -40,13 +44,18 @@ pub(super) fn execute(
             return Err(error);
         }
     };
-    let prefix = reusable_prefix(
-        previous
-            .as_ref()
-            .map(|cache| (&cache.key, cache.tokens.as_slice())),
-        &key,
-        &prompt,
-    );
+    let prefix = key.map_or(0, |key| {
+        reusable_prefix(
+            previous.as_ref().and_then(|cache| {
+                cache
+                    .prefix
+                    .as_ref()
+                    .map(|prefix| (&prefix.key, prefix.tokens.as_slice()))
+            }),
+            &key,
+            &prompt,
+        )
+    });
     let state = previous.map(|cache| cache.state);
     let session = selection::cached_session::<MistralGraph>(
         &model.backend,
@@ -61,9 +70,13 @@ pub(super) fn execute(
     // positions below `prefix`, while every suffix position is overwritten.
     let outcome = drive(model, request, &prompt, prefix, &session, terminal);
     if matches!(&outcome, Ok(Some(_))) {
-        *slot = Some(PrefixCache {
-            key,
-            tokens: prompt,
+        // A non-keyed request overwrites from position zero. Stale bytes beyond
+        // its current position are unreachable under causal attention.
+        *slot = Some(SessionCache {
+            prefix: key.map(|key| CachedPrefix {
+                key,
+                tokens: prompt,
+            }),
             state: session.into_state(),
         });
     }
@@ -72,7 +85,7 @@ pub(super) fn execute(
 
 pub(in crate::family::mistral) fn free_cache(
     backend: &selection::SelectedBackend,
-    cache: PrefixCache,
+    cache: SessionCache,
 ) {
     selection::free_cached_state(backend, cache.state);
 }

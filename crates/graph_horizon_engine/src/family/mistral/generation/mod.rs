@@ -14,20 +14,26 @@ use color_eyre::eyre::Result;
 
 use super::RuntimeModel;
 use super::decode::TextDecoder;
+#[cfg(not(feature = "vulkan"))]
 use super::graph::MistralGraph;
 use super::template;
 use crate::api::event::{GenerationStats, Terminal};
 use crate::api::request::{EventSink, Request};
+#[cfg(not(feature = "vulkan"))]
 use crate::backend::selection;
 use crate::runtime::RuntimeSession;
 use crate::sampling::{self, Rng};
 
 #[cfg(feature = "vulkan")]
-pub(super) use cache::{PrefixCache, free_cache};
+pub(super) use cache::{SessionCache, free_cache};
 
 pub(crate) fn generate(model: &RuntimeModel, request: Request, sink: &mut dyn EventSink) {
     let mut terminal = Terminal::new(sink);
-    match execute(model, &request, &mut terminal) {
+    #[cfg(feature = "vulkan")]
+    let outcome = cache::execute(model, &request, None, &mut terminal);
+    #[cfg(not(feature = "vulkan"))]
+    let outcome = execute(model, &request, &mut terminal);
+    match outcome {
         Ok(Some(stats)) => terminal.finish(stats),
         Ok(None) => {}
         Err(_) => terminal.fail(),
@@ -42,13 +48,14 @@ pub(crate) fn generate_cached(
     sink: &mut dyn EventSink,
 ) {
     let mut terminal = Terminal::new(sink);
-    match cache::execute(model, &request, cache_key, &mut terminal) {
+    match cache::execute(model, &request, Some(cache_key), &mut terminal) {
         Ok(Some(stats)) => terminal.finish(stats),
         Ok(None) => {}
         Err(_) => terminal.fail(),
     }
 }
 
+#[cfg(not(feature = "vulkan"))]
 fn execute(
     model: &RuntimeModel,
     request: &Request,

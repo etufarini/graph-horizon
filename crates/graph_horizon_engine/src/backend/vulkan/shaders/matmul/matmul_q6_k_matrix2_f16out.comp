@@ -1,7 +1,6 @@
 #version 460
 #extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
-#extension GL_KHR_shader_subgroup_shuffle : require
 #extension GL_KHR_memory_scope_semantics : require
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_NV_cooperative_matrix2 : require
@@ -40,7 +39,7 @@ int s8(uint byte_offset) {
     return value >= 128 ? value - 256 : value;
 }
 
-// Four bytes starting at an address aligned to either 0 or 2 modulo four.
+// Four bytes starting at an offset congruent to either 0 or 2 modulo four.
 // Q6_K's 210-byte blocks alternate between those two cases.
 uint packed4(uint byte_offset) {
     uint shift = (byte_offset & 3u) * 8u;
@@ -79,12 +78,10 @@ void main() {
             within = remaining & 127u;
             quarter = within >> 5u;
             block = (global_output * super_blocks + (k >> 8u)) * 210u;
-            if ((first_k & 15u) == 0u) {
-                int scale = s8(
-                    block + 192u + segment * 8u + quarter * 2u
-                    + (within & 31u) / 16u);
-                dequant_scale = hf(block + 208u) * float(scale);
-            }
+            int scale = s8(
+                block + 192u + segment * 8u + quarter * 2u
+                + (within & 31u) / 16u);
+            dequant_scale = hf(block + 208u) * float(scale);
         }
         for (uint group = 0u; group < 4u; group++) {
             uint first_slot = group * 4u;

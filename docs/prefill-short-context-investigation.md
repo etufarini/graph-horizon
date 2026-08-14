@@ -330,6 +330,36 @@ variation.
 | 8K | 12,562.09 ms | 12,570.392 | 35.20 | 0.28% | 12,440.955 ms | 12,519.148 ms | 652.12 |
 | 28K | 64,013.51 ms | 64,012.096 | 48.92 | 0.08% | 63,642.122 ms | 63,969.462 ms | 437.41 |
 
+The same per-request trace gives the remaining baseline distributions; means
+are the values in the table above:
+
+| Tokens | CPU wall median / SD / CV | Prompt tok/s median / SD / CV |
+|---:|---:|---:|
+| 64 | 89.062 ms / 0.688 / 0.77% | 489.192 / 2.557 / 0.52% |
+| 128 | 163.542 ms / 0.649 / 0.40% | 623.161 / 2.070 / 0.33% |
+| 256 | 317.442 ms / 1.005 / 0.32% | 711.934 / 2.332 / 0.33% |
+| 512 | 635.938 ms / 2.175 / 0.34% | 755.803 / 2.439 / 0.32% |
+| 1K | 1,284.010 ms / 2.248 / 0.18% | 772.411 / 1.411 / 0.18% |
+| 2K | 2,656.098 ms / 7.650 / 0.29% | 758.816 / 2.109 / 0.28% |
+| 8K | 12,527.842 ms / 34.809 / 0.28% | 651.690 / 1.829 / 0.28% |
+| 28K | 63,967.903 ms / 48.780 / 0.08% | 437.417 / 0.334 / 0.08% |
+
+The retained patch changes no GPU command. Baseline/final aggregate GPU means
+above and below differ by at most 0.25%. A removed per-command logger therefore
+measured the shared GPU path once more, summing all 256-row command batches into
+each request and excluding warm-ups:
+
+| Tokens | GPU mean | Median | SD | CV |
+|---:|---:|---:|---:|---:|
+| 64 | 84.240 ms | 84.384 | 0.474 | 0.56% |
+| 128 | 159.485 ms | 159.553 | 0.464 | 0.29% |
+| 256 | 312.606 ms | 312.669 | 1.054 | 0.34% |
+| 512 | 629.272 ms | 629.976 | 1.663 | 0.26% |
+| 1K | 1,282.696 ms | 1,281.220 | 4.411 | 0.34% |
+| 2K | 2,649.860 ms | 2,651.550 | 3.542 | 0.13% |
+| 8K | 12,538.333 ms | 12,548.000 | 17.441 | 0.14% |
+| 28K | 63,675.233 ms | 63,687.000 | 24.563 | 0.04% |
+
 Telemetry includes only 100 ms samples with GPU utilization at least 80%:
 
 | Tokens | GPU util | VRAM | Graphics clock | Memory clock | Power | Temperature |
@@ -355,6 +385,7 @@ from `af87c80`.
 | Critical-path component | Baseline ms | Execution and dependency |
 |---|---:|---|
 | CPU template/token preparation | 0.014 | CPU, serialized before session creation |
+| prompt ID input/upload | 0.000 standalone | no device input buffer; 512 ID bytes ride embedding push constants |
 | request KV session construction | 40.957 | CPU/driver, serialized; two device allocations |
 | embedding | 1.620 | GPU, first command operation |
 | attention RMSNorm | 0.226 | GPU, 26 serial layer instances |
@@ -400,6 +431,24 @@ final norm 0.009 + logits 3.783 + sampling/readback 0.843 = **4.635 ms**, or
 0.015 ms recording, 0.009 ms submission, and 0.209 ms fence wait; host mapping,
 token decode, and callback delivery form the remaining wall time. This tail is
 too small to be the first target.
+
+The command structure is also fully counted. A 128 request records 128
+embedding dispatches, 16 dispatches for each of 26 layers, and final norm plus
+logits: 546 dispatches, 546 pipeline binds, and 546 push-descriptor updates.
+Q/K/V, gate/up, and the two RoPE launches elide only dependency-safe barriers,
+leaving 12 barriers/layer plus 128 embedding and two tail barriers, 442 total.
+There is one command-buffer begin/end pair, one prefill submission, and one
+prefill fence wait. The 128 token IDs are push constants; there is no prompt
+staging allocation, host-to-device copy, or prompt map/unmap.
+
+On the final tree, recording is 0.611 ms/request, descriptor preparation is
+0.050 ms within it, submission is 0.041 ms, and recording amortizes to about
+0.0235 ms/layer. Shape arithmetic and tensor-view bookkeeping are inside that
+recording bound. The eleven hot scratch allocations cost about 1.26 ms; the KV
+allocation was removed from the hot path. Pipelines, shaders, pipeline cache,
+weights, and descriptor mechanism are created at model load, not per request.
+Command persistence has a sub-1% upper bound and cannot cross transformer-layer
+dependencies, so it is closed.
 
 ## Per-layer budget and variance
 
@@ -454,12 +503,33 @@ The 128 kernels take 50--52% of a full 256-row dispatch, while full-batch
 times remain stable through 2K. This rules out a fixed launch or inactive-lane
 cost large enough to motivate a sub-256 shader.
 
-The kernels declare 12,288 bytes shared plus the driver's 8,192-byte reservation.
-Fresh register, spill, resident-workgroup, and occupancy counters remain
-unavailable: Nsight Compute attaches to the Vulkan process but reports no
-kernels. No occupancy value is fabricated. Nsight Systems captured a QDSTRM,
-but this installation lacks its importer; timestamp gap accounting is direct
-and covers 99.92% of GPU time.
+Small-shape work per workgroup is likewise fully useful:
+
+| Representative WG | Useful outputs | Active / idle lanes | Logical bytes/WG | FLOP/WG |
+|---|---:|---:|---:|---:|
+| Q4 Q/gate/up, K=3072 | 1,024 | 256 / 0 | 253,952 | 6.291 MFLOP |
+| Q4 O, K=4096 | 1,024 | 256 / 0 | 337,920 | 8.389 MFLOP |
+| Q6 down, K=9216 | 1,024 | 256 / 0 | 833,792 | 18.874 MFLOP |
+
+Bytes include one weight tile, one 32-row activation tile, and 2,048 output
+bytes. Owning multiple independent M tiles per WG could reuse weights, but it
+would not activate idle lanes—there are none—and would enlarge the accumulator
+live set.
+
+Temporary `VK_KHR_pipeline_executable_properties` capture on the unmodified
+compiled shaders reports 64 registers/thread for Q4 and 63 for Q6, 20,992 bytes
+shared/WG for both (12,288 shader-declared plus 8,704 driver), and zero stack.
+The GA106 exposes 65,536 registers, 102,400 shared bytes, 1,536 threads, and 48
+warps/SM. Registers and shared memory both limit either kernel to four resident
+256-thread workgroups: 32 resident warps and **66.7% modeled occupancy**. The
+driver exposes no dedicated spill counter; zero stack and no source local arrays
+are recorded, but are not overstated as proof of zero spills. Its reported local
+memory value is an invalid 64 GiB sentinel and is discarded.
+
+Nsight Compute still attaches without reporting Vulkan kernels, and Nsight
+Systems captured a QDSTRM that this installation cannot import. The Vulkan
+pipeline statistics close the register/shared/residency fields; direct
+timestamp gap accounting covers 99.92% of GPU time.
 
 ## Quantized matmul traffic and residual limit
 
@@ -489,14 +559,31 @@ blocks, averaging 15 x 256 = 3,840 load operands per tile. It reconstructs each
 of 4,096 values from four low and two high bits, converts it, and multiplies by
 the scale. This is the already-retained packed Q6 route; it was not rewritten.
 
-Vulkan timestamps delimit the complete shader, not its load, unpack/dequant,
-MMA, and epilogue instruction regions. Nsight Compute exposed no Vulkan kernel
-or instruction counters on this installation, so independent elapsed times for
-those regions are unavailable and are not fabricated. The byte counts,
-instruction inventory, whole-kernel time, effective bandwidth, and FLOP rate
-above are the measurable attribution. A liveness-changing shader ablation would
-not provide additive stage times; it was unnecessary after the measured 41 ms
-CPU allocation target exceeded the excellent TTFT goal.
+At the GLSL operation level, either format reconstructs 4,096 weights/tile:
+4,096 integer-to-F32 conversions and 4,096 F32-to-F16 shared stores, plus 256
+Q6 scale conversions or 256 Q4 scale/min conversions. Q4 extracts one nibble
+per value after byte selection; Q6 combines four low and two high bits and
+subtracts its zero point. These are logical source operations, not fabricated
+post-compiler instruction counters.
+
+A removed `VK_KHR_shader_clock` probe measured the workgroup critical stages
+ten times. It used a complete 32-row tile, the representative Q4 gate
+`K=3072,N=9216` shape, and Q6 down `K=9216,N=3072` shape. These are workgroup
+stage times, not values to multiply by concurrent workgroups; the whole-dispatch
+GPU times remain the direct timestamps above.
+
+| Kernel/WG stage | Weight load + unpack/dequant + barrier | Activation/shared load + MMA + barrier | Epilogue | Stage share |
+|---|---:|---:|---:|---:|
+| Q4 gate, 24 K tiles | 59.699 us | 37.478 us | 1.126 us | 60.73% / 38.12% / 1.15% |
+| Q6 down, 72 K tiles | 200.192 us | 98.611 us | 0.819 us | 66.81% / 32.91% / 0.27% |
+
+Raw weight loads and unpack/dequant are instruction-interleaved before the
+same synchronization point, so separating their elapsed time would change
+liveness and scheduling; they are reported as the one physically measurable
+stage. The probe establishes that epilogue is negligible and the residual is
+primarily quantized load/unpack/dequant, then tensor/shared load plus MMA—not
+fixed setup, padding, or low occupancy. The timing and executable-statistics
+instrumentation was removed before qualification.
 
 The stored-weight minimum over all seven layer matmuls is 1.808 GB/request;
 final logits add 0.330 GB. At a realistic 300 GB/s, raw minimum weight transfer
@@ -578,6 +665,31 @@ local removal predicted 164.59 ms. Observed 163.87 ms agrees within run noise.
 | P6-CONTROL | persistence/dispatch amortization | under 0.8 ms CPU; zero 50 us gaps | not built | not built | n/a | close: under 1% |
 | P6-FUSION | local producer-consumer fusion set | each under 1.8 ms | not built | not built | complexity disproportionate | reject by Amdahl |
 
+The complete Phase 6 registry makes non-applicable shader fields explicit:
+
+| ID | Hypothesis / architecture / routing | WG, subgroup, tile, Matrix2 | Useful / padding | Registers, shared, occupancy | Traffic / effective BW |
+|---|---|---|---|---|---|
+| P6-KV-PERSIST | retain the one preflight-budgeted KV state; all serialized pure-Vulkan requests; no length threshold | unchanged; n/a to resource ownership | unchanged, 100% / 0% | unchanged; Q4 64/20,992 B/66.7%, Q6 63/20,992 B/66.7% | removes 3,489,660,928 allocation bytes/request; shader BW unchanged |
+| P6-SUB256 | smaller short-row Matrix2 path; screened, not built | current 256-thread, 8-subgroup, 32x32x128 Matrix2 | 100% / 0% already | 64 or 63 regs, 20,992 B, 66.7% | no redundant row/weight traffic to remove |
+| P6-ROPE | further RoPE specialization; screened, not built | current batched route unchanged | all requested rows / 0% | n/a: no candidate shader | 0.376 ms total ceiling |
+| P6-CONTROL | persistent command structure; screened, not built | no shader/routing change | n/a | n/a | 0.611 ms recording, 0.041 ms submit, zero >50 us gaps |
+| P6-FUSION | local producer-consumer fusion; screened, not built | no candidate after bounds | n/a | candidate pressure unknown; redesign gate not met | largest local bound 1.8 ms; QKV shared input only 39 MiB |
+
+| ID | 128 affected / upper | 64 delta | 128 delta | 256 delta | 512 delta | 2K delta | 8K delta | 28K delta | Decode 128/2K/28K | Correctness | Decision |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---|---|
+| P6-KV-PERSIST | 40.957 ms | -32.01% | -20.28% | -11.67% | -6.01% | -1.41% | -0.07% | +0.08% | -0.09% / -0.62% / -0.14% | full F16/INT8/Q4/Q6/GQA qualification passes | **keep** |
+| P6-SUB256 | 0 padded-MMA ms | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | existing route retained | reject: no underutilization |
+| P6-ROPE | 0.376 ms | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | baseline retained | close: 0.23% TTFT |
+| P6-CONTROL | under 0.8 ms | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | baseline retained | close: under 1% |
+| P6-FUSION | at most 1.8 ms each | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | baseline retained | reject: below 4% gate |
+
+Best candidate: `P6-KV-PERSIST` is resource persistence, not a shader. It has
+no WG/subgroup/tile/Matrix2/register/shared/occupancy threshold of its own and
+routes every ordinary pure-Vulkan request through the existing serialized
+single-slot session cache. Prefix-keyed routing remains exact-key/exact-token;
+ordinary routing always starts at position zero. It removes the measured
+3.490 GB allocation event without changing model traffic or bandwidth.
+
 No Phase 5 falsified shader probe was repeated.
 
 ## Final performance and regression gates
@@ -592,6 +704,23 @@ No Phase 5 falsified shader probe was repeated.
 | 2K | 2,700.93 | 2,662.77 | -38.16 ms | -1.41% | 2,663.182 | 3.35 / 0.13% | 2,642.828 / 2,646.890 | 2,661.799 | 769.12 |
 | 8K | 12,562.09 | 12,553.27 | -8.82 ms | -0.07% | 12,561.790 | 38.27 / 0.30% | 12,440.955 / 12,472.604 | 12,551.943 | 652.58 |
 | 28K | 64,013.51 | 64,063.93 | +50.42 ms | +0.08% | 64,043.507 | 94.80 / 0.15% | 63,642.122 / 63,700.380 | 64,061.528 | 437.06 |
+
+Final non-TTFT distributions from the same samples are:
+
+| Tokens | CPU wall median / SD / CV | Prompt tok/s median / SD / CV |
+|---:|---:|---:|
+| 64 | 88.199 ms / 0.608 / 0.69% | 718.884 / 4.803 / 0.67% |
+| 128 | 163.143 ms / 0.725 / 0.45% | 780.473 / 3.350 / 0.43% |
+| 256 | 316.381 ms / 1.519 / 0.48% | 806.867 / 3.820 / 0.47% |
+| 512 | 635.115 ms / 2.704 / 0.43% | 805.150 / 3.378 / 0.42% |
+| 1K | 1,285.124 ms / 2.296 / 0.18% | 796.231 / 1.422 / 0.18% |
+| 2K | 2,662.289 ms / 3.333 / 0.13% | 769.005 / 0.966 / 0.13% |
+| 8K | 12,560.502 ms / 38.168 / 0.30% | 652.136 / 1.991 / 0.31% |
+| 28K | 64,041.058 ms / 94.763 / 0.15% | 437.203 / 0.647 / 0.15% |
+
+After every temporary profiler and shader probe was removed, a clean release
+rebuild repeated the primary point at 163.89 ms TTFT with 0.27% CV, confirming
+the qualified binary contains only the retained production change.
 
 The 8K/28K GPU differences are +0.25%/+0.09%, explaining why the constant
 41 ms host removal is hidden by run drift at long lengths. The 28K TTFT change
@@ -638,21 +767,36 @@ prefill and 92.2% of final TTFT. RoPE is 0.376 ms (0.23% TTFT), attention
 1.189 ms (0.73%), recording 0.611 ms, submission 0.041 ms, and hot scratch
 allocation about 1.26 ms. No remaining non-matmul cost has a 4% TTFT bound.
 
-The 128-specific physical floor is a constraint maximum, not a sum of
-overlapping traffic:
+The remaining removable-cost ranking is therefore:
+
+| Rank | Component | Current ms | Realistic removable ms | Predicted 128 gain | Gate |
+|---:|---|---:|---:|---:|---|
+| 1 | recurrent Matrix2 issue gap to measured roof | 151.02 | about 13.42 | 8.2% | architectural multi-tile/WG candidate |
+| 2 | largest local fusion screen | at most 1.80 | at most 1.80 | at most 1.1% | below redesign threshold |
+| 3 | hot scratch allocation | 1.26 | at most 1.26 | at most 0.8% | cleanup only |
+| 4 | recording + submission | 0.65 | less than 0.65 | less than 0.4% | close persistence direction |
+| 5 | RoPE | 0.376 | at most 0.376 | at most 0.23% | close baseline direction |
+
+The 128-specific roofline constraints are not summed when they describe the
+same recurrent matmuls:
 
 - raw minimum weights: 2.138 GB, about 7.13 ms at 300 GB/s;
 - Matrix2 activation-tile loads: 24.210 GB, about 74.5 ms at 325 GB/s;
 - all recurrent logical movement: 31.645 GB, about 97.4 ms at 325 GB/s;
 - measured dequant/tensor-load issue roof: 5.63 TFLOP/s from Phase 5, placing
   774.705 GFLOP at a 137.60 ms recurrent-matmul floor;
-- current serialized non-recurrent GPU work: about 9.12 ms;
-- current control/allocation/first-token wall outside GPU: about 3.73 ms.
+- 128 attention operation-only compute/traffic lower bound: under 0.01 ms, but
+  the measured practical fused-attention stage is 1.189 ms;
+- remaining serialized non-recurrent GPU work excluding attention: 7.93 ms;
+- control, scratch allocation, and first-token wall outside GPU: 3.73 ms.
 
-The optimistic TTFT floor is therefore about **150.5 ms**. Current/floor is
-1.089, leaving about 13.4 ms or 8.2% theoretical headroom. Reaching it requires
-a new Matrix2 architecture, not a tail, dispatch, RoPE, attention, or fusion
-cleanup.
+Using the measured practical attention and fixed graph/tail costs gives a
+current-architecture attainable floor of about **150.5 ms**: 137.60 recurrent
+Matrix2 + 1.19 attention + 7.93 other GPU + 3.73 control/tail. Current/floor is
+1.089, leaving about 13.4 ms or 8.2% theoretical headroom. Using the
+operation-only attention bound would lower it by only about 1.18 ms and does
+not change the decision. Reaching the useful margin requires a new Matrix2
+architecture, not a tail, dispatch, RoPE, attention, or fusion cleanup.
 
 The next architectural candidate would let one workgroup own multiple
 independent M tiles so it can reuse a dequantized weight tile and amortize its

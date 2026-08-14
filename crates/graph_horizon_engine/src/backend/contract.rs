@@ -199,6 +199,71 @@ pub(crate) trait Backend: Sized {
         role: crate::backend::rope::RopeRole,
     ) -> Result<()>;
 
+    // Rotates packed Q/K rows. The default preserves backend portability while
+    // eliding barriers between disjoint rows; GPU backends may override it with
+    // one dispatch per role.
+    #[allow(clippy::too_many_arguments)]
+    fn rope_yarn_batched(
+        &self,
+        enc: &Self::Encoder,
+        q: &Self::Buffer,
+        k: &Self::Buffer,
+        q_heads: u32,
+        kv_heads: u32,
+        head_dim: u32,
+        base: u32,
+        rows: u32,
+        yarn: &crate::backend::rope::Yarn,
+    ) -> Result<()> {
+        if rows == 0 {
+            return Err(color_eyre::eyre::eyre!("rope: empty batch"));
+        }
+        let q_stride = u64::from(q_heads)
+            .checked_mul(u64::from(head_dim))
+            .and_then(|elements| elements.checked_mul(2))
+            .ok_or_else(|| color_eyre::eyre::eyre!("rope: buffer size overflow"))?;
+        let k_stride = u64::from(kv_heads)
+            .checked_mul(u64::from(head_dim))
+            .and_then(|elements| elements.checked_mul(2))
+            .ok_or_else(|| color_eyre::eyre::eyre!("rope: buffer size overflow"))?;
+        for row in 0..rows {
+            let position = base
+                .checked_add(row)
+                .ok_or_else(|| color_eyre::eyre::eyre!("rope: position overflow"))?;
+            let q_offset = u64::from(row)
+                .checked_mul(q_stride)
+                .ok_or_else(|| color_eyre::eyre::eyre!("rope: buffer size overflow"))?;
+            let k_offset = u64::from(row)
+                .checked_mul(k_stride)
+                .ok_or_else(|| color_eyre::eyre::eyre!("rope: buffer size overflow"))?;
+            let q_row = self.view(q, q_offset, q_stride);
+            let k_row = self.view(k, k_offset, k_stride);
+            self.no_barrier();
+            self.rope_yarn(
+                enc,
+                &q_row,
+                q_heads,
+                head_dim,
+                position,
+                yarn,
+                crate::backend::rope::RopeRole::Query,
+            )?;
+            if row + 1 < rows {
+                self.no_barrier();
+            }
+            self.rope_yarn(
+                enc,
+                &k_row,
+                kv_heads,
+                head_dim,
+                position,
+                yarn,
+                crate::backend::rope::RopeRole::Key,
+            )?;
+        }
+        Ok(())
+    }
+
     // Fused `SiLU(gate) ⊙ up`: replaces the `silu` then `mul` pair in the MLP with
     // a single pass, halving the global-memory traffic of the intermediate. It is
     // BIT-EXACT with the two-kernel path because the intermediate `silu(gate[i])`

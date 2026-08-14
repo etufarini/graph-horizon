@@ -101,7 +101,9 @@ pub(crate) fn session<'a, G: LayeredGraph>(
     {
         #[cfg(feature = "cpu")]
         let row_capacity = shape.cpu_prefill_rows;
-        #[cfg(any(feature = "vulkan", feature = "metal"))]
+        #[cfg(feature = "vulkan")]
+        let row_capacity = super::vulkan::PREFILL_ROWS;
+        #[cfg(feature = "metal")]
         let row_capacity = shape.gpu_prefill_rows;
         crate::runtime::homogeneous::HomogeneousSession::new(
             backend,
@@ -133,7 +135,7 @@ pub(crate) fn cached_session<'a, G: LayeredGraph>(
         backend,
         config,
         shape,
-        shape.gpu_prefill_rows,
+        super::vulkan::PREFILL_ROWS,
         context,
         scheme,
         state,

@@ -40,6 +40,16 @@ int s8(uint byte_offset) {
     return value >= 128 ? value - 256 : value;
 }
 
+// Four bytes starting at an address aligned to either 0 or 2 modulo four.
+// Q6_K's 210-byte blocks alternate between those two cases.
+uint packed4(uint byte_offset) {
+    uint shift = (byte_offset & 3u) * 8u;
+    uint low = q[byte_offset >> 2u];
+    return shift == 0u
+        ? low
+        : (low >> shift) | (q[(byte_offset >> 2u) + 1u] << (32u - shift));
+}
+
 void main() {
     uint tid = gl_LocalInvocationIndex;
     uint row_base = gl_WorkGroupID.x * M_TILE;
@@ -76,20 +86,27 @@ void main() {
                 dequant_scale = hf(block + 208u) * float(scale);
             }
         }
-        for (uint slot = 0u; slot < 16u; slot++) {
-            uint local_k = first_k + slot;
-            float value = 0.0;
+        for (uint group = 0u; group < 4u; group++) {
+            uint first_slot = group * 4u;
+            uint lane_in_group = (within + first_slot) & 31u;
+            uint low = 0u;
+            uint high = 0u;
             if (global_output < p.out_dim) {
-                uint lane_in_group = (within + slot) & 31u;
-                uint low_offset =
-                    block + segment * 64u + (quarter & 1u) * 32u + lane_in_group;
-                uint high_offset = block + 128u + segment * 32u + lane_in_group;
-                uint low = (gb(low_offset) >> ((quarter >> 1u) * 4u)) & 0xFu;
-                uint high = (gb(high_offset) >> (quarter * 2u)) & 3u;
-                int quant = int(low | (high << 4u)) - 32;
-                value = dequant_scale * float(quant);
+                low = packed4(
+                    block + segment * 64u + (quarter & 1u) * 32u + lane_in_group);
+                high = packed4(block + 128u + segment * 32u + lane_in_group);
             }
-            bs[local_k * N_TILE + output_row] = float16_t(value);
+            for (uint packed_slot = 0u; packed_slot < 4u; packed_slot++) {
+                uint slot = first_slot + packed_slot;
+                uint byte_shift = packed_slot * 8u;
+                uint low_bits = ((low >> byte_shift) >> ((quarter >> 1u) * 4u)) & 0xFu;
+                uint high_bits = ((high >> byte_shift) >> (quarter * 2u)) & 3u;
+                int quant = int(low_bits | (high_bits << 4u)) - 32;
+                float value = global_output < p.out_dim
+                    ? dequant_scale * float(quant)
+                    : 0.0;
+                bs[(first_k + slot) * N_TILE + output_row] = float16_t(value);
+            }
         }
         barrier();
 

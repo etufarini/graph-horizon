@@ -116,7 +116,7 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::EmbedQ5K => (spv!("embed_q5_k"), 2, 8),
         Kernel::EmbedQ6K => (spv!("embed_q6_k"), 2, 8),
         Kernel::RmsNormX => (spv!("rmsnorm_x"), 3, 8),
-        Kernel::Rope => (spv!("rope"), 1, 40),
+        Kernel::Rope => (spv!("rope"), 1, 44),
         Kernel::Residual => (spv!("residual"), 2, 4),
         Kernel::KvWrite => (spv!("kv_write"), 4, 8),
         Kernel::AttentionDecode => (spv!("attention_decode"), 4, 32),

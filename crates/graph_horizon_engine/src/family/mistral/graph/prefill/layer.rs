@@ -7,10 +7,9 @@
 
 use color_eyre::eyre::{Result, eyre};
 
-use super::buffers::{BatchBuffers, K, Q};
+use super::buffers::BatchBuffers;
 use crate::backend::Backend;
 use crate::backend::buffers::LayerWeights;
-use crate::backend::rope::RopeRole;
 use crate::family::mistral::MistralConfig;
 use crate::family::mistral::graph::{block, mlp};
 use crate::kv_cache::{self, Kv};
@@ -69,32 +68,25 @@ pub(super) fn record<B: Backend>(
         row_count,
     );
 
-    let yarn = block::yarn(cfg);
-    for row in 0..rows {
-        let position = base
-            .checked_add(row)
-            .and_then(|position| u32::try_from(position).ok())
-            .ok_or_else(|| eyre!("mistral prefill: buffer size overflow"))?;
-        backend.no_barrier();
-        backend.rope_yarn(
-            enc,
-            &batch.row(Q, row, cfg.q_width, 2),
-            cfg.head_count as u32,
-            cfg.key_length as u32,
-            position,
-            &yarn,
-            RopeRole::Query,
-        )?;
-        backend.rope_yarn(
-            enc,
-            &batch.row(K, row, cfg.k_width, 2),
-            cfg.kv_head_count as u32,
-            cfg.key_length as u32,
-            position,
-            &yarn,
-            RopeRole::Key,
-        )?;
-    }
+    let last = rows
+        .checked_sub(1)
+        .and_then(|last| base.checked_add(last))
+        .and_then(|position| u32::try_from(position).ok())
+        .ok_or_else(|| eyre!("mistral prefill: buffer size overflow"))?;
+    let position =
+        u32::try_from(base).map_err(|_| eyre!("mistral prefill: buffer size overflow"))?;
+    debug_assert!(last >= position);
+    backend.rope_yarn_batched(
+        enc,
+        &scratch.q,
+        &scratch.k,
+        cfg.head_count as u32,
+        cfg.kv_head_count as u32,
+        cfg.key_length as u32,
+        position,
+        row_count,
+        &block::yarn(cfg),
+    )?;
     kv_cache::append_batch(
         backend,
         enc,

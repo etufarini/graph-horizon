@@ -54,6 +54,9 @@ impl VulkanBackend {
 
 // Upper activation width covered by the persistent Q8_1 MMVQ scratch.
 pub(crate) const MMVQ_SCRATCH_IN_DIM: u64 = 32768;
+// Eight complete Matrix2 row tiles amortize command recording without padding.
+#[cfg(feature = "vulkan")]
+pub(crate) const PREFILL_ROWS: usize = 256;
 
 #[cfg(test)]
 thread_local! {
@@ -519,6 +522,7 @@ mod rope {
                 8,
                 y.rope_dim as u32,
                 pos as u32,
+                1,
                 y.freq_base,
                 y.factor,
                 y.beta_fast,
@@ -543,6 +547,57 @@ mod rope {
             }
             backend.free_buffer(buf);
         }
+    }
+
+    #[test]
+    fn vulkan_batched_rope_matches_rows_across_scale_boundary() {
+        let backend = match VulkanBackend::bare() {
+            Ok(backend) => backend,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        let yarn = yarn();
+        let rounded: Vec<f32> = input()
+            .into_iter()
+            .map(|value| f16_to_f32(f32_to_f16(value)))
+            .collect();
+        let values = rounded.repeat(3);
+        let raw = f32_slice_to_f16_bytes(&values);
+        let q = backend.alloc_buffer(raw.len() as u64).expect("Q buffer");
+        let k = backend.alloc_buffer(raw.len() as u64).expect("K buffer");
+        backend.upload_bytes(&q, &raw).expect("upload Q");
+        backend.upload_bytes(&k, &raw).expect("upload K");
+
+        let enc = backend.begin().expect("begin batched rope");
+        backend
+            .rope_yarn_batched(&enc, &q, &k, 2, 2, 8, 127, 3, &yarn)
+            .expect("record batched rope");
+        backend.submit(enc).expect("submit batched rope");
+
+        for (role, buffer) in [(RopeRole::Query, &q), (RopeRole::Key, &k)] {
+            let got_raw = backend.read_bytes(buffer, raw.len()).expect("read rope");
+            let got: Vec<f32> = got_raw
+                .chunks_exact(2)
+                .map(|bytes| f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]])))
+                .collect();
+            for row in 0..3 {
+                let want = cpu_rope(&yarn, role, 127 + row, &rounded);
+                for (index, (actual, expected)) in
+                    got[row * 16..][..16].iter().zip(want).enumerate()
+                {
+                    let tolerance = 2e-3 + 2e-3 * expected.abs();
+                    assert!(
+                        (*actual - expected).abs() <= tolerance,
+                        "role={} row={row} index={index} actual={actual} expected={expected}",
+                        role as u8
+                    );
+                }
+            }
+        }
+        backend.free_buffer(q);
+        backend.free_buffer(k);
     }
 
     fn f32_slice_to_f16_bytes(values: &[f32]) -> Vec<u8> {
@@ -1043,6 +1098,7 @@ mod cpu_vulkan_parity {
             8,
             yarn.rope_dim as u32,
             512,
+            1,
             yarn.freq_base,
             yarn.factor,
             yarn.beta_fast,

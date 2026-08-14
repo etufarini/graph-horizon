@@ -484,11 +484,13 @@ zero in the four focused cases. Relative error near zero is not used as the
 qualification bound; maximum absolute error and exact token identity are the
 relevant controls.
 
-The workspace suite passes with one unrelated installer fixture skipped. That
+The main-binary suite passes with one unrelated installer fixture skipped. That
 pre-existing test gives its synthetic `PATH` no `dirname`, although
 `support/install.sh` invokes `dirname` before its prerequisite loop; it exits 1
 instead of the fixture's expected exit 2. Phase 2 changes neither the script nor
-the test, and all other 165 binary tests pass.
+the test, and all other 165 binary tests pass. The repository-wide integration
+suite also requires the local, gitignored `VALIDATION.md`; without that external
+validation register, `docs_contract` cannot run, as on the Phase 2 baseline.
 
 ## Stop Decision And Remaining Bottleneck
 

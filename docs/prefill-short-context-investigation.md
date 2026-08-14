@@ -1,5 +1,5 @@
 <!--
-This report owns the reproducible Phase 5 and Phase 6 Vulkan short-context prefill
+This report owns the reproducible Phase 5 through Phase 7 Vulkan short-context prefill
 evidence: baselines, attribution, experiments, retained changes, correctness, and regression gates.
 It defines no runtime behavior and contains no benchmark-only backend constants.
 -->
@@ -805,3 +805,269 @@ resident workgroups or introduce spills. Because the excellent <=170 ms target
 is already exceeded, current TTFT is within 9% of the derived floor, and all
 smaller directions are below the 4% gate, Phase 6 stops here rather than adding
 a high-risk kernel for the last single-digit theoretical margin.
+
+# Vulkan Short-Context Prefill Phase 7
+
+## Baseline and protocol
+
+Phase 7 ran locally on `perf/vulkan-short-prefill-phase7` from clean commit
+`b8cc630`, the final evidence tip of `perf/vulkan-short-prefill-phase6`.
+Inherited Phase 6 retained implementation is `af87c80`; its diagnostics-free
+128-token reference is 163.89 ms. Nothing was pushed.
+
+The hardware and exact tuple remained unchanged: RTX 3060 12 GiB device
+`0x2487`, driver 595.84, Vulkan device API 1.4.329, Rust/Cargo 1.95, pure
+Vulkan `vulkan-profile`, context 32,768, F16 KV, greedy sampling, and two
+emitted tokens. The model remained the 2,147,023,008-byte
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` with SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Each prompt is `" a"` repeated `tokens - 3`.
+
+Runs through 512 used two warm-ups and fifteen measured repetitions; 1K/2K
+used one plus seven; 8K/28K used one plus three. TTFT statistics exclude
+warm-ups while profiler aggregates include them. Temporary per-sample,
+allocation, command-timeline, shader-clock, and pipeline-executable probes
+were removed before the final clean rebuild.
+
+The fresh baseline is distinct from the inherited 163.89 ms reference: the
+new 128 run is 0.18% slower and therefore tuple-compatible within run drift.
+
+| Tokens | TTFT mean | Median | SD | CV | GPU prefill | CPU wall prefill | Prompt tok/s |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 89.010 ms | 88.973 | 0.418 | 0.47% | 85.543 ms | 88.152 ms | 719.03 |
+| 128 | 164.188 ms | 164.275 | 0.702 | 0.43% | 160.738 ms | 163.323 ms | 779.61 |
+| 256 | 317.973 ms | 318.086 | 1.200 | 0.38% | 314.235 ms | 317.077 ms | 805.11 |
+| 512 | 637.223 ms | 636.512 | 2.164 | 0.34% | 631.758 ms | 636.335 ms | 803.49 |
+| 1K | 1,294.284 ms | 1,294.087 | 1.497 | 0.12% | 1,286.303 ms | 1,293.378 ms | 791.17 |
+| 2K | 2,675.951 ms | 2,679.906 | 11.008 | 0.41% | 2,658.111 ms | 2,674.988 ms | 765.35 |
+| 8K | 12,588.244 ms | 12,588.570 | 2.942 | 0.02% | 12,532.946 ms | 12,586.849 ms | 650.77 |
+| 28K | 64,083.867 ms | 64,080.112 | 87.393 | 0.14% | 63,829.773 ms | 64,081.403 ms | 436.93 |
+
+## Complete 128-token critical path
+
+The baseline profiler accounts for 160.609 ms of named GPU work plus
+0.129 ms timestamp residual, or all 160.738 ms of GPU prefill. Adding the
+2.585 ms CPU-only portion of the prefill wall and the 0.865 ms request/tail
+outside that wall accounts for the complete 164.188 ms TTFT. There are no
+GPU gaps above 25 us in the dedicated timeline audit.
+
+| Critical-path component | Baseline ms | TTFT share |
+|---|---:|---:|
+| CPU hot request setup | 0.013 | 0.01% |
+| resource lifecycle, retained-KV request scratch allocation | 1.270 | 0.77% |
+| command recording | 0.630 | 0.38% |
+| queue submission | 0.044 | 0.03% |
+| other prefill CPU/control outside GPU | 0.641 | 0.39% |
+| embedding | 1.540 | 0.94% |
+| attention RMSNorm, 26 layers | 0.234 | 0.14% |
+| Q projection | 16.408 | 9.99% |
+| K projection | 4.522 | 2.75% |
+| V projection | 4.601 | 2.80% |
+| RoPE | 0.377 | 0.23% |
+| QK | 0.394 | 0.24% |
+| attention setup/softmax | 0.314 | 0.19% |
+| AV | 0.471 | 0.29% |
+| O projection | 17.569 | 10.70% |
+| MLP RMSNorm, 26 layers | 0.234 | 0.14% |
+| gate projection | 35.802 | 21.81% |
+| up projection | 35.886 | 21.86% |
+| activation | 0.966 | 0.59% |
+| down projection | 36.789 | 22.41% |
+| KV writes and residual copies | 0.737 | 0.45% |
+| final RMSNorm | 0.009 | 0.01% |
+| logits | 3.757 | 2.29% |
+| GPU timestamp residual | 0.129 | 0.08% |
+| first readback, sampling, and delta tail | 0.852 | 0.52% |
+| **TTFT** | **164.188** | **100.00%** |
+
+The QK/AV split uses the acquired Phase 5 causal-attention shares; it is not a
+new fabricated sub-timestamp. GPU useful work is 160.738 ms, measured GPU idle
+is zero above 25 us, CPU-only prefill critical path is 2.585 ms, and the hot
+setup plus post-prefill tail is 0.865 ms. Recording cannot overlap because all
+546 dispatches are recorded before the one queue submission.
+
+The final-output tail starts at final RMSNorm: 0.009 ms final norm, 3.757 ms
+logits, and about 0.852 ms for synchronization/readback, argmax sampling, and
+first delta. Decode preparation is below timer resolution. The serialized
+total is about 4.618 ms, 2.81% of TTFT; only 0.852 ms is outside GPU prefill.
+
+## Resource lifecycle and queue/control audit
+
+One request owns eleven batch buffers totaling 27,262,976 bytes. Their measured
+allocation is about 1.27 ms and destruction about 0.89 ms. Retaining all of
+them would add 26 MiB persistent memory for at most 2.16 ms, only 1.3% TTFT,
+so the resource-lifetime direction is closed. The 3,489,660,928-byte KV pair
+remains retained by Phase 6 and has no hot allocation.
+
+| Resource | Lifetime before/after Phase 7 | Setup ms | Memory cost | Result |
+|---|---|---:|---:|---|
+| KV K/V pair | retained model session / unchanged | approximately 0 | 3,489,660,928 B already budgeted | preserve Phase 6 |
+| eleven batch buffers | one request / unchanged | 1.27 alloc + 0.89 free | 26 MiB if retained | reject: 1.3% ceiling |
+| pipelines and pipeline cache | model / unchanged | zero hot creation | already resident | closed |
+| decode/sampling/logits scratch | model / unchanged | zero hot creation | already resident | closed |
+| command buffer and fence | one command / unchanged | about 0.003 alloc+begin | negligible | closed |
+| descriptors | push descriptors / unchanged | 0.050 ms | no pool allocation | closed |
+| prompt and sampling staging | push constants/persistent mirror / unchanged | negligible | no request staging buffer | closed |
+
+The request has one prefill command buffer, one submission, one fence wait,
+546 dispatches/pipeline binds/push-descriptor updates, and 442 barriers.
+Recording is 0.630 ms, submission 0.044 ms, descriptor updates are a 0.050 ms
+subset of recording, and the wait is 160.889 ms because it contains the GPU
+work. There are no gaps above 25 us and no separate staging or transfer wait.
+
+The per-layer baseline GPU distribution is mean 5.973 ms, median 5.977 ms,
+minimum 5.884 ms, maximum 6.097 ms, standard deviation 0.048 ms, and 0.81% CV.
+No first-layer, last-layer, or isolated fixed-cost anomaly exists. The exact
+timeline is embedding, then 26 serial repetitions of norm, Q/K/V, Q/K RoPE,
+KV write, attention, O, residual, MLP norm, gate/up, activation, down, residual,
+then final norm and logits.
+
+## Ranking, Amdahl bound, and experiment
+
+The seven recurrent Matrix2 projections total 151.576 ms/request, 92.3% of
+TTFT and 94.3% of GPU prefill. The Phase 6 stage probe showed quantized weight
+load/unpack/dequant plus its barrier at 60--67% of representative workgroup
+time. Giving a workgroup 64 rather than 32 prompt rows reuses each dequantized
+128x32 weight tile across two old row tiles. Only a 10% local reduction was
+needed to remove about 15 ms and reach the desired target.
+
+| Rank | Component | Current ms | Realistic removable ms before experiment | Predicted TTFT gain |
+|---:|---|---:|---:|---:|
+| 1 | recurrent Matrix2 dequant/tile issue | 151.576 | at least 14.0 if reuse holds | at least 8.5% |
+| 2 | batch-buffer allocation and free | 2.16 | at most 2.16 | at most 1.3% |
+| 3 | largest local producer/consumer fusion | at most 1.80 | at most 1.80 | at most 1.1% |
+| 4 | recording and submission | 0.674 | less than 0.674 | less than 0.4% |
+| 5 | RoPE | 0.377 | at most 0.377 | at most 0.3% |
+
+`P7-M64` changes only the established Q4_K and Q6_K Matrix2 prefill kernels:
+one 256-thread workgroup, subgroup 32, tile 64x32x128, workgroup-scope Matrix2,
+with `ceil(n/64)` dispatch. It uses the same all-length routing and guarded
+tail. Fallbacks, formats, precision, KV, decode, barriers, public API, and
+dependencies are unchanged.
+
+Removed `VK_KHR_pipeline_executable_properties` instrumentation reported 98
+registers/thread for Q4 and 108 for Q6, 33,792 bytes driver-reported shared
+memory (16,384 bytes declared by the shader plus driver reservation), zero
+stack, subgroup 32, and 256 threads. GA106 limits permit two resident
+workgroups by registers, versus three by shared memory and six by threads:
+16 resident warps, or 33.3% nominal occupancy. The former M32 kernel allowed
+four workgroups, so both geometries keep 128 resident output rows; M64 halves
+weight-tile dequantization without reducing resident row capacity.
+
+At 128 there is no row padding. At 28K only the last 96-row batch pads 32 rows,
+0.11% of the prompt. Recurrent shader-visible logical traffic changes from
+7.231 to 3.616 GB of quantized-weight tile loads while activation-tile loads
+remain 24.210 GB and output 0.204 GB: 28.030 GB total. This is a shader-visible
+reuse model, not a DRAM performance-counter claim. The candidate executes the
+774.705 GFLOP recurrent work in 106.491 ms, 7.275 TFLOP/s and about 263 GB/s
+logical traffic. It introduces no GPU gaps above 25 us and changes no request
+memory allocation.
+
+| ID | Target | Architecture | 128 delta | 512 delta | Long delta | Decode delta | Memory delta | Decision |
+|---|---|---|---:|---:|---|---|---:|---|
+| P7-M64 | recurrent Matrix2 dequant reuse | 64x32x128 Matrix2/WG | -27.16% | -29.38% | 2K -29.67%, 8K -25.12%, 28K -17.06% | fresh 128 A/B +1.28%; path unchanged | 0 B | **keep** |
+| P7-BATCH-PERSIST | request scratch lifetime | retain eleven buffers | bounded, not built | bounded, not built | n/a | n/a | +26 MiB | reject: 1.3% ceiling |
+| P7-M128 | further row ownership | 128x32x128 Matrix2/WG | not built | not built | n/a | n/a | 0 B | stop: strong target already exceeded |
+
+No Phase 5 or Phase 6 falsified experiment was repeated.
+
+## Final performance and regression gates
+
+| Tokens | Baseline TTFT | Final TTFT | Delta ms | Delta | Final median | Final SD/CV | Baseline/final GPU | Final wall | Final tok/s |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 89.010 | 68.872 | -20.138 | -22.63% | 68.555 | 0.964 / 1.40% | 85.543 / 65.289 | 68.009 | 929.42 |
+| 128 | 164.188 | **119.586** | **-44.602** | **-27.16%** | 119.532 | 0.854 / 0.71% | 160.738 / 115.794 | 118.703 | 1,070.41 |
+| 256 | 317.973 | 221.929 | -96.044 | -30.20% | 221.805 | 0.792 / 0.36% | 314.235 / 218.032 | 221.076 | 1,153.53 |
+| 512 | 637.223 | 450.034 | -187.189 | -29.38% | 450.034 | 1.265 / 0.28% | 631.758 / 444.171 | 449.132 | 1,137.70 |
+| 1K | 1,294.284 | 901.838 | -392.446 | -30.32% | 901.821 | 1.577 / 0.17% | 1,286.303 / 893.217 | 900.900 | 1,135.46 |
+| 2K | 2,675.951 | 1,881.907 | -794.044 | -29.67% | 1,884.159 | 3.748 / 0.20% | 2,658.111 / 1,866.880 | 1,880.922 | 1,088.26 |
+| 8K | 12,588.244 | 9,425.960 | -3,162.284 | -25.12% | 9,411.047 | 29.641 / 0.31% | 12,532.946 / 9,364.059 | 9,424.644 | 869.09 |
+| 28K | 64,083.867 | 53,147.995 | -10,935.872 | -17.06% | 53,141.033 | 32.681 / 0.06% | 63,829.773 / 52,946.123 | 53,145.540 | 526.83 |
+
+A diagnostics-free release rebuild repeated the primary point at 118.35 ms
+with 0.44% CV over fifteen samples. Boundary runs at 63/64/65 and 255/256/257
+all complete; the step after 64 or 256 is the expected additional 64-row
+workgroup, not a correctness boundary.
+
+Decode controls with 32 emitted tokens are 43.52 tok/s at 128, 43.07 at 2K,
+and 27.77 at 28K. The stale inherited Phase 6 values are 44.33, 41.86, and
+27.79; their 128 comparison is confounded by lower clocks in this run. A fresh
+same-environment M32/M64 A/B is 42.97 -> 43.52 tok/s (+1.28%) at 128. The
+source does not route decode through Matrix2; 2K improves and 28K changes
+-0.07%. There is no evidenced decode regression.
+
+Correctness and build evidence:
+
+- focused Q4/Q6 batched Matrix2 CPU-oracle tests pass five of five, including
+  the three-row M64 tail; Q4 max/mean relative error is
+  `4.934e-4 / 1.943e-4`, and Q6 max/mean absolute is
+  `0.007330 / 0.001676`, max/mean relative `0.002245 / 0.000412`;
+- the focused full-model F16 greedy gate emits the inherited exact four-token
+  sequence `2757,10637,2479,1636`; repeated four-token runs also complete under
+  INT8 KV, exercising Q4, Q6, Matrix2, GQA, causal attention, final logits,
+  retained request state, and multi-token decode;
+- the focused ignored numeric qualification passes F16 and bit-exact INT8 at
+  2K, 8K, and 28K; F16 attention maximum absolute error is `1.526e-5` and
+  projected-logit maximum is `3.601e-6`;
+- CPU/Vulkan dense greedy, intermediate tensor, RoPE, format coverage,
+  prefill-versus-sequential decode, failure lifecycle, and resource-release
+  tests pass in the Vulkan-profile library suite;
+- formatting, release Clippy for all targets with warnings denied, and
+  `git diff --check` pass;
+- Vulkan-profile library tests pass 152 with four intentional ignores; the
+  focused ignored 28K test passes separately;
+- `docs_contract` retains its known baseline failure because the gitignored
+  local `VALIDATION.md` is absent.
+
+## Final critical path and physical floor
+
+At 128 the M64 candidate changes only the dominant Matrix2 stage:
+
+| Final critical-path stage | ms | Final TTFT share |
+|---|---:|---:|
+| request setup, resource/control, and first-token tail outside GPU | 3.792 | 3.17% |
+| recurrent Matrix2 projections | 106.491 | 89.05% |
+| attention | 1.220 | 1.02% |
+| other serialized GPU work | 8.083 | 6.76% |
+| **TTFT** | **119.586** | **100.00%** |
+
+Matrix2 falls from 151.576 to 106.491 ms, a 45.085 ms or 29.74% local
+reduction. Candidate GPU prefill is 115.794 ms, CPU wall prefill 118.703 ms,
+and TTFT adds 0.883 ms. Its per-layer mean/median/minimum/maximum/standard
+deviation are 4.242/4.260/4.082/4.366/0.092 ms, 2.17% CV. No >25 us GPU gap
+appears at 128 or 512, and command, descriptor, submission, and barrier counts
+are unchanged.
+
+The floor bounds describe overlapping limits and must not be added blindly:
+
+- minimum stored-weight transfer is 2.138 GB/request, 7.13 ms at 300 GB/s;
+- recurrent logical movement after reuse is 28.030 GB, about 86.2 ms at
+  325 GB/s, dominated by activation Matrix2 tensor loads;
+- measured useful recurrent compute at the completed 256-row point is about
+  7.64 TFLOP/s, placing 774.705 GFLOP at a 101.4 ms practical Matrix2 floor;
+- practical attention is about 1.22 ms; its operation-only lower bound remains
+  below 0.01 ms and is not attainable without changing the graph;
+- remaining serialized non-Matrix2 GPU work is about 8.08 ms;
+- minimum current control, resource, synchronization, and first-token tail is
+  about 3.79 ms.
+
+Using the practical compute roof gives a revised exact-representation floor of
+about **114.5 ms**: 101.4 Matrix2 + 9.3 other GPU + 3.8 control/tail. The final
+119.586 ms is 1.044x this floor, leaving about 5.1 ms or 4.3% practical
+headroom. The earlier 150.5 ms Phase 6 floor was explicitly a floor for the
+M32 architecture; M64 changes its weight-tile reuse and therefore legitimately
+crosses it.
+
+The largest remaining bottleneck is the 106.491 ms recurrent Matrix2 stage.
+Its remaining gap to the measured practical roof is only about 5.1 ms for the
+entire TTFT, while every resource, control, fusion, RoPE, attention, and tail
+direction has an individual removable bound below 3%. A further M128 design
+would raise accumulator liveness and register/spill risk after the strong
+target has already been exceeded, and could harm long prefill.
+
+Phase 7 therefore stops with M64 retained: 128 TTFT is 119.586 ms, all short
+and long prefill points improve, decode is protected, exact representation is
+unchanged, and the result is within 4.3% of the revised practical floor. The
+next architectural step, only if a later target requires it, is an isolated
+M128 or multi-output-tile Matrix2 experiment that must first prove register,
+spill, occupancy, and 28K behavior; it is not justified for this phase.

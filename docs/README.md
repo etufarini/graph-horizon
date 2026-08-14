@@ -44,6 +44,7 @@ belong in the [validation register](../VALIDATION.md).
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
 | [metal-long-context-investigation.md](metal-long-context-investigation.md) | Vulkan-to-Metal long-context kernel investigation |
 | [vulkan-decode-investigation.md](vulkan-decode-investigation.md) | Phase 1 Vulkan long-context decode and GQA KV reuse |
+| [vulkan-decode-phase2-investigation.md](vulkan-decode-phase2-investigation.md) | Phase 2 Vulkan decode bottleneck attribution and retained optimizations |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

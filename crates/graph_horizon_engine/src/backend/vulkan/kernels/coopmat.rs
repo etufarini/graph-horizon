@@ -65,7 +65,7 @@ pub(crate) fn dispatch_coopmat(
     );
 }
 
-// Dispatches a fixed matrix2 quantized matmul. Its workgroup owns 32 prompt
+// Dispatches a fixed matrix2 quantized matmul. Its workgroup owns 64 prompt
 // rows and 32 output rows; tails are clamped or guarded inside each shader.
 pub(crate) fn dispatch_matrix2(
     dev: &Device,
@@ -98,7 +98,7 @@ pub(crate) fn dispatch_matrix2(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        n.div_ceil(32).min(MAX_GROUPS_X),
+        n.div_ceil(64).min(MAX_GROUPS_X),
         out_dim.div_ceil(32).min(MAX_GROUPS_X),
     );
 }

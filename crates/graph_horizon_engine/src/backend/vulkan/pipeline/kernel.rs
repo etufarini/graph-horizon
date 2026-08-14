@@ -86,9 +86,9 @@ impl Kernel {
             Self::MatmulQ6KBatchF16Out => "matmul_q6k_batch_f16",
             Self::MatmulQ4KCoopmatF16Out => "matmul_q4k_coopmat_f16",
             Self::MatmulQ4KCoopmatMetadataF16Out => "matmul_q4k_coopmat_metadata_f16",
-            Self::MatmulQ4KMatrix2F16Out => "matmul_q4k_matrix2_wg256_m32_n32_k128",
+            Self::MatmulQ4KMatrix2F16Out => "matmul_q4k_matrix2_wg256_m64_n32_k128",
             Self::MatmulQ6KCoopmatF16Out => "matmul_q6k_coopmat_f16",
-            Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m32_n32_k128",
+            Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m64_n32_k128",
             Self::QuantAQ8F16 => "quant_a_q8_f16",
             Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
         }

@@ -37,8 +37,8 @@ impl MatmulPath {
             Self::Q4Coopmat => "matmul_q4k_coopmat_f16",
             Self::Q4Metadata => "matmul_q4k_coopmat_metadata_f16",
             Self::Q6Coopmat => "matmul_q6k_coopmat_f16",
-            Self::Q4Matrix2 => "matmul_q4k_matrix2_wg256_m32_n32_k128",
-            Self::Q6Matrix2 => "matmul_q6k_matrix2_wg256_m32_n32_k128",
+            Self::Q4Matrix2 => "matmul_q4k_matrix2_wg256_m64_n32_k128",
+            Self::Q6Matrix2 => "matmul_q6k_matrix2_wg256_m64_n32_k128",
             Self::Q4Fallback => "matmul_q4k_batch_f16",
             Self::Q6Fallback => "matmul_q6k_batch_f16",
         }

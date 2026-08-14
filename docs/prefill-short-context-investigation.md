@@ -1,6 +1,6 @@
 <!--
-This report owns the reproducible Phase 5 Vulkan short-context prefill evidence:
-baseline, attribution, experiments, retained changes, correctness, and regression gates.
+This report owns the reproducible Phase 5 and Phase 6 Vulkan short-context prefill
+evidence: baselines, attribution, experiments, retained changes, correctness, and regression gates.
 It defines no runtime behavior and contains no benchmark-only backend constants.
 -->
 
@@ -293,3 +293,371 @@ measured internal sub-operation. Further short-context optimization should
 first reduce quantized matmul dequant/tensor-load issue without increasing row
 capacity, because the
 512-row sweep already crossed the measured optimum.
+
+# Vulkan Short-Context Prefill Phase 6
+
+## Baseline and protocol
+
+Phase 6 ran locally on `perf/vulkan-short-prefill-phase6`; nothing was pushed.
+The executable baseline is clean commit `c4898e34ff0d6873b14f5865d05e59a51317f93b`,
+the current tip of `perf/vulkan-short-prefill-phase5`. It contains retained
+implementation `d541d6e`, evidence report `25366dd`, and one behavior-preserving
+Q6 source simplification. The retained Phase 6 implementation is `af87c80`.
+
+The hardware, driver, artifact, context, KV format, greedy policy, and exact
+synthetic prompts are unchanged from Phase 5. The artifact was reauthenticated
+at size 2,147,023,008 and SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Each prompt is `" a"` repeated `tokens - 3`, producing the exact reported token
+count. Runs through 512 use two warm-ups and fifteen samples; 1K/2K use one and
+seven; 8K/28K use one and three. TTFT distributions exclude warm-ups; GPU
+profiler totals include them. Medians come from temporary per-sample logging
+removed from the retained tree.
+
+The inherited Phase 5 reference remains 206.00 ms at 128. Its gains were
+31.58% at 512, 33.19% at 2K, 33.73% at 8K, and 34.89% at 28K. The fresh Phase 6
+baseline is tuple-compatible and 0.22% faster at 128, well within normal run
+variation.
+
+| Tokens | TTFT mean | Median | SD | CV | GPU prefill | CPU wall prefill | Prompt tok/s |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 130.95 ms | 130.828 | 0.69 | 0.52% | 85.446 ms | 88.877 ms | 488.76 |
+| 128 | 205.55 ms | 205.405 | 0.69 | 0.33% | 160.136 ms | 163.734 ms | 622.73 |
+| 256 | 359.62 ms | 359.584 | 1.18 | 0.33% | 313.298 ms | 317.527 ms | 711.87 |
+| 512 | 677.46 ms | 677.425 | 2.19 | 0.32% | 629.908 ms | 635.376 ms | 755.77 |
+| 1K | 1,325.47 ms | 1,325.719 | 2.42 | 0.18% | 1,275.800 ms | 1,283.573 ms | 772.56 |
+| 2K | 2,700.93 ms | 2,698.943 | 7.53 | 0.28% | 2,642.828 ms | 2,658.746 ms | 758.26 |
+| 8K | 12,562.09 ms | 12,570.392 | 35.20 | 0.28% | 12,440.955 ms | 12,519.148 ms | 652.12 |
+| 28K | 64,013.51 ms | 64,012.096 | 48.92 | 0.08% | 63,642.122 ms | 63,969.462 ms | 437.41 |
+
+Telemetry includes only 100 ms samples with GPU utilization at least 80%:
+
+| Tokens | GPU util | VRAM | Graphics clock | Memory clock | Power | Temperature |
+|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 98.4% | 5,176 MiB | 1,997 MHz (1,987--2,010) | 7,501 MHz | 113.3 W (87.4--126.7) | 53.4 C (53--54) |
+| 128 | 98.0% | 4,304 MiB | 1,995 MHz (1,980--2,010) | 7,501 MHz | 135.3 W (117.5--140.5) | 54.8 C (49--57) |
+| 256 | 96.6% | 4,842 MiB | 1,982 MHz (1,972--2,010) | 7,501 MHz | 139.2 W (63.4--156.7) | 57.4 C (51--60) |
+| 512 | 99.4% | 5,567 MiB | 1,970 MHz (1,957--1,987) | 7,501 MHz | 157.6 W (104.4--164.7) | 61.9 C (59--64) |
+| 1K | 98.6% | 5,612 MiB | 1,971 MHz (1,942--1,987) | 7,501 MHz | 158.9 W (83.8--170.5) | 60.4 C (57--63) |
+| 2K | 99.5% | 5,499 MiB | 1,954 MHz (1,897--2,002) | 7,501 MHz | 164.5 W (90.2--170.1) | 65.4 C (57--68) |
+| 8K | 99.4% | 5,696 MiB | 1,947 MHz (1,807--1,980) | 7,501 MHz | 167.5 W (68.6--170.2) | 68.6 C (59--72) |
+| 28K | 99.7% | 5,716 MiB | 1,938 MHz (1,912--1,980) | 7,501 MHz | 169.0 W (70.4--170.1) | 73.2 C (62--75) |
+
+There is no short-prompt downclock, thermal throttle, or memory-pressure regime.
+
+## Complete 128 ms budget and critical path
+
+Environment-gated timing separated template rendering, session construction,
+prefill wall time, device sampling, and first public delta. Feature-gated Vulkan
+timestamps then subdivided GPU prefill. The temporary request logger is absent
+from `af87c80`.
+
+| Critical-path component | Baseline ms | Execution and dependency |
+|---|---:|---|
+| CPU template/token preparation | 0.014 | CPU, serialized before session creation |
+| request KV session construction | 40.957 | CPU/driver, serialized; two device allocations |
+| embedding | 1.620 | GPU, first command operation |
+| attention RMSNorm | 0.226 | GPU, 26 serial layer instances |
+| Q projection | 16.392 | GPU Matrix2, serial by layer |
+| K projection | 4.474 | GPU Matrix2; Q/K/V are mutually independent after norm |
+| V projection | 4.592 | GPU Matrix2; overlaps neither in the synchronous command |
+| RoPE Q + K | 0.374 | GPU, two batched dispatches per layer |
+| attention QK model | 0.384 | GPU; Phase 5 measured-share model, not a new counter |
+| attention AV model | 0.460 | GPU; Phase 5 measured-share model |
+| attention softmax/setup ceiling | 0.307 | GPU conservative residual of the fused kernel |
+| attention output projection | 17.595 | GPU Matrix2 |
+| attention residual | 0.302 | GPU |
+| MLP RMSNorm | 0.226 | GPU |
+| gate projection | 35.603 | GPU Matrix2 |
+| up projection | 35.721 | GPU Matrix2 |
+| SiLU multiply | 0.981 | GPU |
+| down projection | 36.510 | GPU Matrix2 |
+| MLP residual | 0.302 | GPU |
+| KV copy/write | 0.138 | GPU; no host upload or map/unmap |
+| final norm | 0.009 | GPU, final row only |
+| logits | 3.783 | GPU, final batch only |
+| timestamp residual | 0.138 | GPU command span not assigned to a kernel |
+| prefill host-only remainder | 3.598 | scratch allocation/free, recording, submission and wait residual |
+| argmax/readback/first-token preparation | 0.843 | GPU reduction + copy + CPU wait/decode |
+| **TTFT** | **205.548** | **100% attributed** |
+
+The profiler directly measured 160.136 ms GPU and 163.734 ms wall prefill.
+Recording was 0.667 ms, queue submission 0.049 ms, and descriptor work
+0.058 ms (descriptor time is a subset of recording). One command contained
+546 dispatches and 442 barriers. No inter-kernel gap exceeded 50 microseconds;
+there was one queue submission and no CPU/GPU command overlap. The GPU sequence
+is therefore one continuously occupied command:
+
+```text
+CPU render -> allocate KV -> allocate batch scratch -> record
+-> embedding -> 26 serial transformer layers -> final norm -> logits
+-> submit/fence completion -> argmax command -> four-byte readback -> first delta
+```
+
+The post-prefill tail, defined from the end of layer 25 to the first token, is
+final norm 0.009 + logits 3.783 + sampling/readback 0.843 = **4.635 ms**, or
+2.25% of baseline TTFT. The sampling command itself averages 0.083 ms GPU,
+0.015 ms recording, 0.009 ms submission, and 0.209 ms fence wait; host mapping,
+token decode, and callback delivery form the remaining wall time. This tail is
+too small to be the first target.
+
+## Per-layer budget and variance
+
+Fresh 128 TTFT is 7.906 ms per layer; final TTFT is 6.303 ms per layer. Direct
+GPU layer timestamps average 5.992 ms with 0.156 ms standard deviation and
+2.60% cross-layer CV:
+
+| Per-layer class | Mean ms |
+|---|---:|
+| attention block (Q/K/V, RoPE, KV, attention, O) | 1.718 |
+| MLP block (gate, up, activation, down) | 4.194 |
+| norms and residuals | 0.042 |
+| timestamp/control residual | about 0.038 |
+
+The measured layer range is 5.785--6.354 ms. Layers 14 and 20 are 6.0% and
+5.6% above the mean; layer 21 is 3.5% below it. The first and last layers are
+only +1.1% and +2.7%. There is no first/last/batch-boundary hotspot and no layer
+large enough to justify routing.
+
+## Sub-256 and Matrix2 utilization audit
+
+Phase 5's 256-row capacity was used as acquired. No capacity sweep was repeated.
+The Matrix2 geometry is `M=32, N=32, K=128`, one output tile per 256-thread
+workgroup, eight 32-lane subgroups. All model K/N dimensions and all official
+short rows are exact multiples of their tiles.
+
+| Prompt | Logical rows | Command batches | Physical rows | M tiles/batch | Partial tiles | Active lanes | Useful MMA |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 128 | 1 | 128 | 4 | 0 | 256/256 | 100% |
+| 256 | 256 | 1 | 256 | 8 | 0 | 256/256 | 100% |
+| 512 | 512 | 2 | 512 | 8 + 8 | 0 | 256/256 | 100% |
+| 2K | 2,048 | 8 | 2,048 | 8 each | 0 | 256/256 | 100% |
+
+At 128, Q launches `4 x 128` workgroups and gate/up `4 x 288`; at 256 the
+row dimension doubles to eight. Each Q/gate workgroup executes 24 complete K
+tiles and each down workgroup 72. There are no wasted MMA instructions, padded
+rows, partial Matrix2 tiles, or idle software lanes. A tiny/short Matrix2 route
+therefore has no utilization loss to remove. The inherited KHR cooperative and
+vector alternatives remain 47% and roughly 6x slower at 128 and were not rerun.
+
+Whole-kernel timestamp averages confirm that 128 is useful half-batch work,
+not a launch-bound or padded special case:
+
+| Prompt | Q projection | Gate projection | Down projection | Interpretation |
+|---:|---:|---:|---:|---|
+| 128 | 0.630 ms | 1.372 ms | 1.406 ms | four useful M tiles |
+| 256 | 1.221 ms | 2.709 ms | 2.801 ms | eight useful M tiles |
+| 512 | 1.226 ms | 2.729 ms | 2.820 ms | two eight-tile batches |
+| 2K | 1.229 ms | 2.746 ms | 2.837 ms | eight eight-tile batches |
+
+The 128 kernels take 50--52% of a full 256-row dispatch, while full-batch
+times remain stable through 2K. This rules out a fixed launch or inactive-lane
+cost large enough to motivate a sub-256 shader.
+
+The kernels declare 12,288 bytes shared plus the driver's 8,192-byte reservation.
+Fresh register, spill, resident-workgroup, and occupancy counters remain
+unavailable: Nsight Compute attaches to the Vulkan process but reports no
+kernels. No occupancy value is fabricated. Nsight Systems captured a QDSTRM,
+but this installation lacks its importer; timestamp gap accounting is direct
+and covers 99.92% of GPU time.
+
+## Quantized matmul traffic and residual limit
+
+Q4_K stores 256 values in 144 bytes: 128 quant bytes and 16 bytes metadata.
+Q6_K stores them in 210 bytes: 192 quant bytes and 18 bytes metadata. Stored
+weights have no shape padding. Four 32-row M tiles independently consume each
+weight at 128, so shader-visible unique weight bytes are four times the stored
+minimum; cache can satisfy the repeated copies and no DRAM counter is claimed.
+
+| Representative matmul | M/N/K | Stored weight (quant + metadata) | Executed weight bytes | Tensor activation loads | Output | GPU ms | FLOP/s | Logical BW |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Q4 Q | 128/4096/3072 | 7.078 MB (6.291 + 0.786) | 28.312 MB | 100.663 MB | 1.049 MB | 0.630 | 5.11 TF/s | 206 GB/s |
+| Q4 gate/up | 128/9216/3072 | 15.925 MB (14.156 + 1.769) | 63.701 MB | 226.492 MB | 2.359 MB | 1.372--1.378 | 5.26--5.28 TF/s | 212--213 GB/s |
+| Q6 down | 128/3072/9216 | 23.224 MB (21.234 + 1.991) | 92.897 MB | 226.492 MB | 0.786 MB | 1.409 | 5.14 TF/s | 227 GB/s |
+
+Minimum/visible effective weight bandwidth is 11.2/44.9 GB/s for Q4 Q,
+11.6/46.4 GB/s for Q4 gate, and 16.5/65.9 GB/s for Q6 down. Total logical
+traffic, rather than raw stored weights alone, gives the 187--227 GB/s rows
+above. Across all 26 layers the recurrent matmuls perform 774.705 GFLOP in
+about 151.02 ms, or 5.13 TFLOP/s.
+
+For each 128x32 K tile, Q4 issues 4,096 quant-byte extractions plus metadata
+loads, about 4,864 32-bit load operands before cache coalescing; each weight is
+converted to float and receives scale/multiply/subtract. Packed Q6 issues 11
+32-bit loads per lane for four-byte-aligned blocks and 19 for two-byte-aligned
+blocks, averaging 15 x 256 = 3,840 load operands per tile. It reconstructs each
+of 4,096 values from four low and two high bits, converts it, and multiplies by
+the scale. This is the already-retained packed Q6 route; it was not rewritten.
+
+Vulkan timestamps delimit the complete shader, not its load, unpack/dequant,
+MMA, and epilogue instruction regions. Nsight Compute exposed no Vulkan kernel
+or instruction counters on this installation, so independent elapsed times for
+those regions are unavailable and are not fabricated. The byte counts,
+instruction inventory, whole-kernel time, effective bandwidth, and FLOP rate
+above are the measurable attribution. A liveness-changing shader ablation would
+not provide additive stage times; it was unnecessary after the measured 41 ms
+CPU allocation target exceeded the excellent TTFT goal.
+
+The stored-weight minimum over all seven layer matmuls is 1.808 GB/request;
+final logits add 0.330 GB. At a realistic 300 GB/s, raw minimum weight transfer
+is only 7.13 ms. Recurrent shader-visible traffic is instead 7.231 GB weights,
+24.210 GB tensor activation loads, and 0.204 GB output, 31.645 GB total. The
+observed limit is thus not raw DRAM weight bandwidth or Matrix2 padding. It is
+the combined tensor-load, unpack/dequant, synchronization, cache, and issue
+roof already identified in Phase 5.
+
+## Intermediate traffic, shared inputs, and fusion screen
+
+Logical buffer traffic below counts whole-tensor writes and consumer reads; it
+does not pretend cache hits are DRAM transactions.
+
+| Tensor | Shape/type at 128 | Size | Writes/layer | Reads/layer | Approx. traffic/layer |
+|---|---|---:|---:|---:|---:|
+| residual `x` | 128x3072 F32 | 1.50 MiB | 2 | norms + 2 residuals | 9.00 MiB |
+| normalized | 128x3072 F16 | 0.75 MiB | 2 | Q/K/V + gate/up | 5.25 MiB |
+| Q | 128x4096 F16 | 1.00 MiB | projection + RoPE | RoPE + attention | 4.00 MiB |
+| K | 128x1024 F16 | 0.25 MiB | projection + RoPE | RoPE + KV write | 1.00 MiB |
+| V | 128x1024 F16 | 0.25 MiB | 1 | KV write | 0.50 MiB |
+| attention | 128x4096 F16 | 1.00 MiB | 1 | O projection | 2.00 MiB |
+| O projection | 128x3072 F16 | 0.75 MiB | 1 | residual | 1.50 MiB |
+| gate / up / activation | each 128x9216 F16 | 2.25 MiB | 1 each | 1 each | 4.50 MiB each |
+| down output | 128x3072 F16 | 0.75 MiB | 1 | residual | 1.50 MiB |
+
+The inventory is about 38.25 MiB/layer or 994.5 MiB/request. Q/K/V read the
+0.75 MiB normalized activation three times. Perfect cross-projection reuse
+could remove at most 39 MiB/request (about 0.13 ms at 300 GB/s), while distinct
+weights remain. Gate/up could remove at most 19.5 MiB (about 0.07 ms). Both
+inputs fit cache and neither bound supports a fused multi-weight matmul.
+
+| Producer -> consumer | Intermediate round trip | Dispatch/barrier affected | Optimistic removable time | Decision |
+|---|---:|---:|---:|---|
+| RMSNorm -> Q/K/V | normalized, at most 39 MiB duplicate reads/request | 26 / 26 | under 0.4 ms | reject by bound |
+| Q/K/V -> RoPE | Q+K, 1.25 MiB/layer | 52 / 52 | RoPE total 0.374 ms | reject by bound |
+| RoPE -> attention | Q+K, 1.25 MiB/layer | 26 / 26 | under 1.53 ms including attention | reject by bound |
+| attention -> O | 1.00 MiB/layer | 26 / 26 | about 0.1 ms traffic | reject by bound |
+| residual -> RMSNorm | F32 `x` | 52 / 52 | residual+all norms 1.07 ms | reject by bound |
+| gate/up -> activation | 4.50 MiB written/layer | 26 / 26 | under 1.8 ms | reject; distinct weights remain |
+| activation -> down | 2.25 MiB/layer | 26 / 26 | under 0.5 ms | reject by bound |
+| final norm -> logits | 6 KiB final row | 1 / 1 | 0.009 ms plus negligible traffic | reject by bound |
+
+No local fusion reaches the mandatory 4% / 6.55 ms redesign threshold. A
+monolithic layer would add register/shared pressure without an economic bound
+and was not attempted.
+
+## Retained experiment
+
+The resource audit found 13 device allocations per hot request: two 1.745 GB
+KV buffers and eleven 26 MiB aggregate batch buffers. After the profiler's first
+request latch, baseline allocation was 3,516,923,904 bytes and 42.46 ms/request.
+The KV pair alone is exactly 3,489,660,928 bytes. Phase 5's memory preflight
+already charges one full KV pair, but the ordinary request path freed and
+reallocated it each time.
+
+`P6-KV-PERSIST` reuses the existing single Vulkan cache slot for both ordinary
+and explicitly prefix-keyed requests. Ordinary requests always prefill from
+position zero and retain no prefix metadata. Stale bytes beyond the current
+position are unreachable under causal attention. Keyed calls preserve the old
+exact-key/exact-token prefix rule. Cancellation or any error invalidates and
+frees the slot; model destruction frees a retained slot. Holding the existing
+mutex across generation also matches the server's one-generation-at-a-time
+invariant. Exactly one KV pair remains resident, so preflight and peak VRAM do
+not change.
+
+After the change, hot allocation is only the eleven batch buffers:
+27,262,976 bytes and 1.26 ms/request. No shader, dispatch, barrier, precision,
+weight/KV format, public API, or dependency changed.
+
+Pre-edit Amdahl: the affected fraction was 40.957/205.548 = 19.93%; complete
+local removal predicted 164.59 ms. Observed 163.87 ms agrees within run noise.
+
+| ID | Target / architecture | 128 affected or upper bound | 128 result | 512 result | Long/decode | Decision |
+|---|---|---:|---:|---:|---|---|
+| P6-KV-PERSIST | retain one already-budgeted KV allocation | 40.96 ms | -20.28% | -6.01% | protected | keep |
+| P6-SUB256 | smaller Matrix2 geometry | 0 padded MMA | not built | not built | prior alternatives slower | reject by utilization |
+| P6-ROPE | further batched RoPE work | 0.374 ms | not built | not built | n/a | close: 0.23% TTFT |
+| P6-CONTROL | persistence/dispatch amortization | under 0.8 ms CPU; zero 50 us gaps | not built | not built | n/a | close: under 1% |
+| P6-FUSION | local producer-consumer fusion set | each under 1.8 ms | not built | not built | complexity disproportionate | reject by Amdahl |
+
+No Phase 5 falsified shader probe was repeated.
+
+## Final performance and regression gates
+
+| Tokens | Baseline TTFT | Final TTFT | Delta | Delta | Final median | Final SD/CV | Baseline/final GPU | Final wall | Final tok/s |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 130.95 | 89.03 | -41.92 ms | -32.01% | 89.027 | 0.59 / 0.67% | 85.446 / 85.396 | 88.140 | 718.91 |
+| 128 | 205.55 | **163.87** | **-41.68 ms** | **-20.28%** | 164.003 | 0.70 / 0.43% | 160.136 / 160.140 | 163.007 | 781.13 |
+| 256 | 359.62 | 317.67 | -41.95 ms | -11.67% | 317.277 | 1.51 / 0.47% | 313.298 / 313.487 | 316.749 | 805.90 |
+| 512 | 677.46 | 636.73 | -40.73 ms | -6.01% | 635.906 | 2.68 / 0.42% | 629.908 / 631.307 | 635.864 | 804.12 |
+| 1K | 1,325.47 | 1,285.90 | -39.57 ms | -2.99% | 1,286.059 | 2.30 / 0.18% | 1,275.800 / 1,277.140 | 1,284.962 | 796.33 |
+| 2K | 2,700.93 | 2,662.77 | -38.16 ms | -1.41% | 2,663.182 | 3.35 / 0.13% | 2,642.828 / 2,646.890 | 2,661.799 | 769.12 |
+| 8K | 12,562.09 | 12,553.27 | -8.82 ms | -0.07% | 12,561.790 | 38.27 / 0.30% | 12,440.955 / 12,472.604 | 12,551.943 | 652.58 |
+| 28K | 64,013.51 | 64,063.93 | +50.42 ms | +0.08% | 64,043.507 | 94.80 / 0.15% | 63,642.122 / 63,700.380 | 64,061.528 | 437.06 |
+
+The 8K/28K GPU differences are +0.25%/+0.09%, explaining why the constant
+41 ms host removal is hidden by run drift at long lengths. The 28K TTFT change
+is below both distributions' noise scale and is not a material regression.
+
+Decode controls from the same protocol are 44.33 -> 44.29 tok/s at 128
+(-0.09%), 41.86 -> 41.60 at 2K (-0.62%), and 27.79 -> 27.75 at 28K
+(-0.14%). All remain below 1% and within noise.
+
+Correctness and build evidence:
+
+- repeated fresh/reused F16 and INT8 full-model runs emitted the identical
+  four-token sequence `2757,10637,2479,1636`;
+- INT8 attention and projected logits remain exact against sequential Vulkan
+  through 28K;
+- F16 attention max absolute error through 28K is `1.526e-5`; projected-logit
+  maximum is `3.601e-6`;
+- Q4 Matrix2 CPU oracle max/mean relative is
+  `4.934e-4 / 1.943e-4`; Q6 max/mean absolute is
+  `0.007330 / 0.001676`, max/mean relative
+  `0.002245 / 0.000412`;
+- batched final logits match sequential execution exactly for F16 and INT8;
+- Vulkan-profile library tests pass 152 with four intentional ignores; the
+  focused ignored 28K numeric qualification passes;
+- release Clippy with all targets and warnings denied, formatting, and
+  `git diff --check` pass;
+- `docs_contract` retains its known baseline failure because gitignored local
+  `VALIDATION.md` is absent.
+
+## Final critical path and physical floor
+
+At 128, retained session lookup replaces the 40.957 ms allocation stage. The
+final measured timeline is:
+
+| Final critical-path stage | ms | TTFT share |
+|---|---:|---:|
+| render + cache-slot retrieval | about 0.013 | 0.01% |
+| scratch allocation, record, submit, GPU prefill, cleanup | 163.007 | 99.47% |
+| first sampling/readback/delta | 0.850 | 0.52% |
+| **TTFT** | **163.87** | **100%** |
+
+The seven recurrent Matrix2 matmuls remain about 151.02 ms, 94.3% of GPU
+prefill and 92.2% of final TTFT. RoPE is 0.376 ms (0.23% TTFT), attention
+1.189 ms (0.73%), recording 0.611 ms, submission 0.041 ms, and hot scratch
+allocation about 1.26 ms. No remaining non-matmul cost has a 4% TTFT bound.
+
+The 128-specific physical floor is a constraint maximum, not a sum of
+overlapping traffic:
+
+- raw minimum weights: 2.138 GB, about 7.13 ms at 300 GB/s;
+- Matrix2 activation-tile loads: 24.210 GB, about 74.5 ms at 325 GB/s;
+- all recurrent logical movement: 31.645 GB, about 97.4 ms at 325 GB/s;
+- measured dequant/tensor-load issue roof: 5.63 TFLOP/s from Phase 5, placing
+  774.705 GFLOP at a 137.60 ms recurrent-matmul floor;
+- current serialized non-recurrent GPU work: about 9.12 ms;
+- current control/allocation/first-token wall outside GPU: about 3.73 ms.
+
+The optimistic TTFT floor is therefore about **150.5 ms**. Current/floor is
+1.089, leaving about 13.4 ms or 8.2% theoretical headroom. Reaching it requires
+a new Matrix2 architecture, not a tail, dispatch, RoPE, attention, or fusion
+cleanup.
+
+The next architectural candidate would let one workgroup own multiple
+independent M tiles so it can reuse a dequantized weight tile and amortize its
+barriers. It must prove that the larger accumulator live set does not reduce
+resident workgroups or introduce spills. Because the excellent <=170 ms target
+is already exceeded, current TTFT is within 9% of the derived floor, and all
+smaller directions are below the 4% gate, Phase 6 stops here rather than adding
+a high-risk kernel for the last single-digit theoretical margin.

@@ -15,7 +15,7 @@ const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 
 const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
     64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
 const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
-const MATRIX2_MATMUL_SHARED_BYTES: u32 = 128 * 32 * 2 + 32 * 32 * 4;
+const MATRIX2_MATMUL_SHARED_BYTES: u32 = 128 * 32 * 2 + 64 * 32 * 4;
 const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
 const GQA_DECODE_SHARED_BYTES: u32 = 8 * 2 * 4 + 8 * 32 * 4 * 4;
 
@@ -276,6 +276,7 @@ mod tests {
 
     #[test]
     fn matrix2_requires_available_feature_and_checked_shared_sum() {
+        assert_eq!(MATRIX2_MATMUL_SHARED_BYTES, 16_384);
         let shader = MATRIX2_ATTENTION_SHARED_BYTES.max(MATRIX2_MATMUL_SHARED_BYTES);
         assert!(supports_matrix2(shader + 8192, 8192, true));
         assert!(!supports_matrix2(shader + 8191, 8192, true));

@@ -57,12 +57,22 @@ at the primary short points:
 | 256 | 514.488 ms | 515.050 ms | 516.962 ms |
 | 512 | 995.368 ms | 996.250 ms | 1,000.086 ms |
 
-Telemetry sampled at 100 ms while GPU utilization was at least 80%. Across
-32/64/128/256/512/1K/2K/8K/28K, mean utilization was respectively
-92.4/92.5/94.1/95.1/95.6/94.0/95.7/95.7/97.4%. Graphics clocks stayed about
-1.97--2.00 GHz, memory at 7.501 GHz, VRAM at 5.1--5.7 GiB, and temperature at
-58--70 C. The path was neither idle, downclocked, memory-pressure limited, nor
-thermally throttled.
+Telemetry sampled at 100 ms while GPU utilization was at least 80%:
+
+| Tokens | GPU util mean | VRAM | Power mean (range) | Temperature mean (range) |
+|---:|---:|---:|---:|---:|
+| 32 | 92.4% | 5,212 MiB | 113.3 W (76.6--117.8) | 58.3 C (56--60) |
+| 64 | 92.5% | 5,204 MiB | 127.9 W (93.3--131.6) | 62.1 C (59--64) |
+| 128 | 94.1% | 5,076 MiB | 138.9 W (81.3--146.8) | 65.2 C (60--67) |
+| 256 | 95.1% | 5,116 MiB | 146.2 W (69.9--157.8) | 67.7 C (63--70) |
+| 512 | 95.6% | 5,282 MiB | 157.5 W (96.1--163.2) | 69.7 C (65--71) |
+| 1K | 94.0% | 5,593 MiB | 154.4 W (58.7--169.1) | 66.2 C (60--68) |
+| 2K | 95.7% | 5,331 MiB | 161.0 W (91.9--169.5) | 68.2 C (63--70) |
+| 8K | 95.7% | 5,454 MiB | 158.8 W (71.2--168.7) | 69.9 C (64--71) |
+| 28K | 97.4% | 5,693 MiB | 153.2 W (63.4--165.9) | 70.2 C (62--72) |
+
+Graphics clocks stayed about 1.97--2.00 GHz and memory at 7.501 GHz. The path
+was neither idle, downclocked, memory-pressure limited, nor thermally throttled.
 
 The global fit was `T(N)=39.568+1.835720N+5.96180e-5N²` ms (`R²=0.999999991`).
 The fixed term is 14.36% of predicted TTFT at 128 and 3.98% at 512. A fit to
@@ -107,6 +117,30 @@ fresh matmul register counters are therefore unavailable and occupancy is not
 fabricated. Timestamp, dispatch, barrier, and CPU recording measurements remain
 direct.
 
+The important dispatch timings and geometry are:
+
+| Tokens | Attention avg | Q avg | Gate avg | Down avg | largest groups X,Y |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 0.0443 ms | 0.6324 ms | 1.3734 ms | 1.4231 ms | attention 32,4; matmul 4,288 |
+| 512 | 0.2174 ms | 1.2244 ms | 2.7372 ms | 2.8209 ms | attention 32,8; matmul 8,288 |
+| 2K | 0.7826 ms | 1.2338 ms | 2.7559 ms | 2.8456 ms | attention 32,8; matmul 8,288 |
+| 8K | 3.0273 ms | 1.2369 ms | 2.7651 ms | 2.8560 ms | attention 32,8; matmul 8,288 |
+
+Both Matrix2 kernels launch 256 threads, eight subgroups per workgroup. The
+synchronous backend exposes no CPU/GPU command overlap: fence wait tracks GPU
+time, while recording, submission, and descriptor pushes are the separately
+measured host costs.
+
+At 28K the seven matmuls perform 169.467 useful TFLOP in 33.300 s, or
+5.089 TFLOP/s. The 256-row traffic model contains about 199 GB repeated
+quantized weights, 10,592 GB activation tile reads, and 44.7 GB output, for
+about 325 GB/s logical traffic and 15.6 FLOP/byte. Against nominal 360 GB/s the
+logical bandwidth roof is about 5.63 TFLOP/s; the configured dense tensor roof
+is about 61.1 TFLOP/s. Cache reuse means this is not a DRAM counter, but it
+places the retained kernel near its logical movement roof and far below dense
+tensor peak: unpack/dequant, tensor loads, shared synchronization, and issue
+remain part of the limit.
+
 ## Fresh fused-attention sub-attribution
 
 A one-run cold 8K control measured 2,492.057 ms in attention. Temporary
@@ -147,6 +181,16 @@ category gives an attribution model, clearly not separate counters:
 | ROW-128 | batch 128 | 208.09 / 697.24 ms | useful, superseded |
 | ROW-256 | batch 256 | 207.73 / 681.94 ms; 2K 2,724.51 ms | keep |
 | ROW-512 | batch 512 | 207.54 / 685.96 ms; 2K 2,736.11 ms | reject; 512/2K regress and capacity doubles |
+
+The pre-edit Amdahl checks and observed local effects were:
+
+| Experiment | Affected baseline share / local effect | Amdahl expectation | Observed |
+|---|---|---:|---:|
+| TAIL | logits 6.83% GPU at 128; all but last invocation removable | at most -5.1% GPU for four chunks | -4.0% TTFT, -4.9% GPU |
+| Q6-PACK4 | Q6 V+down about 15.4% GPU at 128; about 1.28x local | about -3.4% GPU | -4.3% TTFT on top of TAIL |
+| ROPE-BATCH | RoPE 6.63% GPU plus 6,656 row dispatches/request | at most -6.4% GPU, larger host ceiling | -6.5% TTFT; recording -74% |
+| ROW-256 | repeated graph work and weight traffic across eight 32-row chunks | upper bound set by remaining linear coefficient | -5.8% TTFT at 512 vs ROW-64 |
+| Q4-SHARE | Q4 matmuls dominate, but shuffles are added to every tile | positive only if saved loads exceed shuffle cost | +13--15% TTFT, falsified |
 
 The row boundary is explicit: 255/256/257-token TTFT is
 362.95/361.03/379.79 ms. The first two use one command batch; 257 uses two.

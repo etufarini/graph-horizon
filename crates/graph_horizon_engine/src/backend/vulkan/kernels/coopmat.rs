@@ -81,12 +81,20 @@ pub(crate) fn dispatch_matrix2(
 ) {
     debug_assert!(matches!(
         kernel,
-        Kernel::MatmulQ4KMatrix2F16Out | Kernel::MatmulQ6KMatrix2F16Out
+        Kernel::MatmulQ4KMatrix2F16Out
+            | Kernel::MatmulQ6KMatrix2F16Out
+            | Kernel::MatmulF16Matrix2F16Out
     ));
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());
     push.extend_from_slice(&n.to_le_bytes());
+    let (weight_offset, weight_size) = if kernel == Kernel::MatmulF16Matrix2F16Out {
+        let native = w.native_offset.expect("native Matrix2 weight offset");
+        (w.offset + native, w.size - native)
+    } else {
+        (w.offset, w.size)
+    };
     dispatch_2d(
         dev,
         reg,
@@ -94,7 +102,7 @@ pub(crate) fn dispatch_matrix2(
         kernel,
         &[
             (a.buffer, a.offset, a.size),
-            (w.buffer, w.offset, w.size),
+            (w.buffer, weight_offset, weight_size),
             (out.buffer, out.offset, out.size),
         ],
         &push,

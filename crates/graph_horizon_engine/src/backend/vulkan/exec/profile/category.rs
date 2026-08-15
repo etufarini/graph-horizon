@@ -107,6 +107,7 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
+        | Kernel::MatmulF16Matrix2F16Out
         | Kernel::MatmulQ4KTiled
         | Kernel::MatmulQ5K
         | Kernel::MatmulQ6K
@@ -138,6 +139,7 @@ const fn is_projection_matmul(kernel: Kernel) -> bool {
     matches!(
         kernel,
         Kernel::MatmulF16
+            | Kernel::MatmulF16Matrix2F16Out
             | Kernel::MatmulQ4KTiled
             | Kernel::MatmulQ5K
             | Kernel::MatmulQ6K

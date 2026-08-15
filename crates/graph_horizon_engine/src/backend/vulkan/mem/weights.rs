@@ -12,6 +12,7 @@ use crate::backend::buffers::{LayerWeights, WeightSet as GpuWeightSet};
 use crate::backend::f16::f32_to_f16_bytes;
 use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::backend::vulkan::device::Device;
+use crate::backend::vulkan::mem::predecode;
 use crate::gguf::loader::GgufFile;
 use crate::gguf::tensor_index::{GgmlType, TensorInfo};
 
@@ -157,12 +158,43 @@ fn upload_tensor(
             other.name()
         ),
     };
-    let mut buf = GpuBuffer::alloc(dev, bytes.len() as u64, host)?;
+    let native = if predecode_enabled(info) && info.ggml_type == GgmlType::Q4_K {
+        let in_dim = usize::try_from(info.dims[0])?;
+        let out_dim = usize::try_from(info.dims[1])?;
+        Some(predecode::q4_f16(&bytes, in_dim, out_dim)?)
+    } else {
+        None
+    };
+    let native_offset = native.as_ref().map(|_| bytes.len() as u64);
+    let total = bytes
+        .len()
+        .checked_add(native.as_ref().map_or(0, Vec::len))
+        .ok_or_else(|| color_eyre::eyre::eyre!("vulkan: weight size overflow"))?;
+    let mut buf = GpuBuffer::alloc(dev, total as u64, host)?;
     if let Err(err) = buf.upload(dev, &bytes) {
         // Ownership has not reached `Uploaded`; release this final allocation here.
         buf.destroy(dev);
         return Err(err);
     }
+    if let (Some(offset), Some(native)) = (native_offset, native.as_ref()) {
+        let view = buf.view(offset, native.len() as u64);
+        if let Err(err) = view.upload(dev, native) {
+            buf.destroy(dev);
+            return Err(err);
+        }
+    }
     buf.quant = fmt;
+    buf.native_offset = native_offset;
     Ok(buf)
+}
+
+fn predecode_enabled(info: &TensorInfo) -> bool {
+    let enabled = |name| {
+        matches!(
+            std::env::var(name).ok().as_deref(),
+            Some("1" | "true" | "yes")
+        )
+    };
+    (info.name.ends_with(".ffn_gate.weight") && enabled("GRAPH_HORIZON_PREFILL_PREDECODE_GATE"))
+        || (info.name.ends_with(".ffn_up.weight") && enabled("GRAPH_HORIZON_PREFILL_PREDECODE_UP"))
 }

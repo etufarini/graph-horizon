@@ -37,6 +37,7 @@ pub(super) fn log_batched_path_once(kernel: Kernel) {
     ONCE.call_once(|| {
         if enabled() {
             let path = match kernel {
+                Kernel::MatmulF16Matrix2F16Out => "predecoded FP16 matrix2",
                 Kernel::MatmulQ4KMatrix2F16Out => "Q4_K matrix2 (f16-out)",
                 Kernel::MatmulQ4KCoopmatF16Out | Kernel::MatmulQ4KCoopmatMetadataF16Out => {
                     "Q4_K coopmat (f16-out)"

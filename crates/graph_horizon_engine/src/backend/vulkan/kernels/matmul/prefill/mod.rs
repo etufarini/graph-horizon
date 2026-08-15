@@ -31,6 +31,27 @@ pub(crate) fn matmul_batched_q4k(
     n: u32,
 ) {
     let caps = dev.coopmat;
+    if matrix2_enabled()
+        && w.native_offset.is_some()
+        && dev.coopmat2.available
+        && matrix2_shape(in_dim, out_dim)
+        && reg.contains(Kernel::MatmulF16Matrix2F16Out)
+    {
+        trace::log_batched_path_once(Kernel::MatmulF16Matrix2F16Out);
+        super::super::coopmat::dispatch_matrix2(
+            dev,
+            reg,
+            cmd,
+            out,
+            a,
+            w,
+            in_dim,
+            out_dim,
+            n,
+            Kernel::MatmulF16Matrix2F16Out,
+        );
+        return;
+    }
     if coopmat_enabled()
         && matrix2_enabled()
         && w.quant == WeightFormat::Q4K
@@ -186,20 +207,25 @@ mod tests {
 
     #[test]
     fn batched_q4k_metadata_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 3072, 3, "q4_metadata");
+        q4k_cpu_oracle(3072, 3072, 3, "q4_metadata", false);
     }
 
     #[test]
     fn batched_q4k_matrix2_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail");
+        q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail", false);
+    }
+
+    #[test]
+    fn batched_predecoded_q4k_matrix2_matches_cpu_oracle() {
+        q4k_cpu_oracle(3072, 9216, 3, "q4_predecoded_matrix2_tail", true);
     }
 
     #[test]
     fn batched_q4k_small_output_matches_cpu_oracle() {
-        q4k_cpu_oracle(4096, 70, 37, "q4_small_output");
+        q4k_cpu_oracle(4096, 70, 37, "q4_small_output", false);
     }
 
-    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) {
+    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str, predecoded: bool) {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
@@ -244,12 +270,27 @@ mod tests {
         backend
             .upload_bytes(&input, &activation_bytes)
             .expect("upload input");
-        let mut weights =
-            GpuBuffer::alloc(&backend.dev, qbytes.len() as u64, false).expect("weights");
+        let native = predecoded.then(|| {
+            crate::backend::vulkan::mem::predecode::q4_f16(&qbytes, in_dim, out_dim).unwrap()
+        });
+        let mut weights = GpuBuffer::alloc(
+            &backend.dev,
+            (qbytes.len() + native.as_ref().map_or(0, Vec::len)) as u64,
+            false,
+        )
+        .expect("weights");
         weights.quant = WeightFormat::Q4K;
         backend
             .upload_bytes(&weights, &qbytes)
             .expect("upload weights");
+        if let Some(native) = native {
+            let offset = qbytes.len() as u64;
+            let view = weights.view(offset, native.len() as u64);
+            backend
+                .upload_bytes(&view, &native)
+                .expect("upload native weights");
+            weights.native_offset = Some(offset);
+        }
         let output = backend
             .alloc_buffer((rows * out_dim * 2) as u64)
             .expect("output");

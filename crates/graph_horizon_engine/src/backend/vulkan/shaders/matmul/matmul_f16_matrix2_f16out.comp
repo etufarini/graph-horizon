@@ -1,0 +1,76 @@
+#version 460
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+
+// AGENTS deroga K: kernel numerico della sola operazione matmul FP16 matrix2.
+
+// NVIDIA workgroup-scope FP16 prefill matmul. One 256-thread workgroup owns a
+// 64x32 output tile. Both activation and persistent row-major weights use
+// direct tensor loads; a transposed tensor view maps W[out, in] to Matrix2 B.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer A { float16_t a[]; };
+layout(std430, binding = 1) readonly buffer W { float16_t w[]; };
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
+
+const uint M_TILE = 64u;
+const uint N_TILE = 32u;
+const uint K_TILE = 128u;
+
+shared float cs[M_TILE * N_TILE];
+
+void main() {
+    uint row_base = gl_WorkGroupID.x * M_TILE;
+    uint output_base = gl_WorkGroupID.y * N_TILE;
+    coopmat<float, gl_ScopeWorkgroup, M_TILE, N_TILE,
+            gl_MatrixUseAccumulator> accumulator =
+        coopmat<float, gl_ScopeWorkgroup, M_TILE, N_TILE,
+                gl_MatrixUseAccumulator>(0.0);
+
+    for (uint kbase = 0u; kbase < p.in_dim; kbase += K_TILE) {
+        coopmat<float16_t, gl_ScopeWorkgroup, M_TILE, K_TILE,
+                gl_MatrixUseA> activation =
+            coopmat<float16_t, gl_ScopeWorkgroup, M_TILE, K_TILE,
+                    gl_MatrixUseA>(float16_t(0.0));
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> activation_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        activation_layout = setTensorLayoutDimensionNV(
+            activation_layout, p.n, p.in_dim);
+        activation_layout = sliceTensorLayoutNV(
+            activation_layout, int(row_base), M_TILE, int(kbase), K_TILE);
+        coopMatLoadTensorNV(activation, a, 0u, activation_layout);
+
+        coopmat<float16_t, gl_ScopeWorkgroup, K_TILE, N_TILE,
+                gl_MatrixUseB> weight =
+            coopmat<float16_t, gl_ScopeWorkgroup, K_TILE, N_TILE,
+                    gl_MatrixUseB>(float16_t(0.0));
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> weight_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        weight_layout = setTensorLayoutDimensionNV(
+            weight_layout, p.out_dim, p.in_dim);
+        weight_layout = sliceTensorLayoutNV(
+            weight_layout, int(output_base), N_TILE, int(kbase), K_TILE);
+        tensorViewNV<2, false, 1, 0> transpose =
+            createTensorViewNV(2, false, 1, 0);
+        coopMatLoadTensorNV(weight, w, 0u, weight_layout, transpose);
+        accumulator = coopMatMulAdd(activation, weight, accumulator);
+    }
+
+    coopMatStore(accumulator, cs, 0u, N_TILE,
+                 gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint index = gl_LocalInvocationIndex; index < M_TILE * N_TILE; index += 256u) {
+        uint row = index / N_TILE;
+        uint output_index = index % N_TILE;
+        uint global_row = row_base + row;
+        uint global_output = output_base + output_index;
+        if (global_row < p.n && global_output < p.out_dim) {
+            y[global_row * p.out_dim + global_output] = float16_t(cs[index]);
+        }
+    }
+}

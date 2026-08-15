@@ -1,5 +1,5 @@
 <!--
-This report owns the reproducible Phase 5 through Phase 7 Vulkan short-context prefill
+This report owns the reproducible Phase 5 through Phase 8 Vulkan short-context prefill
 evidence: baselines, attribution, experiments, retained changes, correctness, and regression gates.
 It defines no runtime behavior and contains no benchmark-only backend constants.
 -->
@@ -1071,3 +1071,385 @@ unchanged, and the result is within 4.3% of the revised practical floor. The
 next architectural step, only if a later target requires it, is an isolated
 M128 or multi-output-tile Matrix2 experiment that must first prove register,
 spill, occupancy, and 28K behavior; it is not justified for this phase.
+
+# Vulkan Prefill Phase 8
+
+## Baseline and measurement protocol
+
+Phase 8 ran on local branch `perf/vulkan-short-prefill-phase8`; nothing was
+pushed. The requested Phase 7 implementation/report commits `0e0ae71` and
+`c98d7b1` are ancestors. The actual clean branch tip was `a731459`, a narrow
+follow-up that corrects the M64 capability gate from 12,288 to 16,384 declared
+shader bytes and adds its unit assertion. It changes neither the selected RTX
+3060 kernel nor runtime math, and was retained as the safe executable baseline.
+
+The tuple is unchanged: RTX 3060 12 GiB device `0x2487`, driver 595.84,
+Vulkan 1.4.329, Rust/Cargo 1.95, pure Vulkan, context 32,768, F16 KV, greedy
+sampling, and two emitted tokens. The model is the authenticated 2,147,023,008
+byte `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Every prompt is `" a"` repeated `tokens - 3`.
+
+The official TTFT and prompt-throughput baseline is a release build without
+`vulkan-profile`. Runs through 512 use two warm-ups; 1K through 28K use one.
+There are 20 measured repetitions at 128 and 512, nine at 64/256, seven at
+1K/2K, and three at 8K/28K. A temporary post-measurement logger emitted values
+already held by the harness only after every timed repetition. It changed no
+GPU command or measured interval and is absent from the final tree.
+
+GPU and prefill-wall distributions come from a separate `vulkan-profile`
+build because Vulkan timestamps cannot exist in a diagnostics-free binary.
+They are attribution evidence, not the official TTFT reference. Profiler
+commands were grouped back into requests and warm-ups discarded. The
+instrumented wall is correspondingly higher and is never mixed into an A/B
+retention decision.
+
+### Diagnostics-free TTFT
+
+| Tokens | Mean | Median | p10 | p90 | SD | CV | Prompt tok/s mean |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 65.840 | 65.149 | 64.532 | 67.619 | 2.016 | 3.06% | 972.81 |
+| 128 | **114.615** | 114.551 | 114.115 | 115.289 | 0.496 | **0.43%** | 1,116.80 |
+| 256 | 219.310 | 219.103 | 218.225 | 220.639 | 0.971 | 0.44% | 1,167.32 |
+| 512 | 439.856 | 439.860 | 438.583 | 441.706 | 1.450 | **0.33%** | 1,164.03 |
+| 1K | 895.831 | 896.219 | 892.642 | 898.797 | 3.003 | 0.34% | 1,143.08 |
+| 2K | 1,867.537 | 1,867.345 | 1,865.972 | 1,869.510 | 1.673 | 0.09% | 1,096.63 |
+| 8K | 9,335.657 | 9,330.545 | 9,318.505 | 9,354.853 | 23.145 | 0.25% | 877.50 |
+| 28K | 52,636.119 | 52,605.824 | 52,595.618 | 52,688.738 | 63.840 | 0.12% | 531.95 |
+
+The 64-token first measured sample retained a process-level tail and makes
+that secondary row 3.06% CV. The decisive 128/512 rows are below 0.5%, every
+other medium/long row is below 0.5%, and no favorable sample was selectively
+rerun.
+
+### Profiled GPU prefill and CPU wall
+
+| Tokens | GPU mean / median | GPU p10 / p90 | GPU SD / CV | Wall mean / median | Wall p10 / p90 | Wall SD / CV |
+|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 64.465 / 64.382 | 64.110 / 64.888 | 0.405 / 0.63% | 67.556 / 68 | 67 / 68 | 0.527 / 0.78% |
+| 128 | 114.162 / 114.315 | 113.249 / 114.997 | 0.769 / 0.67% | 117.200 / 117 | 116 / 118 | 0.834 / 0.71% |
+| 256 | 219.026 / 218.746 | 217.999 / 220.404 | 1.003 / 0.46% | 222.222 / 222 | 221 / 223.2 | 0.972 / 0.44% |
+| 512 | 440.329 / 440.094 | 437.979 / 442.880 | 1.852 / 0.42% | 445.150 / 445 | 443 / 448 | 1.755 / 0.39% |
+| 1K | 900.559 / 900.796 | 898.592 / 902.729 | 1.842 / 0.20% | 908.714 / 909 | 906.6 / 911 | 1.890 / 0.21% |
+| 2K | 1,883.073 / 1,884.515 | 1,878.354 / 1,886.919 | 4.395 / 0.23% | 1,897.571 / 1,899 | 1,893 / 1,901.4 | 4.198 / 0.22% |
+| 8K | 9,400.619 / 9,400.537 | 9,400.106 / 9,401.165 | 0.666 / 0.01% | 9,453.333 / 9,453 | 9,453 / 9,453.8 | 0.577 / 0.01% |
+| 28K | 52,914.100 / 52,909.328 | 52,907.166 / 52,922.944 | 10.693 / 0.02% | 53,092.667 / 53,088 | 53,085.6 / 53,101.6 | 10.786 / 0.02% |
+
+Prompt-throughput statistics use each sample's `tokens / TTFT`, rather than
+inverting the aggregate TTFT mean:
+
+| Tokens | Mean tok/s | Median | p10 | p90 | SD | CV |
+|---:|---:|---:|---:|---:|---:|---:|
+| 64 | 972.814 | 982.366 | 947.018 | 991.757 | 28.211 | 2.90% |
+| 128 | 1,116.800 | 1,117.404 | 1,110.251 | 1,121.678 | 4.825 | 0.43% |
+| 256 | 1,167.316 | 1,168.399 | 1,160.265 | 1,173.100 | 5.160 | 0.44% |
+| 512 | 1,164.029 | 1,164.007 | 1,159.143 | 1,167.395 | 3.841 | 0.33% |
+| 1K | 1,143.083 | 1,142.577 | 1,139.301 | 1,147.158 | 3.834 | 0.34% |
+| 2K | 1,096.632 | 1,096.744 | 1,095.474 | 1,097.551 | 0.982 | 0.09% |
+| 8K | 877.499 | 877.977 | 875.697 | 879.111 | 2.174 | 0.25% |
+| 28K | 531.955 | 532.260 | 531.423 | 532.364 | 0.645 | 0.12% |
+
+## Stage A: floor reconstruction
+
+The fresh 128 result is 3.0% faster than Phase 7's diagnostics-free 118.35 ms
+and effectively equals its old 114.5 ms estimate. The floor was therefore
+rebuilt from the current session rather than copied.
+
+The profiled category pass assigns 113.642 ms GPU at 128. Its seven recurrent
+Matrix2 projections total 104.472 ms; attention is 1.179, embedding 1.534,
+logits 3.795, normalization/RoPE/activation/KV/residual copies 2.537, and the
+GPU timestamp residual 0.125 ms. Reconciliation to the separate official
+114.615 ms TTFT leaves 0.973 ms for non-GPU request setup, resource/control,
+sampling/readback, and cross-pass drift. No hidden `other` bucket exceeds
+0.5 ms: embedding, logits, activation, elementwise copies, and non-GPU work
+are named explicitly.
+
+| Component | Measured ms | Physical minimum | Practical minimum | Removable ms | Confidence |
+|---|---:|---:|---:|---:|---|
+| Q4/Q6 recurrent Matrix2 | 104.472 | max(12.68 compute, 77.86 logical movement) | 101.47 | **3.00** | high: current 256-row rate |
+| fused attention | 1.179 | below 0.01 operation-only | 1.179 | about 0 | high at this scale |
+| embedding | 1.534 | raw lookup only | 1.534 | about 0 | high |
+| final logits | 3.795 | required final vocabulary reduction | 3.795 | about 0 | high |
+| norms, RoPE, activation, KV, residuals | 2.537 | non-zero required graph work | 2.537 | about 0 | medium-high |
+| GPU residual/control | 0.125 | zero | 0.125 | about 0 | high: 99.89% accounted |
+| host/resource/sampling reconciliation | 0.973 | non-zero serialized tail | 0.973 | about 0 | medium: separate pass |
+| **Total** | **114.615** | **about 22 optimistic whole-graph** | **111.615** | **3.000** | **high for practical floor** |
+
+The physical minimum is deliberately not used as a target. The recurrent
+compute bound is 774.705 GFLOP / 61.1 TFLOP/s = 12.68 ms, while the 28.030 GB
+logical movement bound at nominal 360 GB/s is 77.86 ms. Those overlap and the
+logical bytes are not DRAM counters. Adding irreducible graph/tail work gives
+an optimistic whole-request physical floor near 22 ms, useful only to reject
+claims that the practical floor is a law of physics.
+
+The practical floor uses the same final M64 kernel at the fully occupied
+256-row point. Its per-128-row recurrent rate is 101.47 ms. Keeping every other
+measured stage gives **111.615 ms**. A speculative M128 traffic-only model
+would approach roughly 108 ms, but it ignores its occupancy cliff and is not
+a realistic exact-path floor.
+
+### Matrix2 M64 resource and traffic audit
+
+At 128, each weight value is unpacked/dequantized twice: one M64 workgroup per
+64 prompt rows. Each dequantized 128x32 weight tile feeds 64 rows, a reuse
+factor of two over M32. Shapes are exact multiples of M64/N32/K128 and tile
+utilization is 100%; there is no padded Matrix2 instruction.
+
+| Representative projection | Stored quant / metadata | Executed quant / metadata | GPU role |
+|---|---:|---:|---|
+| Q4 Q | 6.291 / 0.786 MB | 12.582 / 1.572 MB | 64-row weight reuse |
+| Q4 gate/up | 14.156 / 1.769 MB | 28.312 / 3.538 MB | dominant Q4 shape |
+| Q6 down | 21.234 / 1.991 MB | 42.468 / 3.982 MB | dominant Q6 shape |
+
+Across all seven projections, stored weights are 1.808 GB, shader-visible
+weight loads 3.616 GB, activation Matrix2 loads 24.210 GB, and outputs
+0.204 GB. About 1.478 million workgroup Matrix2 calls model the 774.705 GFLOP
+at 100% tile utilization. Current effective compute is 7.42 TFLOP/s;
+minimum/visible effective weight bandwidth is 17.3/34.6 GB/s and total logical
+bandwidth is 268 GB/s. Raw weight bandwidth is not the limit; tensor loads,
+unpack/dequant, synchronization, cache, issue, and occupancy overlap.
+
+Removed executable statistics from Phase 7 remain applicable to unchanged
+SPIR-V: Q4/Q6 use 98/108 registers per thread, 16,384 shader-declared and
+33,792 driver-reported shared bytes, zero stack, two resident workgroups,
+16 resident warps, and 33.3% modeled occupancy. The `a731459` baseline fix
+ensures the capability gate accounts for the full 16,384 shader bytes.
+
+M128 would reduce visible weight traffic by 1.808 GB, only 6.45% of total
+logical movement. A traffic-only model predicts about 6.9% local and 5.9%
+TTFT improvement. Extrapolating the measured M32→M64 register growth gives
+roughly 166 Q4 and 198 Q6 registers/thread, one resident workgroup, eight
+warps, and 16.7% occupancy. The fully occupied M64 measurement already limits
+realistic remaining TTFT saving to 3.00 ms or 2.62%. The traffic-only gain is
+therefore not realistic enough to pass the experiment gate; reuse=2 is the
+practical optimum for 128.
+
+### Stage A decision
+
+```text
+current diagnostics-free TTFT = 114.615 ms
+practical floor              = 111.615 ms
+remaining                    =   3.000 ms
+remaining                    =   2.62%
+measured / practical floor   =   1.0269
+```
+
+Decision: **STOP short-prefill optimization**. Both mandatory limits are met:
+headroom is below 3% and below 3.5 ms. No residual component independently
+offers 3% TTFT, and further M128 reuse fails the realistic occupancy-adjusted
+gate. No Phase 8 short-prefill production experiment was built.
+
+## Updated matmul/attention balance
+
+| Tokens | Matmul ms | Attention ms | Other ms | Attention / GPU | Attention / TTFT |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 104.472 | 1.179 | 7.991 | 1.04% | 1.03% |
+| 512 | 405.494 | 11.204 | 20.405 | 2.56% | 2.55% |
+| 2K | 1,632.006 | 162.159 | 71.061 | 8.69% | 8.68% |
+| 8K | 6,606.621 | 2,525.602 | 274.376 | 26.85% | 27.05% |
+| 16K | 13,136.332 | 10,005.572 | 592.097 | 42.16% | 41.96% |
+| 28K | 22,583.784 | **29,370.118** | 927.576 | **55.54%** | **55.80%** |
+
+The measured crossover is about 20K tokens: matmul still leads by 3.13 s at
+16K, while attention leads by 6.79 s at 28K. The Phase 7 M64 improvement has
+therefore moved the largest absolute 28K cost back to attention.
+
+The detailed profile below reconciles every measured GPU millisecond. Q, K,
+V, O, gate, up, and down are the seven recurrent Matrix2 projections. `Copies`
+contains KV writes and elementwise residual copies. QK and AV are direct
+downstream-live ablation deltas; the fused remainder contains softmax setup,
+shared score/probability/AV traffic, barriers, addressing, and online merge.
+Those operations are not separately timestampable without splitting the
+kernel, so the residual is named rather than misreported as softmax alone.
+
+| Component (ms) | 2K | 8K | 28K |
+|---|---:|---:|---:|
+| Embedding | 24.851 | 99.543 | 339.473 |
+| Norms | 8.757 | 35.017 | 120.275 |
+| Q projection | 174.430 | 705.860 | 2,414.197 |
+| K projection | 48.154 | 194.679 | 662.766 |
+| V projection | 51.269 | 207.216 | 709.362 |
+| RoPE | 5.203 | 20.812 | 71.945 |
+| Attention QK | 52.773 | 803.806 | 9,585.723 |
+| Attention setup/softmax/barrier/merge | 50.528 | 842.369 | 9,655.183 |
+| Attention AV | 58.858 | 879.427 | 10,129.212 |
+| O projection | 180.880 | 734.273 | 2,495.243 |
+| Gate projection | 382.766 | 1,552.749 | 5,320.431 |
+| Up projection | 382.947 | 1,548.993 | 5,297.707 |
+| Activation | 15.441 | 62.352 | 211.881 |
+| Down projection | 411.561 | 1,662.851 | 5,684.078 |
+| Copies | 11.755 | 47.508 | 162.084 |
+| Logits | 3.777 | 3.850 | 3.808 |
+| Dispatch/timestamp residual | 1.278 | 5.294 | 18.111 |
+| Unnamed other | 0.000 | 0.000 | 0.000 |
+| **Attributed GPU total** | **1,865.226** | **9,406.599** | **52,881.479** |
+| **Coverage** | **100%** | **100%** | **100%** |
+
+## Current attention architecture and physical model
+
+The selected F16 Matrix2 path is unchanged: one 256-thread workgroup, eight
+32-lane subgroups, one query head, Q tile 32, K/V tile 64, head dimension 128,
+and online causal softmax. Workgroup-scope Matrix2 performs QK 32x64x128 and
+AV 32x128x64. Q/K/V use direct tensor loads. Score is stored as FP32 shared,
+probability as FP16 shared, AV as FP32 shared, and 16 FP32 output values/thread
+carry the online merge. The shader declares 20,864 bytes shared; the driver
+reports 38,272 bytes, 125 registers/thread, two resident workgroups, 16 warps,
+and 33.3% modeled occupancy. There is no global score or probability tensor.
+
+At 28K there are 159,614,208 layer/head/query workgroup-KV-tile visits:
+
+| Quantity | 28K model |
+|---|---:|
+| repeated Q reads | 1.308 TB |
+| K reads | 2.615 TB |
+| V reads | 2.615 TB |
+| QK FLOP | 83.684 TFLOP |
+| AV FLOP | 83.684 TFLOP |
+| score/probability/AV shared round trips | about 10.460 TB on-chip |
+| effective Q/K/V logical bandwidth | 225 GB/s |
+| effective QK+AV compute | 5.76 TFLOP/s |
+
+The dense compute minimum is about 2.74 s. Q/K/V logical bytes at nominal
+360 GB/s give 18.16 s, while K+V alone at a realistic 300 GB/s give 17.43 s.
+Current attention is 29.05--29.37 s. The path is therefore primarily a
+tensor-load/cache/shared/synchronization/occupancy pipeline, not softmax SFU
+or dense Matrix compute alone. The traffic model is not a DRAM counter.
+
+### Fresh QK, AV, and residual attribution
+
+Matching one-run cold controls removed one downstream-live bucket at a time.
+The QK ablation keeps softmax and AV live on zero scores. The AV ablation keeps
+QK and softmax live and merges a zero AV result. Deltas are causal bounds, not
+independent hardware counters.
+
+| Tokens | Attention | QK direct delta | AV direct delta | Setup/softmax/barrier/merge residual |
+|---:|---:|---:|---:|---:|
+| 128 | 1.261 | 0.158 | 0.470 | 0.633 |
+| 512 | 11.250 | 3.550 | 4.132 | 3.568 |
+| 2K | 160.686 | 52.773 | 58.858 | 49.055 |
+| 8K | 2,474.021 | 803.806 | 879.427 | 790.788 |
+| 28K | 29,049.931 | **9,585.723** | **10,129.212** | **9,334.996** |
+
+The direct QK and AV deltas are 33.0% and 34.9% of 28K attention. The residual
+contains scale/mask, score store/read, max, two exponentials, sum reduction,
+probability store/read, four barriers per KV tile, AV scratch round trip,
+online merge, addressing, and epilogue. A downstream-live softmax replacement
+made attention 2.57% slower at 28K and 3.63% slower at 8K. It therefore exposes
+no positive removable softmax time; softmax is not reported as the entire
+9.335 s residual. Its source was removed.
+
+## Stage B ranking and experiments
+
+Ranking uses absolute milliseconds per request. Decode request time is 31
+measured public-token intervals from the diagnostics-free 32-token controls.
+
+| Rank | Workload | Dominant component | Component ms/request | Realistic local speedup | Removable ms | Predicted total gain |
+|---:|---|---|---:|---:|---:|---:|
+| 1 | 28K prefill | attention | 29,370 | 10--15% architectural | 2,937--4,406 | 5.6--8.4% |
+| 2 | 16K prefill | attention | 10,006 | 10--15% architectural | 1,001--1,501 | 4.2--6.3% |
+| 3 | 28K prefill | recurrent Matrix2 | 22,584 | at most about 3% | at most 678 | at most 1.3% |
+| 4 | 8K prefill | attention | 2,526 | 10--15% architectural | 253--379 | 2.7--4.1% |
+| 5 | 8K prefill | recurrent Matrix2 | 6,607 | at most about 3% | at most 198 | at most 2.1% |
+| 6 | 2K prefill | recurrent Matrix2 | 1,632 | at most about 3% | at most 49 | at most 2.6% |
+| 7 | decode 28K | attention | about 410/31-token request | below 5% after Decode Phase 2 | below 21 | below 2% |
+| 8 | decode 2K | recurrent matmul | about 487 | below 3% | below 15 | about 2% |
+| 9 | decode 128 | recurrent matmul | about 482 | below 3% | below 15 | about 2% |
+| 10 | 512 prefill | recurrent Matrix2 | 405 | at most about 3% | at most 12 | at most 2.8% |
+
+The chosen Stage B target was 28K attention. It has the largest removable
+millisecond range and also applies from the 8K crossover region upward.
+
+| ID | Stage | Architecture / diagnostic | Local delta | End-to-end delta | 128 control | Decision |
+|---|---|---|---:|---:|---:|---|
+| P8-Q-STAGE | B | stage Q32x128 once/WG; +8 KiB shared | attention +10.62% 8K, +11.27% 28K | +2.01% 8K, +5.86% 28K | unchanged source after reject | reject |
+| P8-Q64 | B | Q64/KV64 Matrix2 ownership | Matrix2 pipeline unavailable; Q16 KHR fallback | +103% at 128, +113% at 512 | failed | reject before long rows |
+| P8-QK-OFF | attribution | downstream-live zero score | -33.0% attention 28K | not a candidate | n/a | measurement only |
+| P8-AV-OFF | attribution | downstream-live zero AV | -34.9% attention 28K | not a candidate | n/a | measurement only |
+| P8-SOFTMAX | attribution | live uniform probability/merge | +2.57% attention 28K | regression | n/a | reject |
+
+`P8-Q-STAGE` removed about 1.307 TB of shader-visible Q reads at 28K, but
+shared cooperative loads plus the extra staging dependency were slower than
+the direct tensor/cache path. It used an estimated 46,464 driver shared bytes
+and retained the two-workgroup register limit; traffic reduction did not reach
+the critical path.
+
+`P8-Q64` targeted half the K/V tensor traffic with one 64-query workgroup.
+Shader compilation succeeded, but pipeline construction rejected that flexible
+Matrix2 shape and the registry safely selected
+`attention_prefill_tiled_fullmma_q16_kv64`. The fallback regression is the
+resource/capability result; no 8K/28K time was wasted after the kernel identity
+proved the experiment invalid.
+
+No experiment changed a public API, dependency, format, precision, KV layout,
+decode shader, or final routing. All candidate and diagnostic source is removed.
+The best retained candidate is therefore **none**: architecture, tile shape,
+resource use, routing, precision, and traffic remain the Phase 7 baseline.
+The next plausible attention step must combine ownership across more than 32
+queries with staged/reused K/V while preserving a supported Q32 Matrix2 shape,
+or connect score/softmax/AV without the current shared round trips. That is a
+new multi-head/multi-query kernel architecture with separate resource and
+numeric qualification, not another Phase 8 local patch.
+
+## Final performance, decode, and correctness
+
+There is no retained production candidate, so final prefill is the Phase 8
+baseline by source identity:
+
+| Tokens | Baseline TTFT | Final TTFT | Delta |
+|---:|---:|---:|---:|
+| 64 | 65.840 | 65.840 | 0% |
+| 128 | 114.615 | 114.615 | 0% |
+| 256 | 219.310 | 219.310 | 0% |
+| 512 | 439.856 | 439.856 | 0% |
+| 1K | 895.831 | 895.831 | 0% |
+| 2K | 1,867.537 | 1,867.537 | 0% |
+| 8K | 9,335.657 | 9,335.657 | 0% |
+| 28K | 52,636.119 | 52,636.119 | 0% |
+
+Diagnostics-free 32-token decode controls are 46.63 tok/s at 128 (0.32% CV),
+46.22 at 2K (0.10% CV), and 29.11 at 28K (0.34% CV). All are faster than the
+Phase 7 session's 43.52/43.07/27.77 tok/s; no decode regression is evidenced.
+The same control repeated 128 TTFT at 115.87 ms with 0.79% CV, within normal
+session drift and with unchanged source. After every diagnostic was removed,
+a clean diagnostics-free release rebuild measured 114.66 ms with 0.55% CV
+over fifteen samples, reproducing the official 114.615 ms baseline.
+
+Final restored-tree evidence:
+
+- Vulkan-profile library suite: 152 passed, four intentionally ignored;
+- focused Q4/Q6 Matrix2 CPU-oracle coverage passes in that suite, including
+  three-row M64 tails;
+- focused long qualification through 28K passes in 421.05 s;
+- F16 attention maximum absolute error remains `1.526e-5` and projected-logit
+  maximum `3.601e-6`; CPU-oracle maxima remain `1.180e-5` / `4.001e-6`;
+- INT8 attention and logits remain bit-exact at 2K, 8K, and 28K;
+- the 128-token full-model greedy oracle emits exactly
+  `2757,10637,2479,1636`;
+- F16/INT8, Q4_K/Q6_K, Matrix2, GQA, causal attention, logits, retained KV,
+  and multi-token decode are exercised without changing tolerances;
+- release Clippy with all targets and warnings denied, formatting, and
+  `git diff --check` pass;
+- `docs_contract` retains the known pre-existing local failure when the
+  gitignored `VALIDATION.md` is absent.
+
+## Final floor and stop rationale
+
+```text
+128 measured                  114.615 ms
+128 practical floor           111.615 ms
+gap                             3.000 ms
+gap                              2.62%
+
+final largest bottleneck       28K attention, 29.37 s/request
+next realistic headroom        2.94--4.41 s at 28K
+retained Phase 8 code           none
+```
+
+Stage A stops because 128 is within 2.62% of its rebuilt practical floor and
+no experiment can meet both 3.5 ms and 3%. Stage B successfully pivots to the
+largest absolute cost and falsifies two materially different reuse designs:
+direct Q staging regresses, while Q64 Matrix2 ownership is unsupported. The
+remaining 28K opportunity is still architecturally significant, but the next
+step is a new supported multi-query attention kernel rather than incremental
+tuning. Phase 8 therefore stops under the architectural-mission boundary with
+the clean Phase 7 production path preserved.

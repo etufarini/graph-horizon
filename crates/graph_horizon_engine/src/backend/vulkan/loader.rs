@@ -26,7 +26,7 @@ pub(super) fn create_buffers(
     ws: &dyn WeightSource,
     meta: &ModelMetadata,
 ) -> Result<(Buffers<GpuBuffer>, GpuBuffer)> {
-    let weights = upload_weights(dev, gguf, ws, &plan.host, None)?;
+    let weights = upload_weights(dev, gguf, ws, &plan.host, None, plan.native_matrix2)?;
     create_with_weights(dev, weights, meta)
 }
 
@@ -38,7 +38,7 @@ pub(super) fn create_selected_buffers(
     meta: &ModelMetadata,
     selection: &crate::backend::source::WeightSelection,
 ) -> Result<(Buffers<GpuBuffer>, GpuBuffer)> {
-    let weights = upload_weights(dev, gguf, ws, &[], Some(selection))?;
+    let weights = upload_weights(dev, gguf, ws, &[], Some(selection), false)?;
     create_with_weights(dev, weights, meta)
 }
 

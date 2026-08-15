@@ -22,6 +22,7 @@ pub(crate) fn upload_weights(
     ws: &dyn WeightSource,
     host: &[bool],
     selection: Option<&WeightSelection>,
+    native_matrix2: bool,
 ) -> Result<GpuWeightSet<GpuBuffer>> {
     let tensors = ws.tensors();
     let groups = ws.groups();
@@ -58,7 +59,14 @@ pub(crate) fn upload_weights(
             }
         }
     }
-    upload_slots(dev, gguf, dedicated, selection.layers.len(), &slots)
+    upload_slots(
+        dev,
+        gguf,
+        dedicated,
+        selection.layers.len(),
+        &slots,
+        native_matrix2,
+    )
 }
 
 fn selected_slot<'a>(
@@ -78,6 +86,7 @@ fn upload_slots(
     has_output: bool,
     layer_count: usize,
     slots: &[Option<(&TensorInfo, bool)>],
+    native_matrix2: bool,
 ) -> Result<GpuWeightSet<GpuBuffer>> {
     // This guard owns every partial upload until the complete selected set is
     // assembled, so any failure destroys each prior allocation exactly once.
@@ -87,7 +96,7 @@ fn upload_slots(
     };
     for slot in slots {
         uploaded.buffers.push(
-            slot.map(|(tensor, host)| upload_tensor(dev, gguf, tensor, host))
+            slot.map(|(tensor, host)| upload_tensor(dev, gguf, tensor, host, native_matrix2))
                 .transpose()?,
         );
     }
@@ -140,6 +149,7 @@ fn upload_tensor(
     gguf: &GgufFile,
     info: &TensorInfo,
     host: bool,
+    native_matrix2: bool,
 ) -> Result<GpuBuffer> {
     // F32 norms narrow to FP16; all other accepted GGUF blocks stay byte-exact,
     // with `fmt` selecting the later matmul/dequant kernel.
@@ -158,7 +168,7 @@ fn upload_tensor(
             other.name()
         ),
     };
-    let native = if predecoded_bytes(info).is_some() {
+    let native = if predecoded_bytes(info, native_matrix2).is_some() {
         let in_dim = usize::try_from(info.dims[0])?;
         let out_dim = usize::try_from(info.dims[1])?;
         Some(predecode::q4_f16(&bytes, in_dim, out_dim)?)
@@ -196,6 +206,14 @@ fn predecode_enabled(info: &TensorInfo) -> bool {
             Some("1" | "true" | "yes")
         )
     };
+    if !matches!(
+        std::env::var("GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2")
+            .ok()
+            .as_deref(),
+        None | Some("1" | "true" | "yes")
+    ) {
+        return false;
+    }
     let mlp = enabled("GRAPH_HORIZON_PREFILL_PREDECODE_MLP");
     (info.name.ends_with(".ffn_gate.weight")
         && (mlp || enabled("GRAPH_HORIZON_PREFILL_PREDECODE_GATE")))
@@ -204,14 +222,34 @@ fn predecode_enabled(info: &TensorInfo) -> bool {
 }
 
 #[cfg(feature = "vulkan")]
-pub(super) fn predecoded_bytes(info: &TensorInfo) -> Option<u64> {
-    if info.ggml_type != GgmlType::Q4_K || info.dims != [3072, 9216] || !predecode_enabled(info) {
+pub(super) fn predecoded_bytes(info: &TensorInfo, native_matrix2: bool) -> Option<u64> {
+    if !native_matrix2
+        || info.ggml_type != GgmlType::Q4_K
+        || info.dims != [3072, 9216]
+        || !predecode_enabled(info)
+    {
         return None;
     }
     info.element_count()?.checked_mul(2)
 }
 
 #[cfg(feature = "vulkan-hybrid")]
-pub(super) fn predecoded_bytes(_info: &TensorInfo) -> Option<u64> {
+pub(super) fn predecoded_bytes(_info: &TensorInfo, _native_matrix2: bool) -> Option<u64> {
     None
+}
+
+#[cfg(all(test, feature = "vulkan"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_native_pipeline_disables_predecode_before_flag_selection() {
+        let info = TensorInfo {
+            name: "blk.0.ffn_gate.weight".into(),
+            dims: vec![3072, 9216],
+            ggml_type: GgmlType::Q4_K,
+            offset: 0,
+        };
+        assert_eq!(predecoded_bytes(&info, false), None);
+    }
 }

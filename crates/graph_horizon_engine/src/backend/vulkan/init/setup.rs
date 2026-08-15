@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — Vulkan backend construction
  * Builds a `VulkanBackend` from a weight source and placement: the shared
- * `load_inner` bootstrap (budget → memory plan → buffer creation → pipeline build →
+ * `load_inner` bootstrap (pipeline capabilities → budget/plan → buffer creation →
  * scratch alloc), the mmvq Q8_1 scratch allocation, and the test-only `bare`
  * device/pipeline entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
 */
@@ -17,6 +17,8 @@ use crate::backend::vulkan::loader;
 use crate::backend::vulkan::mem::budget::device_budget;
 #[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::plan;
+#[cfg(feature = "vulkan")]
+use crate::backend::vulkan::pipeline::Kernel;
 use crate::backend::vulkan::pipeline::PipelineRegistry;
 use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
 use crate::gguf::loader::GgufFile;
@@ -34,13 +36,21 @@ impl VulkanBackend {
         context: usize,
     ) -> Result<Self> {
         let budget = placement_budget(&dev);
-        let plan = plan(meta, ws, context, &budget)?;
-        let (buf, logits_host) = loader::create_buffers(&dev, &plan, gguf, ws, meta)?;
-        let reg = match PipelineRegistry::build(&dev) {
-            Ok(reg) => reg,
+        let reg = PipelineRegistry::build(&dev)?;
+        // Resolve native-weight eligibility from the pipeline that will actually
+        // execute it. Unsupported devices retain compressed residency and startup.
+        let native_matrix2 = reg.contains(Kernel::MatmulF16Matrix2F16Out);
+        let plan = match plan(meta, ws, context, &budget, native_matrix2) {
+            Ok(plan) => plan,
             Err(err) => {
-                logits_host.destroy(&dev);
-                loader::destroy_buffers(&dev, &buf);
+                reg.destroy(&dev);
+                return Err(err);
+            }
+        };
+        let (buf, logits_host) = match loader::create_buffers(&dev, &plan, gguf, ws, meta) {
+            Ok(buffers) => buffers,
+            Err(err) => {
+                reg.destroy(&dev);
                 return Err(err);
             }
         };

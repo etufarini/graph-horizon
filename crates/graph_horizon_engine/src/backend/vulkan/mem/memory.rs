@@ -42,6 +42,7 @@ pub(crate) struct Budget {
 #[cfg(feature = "vulkan")]
 pub(crate) struct MemoryPlan {
     pub host: Vec<bool>,
+    pub native_matrix2: bool,
 }
 
 // Builds an all-device placement. Hybrid range placement uses its independent
@@ -52,6 +53,7 @@ pub(crate) fn plan(
     ws: &dyn WeightSource,
     context_len: usize,
     budget: &Budget,
+    native_matrix2: bool,
 ) -> Result<MemoryPlan> {
     let kv_bytes = checked_product(&[
         4,
@@ -79,7 +81,7 @@ pub(crate) fn plan(
         let raw = t
             .byte_len()
             .ok_or_else(|| eyre!("memory: cannot size tensor '{}'", t.name))?;
-        let native = super::weights::predecoded_bytes(t).unwrap_or(0);
+        let native = super::weights::predecoded_bytes(t, native_matrix2).unwrap_or(0);
         let resident = raw.checked_add(native).ok_or_else(|| {
             eyre!(
                 "Vulkan memory is insufficient: required overflow bytes, available {} bytes",
@@ -120,6 +122,7 @@ pub(crate) fn plan(
     )?;
     Ok(MemoryPlan {
         host: vec![false; tensors.len()],
+        native_matrix2,
     })
 }
 
@@ -190,7 +193,7 @@ mod tests {
         let ws = Vecs(vec![ti("token_embd", u64::MAX / 2), ti("output_norm", 2)]);
         let meta = tiny_meta();
         let budget = Budget { vram: u64::MAX };
-        let err = match plan(&meta, &ws, 8, &budget) {
+        let err = match plan(&meta, &ws, 8, &budget, false) {
             Ok(_) => panic!("overflowing weight total must fail"),
             Err(err) => err.to_string(),
         };

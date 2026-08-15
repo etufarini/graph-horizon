@@ -27,8 +27,10 @@ VRAM, 5,452 to 8,260 MiB application VRAM at 28K, and +9.013 s measured model
 initialization. The gain is 2.77 TTFT percentage points per added GiB. The
 feature therefore remains explicit through
 `GRAPH_HORIZON_PREFILL_PREDECODE_MLP=1`; default and hybrid behavior remain the
-compressed path. Nothing changes the model file, public API, Q6/F16/INT8
-paths, or M=1 decode routing.
+compressed path. The native scope is resolved only after the exact Matrix2
+pipeline has built; an unsupported device therefore retains compressed
+startup and residency rather than paying for an unusable copy. Nothing changes
+the model file, public API, Q6/F16/INT8 paths, or M=1 decode routing.
 
 The retained branch is `perf/vulkan-predecoded-weights-phase12`, based on clean
 Phase 11 commit `3a05b01fee9d09449fbd90bb75c00b058f2d56b6`. No change was
@@ -92,6 +94,27 @@ one logical traversal per workgroup, not a DRAM counter.
 | Static integer multiplies | 10 | 18 | format-specific sites |
 | Static integer divisions | 3 | 4 | format-specific sites |
 | Registers/thread | 98 | 108 | two resident WG for both |
+
+The requested cross-format time decomposition is necessarily bounded rather
+than falsely precise:
+
+| Runtime component | Q4_K time | Q6_K time | Total / evidence |
+|---|---:|---:|---|
+| Physical weight load | unmeasured | unmeasured | no physical-byte/cache counter; logical bytes are reported above |
+| Metadata load and scale reconstruction | at most 1.153 s | unmeasured | controlled free-Q4-metadata delta |
+| Payload unpack | unresolved | unresolved | shares the owning shader timestamp |
+| Numeric conversion | unresolved; five static sites/variant | unresolved; four static sites/variant | static SPIR-V, no sampled instruction time |
+| Matrix2 staging | unresolved | unresolved | shares decode/load issue and barriers |
+| Dense Matrix2 operations | 2.400 s optimistic floor | 0.375 s optimistic floor | useful FLOP / 61.1 TFLOP/s; 2.775 s total |
+| Epilogue/output | unresolved | unresolved | included in each operation timestamp |
+| Synchronization | three static barriers/variant | three static barriers/variant | time overlaps memory/MMA work |
+| Other / issue / cache | residual | residual | only gate/up receive the stronger full-native causal split below |
+
+Q4 and Q6 unoptimized build-equivalent SPIR-V contain respectively 106/115
+loads, 70/70 stores, 18/21 access chains, 12/16 shifts, 15/14 bit operations,
+10/18 integer multiplies, 3/4 integer divisions, 5/4 numeric conversions,
+11/7 function calls, and three barriers. These counts separate compiler work
+classes; they do not turn overlapping instructions into additive seconds.
 
 The full seven-operation logical movement from Phase 11 is 6.138 TB in
 22.831 s, 269 GB/s including activations and outputs. Its nominal 360 GB/s
@@ -158,6 +181,28 @@ tensor loads and MMA still run at two-WG residency. Measured removable time is
 GB/s; native is 198.6 GB/s. The 3.555x byte penalty is outweighed by removed
 decode, shared staging, barriers, and associated issue pressure.
 
+The table below extends the floor model to every recurrent operation. “Current
+bound” removes only the measured Q4 metadata upper; “native” applies the
+measured 39.024% gate/up local ratio where no native prototype exists and is
+therefore a screening model, not a result. Mixed Q4/Q6 rows have lower
+confidence. Native load floors assume every shader-visible byte came from a
+nominal 360 GB/s source; cache makes them neither physical measurements nor
+additive with the Matrix2 floor.
+
+| Operation | Current | Current bound | Native executed weights | Native load floor | Matrix2 floor | Native practical/model | Removable |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Q | 2.420 s | 2.272 s | 286.588 GB | 0.796 s | 0.300 s | 1.476 s model | at most 0.944 s |
+| K | 0.668 s | 0.623 s | 71.647 GB | 0.199 s | 0.075 s | 0.407 s model | at most 0.261 s |
+| V | 0.707 s | 0.694 s, Q4 metadata only | 71.647 GB | 0.199 s | 0.075 s | 0.431 s low-confidence model | at most 0.276 s |
+| O | 2.507 s | 2.348 s | 286.588 GB | 0.796 s | 0.300 s | 1.528 s model | at most 0.978 s |
+| Gate | 5.334 s | 5.023 s | 644.824 GB | 1.791 s | 0.675 s | **3.253 s measured** | **2.081 s** |
+| Up | 5.316 s | 4.985 s | 644.824 GB | 1.791 s | 0.675 s | **3.241 s measured** | **2.075 s** |
+| Down | 5.709 s | 5.563 s, Q4 metadata only | 644.824 GB | 1.791 s | 0.675 s | 3.481 s low-confidence model | at most 2.228 s |
+
+Gate and up are the only practical predecoded floors used for the GO decision.
+Down's modeled removable time is individually below the 2.5 s whole-request
+threshold and requires unimplemented Q6 support; it is not evidence to expand.
+
 ## Representation models before implementation
 
 The model contains 2,617,245,696 Q4 and 811,597,824 Q6 matrix values. Dual
@@ -170,6 +215,38 @@ full-FP16 execution storage would add 6.386719 GiB before runtime scratch/KV.
 | C | Quant payload plus expanded/rearranged Q4 scales/mins | about 0.152 GiB all Q4; 0.086 GiB gate/up | about 2.144 GiB all-Q4 weights / 1.077x | low, not measured | less than 2.31% empirical upper | reject below GO gate |
 | D | Full FP16 only for 26 gate + 26 up tensors | 2.742 GiB | 4.734 GiB / 2.377x | +9.013 s measured CPU load | 8.32% from profiled removable time; 7.59% achieved TTFT | **keep, explicit opt-in** |
 
+Bytes and execution consequences, made explicit per candidate:
+
+| Candidate | Execution bytes/value | Affected-format expansion | Expected runtime weight bytes | Runtime work removed | TTFT gain / added GiB |
+|---|---:|---:|---:|---|---:|
+| A | 2 B FP16 plus canonical fallback | Q4 4.556x dual; Q6 3.438x dual | about 2.651 TB for seven native weight traversals | all Q4/Q6 block metadata, unpack, conversion, and shared weight staging | ideal at most 2.79 points/GiB |
+| B | at least 2 B exact FP16 plus canonical | at least A | same as A before any padding | same decode work as A; only address/layout changes beyond A | no demonstrated increment; at most A's 2.79 points/GiB |
+| C | Q4 canonical 0.5625 B + 0.0625 B expanded metadata | 1.111x affected Q4; 1.076x whole weights | about 863 GB versus 792 GB current recurrent weights | scale/min reconstruction and metadata addressing only; payload unpack/conversion/staging stay | less than 15.2 upper-bound points/GiB, but less than 2.31 points absolute |
+| D | Q4 canonical 0.5625 B + 2 B FP16 for gate/up | 4.556x affected gate/up; 2.377x whole weights | 1.290 TB gate/up versus 0.363 TB current | exact Q4 delta in the compiler table below | **2.77 measured points/GiB** |
+
+The high ratio shown for C is not a KEEP argument: the economically relevant
+absolute gain remains below 5% even before its extra traffic. A and B also
+include the tied embedding for conservative full-model capacity; their ideal
+runtime gain applies only to the seven recurrent Matrix2 operations.
+
+Conservative weight-residency plus largest-upload staging is:
+
+| Format/candidate | Baseline weights | Added persistent | Final persistent | Peak weight + staging | Whole-weight expansion |
+|---|---:|---:|---:|---:|---:|
+| Compressed Q4/Q6 | 1.991741 GiB | 0 | 1.991741 GiB | 2.299358 GiB | 1.000x |
+| A full FP16 dual | 1.991741 GiB | 6.386719 GiB | 8.378460 GiB | 9.128460 GiB | 4.206x |
+| B exact FP16 tiled dual | 1.991741 GiB | at least 6.386719 GiB | at least 8.378460 GiB | at least 9.128460 GiB | at least 4.206x |
+| C expanded Q4 metadata | 1.991741 GiB | 0.152344 GiB | 2.144085 GiB | 2.451702 GiB | 1.076x |
+| D gate/up FP16 dual | 1.991741 GiB | 2.742188 GiB | 4.733929 GiB | 5.041546 GiB | 2.377x |
+
+The peak column is a conservative simultaneous-residency preflight bound, not
+an observed allocator peak. D's observed application trace is reported below.
+Candidate C's unbuilt CPU preprocessing is bounded by about 16 s if it did the
+full Q4 work of D per block; metadata-only work should be lower, but was not
+measured because its synthetic runtime ceiling already failed GO. A's roughly
+21 s and B's at-least-21 s values are proportional CPU projections, not startup
+measurements.
+
 Candidate B cannot preserve exact dequantized values in fewer than two bytes
 per value without becoming another runtime numeric decode format. Every target
 dimension is already a multiple of N32/K128, so a tiled permutation adds no
@@ -181,6 +258,23 @@ the gate timestamp about 37.81%, and improves 28K TTFT 3.28%. That is below the
 whole-request gate but predicts a qualifying extension to the shape-identical
 up tensors. Gate+up then achieved the gate. The phase stops there rather than
 materializing the rest of the model.
+
+The pre-extension ranking was:
+
+| Operation | Removable seconds | Extra native VRAM | Seconds/GiB | Predicted TTFT points/GiB | Evidence |
+|---|---:|---:|---:|---:|---|
+| Q | at most 0.944 | 0.609375 GiB | 1.55 | 3.12 | Q4 ratio model |
+| K | at most 0.261 | 0.152344 GiB | 1.71 | 3.44 | Q4 ratio model |
+| V | at most 0.276 | 0.152344 GiB | 1.81 | 3.64 | mixed-format, low confidence |
+| O | at most 0.978 | 0.609375 GiB | 1.61 | 3.23 | Q4 ratio model |
+| Gate | **2.081 measured** | 1.371094 GiB | 1.52 | 3.05 modeled; 2.39 achieved alone | prototype |
+| Up | **2.075 measured** | 1.371094 GiB | 1.51 | 3.04 | same shape, then measured |
+| Down | at most 2.228 | 1.371094 GiB | 1.63 | 3.27 | mixed Q4/Q6, low confidence |
+
+Gate was first because it had the largest clean all-Q4 removable total, exact
+shape parity with up, and a clean compressed fallback—not because its modeled
+ratio was numerically highest. Gate+up together remove 4.156 s for 2.742 GiB;
+the remaining individually modeled operations do not clear 2.5 s.
 
 ## Retained representation and layout
 
@@ -213,9 +307,12 @@ direct tensor load through transposed view
   decode/fallback. There are no thousands of tile buffers and no fragmentation
   beyond normal Vulkan allocation requirements.
 - Routing: pure Vulkan, Q4_K, exact `[3072, 9216]`, native offset present, and
-  Matrix2 capability are all required. Hybrid and default runs retain the old
-  path. `GRAPH_HORIZON_PREFILL_PREDECODE_GATE` and `_UP` remain narrow A/B
-  controls; `_MLP=1` selects the qualified pair.
+  successful native Matrix2 pipeline construction are all required. The
+  pipeline registry is built before memory planning, and its resolved result is
+  carried through preflight and upload. Disabling Matrix2, pipeline rejection,
+  hybrid, and default runs retain compressed startup and execution.
+  `GRAPH_HORIZON_PREFILL_PREDECODE_GATE` and `_UP` remain narrow A/B controls;
+  `_MLP=1` selects the qualified pair.
 
 ### Compiler and resource audit
 
@@ -266,7 +363,43 @@ The short controls were 115.97 and 115.79 ms. Expanded weights improve rather
 than sacrifice short prefill; the declining gain with context is consistent
 with exact attention taking a larger share.
 
+After capability resolution moved ahead of memory planning, a warmed 128-token
+baseline/candidate/baseline recheck measured 113.94/96.05/114.77 ms (candidate
+about -16.0% versus the surrounding 114.36 ms control). This confirms that the
+hardening changes startup eligibility, not the retained execution path.
+
+### Cache and working-set audit
+
+One gate/up tensor expands from 15,925,248 to 56,623,104 execution bytes. The
+52-tensor gate/up execution set is 2.742 GiB instead of 0.771 GiB canonical
+storage (both remain resident, for 3.513 GiB affected storage). Neither a full
+tensor nor the layer set is assumed cache-resident. At 28K each weight is
+logically traversed by 438 row workgroups, so cache may serve repeated tile
+reads, but the device exposes no physical-byte or hit-rate counter.
+
+The measured cache-threshold evidence is therefore the full 128/512/2K/8K/
+16K/28K curve above plus the macro guards below. Native wins at every context,
+with gain declining smoothly from 15.75% to 7.59%; there is no observed
+expanded-working-set crossover. The strongest indirect cache consumer,
+28K attention, changes -0.14%. At 8K its +0.85% single-sample movement is
+included rather than hidden, and does not overturn the end-to-end result.
+
+For rejected candidates, A/B enlarge the whole weight set to at least 8.378
+GiB and cannot plausibly keep recurrent weights cache-resident; capacity closes
+them first. C keeps the payload compact but increases recurrent logical weight
+traffic about 9.1%, so its already-sub-5% instruction upper can only shrink.
+D's 2.742 GiB working-set increase is the only expanded case backed by the
+complete context curve and attention guard.
+
 ### Full macro reprofile
+
+The gate-only prototype was also reprofiled before extension. Its 28K
+surrounding control/candidate values were 49,926.92/48,290.53 ms TTFT
+(-3.28%), 49,702.879/48,038.414 ms GPU prefill (-3.35%),
+26,131.679/26,204.230 ms attention (+0.28%), and
+5,335.984/3,318.574 ms gate (-37.81%). This closes target, whole-GPU, and
+attention effects for the prototype; the retained gate+up run below provides
+the required complete matmul/other attribution.
 
 | Context / component | Baseline | Candidate | Delta |
 |---|---:|---:|---:|
@@ -306,11 +439,31 @@ Correctness evidence is:
   exactly equal. It passes. Both paths have max relative error 0.000493355 and
   mean relative error 0.000194311 against the FP32 CPU oracle.
 - The authenticated 128-token full-model greedy result remains exactly
-  `2757,10637,2479,1636` with and without native gate/up.
+  `2757,10637,2479,1636` in all four compressed/native x F16/INT8 KV arms.
+- The slow attention qualification passes F16 and INT8 KV at 2K, 8K, and 28K,
+  including both N32 and N16 tails. F16's maximum attention absolute error is
+  0.00001526 and maximum logits absolute error is 0.000004239; INT8 is
+  bit-exact in this qualification.
 - Q6, F16, INT8, logits, attention, and decode source paths are unchanged. The
   Vulkan-profile engine suite passes 154 tests with four intentional ignores,
   including CPU/Vulkan dense and attention parity and retained-format smoke.
 - No tolerance, sampling, model-format, or public behavior change was made.
+
+| Required surface | Baseline/candidate evidence | Result |
+|---|---|---|
+| Q4_K native output | compressed and native Matrix2 over identical random Q4 blocks/activations; raw FP16 buffers compared | bit-exact |
+| Q6_K weights | no native Q6 allocation or route; retained Q6 CPU oracle/format smoke | unchanged and pass |
+| F16 weights | existing F16 route has no native offset and is source-identical | unchanged; suite pass |
+| F16 KV attention | prefill-versus-sequential decode parity at retained tolerances | pass |
+| INT8 KV attention | prefill-versus-sequential decode parity, including long qualification | pass |
+| CPU/Vulkan | Q4 native versus CPU oracle plus dense and attention parity suite | pass without tolerance change |
+| Logits | every changed gate/up Matrix2 output is bit-exact before unchanged SiLU/down/logits; full greedy is an end-to-end guard | no changed downstream input |
+| Greedy sequence | compressed/native full model, F16 and INT8 KV | `2757,10637,2479,1636` |
+
+Q6/F16/INT8 are not claimed bit-exact *native* formats: they never enter the
+new representation. Their obligation is that dual Q4 residency does not alter
+their established paths, while Q4 native itself must and does meet raw-output
+bit-exactness.
 
 ## Memory economics and preprocessing
 
@@ -322,16 +475,28 @@ Correctness evidence is:
 | Model weight GiB | 1.991741 | 4.733929 | 2.742188 |
 | Weight expansion | 1.000x | 2.376779x | — |
 | 28K application VRAM | 5,452 MiB | 8,260 MiB | 2,808 MiB |
-| Added buffers / allocations | 0 / 0 | 0 / 0 | none |
+| Added persistent buffers / allocations | 0 / 0 | 0 / 0 | none |
+| Additional transient upload buffers / allocations | 0 | 52 sequential | peak one at a time |
 | Native alignment padding | 0 | 0 | none |
 
 Canonical and native uploads are sequential, so the new per-tensor peak
 staging requirement is the larger region, 56,623,104 bytes (54 MiB), not their
 sum. The memory preflight now accounts persistent bytes by summing both and
-staging by taking the larger upload. A 100 ms `nvidia-smi` load trace rose
+staging by taking the larger upload. Each of the 52 native uploads creates and
+destroys one temporary staging allocation; there is never a persistent second
+buffer or more than one additional staging buffer live. A 100 ms `nvidia-smi` load trace rose
 monotonically to about 4,855 MiB application memory before request allocation;
 the request then peaked at 8,258 MiB. The independently sampled 28K resident
 request was 8,260 MiB. There is no hidden per-request native allocation.
+
+Pipeline construction now precedes the memory plan. The exact native pipeline
+handle's presence is carried into both preflight and upload, so pipeline
+rejection, lack of Matrix2 support, an explicit Matrix2 disable, or hybrid mode
+cannot create these 52 transient uploads or the persistent expansion.
+An opt-in startup with `GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2=0` completed in
+2.20 s and selected compressed Q4 Matrix2; the same supported-device run with
+Matrix2 enabled took 11.58 s because it performed the native conversion. This
+directly exercises the no-copy fallback rather than inferring it from source.
 
 Candidate A's 8.378 GiB of weights alone would put this 12 GiB device at the
 28K capacity edge before a safe reserve and is rejected regardless of its
@@ -377,6 +542,36 @@ servers are the intended economic regime.
 | P12-ALL | Full dual FP16 model | +6.387 GiB model | ideal at most about -39% matmul | ideal at most -17.8%, capacity/cache excluded | exact possible | reject before build on capacity/economics |
 | P12-TILED | Full exact FP16 tile permutation | at least +6.387 GiB | no byte or instruction advantage over direct tensor view | no credible incremental 5% | exact possible | reject before build |
 
+The compact table above is the decision view. The following split registry
+retains every requested field without an unreadable single 25-column table.
+
+| ID | Canonical -> execution | Target | Bytes/value and expansion | Persistent / peak | Predecode |
+|---|---|---|---|---|---|
+| P12-META | Q4 -> synthetic free metadata | all Q4 operations | benchmark-only, no durable bytes | 0 / 0 synthetic | none |
+| P12-GATE | Q4 -> row-major FP16 dual | 26 gate | 0.5625 + 2 B; 4.556x affected | +1.371 GiB / not separately traced | about half of retained load work |
+| P12-GATE-UP | Q4 -> row-major FP16 dual | 26 gate + 26 up | 0.5625 + 2 B; 4.556x affected | +2.742 GiB / 5.042 GiB conservative weight+staging | +9.013 s measured `Engine::new` |
+| P12-ALL | Q4/Q6 -> FP16 dual | every quantized matrix | Q4 4.556x; Q6 3.438x affected | +6.387 / 9.128 GiB conservative peak | about 21 s CPU projection |
+| P12-TILED | Q4/Q6 -> exact FP16 tile permutation | every quantized matrix | at least P12-ALL | at least P12-ALL | at least 21 s projection |
+| P12-PARTIAL | Q4 payload + expanded scales/mins | all Q4 operations | 0.625 B total; 1.111x affected | +0.152 / 2.452 GiB conservative peak | below 16 s full-decode upper; not built |
+
+| ID | Runtime weight / metadata traffic | Runtime unpack/conversion | Matrix2/resources | Component result |
+|---|---|---|---|---|
+| P12-META | current payload; metadata made free synthetically | payload unpack/conversion/staging retained | Q4 98 reg, 33,792 B shared, 2 WG, 33.3%; 99.886% M use | all-Q4 timestamp upper -1.153 s |
+| P12-GATE | gate 644.824 GB native; zero runtime metadata | Q4 decode/conversion and weight staging removed | native 99 reg, 34,304 B shared, 2 WG, 33.3%; 99.886% M use | gate 5,335.984 -> 3,318.574 ms |
+| P12-GATE-UP | 1,289.648 GB native versus 362.713 GB current; zero runtime metadata | exact static delta: -12 shifts, -15 bit ops, -7 integer multiplies, -2 divisions, -4 conversions, -2 barriers per variant | native resources above; one MMA/store, two direct tensor loads | pair 10,649.916 -> 6,493.897 ms; all matmul -4,083.518 ms |
+| P12-ALL | about 2.651 TB native recurrent weights | Q4/Q6 decode intended absent | Q4 native measured; Q6 native resources unknown | at most -39% matmul model, not measured |
+| P12-TILED | same or greater than P12-ALL | same decode removal as full FP16 | no measured resource advantage over direct tensor view | no incremental component gain demonstrated |
+| P12-PARTIAL | about 863 GB versus 792 GB current recurrent weights | scale/min decode removed; payload unpack/conversion/staging retained | current Q4 resources expected; prototype not compiled | less than 1.153 s before traffic penalty |
+
+| ID | Attention | Matmul/GPU | TTFT and context curve | Decode | Correctness | Decision |
+|---|---|---|---|---|---|---|
+| P12-META | drifted, so excluded from causal wall claim | Q4 upper -1.153 s | attributable upper less than 2.31% at 28K | unchanged source | diagnostic only | reject/remove |
+| P12-GATE | +0.28% at 28K | GPU -3.35%; gate -37.81% | 28K -3.28%; 8K target screening passed | compressed source | focused native parity pass | expand only to identical up shape |
+| P12-GATE-UP | -0.14% at 28K; +0.85% single 8K profile | matmul -18.02%; GPU -8.19% at 28K | 128/512/2K/8K/16K/28K: -15.75/-15.77/-14.94/-11.61/-9.91/-7.59% | 128/2K/28K: -0.10/+0.10/+0.09% | raw Matrix2 bytes equal; CPU oracle and greedy pass | **keep opt-in** |
+| P12-ALL | not measured; capacity risk | ideal model only | ideal at most -17.8% at 28K | would remain compressed | exact representation possible, unqualified | reject before build |
+| P12-TILED | not measured | no credible delta beyond full FP16 | no credible incremental 5% | would remain compressed | exact possible, unqualified | reject before build |
+| P12-PARTIAL | raw diagnostic attention drift excluded | Q4 upper only | less than 2.31% attributable at 28K | unchanged | no durable candidate | reject/remove |
+
 Rejected shaders, instrumentation, and temporary executable-statistics code
 are absent from the final tree.
 
@@ -410,6 +605,11 @@ changes semantics; neither is implicitly authorized by Phase 12.
 - Pure Vulkan and Vulkan-hybrid release checks: pass.
 - Vulkan-profile engine library: 154 passed, four intentional ignores.
 - Focused CPU predecode and raw compressed/native Matrix2 equality: pass.
+- Long F16/INT8 attention qualification at 2K/8K/28K, including N32/N16
+  tails: pass in 360.71 s.
+- Family-agnostic structural suite with the unavailable root-doc contract
+  filtered: four passed, one intentional ignore; all orchestration remains at
+  or below 200 productive lines.
 - Full workspace run: 165 unrelated application tests passed and one
   installer-fixture test failed because its isolated PATH returned status 1
   before the expected missing-`npm` status 2. The same isolated test repeats

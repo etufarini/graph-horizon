@@ -49,6 +49,7 @@ belong in the [validation register](../VALIDATION.md).
 | [prefill-long-attention-phase10.md](prefill-long-attention-phase10.md) | Phase 10 Vulkan long-attention attribution, reuse/resource ceilings, and stop decision |
 | [prefill-global-phase11.md](prefill-global-phase11.md) | Phase 11 global prefill attribution, quantized-matmul experiment, and exact-path stop decision |
 | [vulkan-predecoded-weights-phase12.md](vulkan-predecoded-weights-phase12.md) | Phase 12 Vulkan persistent predecoded-weight economics, retained gate/up path, and qualification |
+| [vulkan-native-weight-frontier-phase13.md](vulkan-native-weight-frontier-phase13.md) | Phase 13 marginal TTFT/VRAM frontier, rejected down expansion, compact-representation audit, and exact-path stop decision |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

@@ -1453,3 +1453,211 @@ remaining 28K opportunity is still architecturally significant, but the next
 step is a new supported multi-query attention kernel rather than incremental
 tuning. Phase 8 therefore stops under the architectural-mission boundary with
 the clean Phase 7 production path preserved.
+
+## Phase 9: accumulator persistence for long-context attention — RTX 3060, 2026-08-15
+
+Phase 9 starts from the exact clean Phase 8 checkpoint `50dbdef` on
+`perf/vulkan-short-prefill-phase8`; the investigation branch is
+`perf/vulkan-long-prefill-phase9`. The authenticated artifact is
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2.147.023.008 bytes, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+The machine remains RTX 3060, driver 595.84, Vulkan 1.4.329, fixed 32.768
+context, F16 KV, greedy sampling and prompts `" a"` repeated `tokens - 3`.
+
+The invariant is unchanged stable causal online softmax, FP32 accumulation,
+F16 probability/value input and F16 output. Q32/KV64 ownership, GQA mapping,
+global Q/K/V layout, dispatch, fallback, decode, INT8, public API and
+dependencies must not change. The smallest viable edit is consequently one
+category-K shader. Its main risk is keeping a 32x128 FP32 cooperative
+accumulator live across the full KV scan: register growth or an incorrect
+online rescale would respectively destroy occupancy or numerical parity.
+
+### Fresh diagnostics-free baseline
+
+This baseline was captured before the first production edit. Each row has one
+warm-up and three measured repetitions. It is consistent with the inherited
+Phase 8 matrix; the 128 control differs by 1,43% and the 28K control by 0,45%.
+
+| Tokens | TTFT mean | SD | CV | Prompt tok/s |
+|---:|---:|---:|---:|---:|
+| 128 | 116,25 ms | 0,81 | 0,70% | 1.101,15 |
+| 512 | 443,93 ms | 0,75 | 0,17% | 1.153,33 |
+| 2K | 1.876,21 ms | 0,75 | 0,04% | 1.091,57 |
+| 8K | 9.351,49 ms | 4,68 | 0,05% | 876,02 |
+| 16K | 23.783,02 ms | 11,89 | 0,05% | 688,89 |
+| 28K | 52.875,29 ms | 52,88 | 0,10% | 529,55 |
+
+Fresh cold-control / cold-plus-warm profiler subtraction gives 1.853,648,
+9.384,925, 23.888,277 and 53.237,156 ms GPU at 2K/8K/16K/28K. Attention is
+159,875, 2.528,168, 10.096,870 and 29.569,842 ms. The source-identical Phase 8
+128/512 profile remains 114,162/440,329 ms GPU and 1,179/11,204 ms attention.
+At 28K the seven recurrent matmuls total 22.740,055 ms and the named residual
+is about 0,927 s. Profiler coverage exceeds 99,9%; 110 command buffers contain
+73.762 dispatches and 62.322 graph-level barriers, with no meaningful GPU gap.
+
+The 28K baseline telemetry has 259 active samples, 99,5% mean utilization,
+1.945 MHz mean core clock, 7.501 MHz memory clock, 168,2 W mean power and
+71,6 °C mean temperature. It describes the whole request and is not a kernel
+counter; the profile and diagnostics-free measurements remain separate.
+
+### Baseline attention attribution and traffic model
+
+Downstream-live cold/pair ablations were rebuilt rather than copied. QK-off
+keeps softmax and AV live on zero scores; AV-off keeps QK/softmax live through
+an output derived from online state; the pre-softmax probe keeps the last score
+tile observable. At 28K the baseline direct deltas are 9.926,378 ms QK and
+10.266,912 ms AV. The AV-off minus pre-softmax delta is 8.281,972 ms for
+softmax/state/probability and two barriers; the remaining 1.094,580 ms covers
+setup, score/epilogue and interactions. At 8K the corresponding QK/AV direct
+deltas are 843,674/910,483 ms. These causal deltas are not hardware counters.
+
+The shader executes one Q32xKV64 tile per 256-thread workgroup and one query
+head. At 8K/16K/28K it performs 13.737.984 / 54.738.944 / 159.614.208
+workgroup-KV visits. Q is therefore read 112,54 / 448,42 / 1.307,56 GB, while
+K and V are each read 225,08 / 896,84 / 2.615,53 GB. Unique Q is only
+1,745 / 3,490 / 5,964 GB, for amplification about 64,5x / 128,5x / 219,3x;
+unique K or V is 0,436 / 0,872 / 1,491 GB, for about 516x / 1.028x / 1.754x.
+These are shader-visible logical bytes, not DRAM measurements.
+
+Each baseline visit also performs about 65.536 shared bytes: 24.576 for score
+write/two reads, 8.192 for probability write/read, and 32.768 for the FP32 AV
+store/manual read. Shared traffic is 0,900 / 3,587 / 10,460 TB at
+8K/16K/28K. QK and AV each execute 83,684 TFLOP at 28K. Their dense 61,1
+TFLOP/s minimum is 2,74 s; 6,538 TB Q/K/V at nominal 360 GB/s is 18,16 s,
+and K+V at a more realistic 300 GB/s is 17,44 s. Baseline effective attention
+is only 5,66 TFLOP/s and about 221 GB/s logical Q/K/V. It is a
+tensor-load/cache/shared/synchronization pipeline, not a pure dense-compute or
+softmax-SFU limit.
+
+### Selected architecture and experiment registry
+
+The pre-edit Amdahl estimate was 10–15% attention, or 5,6–8,4% whole 28K GPU
+prefill, so the design passed the 5% end-to-end experiment gate. Commit
+`d6c9a38` keeps one FP32 32x128 cooperative output accumulator live across all
+KV tiles. Before each AV MMA, `coopMatPerElementNV` applies the online-softmax
+alpha to the accumulator; the probability/value MMA then adds the current
+tile. Only the completed accumulator is stored to shared memory for final F16
+normalization. The invariant documented at the mutation is that output and
+`(m,l)` cover the same KV prefix before the next AV tile.
+
+| ID | Design | 8K attention | 28K attention | Decision |
+|---|---|---:|---:|---|
+| P9-PERSIST | persistent FP32 Matrix2 output | −11,54% first screen | −10,48% first screen | keep |
+| P9-INPLACE | rescale the same cooperative object | +0,31% vs P9-PERSIST | not run after 8K reject | reject |
+| P9-GQA2 | two query heads share one staged K/V tile | predicted occupancy 33,3%→16,7% | no credible ≥5% E2E | reject before implementation |
+| P9-DIRECT-F16 | direct final cooperative F16 conversion | only one final 32x128 round trip/WG | below gate; conversion capability/register risk | reject before implementation |
+
+`P9-GQA2` was not another Q64 ownership attempt. It would require replacing
+the successful direct tensor loads with cooperative standard shared loads;
+the acquired standard-load experiment was 67% slower and the required shared
+tile would reduce residency from two workgroups to one. Halving only K/V
+loads cannot credibly recover that loss. Phase 8 Q staging and unsupported Q64
+ownership were not repeated. No public surface, allocation or dispatch was
+added, and all rejected source and profiler probes were removed.
+
+### Retained resource, barrier and roofline result
+
+Driver executable properties are 124 registers/thread versus 125 baseline,
+38.272 bytes reported shared memory, zero reported stack and 133.248-byte
+binary. The driver reports the local-memory sentinel as 64 GiB, so no claim
+about absence of spills is made. The register/shared limits still allow two
+resident workgroups, 16 warps and 33,3% modeled occupancy.
+
+Global Q/K/V bytes and FLOPs are unchanged. Shared bytes become 32.768 per KV
+visit plus one final 32.768-byte output round trip per workgroup:
+
+| Tokens | Baseline shared | Final shared | Delta | Baseline internal barriers | Final | Delta |
+|---:|---:|---:|---:|---:|---:|---:|
+| 8K | 0,900 TB | 0,457 TB | −49,22% | 55,165 M | 27,902 M | −49,42% |
+| 16K | 3,587 TB | 1,808 TB | −49,61% | 219,382 M | 110,330 M | −49,71% |
+| 28K | 10,460 TB | 5,254 TB | −49,77% | 639,185 M | 320,684 M | −49,83% |
+
+These are dynamic shader `barrier()` executions across workgroups. The 62.322
+graph-level profiler barriers at 28K are unchanged because dispatch/resource
+ownership did not change. At 2K/8K/16K/28K the final effective compute is
+6,37/6,43/6,38/6,35 TFLOP/s, Q/K/V logical bandwidth is
+249/251/249/248 GB/s, and shared logical bandwidth is 211/204/201/199 GB/s.
+The combined logical rate exceeds DRAM bandwidth because cache and shared
+traffic overlap; it is not a physical bus measurement.
+
+The required post-redesign downstream-live profile gives:
+
+| Tokens | Final attention | QK direct | AV direct | Softmax/state causal delta |
+|---:|---:|---:|---:|---:|
+| 8K | 2.239,631 ms | 813,440 | 870,836 | 671,354 |
+| 28K | 26.372,825 ms | 9.825,228 | 10.072,041 | 8.145,228 |
+
+The softmax/state column is AV-off minus a score-derived pre-softmax probe.
+The three columns must not be summed: changed overlap and live-output probe
+cost produce −0,116 s interaction at 8K and −1,670 s at 28K. QK and AV source,
+FLOPs and global traffic are unchanged; the retained reduction is specifically
+the removed AV shared round trip and synchronization.
+
+### Final profiler attribution and diagnostics-free matrix
+
+Final cold/pair profiler subtraction reconciles at least 99,89% at every row:
+
+| Tokens | GPU baseline / final | Δ GPU | Attention baseline / final | Δ attention | Final matmul | Final other |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 114,162 / 104,090 ms | −8,82%* | 1,179 / 1,020 | −13,49%* | 94,560 | 8,510 |
+| 512 | 440,329 / 436,530 ms | −0,86% | 11,204 / 10,880 | −2,89% | 405,934 | 19,716 |
+| 2K | 1.853,648 / 1.850,833 ms | −0,15% | 159,875 / 144,629 | −9,54% | 1.633,440 | 72,764 |
+| 8K | 9.384,925 / 9.167,285 ms | −2,32% | 2.528,168 / 2.239,631 | −11,41% | 6.650,592 | 277,062 |
+| 16K | 23.888,277 / 22.874,206 ms | −4,25% | 10.096,870 / 8.993,966 | −10,92% | 13.333,426 | 546,814 |
+| 28K | 53.237,156 / 50.141,374 ms | −5,82% | 29.569,842 / 26.372,825 | **−10,81%** | 22.830,258 | 938,291 |
+
+`*` The 128 profiler cold subtraction is visibly session-sensitive; retention
+uses diagnostics-free repeated TTFT, where the short control is unchanged.
+The kernel is too small at 128/512 for the long-context local percentage to be
+a useful optimization claim.
+
+After all probes were removed, a fresh diagnostics-free rebuild produced:
+
+| Tokens | Baseline / final TTFT | Δ wall | Baseline / final tok/s | Δ tok/s | Final CV |
+|---:|---:|---:|---:|---:|---:|
+| 128 | 116,25 / 114,61 ms | −1,41% | 1.101,15 / 1.116,84 | +1,42% | 0,34% |
+| 512 | 443,93 / 437,72 ms | −1,40% | 1.153,33 / 1.169,70 | +1,42% | 0,24% |
+| 2K | 1.876,21 / 1.842,92 ms | −1,77% | 1.091,57 / 1.111,28 | +1,81% | 0,14% |
+| 8K | 9.351,49 / 9.056,37 ms | −3,16% | 876,02 / 904,56 | +3,26% | 0,15% |
+| 16K | 23.783,02 / 22.697,72 ms | −4,56% | 688,89 / 721,84 | +4,78% | 0,23% |
+| 28K | 52.875,29 / **49.863,80 ms** | **−5,70%** | 529,55 / 561,53 | **+6,04%** | 0,02% |
+
+The 128 result is 114,61 ms, equal to the inherited 114,615 ms and above the
+111,615 ms Phase 8 practical floor; the short-context guard is satisfied. At
+28K the 385 telemetry samples show 99,6% mean utilization, 1.921 MHz mean core
+clock, 7.501 MHz memory clock, 168,5 W and 73,9 °C. The final run was faster
+despite a lower core clock than baseline, so clock drift does not explain it.
+
+### Correctness, decode and final stop
+
+The rapid F16 Matrix2 parity test has maximum attention absolute error
+`6,104e-5`, CPU-oracle attention `4,058e-5`, and projected logits
+`4,18e-6`; INT8 remains exact. The full 2K/8K/28K numeric qualification,
+including 32-row Matrix2 and 16-row generic tails, passes in 349,09 s. F16
+maximum attention/logit absolute errors are `1,526e-5` / `4,239e-6`; every
+INT8 attention and logits comparison is bit-exact. The authenticated 128-token
+greedy control emits exactly `2757,10637,2479,1636`.
+
+Diagnostics-free 32-token decode is 47,19 tok/s at 128, 46,54 at 2K and 29,16
+at 28K, all slightly above the Phase 8 controls 46,63/46,22/29,11. CV is at
+most 0,10%; no decode regression is evidenced. The Vulkan-profile library
+suite passes 152 tests with four intentional ignores. Release workspace
+Clippy with all targets and warnings denied, `cargo fmt --all -- --check`,
+`git diff --check`, shader compilation and full-model finite output pass.
+
+The preferred 15% attention target is not reached: stable final attention
+improves 10,81% at 28K. The main criterion is nevertheless met because the
+architectural redesign reduces diagnostics-free 28K TTFT by 5,70%, above its
+pre-edit 5% gate, without short-context or decode regression. Attention remains
+the largest final component at 26,373 s versus 22,830 s matmul.
+
+The remaining local paths do not justify more complexity. QK and AV already
+account for roughly 19,90 s causal cost and keep unchanged mandatory FLOPs and
+Q/K/V traffic; eliminating all remaining non-QK/AV time is not realistic.
+Two-head K/V reuse requires the already-regressive standard-load/shared path
+and halves occupancy, while final conversion is far below the whole-request
+gate. Phase 8 Q staging/Q64 and Phase 9 in-place rescale provide three further
+negative architectural results. Phase 9 therefore stops under condition 5:
+no credible untested redesign remains with at least 5% whole 28K ceiling.
+Final production state is the single category-K shader checkpoint `d6c9a38`
+plus this report, with no profiler or rejected candidate source retained.

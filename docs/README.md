@@ -46,6 +46,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-decode-investigation.md](vulkan-decode-investigation.md) | Phase 1 Vulkan long-context decode and GQA KV reuse |
 | [vulkan-decode-phase2-investigation.md](vulkan-decode-phase2-investigation.md) | Phase 2 Vulkan decode bottleneck attribution and retained optimizations |
 | [prefill-short-context-investigation.md](prefill-short-context-investigation.md) | Phase 5--9 Vulkan prefill attribution, ceiling verification, and retained optimizations |
+| [prefill-long-attention-phase10.md](prefill-long-attention-phase10.md) | Phase 10 Vulkan long-attention attribution, reuse/resource ceilings, and stop decision |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

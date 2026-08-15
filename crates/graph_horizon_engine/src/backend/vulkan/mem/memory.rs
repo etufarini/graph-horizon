@@ -81,7 +81,7 @@ pub(crate) fn plan(
         let raw = t
             .byte_len()
             .ok_or_else(|| eyre!("memory: cannot size tensor '{}'", t.name))?;
-        let native = super::weights::predecoded_bytes(t, native_matrix2).unwrap_or(0);
+        let native = super::native::bytes(t, native_matrix2).unwrap_or(0);
         let resident = raw.checked_add(native).ok_or_else(|| {
             eyre!(
                 "Vulkan memory is insufficient: required overflow bytes, available {} bytes",

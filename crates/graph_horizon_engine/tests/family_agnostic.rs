@@ -113,6 +113,8 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q5k_simd.rs",
         "src/backend/cpu/kernels/matmul/q6k.rs",
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
+        // Persistent-weight conversion is one dense Q4_K-to-FP16 operation.
+        "src/backend/vulkan/mem/predecode.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
         "src/family/mistral/generation/tests.rs",

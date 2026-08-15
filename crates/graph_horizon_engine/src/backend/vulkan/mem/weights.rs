@@ -168,7 +168,7 @@ fn upload_tensor(
             other.name()
         ),
     };
-    let native = if predecoded_bytes(info, native_matrix2).is_some() {
+    let native = if super::native::bytes(info, native_matrix2).is_some() {
         let in_dim = usize::try_from(info.dims[0])?;
         let out_dim = usize::try_from(info.dims[1])?;
         Some(predecode::q4_f16(&bytes, in_dim, out_dim)?)
@@ -196,60 +196,4 @@ fn upload_tensor(
     buf.quant = fmt;
     buf.native_offset = native_offset;
     Ok(buf)
-}
-
-#[cfg(feature = "vulkan")]
-fn predecode_enabled(info: &TensorInfo) -> bool {
-    let enabled = |name| {
-        matches!(
-            std::env::var(name).ok().as_deref(),
-            Some("1" | "true" | "yes")
-        )
-    };
-    if !matches!(
-        std::env::var("GRAPH_HORIZON_PREFILL_MATMUL_MATRIX2")
-            .ok()
-            .as_deref(),
-        None | Some("1" | "true" | "yes")
-    ) {
-        return false;
-    }
-    let mlp = enabled("GRAPH_HORIZON_PREFILL_PREDECODE_MLP");
-    (info.name.ends_with(".ffn_gate.weight")
-        && (mlp || enabled("GRAPH_HORIZON_PREFILL_PREDECODE_GATE")))
-        || (info.name.ends_with(".ffn_up.weight")
-            && (mlp || enabled("GRAPH_HORIZON_PREFILL_PREDECODE_UP")))
-}
-
-#[cfg(feature = "vulkan")]
-pub(super) fn predecoded_bytes(info: &TensorInfo, native_matrix2: bool) -> Option<u64> {
-    if !native_matrix2
-        || info.ggml_type != GgmlType::Q4_K
-        || info.dims != [3072, 9216]
-        || !predecode_enabled(info)
-    {
-        return None;
-    }
-    info.element_count()?.checked_mul(2)
-}
-
-#[cfg(feature = "vulkan-hybrid")]
-pub(super) fn predecoded_bytes(_info: &TensorInfo, _native_matrix2: bool) -> Option<u64> {
-    None
-}
-
-#[cfg(all(test, feature = "vulkan"))]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unavailable_native_pipeline_disables_predecode_before_flag_selection() {
-        let info = TensorInfo {
-            name: "blk.0.ffn_gate.weight".into(),
-            dims: vec![3072, 9216],
-            ggml_type: GgmlType::Q4_K,
-            offset: 0,
-        };
-        assert_eq!(predecoded_bytes(&info, false), None);
-    }
 }

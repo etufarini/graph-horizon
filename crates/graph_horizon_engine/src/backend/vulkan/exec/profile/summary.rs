@@ -180,6 +180,10 @@ mod tests {
     #[test]
     fn prefill_matmul_paths_are_disjoint() {
         assert!(matches!(
+            MatmulPath::from_kernel(Kernel::MatmulF16Matrix2F16Out),
+            Some(MatmulPath::F16Matrix2)
+        ));
+        assert!(matches!(
             MatmulPath::from_kernel(Kernel::MatmulQ4KCoopmatF16Out),
             Some(MatmulPath::Q4Coopmat)
         ));

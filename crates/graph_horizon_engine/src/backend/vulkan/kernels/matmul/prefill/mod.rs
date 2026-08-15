@@ -207,30 +207,41 @@ mod tests {
 
     #[test]
     fn batched_q4k_metadata_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 3072, 3, "q4_metadata", false);
+        let _ = q4k_cpu_oracle(3072, 3072, 3, "q4_metadata", false);
     }
 
     #[test]
     fn batched_q4k_matrix2_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail", false);
+        let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail", false);
     }
 
     #[test]
     fn batched_predecoded_q4k_matrix2_matches_cpu_oracle() {
-        q4k_cpu_oracle(3072, 9216, 3, "q4_predecoded_matrix2_tail", true);
+        let baseline = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_control", false);
+        let native = q4k_cpu_oracle(3072, 9216, 3, "q4_predecoded_matrix2_tail", true);
+        assert_eq!(
+            native, baseline,
+            "predecode must preserve Matrix2 output bits"
+        );
     }
 
     #[test]
     fn batched_q4k_small_output_matches_cpu_oracle() {
-        q4k_cpu_oracle(4096, 70, 37, "q4_small_output", false);
+        let _ = q4k_cpu_oracle(4096, 70, 37, "q4_small_output", false);
     }
 
-    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str, predecoded: bool) {
+    fn q4k_cpu_oracle(
+        in_dim: usize,
+        out_dim: usize,
+        rows: usize,
+        label: &str,
+        predecoded: bool,
+    ) -> Vec<u8> {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
                 eprintln!("batched Q4_K parity skipped: no Vulkan device");
-                return;
+                return Vec::new();
             }
         };
         let mut seed = 0x9e3779b9u32;
@@ -336,6 +347,7 @@ mod tests {
         input.destroy(&backend.dev);
         weights.destroy(&backend.dev);
         output.destroy(&backend.dev);
+        raw
     }
 
     #[test]

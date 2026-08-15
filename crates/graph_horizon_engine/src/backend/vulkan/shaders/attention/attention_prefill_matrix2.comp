@@ -10,9 +10,9 @@
 
 // NVIDIA workgroup-scope prefill attention. One 256-thread workgroup owns 32
 // queries and scans 64 keys at a time. Tensor loads feed Q/K/V directly from
-// their strided buffers; score stays in a cooperative matrix. The measured
-// lower-register path stages FP16 probability and the FP32 AV tile for manual
-// softmax/online merge. Decode, INT8 and query tails use the existing shader.
+// their strided buffers; score stays in a cooperative matrix. FP16 probability
+// is staged for AV, while one FP32 cooperative output remains live across KV
+// tiles for the online merge. Decode, INT8 and query tails use existing paths.
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
@@ -55,6 +55,10 @@ float scale_and_mask(
     return tile + col <= position ? value * scale : -1e30;
 }
 
+float rescale_output(const in uint row, const in uint col, const in float value) {
+    return value * sh_alpha[row];
+}
+
 void main() {
     uint h = gl_WorkGroupID.x;
     uint first = gl_WorkGroupID.y * QUERY_TILE;
@@ -74,8 +78,10 @@ void main() {
     }
     barrier();
 
-    float acc[OUTPUTS_PER_THREAD];
-    for (uint part = 0u; part < OUTPUTS_PER_THREAD; part++) acc[part] = 0.0;
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> output_matrix =
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator>(0.0);
 
     for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
         coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
@@ -163,26 +169,22 @@ void main() {
         coopMatLoadTensorNV(value, vc, cache_layer, value_layout);
 
         coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
-                gl_MatrixUseAccumulator> output_matrix =
+                gl_MatrixUseAccumulator> rescaled_output =
             coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
                     gl_MatrixUseAccumulator>(0.0);
-        output_matrix = coopMatMulAdd(probability, value, output_matrix);
-        coopMatStore(output_matrix, sh_scratch, 0u, HEAD_DIM,
-                     gl_CooperativeMatrixLayoutRowMajor);
-        barrier();
-        for (uint part = 0u; part < OUTPUTS_PER_THREAD; part++) {
-            uint index = lane + part * 256u;
-            uint query = index / HEAD_DIM;
-            acc[part] = acc[part] * sh_alpha[query] + sh_scratch[index];
-        }
-        barrier();
+        // Invariant: output and (m,l) cover the same KV prefix before the next AV tile.
+        coopMatPerElementNV(rescaled_output, output_matrix, rescale_output);
+        output_matrix = coopMatMulAdd(probability, value, rescaled_output);
     }
 
+    coopMatStore(output_matrix, sh_scratch, 0u, HEAD_DIM,
+                 gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
     for (uint part = 0u; part < OUTPUTS_PER_THREAD; part++) {
         uint index = lane + part * 256u;
         uint query = index / HEAD_DIM;
         uint dimension = index % HEAD_DIM;
         uint output_index = ((first + query) * p.q_heads + h) * HEAD_DIM + dimension;
-        o[output_index] = float16_t(acc[part] / sh_l[query]);
+        o[output_index] = float16_t(sh_scratch[index] / sh_l[query]);
     }
 }

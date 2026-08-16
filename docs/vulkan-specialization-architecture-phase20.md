@@ -14,7 +14,8 @@ on RTX 3060/Ampere**. Selection contains no device-name or model-name check.
 The default path is decided from actual Vulkan capabilities, successful pipeline
 construction, datatype, attention shape, and prefill row geometry.
 
-The retained implementation is `1c10022` on
+The retained production implementation is `1c10022` plus the capability-boundary
+correction `65434d2` on
 `perf/vulkan-specialization-architecture-phase20`. It is based on the clean
 Phase 19 production branch `perf/vulkan-ampere-attention-phase19` at `15f32b7`;
 the Phase 19 implementation is `3b9ba6c`. Nothing is pushed.
@@ -35,7 +36,7 @@ This is inside noise and preserves the acquired ~22% Phase 19 gain.
 | Phase 20 branch | `perf/vulkan-specialization-architecture-phase20` |
 | Phase 19 branch / tip | `perf/vulkan-ampere-attention-phase19` / `15f32b7` |
 | Phase 19 implementation | `3b9ba6c` |
-| Phase 20 implementation | `1c10022` |
+| Phase 20 implementation | `1c10022`, `65434d2` |
 | GPU | NVIDIA GeForce RTX 3060 12 GiB, PCI device `0x2487` |
 | Driver | 595.84 |
 | Model | Ministral-3-3B-Instruct-2512 Q4_K_M |
@@ -90,6 +91,8 @@ Granularity and workgroup checks follow the
 Block loads are not used and therefore are not required. The Q64 contract is
 independent of the existing WG256 Matrix2 property; lack of WG256 no longer
 artificially disables a valid WG128 pipeline.
+Conversions and reductions are enabled only when Q64 is qualified. The generic
+WG256 Matrix2 family therefore remains eligible on devices without conversions.
 
 ### D. Shape-specific
 
@@ -222,6 +225,7 @@ gate/up shape. Phase 20 does not optimize or generalize it.
 | Matrix2 broadly disabled | next established path | pure route test | pass |
 | Matrix2 unavailable / Q64 pipeline absent | fallback | pure route test | pass |
 | required conversion/reduction/type/scope/tile/resource missing | no Q64 pipeline | pure capability tests | pass |
+| conversions missing but generic WG256 contract complete | generic Matrix2 remains available | pure capability test | pass |
 | non-NVIDIA vendor | portable hierarchy | vendor-ID gate by inspection; no AMD hardware | expected; specialization cannot build or route |
 | forced generic | portable `attention_prefill` | real GPU profiler | pass; exact kernel label observed |
 | forced Phase 19 | Q64 if safe | real GPU profiler | pass; exact Q64 label observed |
@@ -233,9 +237,8 @@ claimed; the tests prove the decision/fallback behavior without one.
 
 ## Correctness and regression evidence
 
-- The complete Vulkan library suite passes 157 tests with five ignored after the
-  final policy addition. The earlier full run was 156 passes; the additional
-  diagnostic-policy test accounts for the increment.
+- The complete Vulkan library suite passes 158 tests with five ignored after the
+  final capability-boundary correction.
 - `family_agnostic` retains four passes, one ignore, and the pre-existing
   `docs_contract` failure caused by the absent root `VALIDATION.md`.
 - Real GPU boundary tests pass at 63/64/65, 127/128/129, and 255/256/257.

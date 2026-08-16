@@ -91,6 +91,11 @@ from 405 to 7,501 MHz, power from 18.85 to 169.90 W, and temperature from 52 to
 159–170 W, and 70 C; there is no observed thermal or clock collapse explaining
 the scaling curve.
 
+Startup remains separately accounted and source-identical: the acquired hot
+page-cache initialization is about 11.35 s, of which 9.013 s is the explicitly
+enabled Phase 12 exact gate/up preprocessing. The rejected callback added no
+persistent representation, allocation, or initialization work.
+
 ### GPU-prefill scaling
 
 All values are milliseconds/request from fresh Vulkan timestamps. “Other” is
@@ -125,16 +130,17 @@ The seven rows below account for 100% of recurrent matmul timestamp time, well
 above the required 98% attribution threshold. Logits is only about 3.7 ms and
 is included in “other.”
 
-| Operation | GPU ms | GPU prefill | Public TTFT | Dispatches | ms/dispatch |
-|---|---:|---:|---:|---:|---:|
-| Q | 2,402.709 | 6.75% | 6.79% | 2,860 | 0.840108 |
-| K | 662.567 | 1.86% | 1.87% | 2,860 | 0.231667 |
-| V | 706.254 | 1.98% | 2.00% | 2,860 | 0.246942 |
-| O | 2,498.686 | 7.02% | 7.06% | 2,860 | 0.873667 |
-| Gate | 3,234.441 | 9.08% | 9.14% | 2,860 | 1.130923 |
-| Up | 3,225.684 | 9.06% | 9.12% | 2,860 | 1.127862 |
-| Down | **5,667.921** | **15.92%** | **16.02%** | 2,860 | **1.981791** |
-| **Total** | **18,398.262** | **51.67%** | **52.00%** | **20,020** | — |
+| Operation | GPU ms | GPU prefill | Public TTFT | Dispatches | ms/dispatch | Quant / execution | Matrix2 | Rows/WG / reuse |
+|---|---:|---:|---:|---:|---:|---|---|---:|
+| Q | 2,402.709 | 6.75% | 6.79% | 2,860 | 0.840108 | Q4 / compressed | yes | 64 / 64 |
+| K | 662.567 | 1.86% | 1.87% | 2,860 | 0.231667 | Q4 / compressed | yes | 64 / 64 |
+| V | 706.254 | 1.98% | 2.00% | 2,860 | 0.246942 | 13 Q4 + 13 Q6 / compressed | yes | 64 / 64 |
+| O | 2,498.686 | 7.02% | 7.06% | 2,860 | 0.873667 | Q4 / compressed | yes | 64 / 64 |
+| Gate | 3,234.441 | 9.08% | 9.14% | 2,860 | 1.130923 | Q4 / exact FP16 native | yes | 64 / 64 |
+| Up | 3,225.684 | 9.06% | 9.12% | 2,860 | 1.127862 | Q4 / exact FP16 native | yes | 64 / 64 |
+| Activation | 222.067 | 0.62% | 0.63% | 2,860 | 0.077646 | FP16 elementwise | no | n/a |
+| Down | **5,667.921** | **15.92%** | **16.02%** | 2,860 | **1.981791** | 13 Q4 + 13 Q6 / compressed | yes | 64 / 64 |
+| **Seven matmuls** | **18,398.262** | **51.67%** | **52.00%** | **20,020** | — | — | — | — |
 
 The mixed-format V split is 327.539 ms Q4 and 378.716 ms Q6. The down split is
 2,654.326 ms Q4 and 3,013.596 ms Q6. Format times cover 13 layers each.
@@ -150,17 +156,53 @@ but retain the same 64-row ownership.
 
 | Operation | Logical MxNxK | Canonical / execution | Rows/WG / reuse | Registers | Driver shared | Resident WG / occupancy | Useful TFLOP/s |
 |---|---|---|---:|---:|---:|---:|---:|
-| Q | 28000x4096x3072 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 7.63 |
-| K | 28000x1024x3072 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 6.91 |
-| V | 28000x1024x3072 | 13 Q4 + 13 Q6 / compressed | 64 / 64 | 98 / 108 | 33,792 B | 2 / 33.3% | 6.48 |
-| O | 28000x3072x4096 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 7.34 |
-| Gate | 28000x9216x3072 | Q4 / exact FP16 native | 64 / 64 | 99 | 34,304 B | 2 / 33.3% | 12.75 |
-| Up | 28000x9216x3072 | Q4 / exact FP16 native | 64 / 64 | 99 | 34,304 B | 2 / 33.3% | 12.78 |
-| Down | 28000x3072x9216 | 13 Q4 + 13 Q6 / compressed | 64 / 64 | 98 / 108 | 33,792 B | 2 / 33.3% | **7.27** |
+| Q | 28000x4096x3072 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 7.625 |
+| K | 28000x1024x3072 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 6.913 |
+| V | 28000x1024x3072 | 13 Q4 + 13 Q6 / compressed | 64 / 64 | 98 / 108 | 33,792 B | 2 / 33.3% | 6.485 |
+| O | 28000x3072x4096 | Q4 / Q4 compressed | 64 / 64 | 98 | 33,792 B | 2 / 33.3% | 7.332 |
+| Gate | 28000x9216x3072 | Q4 / exact FP16 native | 64 / 64 | 99 | 34,304 B | 2 / 33.3% | 12.745 |
+| Up | 28000x9216x3072 | Q4 / exact FP16 native | 64 / 64 | 99 | 34,304 B | 2 / 33.3% | 12.779 |
+| Down | 28000x3072x9216 | 13 Q4 + 13 Q6 / compressed | 64 / 64 | 98 / 108 | 33,792 B | 2 / 33.3% | **7.273** |
 
 No reliable physical-DRAM, cache-hit, warp-stall, or spill counter is available.
 Executable properties report zero stack for baseline Q4/Q6. The driver “local
 memory” value is a 64 GiB sentinel and cannot support a spill claim.
+
+The complete byte inventory below uses decimal GB and source-visible logical
+loads at 28K. “Unique canonical” separates quant payload from its block
+metadata. For retained native gate/up, “executed weight” is the exact FP16 view
+and runtime metadata is zero; canonical Q4 remains resident for fallback.
+
+| Op | Unique canonical payload / metadata | Executed weight / metadata | Activation loads | Output writes | Effective logical weight BW |
+|---|---:|---:|---:|---:|---:|
+| Q | 0.164 / 0.020 GB | 71.647 / 8.956 GB | 573.177 GB | 5.964 GB | 33.547 GB/s |
+| K | 0.041 / 0.005 GB | 17.912 / 2.239 GB | 143.294 GB | 1.491 GB | 30.414 GB/s |
+| V | 0.051 / 0.005 GB | 22.390 / 2.379 GB | 143.294 GB | 1.491 GB | 35.071 GB/s |
+| O | 0.164 / 0.020 GB | 71.647 / 8.956 GB | 573.177 GB | 4.473 GB | 32.258 GB/s |
+| Gate | 0.368 / 0.046 GB | 644.824 / 0 GB FP16 | 1,289.648 GB | 13.418 GB | 199.362 GB/s |
+| Up | 0.368 / 0.046 GB | 644.824 / 0 GB FP16 | 1,289.648 GB | 13.418 GB | 199.903 GB/s |
+| Down | 0.460 / 0.049 GB | 201.507 / 21.410 GB | 1,289.648 GB | 4.473 GB | 39.330 GB/s |
+
+The “activation loads” column counts Matrix2 logical loads across N tiles, not
+unique materialized tensor bytes or physical DRAM. This distinction is why the
+rates are useful for architecture comparison but are not hardware bandwidth
+counters.
+
+| Op family | Matrix2 tile utilization | Registers/thread | Driver shared/WG | Resident WG | Modeled occupancy | Spill evidence |
+|---|---:|---:|---:|---:|---:|---|
+| Q/K/O compressed Q4 | 99.886% | 98 | 33,792 B | 2 | 33.3% | zero stack; physical spills unavailable |
+| V/down compressed Q4 | 99.886% | 98 | 33,792 B | 2 | 33.3% | zero stack; physical spills unavailable |
+| V/down compressed Q6 | 99.886% | 108 | 33,792 B | 2 | 33.3% | zero stack; physical spills unavailable |
+| Gate/up exact FP16 native | 99.886% | 99 | 34,304 B | 2 | 33.3% | zero stack; physical spills unavailable |
+
+Q/K/V total 3,771.530 ms, share the same 28,000x3072 normalized input,
+and write widths 4096/1024/1024. Their unique canonical weights are
+0.184/0.046/0.056 GB including metadata; distinct weight streams remain
+mandatory. O is separately 2,498.686 ms, consumes a 4096-wide attention output,
+and writes width 3072, so its ideal ownership is not assumed to match QKV.
+The MLP pipeline is gate 3,234.441 + up 3,225.684 + activation 222.067 + down
+5,667.921 = **12,350.113 ms**. The retained FP16-native asymmetry makes down
+45.89% of the profiled MLP pipeline and therefore the clear first target.
 
 ## Down physical and compute model
 
@@ -173,6 +215,16 @@ bytes and 18 metadata bytes. The current K128/N32 traversal consumes halves of
 canonical blocks, reconstructs FP16 weights into shared memory, and then issues
 the cooperative Matrix2 load. There is no separate runtime repack or hidden
 persistent execution view for down.
+
+Blocks are contiguous along K inside each output row; adjacent output rows begin
+after all of that row's K blocks. Quant payload and scale/min fields remain
+interleaved inside each canonical block rather than living in side arrays. The
+Matrix2 B view is therefore transposed relative to storage: lanes gather from
+different output rows and compute per-block addresses before producing a shared
+K128 x N32 FP16 tile. It needs address arithmetic and strided row traversal but
+no preprocessing or repacking. GGUF tensor offsets and Vulkan buffer views obey
+the backend's validated storage-buffer alignment; the kernel adds no stronger
+alignment assumption, and N32/K128 boundaries are exact for this shape.
 
 | Traffic | Theoretical unique/request | Shader-visible at M64 | Amplification | Effective logical rate |
 |---|---:|---:|---:|---:|
@@ -204,7 +256,9 @@ be false precision. The defensible decomposition is:
 |---|---|
 | Weight global load | 201.507 GB logical payload; physical traffic and cache service time unresolved; <=0.560 s if all logical bytes were served at 360 GB/s |
 | Metadata | 21.410 GB logical; the Q4-only free-metadata result scaled from Phase 12 is an approximately 0.145 s upper bound; Q6 is unmeasured |
-| Q4/Q6 unpack, scale, conversion | Present in 106/115-load baseline SPIR-V; inseparable from tensor-load issue without counters |
+| Q4/Q6 unpack | Static shifts, bit operations, and integer arithmetic remain in both compressed shaders; isolated seconds are unmeasured |
+| Scale application | Q4 scale/min and Q6 scale reconstruction execute per canonical block; jointly included in the metadata/dequant path and not separately timed |
+| Conversion | Baseline Q4/Q6 contain five/four static numeric-conversion sites; conversion latency overlaps unpack, staging, and tensor loads |
 | Activation input | 1,289.648 GB logical Matrix2 loads; only 13.418 GB is the unique down input, already resident from activation |
 | Matrix2 staging | 16,384 B shader-declared decoded-weight/activation storage; 33,792 B driver shared/WG |
 | Matrix2 compute | 0.675 s optimistic useful-FLOP floor at 61.1 TFLOP/s |
@@ -216,6 +270,16 @@ be false precision. The defensible decomposition is:
 The correct classification is **unpack/dequant, tensor-load/shared staging,
 instruction issue, synchronization, and occupancy bound**. It is neither a
 generic “memory-bound” kernel nor a dense-Matrix2-compute-bound kernel.
+
+The strongest seconds-scale causal split is the acquired exact-native down
+control: 3.314 s versus the fresh 5.668 s compressed path. Their 2.354 s delta
+jointly covers canonical payload/metadata unpack, scale application, conversion,
+shared decoded-weight staging, two extra barriers, and the resulting issue/cache
+behavior. It cannot be divided further without counters, and the native control
+costs +1.371 GiB, so 3.314 s is a practical reference rather than a retained
+representation. The remaining 3.314 s includes direct FP16 weight/activation
+loads, Matrix2 work, epilogue/output, and residual issue cost; only 0.675 s of
+that is the optimistic useful-compute floor.
 
 ### Resource cliff
 
@@ -249,6 +313,26 @@ unpack, conversion, staging, and Matrix2 issue intact. A lightweight index view
 has no credible seconds-scale address/repack cost to remove because canonical
 blocks are already ordered by output row and K block.
 
+Per 256-weight tile, Q4 carries 16 metadata bytes and Q6 carries 18. The
+baseline optimized SPIR-V has 18/21 static access-chain sites and 26/27 integer
+adds for Q4/Q6; metadata, payload, and scale/min addresses are reconstructed in
+the same kernel. Increasing row ownership would reuse these metadata bytes and
+their decode together with payload. A standalone persistent index would still
+need one address per canonical block, add durable bytes and initialization, and
+remove at most the small address/metadata fraction above; its calculated
+whole-request ceiling is below the implementation gate, so it was not built.
+
+The architecture classes are closed explicitly rather than by an undirected
+workgroup sweep:
+
+| Class | Phase 21 disposition |
+|---|---|
+| A — larger compressed-weight ownership | Acquired M128 Q4 halves traversal count but regresses 28K Q4 time 4.43%; reject |
+| B — subgroup-partitioned rows | Requires additional FP32 accumulator state for more rows while the baseline is already above the three-WG register threshold; no distinct >=5% bound |
+| C — different WG geometry | Acquired N64/K256 and M128 mappings regress; no generic sweep reopened |
+| D — shape-specific Matrix2 path | Direct canonical callback selected as the one Phase 21 prototype; measured and rejected below |
+| E — activation/down locality | 74.5 ms / 0.21% impossible-delete ceiling; reject analytically |
+
 ## Competitive answer
 
 At 28K llama.cpp down takes 1,499.574 ms versus Graph Horizon's 5,667.921 ms.
@@ -277,10 +361,24 @@ that selecting llama.cpp's existing FP32 alternative is catastrophically slow.
 Phase 21 therefore copied only the direct canonical-feed concept while retaining
 FP32 accumulation, then measured it rather than assuming transferability.
 
-For reference, acquired llama.cpp per-operation times are Q 0.757, K 0.213,
-V 0.238, O 0.667, gate 1.432, up 1.432, activation 0.236, and down 1.500 s.
+The available operation-level comparison is complete:
+
+| Target | GH ms | llama.cpp ms | GH/llama | Measured architecture difference |
+|---|---:|---:|---:|---|
+| Q | 2,402.709 | 756.501 | 3.176x | M64/N32/K128 FP32 versus M256/N128/K64 FP16; same canonical Q4 |
+| K | 662.567 | 212.931 | 3.112x | Same mapping difference; one-quarter Q output width |
+| V | 706.254 | 237.989 | 2.968x | Mixed Q4/Q6 in both; direct callback on llama path |
+| O | 2,498.686 | 666.644 | 3.748x | Different 4096-input/3072-output geometry; no QKV fusion assumption |
+| Gate | 3,234.441 | 1,432.227 | 2.258x | GH persistent exact FP16, llama canonical Q4 direct callback |
+| Up | 3,225.684 | 1,432.227 | 2.252x | Same representation difference as gate |
+| Activation | 222.067 | 235.963 | 0.941x | Elementwise work already competitive; not a matmul target |
+| Down | 5,667.921 | 1,499.574 | **3.780x** | GH shared decode/staging and 64-row reuse; llama callback and 256-row reuse |
+
 Gate/up are not an apples-to-apples representation comparison because Graph
 Horizon intentionally pays 2.742 GiB persistent exact-FP16 residency there.
+For compressed operations, both backends read the same unique canonical block
+bytes and metadata; their logical repetitions, decode placement, output
+ownership, mapping, and accumulator precision differ as described above.
 
 ## Candidate ranking before implementation
 
@@ -292,11 +390,25 @@ Horizon intentionally pays 2.742 GiB persistent exact-FP16 residency there.
 | 4 | Activation-to-down locality | 5.890 s pipeline segment | about 5.816 s | <=0.075 s | <=0.21% | Broad Vulkan | Cross-operation coupling; reject analytically |
 | 5 | Q4 down metadata view | 2.654 s affected | about 2.509 s | <=0.145 s | <=0.41% | Quant-specific | Leaves dominant work; reject analytically |
 
+| Candidate | Portable Vulkan | NVIDIA-specific | Ampere-specific evidence | Shape-specific | Quant-specific |
+|---|---|---|---|---|---|
+| Direct canonical Matrix2 callback | no | yes | measured only on current RTX 3060; failed qualification | N3072/K9216 screen | Q4_K and Q6_K callbacks |
+| Compressed M128 reuse | no | yes, current Matrix2 family | failed on current RTX 3060 | tile-compatible large M | Q4_K experiment |
+| QKV input fusion | architecturally yes | no | no | Q/K/V model widths | current mixed formats |
+| Activation/down locality | architecturally yes | no | no | FFN/down layout | no new representation |
+| Metadata/index view | yes | no | no | block traversal | Q4_K/Q6_K |
+
 The 3.314 s rank-one floor is the acquired exact FP16-native down component,
 not a claim that a canonical compressed callback can attain it. It is a strong
 screening reference because it keeps FP32 accumulation and identical output
 values while removing all runtime unpack/staging. Rank one was the only new,
 isolated exact candidate clearing the 5% pre-code gate.
+
+The pre-code rank-one arithmetic was explicit: 5.668 / 3.314 = **1.711x target
+speedup**, 2.354 s removable, predicted 28K TTFT **33,027.11 ms**, and 6.65%
+whole-request improvement. That clears the 5% minimum but not the preferred
+8–10% range. The empirical prototype, rather than this optimistic bound,
+determined the final decision.
 
 ## Prototype: direct canonical Matrix2 feed
 
@@ -317,6 +429,22 @@ removed the explicit shared cooperative weight-fragment load, but did not
 reduce compressed traversals, weight bytes, metadata bytes, or the three static
 barriers. No persistent allocation or startup step was added.
 
+| Prototype field | Q4 direct | Q6 direct |
+|---|---:|---:|
+| Target | down projection | down projection |
+| Shape predicate | prefill, M>=64, N=3072, K=9216 | same |
+| Capability predicate | NVIDIA Matrix2 tensor addressing plus successful exact pipeline | same |
+| Tile / WG / subgroups | M64/N32/K128 / 256 / 8 | same |
+| Rows/WG / dequant reuse | 64 / 64 | 64 / 64 |
+| Registers / driver shared | 128 / 39,424 B | 255 / 47,616 B |
+| Resident WG / occupancy | 2 / 33.3% | 1 / 16.7% |
+| Spill evidence | zero stack; physical spills unavailable | zero stack; local sentinel unreliable |
+| Unique / executed weight bytes | unchanged canonical Q4; 90.678 GB logical for 13 layers | unchanged canonical Q6; 132.239 GB logical for 13 layers |
+| Metadata / amplification | unchanged; 438x | unchanged; 438x |
+| Matrix2 tile utilization | 99.886% at 28K | 99.886% at 28K |
+| Effective logical weight BW | 34.16 -> 26.07 GB/s at 28K | not advanced past pathological 128 screen |
+| Effective useful compute | 7.77 -> 5.93 TFLOP/s at 28K | not advanced past pathological 128 screen |
+
 ### Compiler and ISA audit
 
 | Variant | SPIR-V words | Loads | Stores | Access chains | Int mul/div | Shifts | Barriers | Tensor loads | Registers | Driver shared | Residency |
@@ -326,6 +454,13 @@ barriers. No persistent allocation or startup step was added.
 | Q6 baseline | 2,795 | 115 | 70 | 21 | 18 / 4 | 16 | 3 | 1 | 108 | 33,792 B | 2 WG / 33.3% |
 | Q6 direct | 3,157 | 116 | 66 | 28 | 17 / 3 | 14 | 3 | 2 | 255 | 47,616 B | 1 WG / 16.7% |
 
+| Variant | Numeric conversions | Integer adds | Shared cooperative weight load | Matrix2 MMA | Cooperative output store |
+|---|---:|---:|---:|---:|---:|
+| Q4 baseline | 5 | 26 | 1 | 1 | 1 |
+| Q4 direct | 5 | 17 | 0 | 1 | 1 |
+| Q6 baseline | 4 | 27 | 1 | 1 | 1 |
+| Q6 direct | 8 | 16 | 0 | 1 | 1 |
+
 Each form still has one Matrix2 multiply-add and one cooperative store. The
 direct form did not reduce static loads or barriers; it increased address chains,
 registers, shared memory, and tensor-load sites. Q4 sits exactly at the two-WG
@@ -333,6 +468,9 @@ register limit with no headroom. Q6 is limited to one WG by registers and nearly
 reaches both the register and per-WG shared limits. Stack remains zero. The
 unreliable driver local-memory sentinel changes for Q6 direct, so the evidence
 supports resource pathology but not a fabricated byte-accurate spill claim.
+Scale/min application and integer unpack remain inside the direct callbacks;
+moving them into a tensor-load callback changed placement, not the required
+canonical reconstruction arithmetic.
 
 ### Performance screen
 
@@ -340,6 +478,14 @@ The first 128 screen routed both formats. Q4 improved from 2.344 to 1.228
 ms/dispatch, while Q6 regressed from 2.611 to 82.891 ms/dispatch. Q6 direct was
 immediately removed. A targeted Q4 M128 refinement then took 2.098 ms/dispatch
 at 128, slower than direct M64, and was also removed.
+
+A post-removal run of the preserved Phase 20 profiler binary closes the
+baseline/candidate/baseline chain. At 128, the Q4 component baseline recheck is
+1.992 ms/dispatch; the direct M64 candidate is still 43.35% faster than the mean
+of its 2.344/1.992 baselines. The 128 whole request with both direct formats is
+not a Q4 candidate result because the rejected Q6 path dominates it. The 15%
+spread between short Q4 baseline components also makes this a directional
+clock-ramp screen, not a qualification result.
 
 Only Q4 direct M64 proceeded to the 28K component screen; Q6 and every other
 operation used the production path:
@@ -365,11 +511,18 @@ layers. Effective logical compressed rate falls from 34.16 to 26.07 GB/s, and
 useful compute falls from 7.77 to 5.93 TFLOP/s. Matrix tile utilization remains
 99.886%; the regression is resource/instruction efficiency, not padded work.
 
-The screening public line was 36,549.01 ms TTFT, directionally consistent with
-the component regression but not promoted to a same-session public A/B/A result.
-The target itself was already decisively negative and below the required 3%
-continuation signal, so spending full 128/512/2K/8K/16K/28K qualification runs
-would not alter the reject decision.
+The 28K baseline recheck records 35,632.046 ms GPU, 5,673.656 ms total down,
+2,646.469 ms Q4 down, and 35,767.74 ms profiler-build TTFT. Relative to the
+mean of the surrounding baselines, the candidate is **+31.25% Q4 down, +2.21%
+GPU total, and +2.23% TTFT**. Initial versus recheck baselines differ by only
++0.07% GPU total, +0.10% down, -0.30% Q4 down, and +0.08% TTFT. The reversal
+from the favorable 128 component to the regressive 28K component is therefore
+repeatable and not explained by baseline drift.
+
+The target was decisively negative and below the required 3% continuation
+signal, so spending full 512/2K/8K/16K qualification runs would not alter the
+reject decision. There is no final candidate to which the full-context,
+stability, correctness, or KEEP guards apply.
 
 ### Public performance disposition
 
@@ -473,7 +626,9 @@ The largest remaining bottleneck is the combination of exact dense attention
 and FP32-accumulating projection/MLP matmuls; within matmul, down remains
 5.668 s. A future matmul candidate must be a genuinely new FP32 large-output
 ownership architecture with a resource model that clears 5% whole-request; its
-gain is unproven today. Repeating M128, direct callbacks, persistent FP16 down,
+gain is **unquantified and therefore does not pass the coding gate today**.
+There is no qualified “next candidate” with a predicted >=5% gain. Repeating
+M128, direct callbacks, persistent FP16 down,
 metadata caching, fusion, WG/N/K sweeps, or lossy native formats is not such a
 candidate.
 

@@ -878,6 +878,23 @@ mod cpu_vulkan_parity {
     }
 
     #[test]
+    #[ignore = "Matrix2 Q64 boundary qualification"]
+    fn vulkan_prefill_attention_q64_boundaries() {
+        let backend = match VulkanBackend::bare() {
+            Ok(b) => b,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        // Exact multiples exercise Q64; their neighbors prove the Q32/generic
+        // fallback without changing causal, GQA, or output semantics.
+        for n in [63, 64, 65, 127, 128, 129, 255, 256, 257] {
+            attention_prefill_decode_for_scheme(&backend, KvQuant::F16, 0, n);
+        }
+    }
+
+    #[test]
     #[ignore = "long-context numeric qualification"]
     fn vulkan_prefill_attention_long_context_numeric_qualification() {
         let backend = match VulkanBackend::bare() {
@@ -889,6 +906,7 @@ mod cpu_vulkan_parity {
         };
         for scheme in [KvQuant::F16, KvQuant::Int8] {
             for context in [2_048, 8_192, 28_000] {
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 64, 64);
                 attention_prefill_decode_for_scheme(&backend, scheme, context - 32, 32);
                 // A query tail not divisible by the matrix tile must remain on
                 // the established generic path at every qualified context.

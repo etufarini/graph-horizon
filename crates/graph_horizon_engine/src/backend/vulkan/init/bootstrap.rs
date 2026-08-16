@@ -91,7 +91,7 @@ pub(super) fn create_device(
         .vulkan_memory_model(coopmat2.available);
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
-    let mut coop2_feat = coopmat2::enabled_features();
+    let mut coop2_feat = coopmat2::enabled_features(coopmat2);
     let mut f13 = vk::PhysicalDeviceVulkan13Features::default().shader_integer_dot_product(true);
     let mut dci = vk::DeviceCreateInfo::default()
         .queue_create_infos(&qci)

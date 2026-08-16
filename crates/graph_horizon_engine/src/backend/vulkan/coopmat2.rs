@@ -116,6 +116,7 @@ impl Default for FlexibleDimensions {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Coopmat2Caps {
     pub available: bool,
+    pub attention_q64_wg128: bool,
     pub reserved_shared_memory: u32,
 }
 
@@ -199,16 +200,30 @@ pub(crate) fn detect(
             && property.m_granularity == 32
             && property.n_granularity == 32
     });
+    let attention_q64_wg128 = available
+        && features.reductions != 0
+        && dimensions[..count as usize].iter().any(|property| {
+            compatible(property)
+                && property.workgroup_invocations == 128
+                && property.m_granularity != 0
+                && property.n_granularity != 0
+                && property.k_granularity != 0
+                && 64_u32.is_multiple_of(property.m_granularity)
+                && 64_u32.is_multiple_of(property.n_granularity)
+                && 64_u32.is_multiple_of(property.k_granularity)
+        });
     Coopmat2Caps {
         available,
+        attention_q64_wg128,
         reserved_shared_memory: properties.reserved_shared_memory,
     }
 }
 
-pub(crate) fn enabled_features() -> Features {
+pub(crate) fn enabled_features(caps: Coopmat2Caps) -> Features {
     Features {
         workgroup_scope: vk::TRUE,
         flexible_dimensions: vk::TRUE,
+        reductions: u32::from(caps.attention_q64_wg128),
         per_element_operations: vk::TRUE,
         tensor_addressing: vk::TRUE,
         ..Features::default()

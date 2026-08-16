@@ -1,0 +1,208 @@
+#version 460
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill F16 Matrix2 Q64.
+
+// Ampere Matrix2 prefill attention. One WG128 owns 64 queries, loads Q once,
+// and traverses KV64 tiles while FP32 max/sum/output remain in cooperative
+// matrices. K/V are direct tensor loads; no explicit shared arrays or barriers
+// are needed. Decode, INT8, and query tails use the existing kernels.
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint QUERY_TILE = 64u;
+const uint KV_TILE = 64u;
+const uint HEAD_DIM = 128u;
+const float NEGATIVE_MAX = -1e30;
+
+float maximum(const in float x, const in float y) {
+    return max(x, y);
+}
+
+float smear(const in float x, const in float y) {
+    return x;
+}
+
+float scale_and_mask(
+    const in uint row,
+    const in uint col,
+    const in float value,
+    const in uint first,
+    const in uint tile,
+    const in uint base,
+    const in float scale
+) {
+    uint position = base + first + row;
+    return tile + col <= position ? value * scale : NEGATIVE_MAX;
+}
+
+float maximum_pair(
+    const in uint row,
+    const in uint col,
+    const in float current,
+    const in float previous
+) {
+    return max(current, previous);
+}
+
+float exponential(
+    const in uint row,
+    const in uint col,
+    const in float value
+) {
+    return exp(value);
+}
+
+float16_t store_output(
+    const in uint row,
+    const in uint col,
+    const in float16_t value,
+    const in uint first,
+    const in uint head,
+    const in uint heads
+) {
+    uint output_index = ((first + row) * heads + head) * HEAD_DIM + col;
+    o[output_index] = value;
+    return value;
+}
+
+void main() {
+    uint head = gl_WorkGroupID.x;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (head >= p.q_heads || first >= p.n) return;
+
+    uint group = p.q_heads / p.kv_heads;
+    uint kv_head = head / group;
+    uint last_position = p.base + first + QUERY_TILE - 1u;
+    uint cache_width = p.kv_heads * HEAD_DIM;
+    uint cache_layer = p.layer * p.context * cache_width;
+
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> query_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    query_layout = setTensorLayoutDimensionNV(
+        query_layout, p.n, p.q_heads * HEAD_DIM);
+    query_layout = sliceTensorLayoutNV(
+        query_layout, int(first), QUERY_TILE, int(head * HEAD_DIM), HEAD_DIM);
+    coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseA> query;
+    coopMatLoadTensorNV(query, q, 0u, query_layout);
+
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> output_matrix =
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator>(0.0);
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+            gl_MatrixUseAccumulator> running_maximum =
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator>(NEGATIVE_MAX);
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+            gl_MatrixUseAccumulator> running_sum =
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator>(0.0);
+    coopmat<float16_t, gl_ScopeWorkgroup, KV_TILE, KV_TILE,
+            gl_MatrixUseB> ones =
+        coopmat<float16_t, gl_ScopeWorkgroup, KV_TILE, KV_TILE,
+                gl_MatrixUseB>(float16_t(1.0));
+
+    for (uint tile = 0u; tile <= last_position; tile += KV_TILE) {
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> key_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        key_layout = setTensorLayoutDimensionNV(
+            key_layout, p.base + p.n, cache_width);
+        key_layout = sliceTensorLayoutNV(
+            key_layout, int(tile), KV_TILE, int(kv_head * HEAD_DIM), HEAD_DIM);
+        tensorViewNV<2, false, 1, 0> transpose =
+            createTensorViewNV(2, false, 1, 0);
+        coopmat<float16_t, gl_ScopeWorkgroup, HEAD_DIM, KV_TILE,
+                gl_MatrixUseB> key;
+        coopMatLoadTensorNV(key, kc, cache_layer, key_layout, transpose);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> score =
+            coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                    gl_MatrixUseAccumulator>(0.0);
+        score = coopMatMulAdd(query, key, score);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> scaled_score;
+        coopMatPerElementNV(
+            scaled_score, score, scale_and_mask, first, tile, p.base, p.scale);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> tile_maximum;
+        coopMatReduceNV(
+            tile_maximum, scaled_score, gl_CooperativeMatrixReduceRowNV, maximum);
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> old_maximum = running_maximum;
+        coopMatPerElementNV(
+            running_maximum, tile_maximum, maximum_pair, old_maximum);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> probability;
+        coopMatPerElementNV(
+            probability, scaled_score - running_maximum, exponential);
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> maximum_scale;
+        coopMatPerElementNV(
+            maximum_scale, old_maximum - running_maximum, exponential);
+
+        coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseA> probability_f16 =
+            coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                    gl_MatrixUseA>(probability);
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> tile_sum =
+            coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                    gl_MatrixUseAccumulator>(0.0);
+        tile_sum = coopMatMulAdd(probability_f16, ones, tile_sum);
+        running_sum = running_sum * maximum_scale + tile_sum;
+
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> value_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        value_layout = setTensorLayoutDimensionNV(
+            value_layout, p.base + p.n, cache_width);
+        value_layout = sliceTensorLayoutNV(
+            value_layout, int(tile), KV_TILE, int(kv_head * HEAD_DIM), HEAD_DIM);
+        coopmat<float16_t, gl_ScopeWorkgroup, KV_TILE, HEAD_DIM,
+                gl_MatrixUseB> value;
+        coopMatLoadTensorNV(value, vc, cache_layer, value_layout);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator> output_scale;
+        coopMatReduceNV(
+            output_scale, maximum_scale, gl_CooperativeMatrixReduceRowNV, smear);
+        // Invariant: output and (maximum,sum) cover the same KV prefix here.
+        output_matrix *= output_scale;
+        output_matrix = coopMatMulAdd(probability_f16, value, output_matrix);
+    }
+
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> sum;
+    coopMatReduceNV(sum, running_sum, gl_CooperativeMatrixReduceRowNV, smear);
+    coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> normalized =
+        coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator>(output_matrix / sum);
+    coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> stored;
+    coopMatPerElementNV(stored, normalized, store_output, first, head, p.q_heads);
+}

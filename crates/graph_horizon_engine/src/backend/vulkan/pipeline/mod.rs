@@ -62,15 +62,16 @@ const KERNELS: [Kernel; 26] = [
 
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let (
+        let caps::PipelineCaps {
             wide_attention,
             tiled_attention,
             coop_qk_attention,
             matrix2,
+            matrix2_attention_q64,
             attention_1024,
             gqa_decode,
             q4_metadata,
-        ) = caps::check(dev)?;
+        } = caps::check(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -119,6 +120,12 @@ impl PipelineRegistry {
                 {
                     map.insert(Kernel::MatmulQ6KMatrix2F16Out, pipeline);
                 }
+            }
+            if matrix2_attention_q64
+                && let Ok(pipeline) =
+                    record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2Q64)
+            {
+                map.insert(Kernel::AttentionPrefillMatrix2Q64, pipeline);
             }
             if attention_1024 {
                 map.insert(

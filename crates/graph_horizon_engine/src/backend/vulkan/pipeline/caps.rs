@@ -76,7 +76,28 @@ fn supports_matrix2(shared_bytes: u32, reserved_bytes: u32, available: bool) -> 
             .is_some_and(|required| shared_bytes >= required)
 }
 
-pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool, bool)> {
+fn supports_matrix2_attention_q64(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    reserved_bytes: u32,
+    available: bool,
+) -> bool {
+    available && invocations >= 128 && size_x >= 128 && shared_bytes >= reserved_bytes
+}
+
+pub(super) struct PipelineCaps {
+    pub wide_attention: bool,
+    pub tiled_attention: bool,
+    pub coop_qk_attention: bool,
+    pub matrix2: bool,
+    pub matrix2_attention_q64: bool,
+    pub attention_1024: bool,
+    pub gqa_decode: bool,
+    pub q4_metadata: bool,
+}
+
+pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
     // Required kernels use up to 256 invocations; optional attention variants
     // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
     let mut vulkan11 = vk::PhysicalDeviceVulkan11Properties::default();
@@ -108,15 +129,22 @@ pub(super) fn check(dev: &Device) -> Result<(bool, bool, bool, bool, bool, bool,
         dev.coopmat2.reserved_shared_memory,
         dev.coopmat2.available,
     );
-    Ok((
-        supports_wide_attention(available.0, available.1, available.2),
-        tiled,
-        coop_qk,
+    Ok(PipelineCaps {
+        wide_attention: supports_wide_attention(available.0, available.1, available.2),
+        tiled_attention: tiled,
+        coop_qk_attention: coop_qk,
         matrix2,
-        supports_attention_1024(available.0, available.1, available.2),
-        supports_gqa_decode(available.0, available.1, available.2, subgroup),
-        supports_q4(subgroup, vulkan11.subgroup_supported_operations),
-    ))
+        matrix2_attention_q64: supports_matrix2_attention_q64(
+            available.0,
+            available.1,
+            available.2,
+            dev.coopmat2.reserved_shared_memory,
+            dev.coopmat2.attention_q64_wg128,
+        ),
+        attention_1024: supports_attention_1024(available.0, available.1, available.2),
+        gqa_decode: supports_gqa_decode(available.0, available.1, available.2, subgroup),
+        q4_metadata: supports_q4(subgroup, vulkan11.subgroup_supported_operations),
+    })
 }
 
 #[cfg(test)]
@@ -282,5 +310,14 @@ mod tests {
         assert!(!supports_matrix2(shader + 8191, 8192, true));
         assert!(!supports_matrix2(u32::MAX, u32::MAX, true));
         assert!(!supports_matrix2(u32::MAX, 0, false));
+    }
+
+    #[test]
+    fn q64_matrix2_requires_wg128_and_reserved_shared_memory() {
+        assert!(supports_matrix2_attention_q64(128, 128, 8192, 8192, true));
+        assert!(!supports_matrix2_attention_q64(127, 128, 8192, 8192, true));
+        assert!(!supports_matrix2_attention_q64(128, 127, 8192, 8192, true));
+        assert!(!supports_matrix2_attention_q64(128, 128, 8191, 8192, true));
+        assert!(!supports_matrix2_attention_q64(128, 128, 8192, 8192, false));
     }
 }

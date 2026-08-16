@@ -99,6 +99,12 @@ pub(crate) fn attention_prefill(
     // The tiled shader specializes the approved Ministral K/V width; generic
     // mistral3 shapes keep the existing runtime-dimension fallback.
     let (kernel, rows) = if head_dim == 128
+        && n.is_multiple_of(64)
+        && matrix2_enabled()
+        && reg.contains(Kernel::AttentionPrefillMatrix2Q64)
+    {
+        (Kernel::AttentionPrefillMatrix2Q64, n / 64)
+    } else if head_dim == 128
         && n.is_multiple_of(32)
         && matrix2_enabled()
         && reg.contains(Kernel::AttentionPrefillMatrix2)

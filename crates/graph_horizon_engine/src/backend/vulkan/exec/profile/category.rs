@@ -104,7 +104,6 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionPrefillTiled
         | Kernel::AttentionPrefillTiledCoopQk
         | Kernel::AttentionPrefillMatrix2
-        | Kernel::AttentionPrefillMatrix2Sparse
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
@@ -162,7 +161,6 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         | Kernel::AttentionPrefillTiled
         | Kernel::AttentionPrefillTiledCoopQk
         | Kernel::AttentionPrefillMatrix2
-        | Kernel::AttentionPrefillMatrix2Sparse
         | Kernel::AttentionPrefillInt8 => Some(Phase::Prefill),
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide

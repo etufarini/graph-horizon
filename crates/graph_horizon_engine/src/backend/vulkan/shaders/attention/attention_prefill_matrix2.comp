@@ -29,12 +29,6 @@ layout(push_constant) uniform P {
     uint layer;
     uint context;
     float scale;
-#ifdef SPARSE_ATTENTION
-    uint window;
-    uint sinks;
-    uint global_stride_blocks;
-    uint layer_mask;
-#endif
 } p;
 
 const uint QUERY_TILE = 32u;
@@ -58,17 +52,7 @@ float scale_and_mask(
     const in float scale
 ) {
     uint position = base + first + row;
-#ifdef SPARSE_ATTENTION
-    uint key = tile + col;
-    bool recent = key + p.window > position;
-    bool sink = key < p.sinks;
-    bool global = p.global_stride_blocks != 0u &&
-        (tile / KV_TILE) % p.global_stride_blocks == 0u;
-    bool retained = key <= position && (recent || sink || global);
-    return retained ? value * scale : -1e30;
-#else
     return tile + col <= position ? value * scale : -1e30;
-#endif
 }
 
 float rescale_output(const in uint row, const in uint col, const in float value) {
@@ -100,17 +84,6 @@ void main() {
                 gl_MatrixUseAccumulator>(0.0);
 
     for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
-#ifdef SPARSE_ATTENTION
-        uint first_position = p.base + first;
-        uint window_start = first_position + 1u > p.window
-            ? first_position + 1u - p.window
-            : 0u;
-        bool recent = tile + KV_TILE > window_start;
-        bool sink = tile < p.sinks;
-        bool global = p.global_stride_blocks != 0u &&
-            (tile / KV_TILE) % p.global_stride_blocks == 0u;
-        if (!(recent || sink || global)) continue;
-#endif
         coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
                 gl_MatrixUseAccumulator> score =
             coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,

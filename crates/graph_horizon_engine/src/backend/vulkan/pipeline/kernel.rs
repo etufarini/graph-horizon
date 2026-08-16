@@ -30,7 +30,6 @@ pub(crate) enum Kernel {
     AttentionPrefillTiled,
     AttentionPrefillTiledCoopQk,
     AttentionPrefillMatrix2,
-    AttentionPrefillMatrix2Sparse,
     KvWriteInt8,
     AttentionDecodeInt8,
     AttentionPrefillInt8,
@@ -79,9 +78,6 @@ impl Kernel {
             Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q8_kv64",
             Self::AttentionPrefillTiledCoopQk => "attention_prefill_tiled_fullmma_q16_kv64",
             Self::AttentionPrefillMatrix2 => "attention_prefill_matrix2_wg256_q32_kv64",
-            Self::AttentionPrefillMatrix2Sparse => {
-                "attention_prefill_matrix2_sparse_wg256_q32_kv64"
-            }
             Self::KvWriteInt8 => "kv_write_int8",
             Self::AttentionDecodeInt8 => "attention_decode_int8",
             Self::AttentionPrefillInt8 => "attention_prefill_int8",
@@ -136,7 +132,6 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::AttentionPrefillTiled => (spv!("attention_prefill_tiled"), 4, 32),
         Kernel::AttentionPrefillTiledCoopQk => (spv!("attention_prefill_tiled_coopqk"), 4, 32),
         Kernel::AttentionPrefillMatrix2 => (spv!("attention_prefill_matrix2"), 4, 32),
-        Kernel::AttentionPrefillMatrix2Sparse => (spv!("attention_prefill_matrix2_sparse"), 4, 48),
         Kernel::KvWriteInt8 => (spv!("kv_write_int8"), 4, 16),
         Kernel::AttentionDecodeInt8 => (spv!("attention_decode_int8"), 4, 32),
         Kernel::AttentionPrefillInt8 => (spv!("attention_prefill_int8"), 4, 36),

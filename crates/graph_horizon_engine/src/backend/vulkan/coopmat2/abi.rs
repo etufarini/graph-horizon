@@ -109,10 +109,9 @@ impl Default for FlexibleDimensions {
     }
 }
 
-pub(super) fn required_features(features: &Features) -> bool {
+pub(super) fn common_features(features: &Features) -> bool {
     features.workgroup_scope != 0
         && features.flexible_dimensions != 0
-        && features.conversions != 0
         && features.per_element_operations != 0
         && features.tensor_addressing != 0
 }
@@ -151,7 +150,7 @@ pub(super) fn generic_supported(
     properties: &Properties,
     dimensions: &[FlexibleDimensions],
 ) -> bool {
-    required_features(features)
+    common_features(features)
         && properties.max_workgroup_size >= 256
         && properties.max_dimension >= 128
         && dimensions.iter().any(generic_property)
@@ -162,8 +161,9 @@ pub(super) fn q64_supported(
     properties: &Properties,
     dimensions: &[FlexibleDimensions],
 ) -> bool {
-    required_features(features)
+    common_features(features)
         && features.reductions != 0
+        && features.conversions != 0
         && properties.max_workgroup_size >= 128
         && properties.max_dimension >= 128
         && dimensions.iter().any(q64_property)
@@ -210,19 +210,18 @@ mod tests {
     }
 
     #[test]
-    fn attention_requires_every_used_matrix2_feature() {
+    fn common_contract_requires_every_shared_matrix2_feature() {
         let complete = features();
-        assert!(required_features(&complete));
-        for missing in 0..5 {
+        assert!(common_features(&complete));
+        for missing in 0..4 {
             let mut candidate = complete;
             match missing {
                 0 => candidate.workgroup_scope = 0,
                 1 => candidate.flexible_dimensions = 0,
-                2 => candidate.conversions = 0,
-                3 => candidate.per_element_operations = 0,
+                2 => candidate.per_element_operations = 0,
                 _ => candidate.tensor_addressing = 0,
             }
-            assert!(!required_features(&candidate));
+            assert!(!common_features(&candidate));
         }
     }
 
@@ -269,6 +268,14 @@ mod tests {
             &[property()]
         ));
         assert!(!q64_supported(
+            &Features {
+                conversions: 0,
+                ..complete
+            },
+            &properties(),
+            &[property()]
+        ));
+        assert!(!q64_supported(
             &complete,
             &Properties {
                 max_workgroup_size: 127,
@@ -285,5 +292,26 @@ mod tests {
             &[property()]
         ));
         assert!(!q64_supported(&complete, &properties(), &[]));
+    }
+
+    #[test]
+    fn conversion_feature_is_not_required_by_the_generic_matrix2_family() {
+        let generic = FlexibleDimensions {
+            m_granularity: 32,
+            n_granularity: 32,
+            k_granularity: 16,
+            workgroup_invocations: 256,
+            ..property()
+        };
+        let no_conversion = Features {
+            conversions: 0,
+            ..features()
+        };
+        let resources = Properties {
+            max_workgroup_size: 256,
+            ..properties()
+        };
+        assert!(generic_supported(&no_conversion, &resources, &[generic]));
+        assert!(!q64_supported(&no_conversion, &resources, &[property()]));
     }
 }

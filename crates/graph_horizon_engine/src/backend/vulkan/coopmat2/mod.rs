@@ -63,7 +63,7 @@ pub(crate) fn detect(
         .push_next(&mut matrix2_features);
     // SAFETY: the output chain is stack-owned and outlives this driver query.
     unsafe { instance.get_physical_device_features2(physical, &mut feature_query) };
-    if matrix_features.cooperative_matrix == 0 || !abi::required_features(&matrix2_features) {
+    if matrix_features.cooperative_matrix == 0 || !abi::common_features(&matrix2_features) {
         return Coopmat2Caps::default();
     }
 
@@ -117,7 +117,7 @@ pub(crate) fn enabled_features(caps: Coopmat2Caps) -> Features {
         workgroup_scope: vk::TRUE,
         flexible_dimensions: vk::TRUE,
         reductions: u32::from(caps.attention_q64_wg128),
-        conversions: vk::TRUE,
+        conversions: u32::from(caps.attention_q64_wg128),
         per_element_operations: vk::TRUE,
         tensor_addressing: vk::TRUE,
         ..Features::default()

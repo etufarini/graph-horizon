@@ -56,6 +56,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-sparse-execution-phase17.md](vulkan-sparse-execution-phase17.md) | Phase 17 fixed-mask realization efficiency, rejected traversal/runtime candidates, measured physical floor, and model-adaptation boundary |
 | [vulkan-llamacpp-gap-phase18.md](vulkan-llamacpp-gap-phase18.md) | Phase 18 same-device llama.cpp benchmark, competitive gap attribution, architectural comparison, and Phase 19 candidate ranking |
 | [vulkan-ampere-attention-phase19.md](vulkan-ampere-attention-phase19.md) | Phase 19 Ampere Matrix2 Q64 attention implementation, resource/ISA audit, causal attribution, and qualified 28K improvement |
+| [vulkan-specialization-architecture-phase20.md](vulkan-specialization-architecture-phase20.md) | Phase 20 NVIDIA Matrix2 attention capability/shape routing, portability inventory, preserved performance, and future GPU/model policy |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

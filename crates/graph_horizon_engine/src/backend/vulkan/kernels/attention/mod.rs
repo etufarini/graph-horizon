@@ -6,6 +6,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod decode;
+mod policy;
 mod write;
 
 pub(crate) const GQA_DECODE_SPLITS: u32 = 8;
@@ -96,6 +97,38 @@ pub(crate) fn attention_prefill(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
+    if head_dim == 128 && n.is_multiple_of(32) && matrix2_enabled() {
+        if let Some(sparse) = policy::production()
+            && base.saturating_add(n) >= sparse.context_threshold
+            && sparse.layer_mask.checked_shr(layer).unwrap_or(0) & 1 != 0
+            && reg.contains(Kernel::AttentionPrefillMatrix2Sparse)
+        {
+            for value in [
+                sparse.window,
+                0,
+                sparse.global_stride_blocks,
+                sparse.layer_mask,
+            ] {
+                push.extend_from_slice(&value.to_le_bytes());
+            }
+            dispatch_2d(
+                dev,
+                reg,
+                cmd,
+                Kernel::AttentionPrefillMatrix2Sparse,
+                &[
+                    (q.buffer, q.offset, q.size),
+                    (kc.buffer, kc.offset, kc.size),
+                    (vc.buffer, vc.offset, vc.size),
+                    (out.buffer, out.offset, out.size),
+                ],
+                &push,
+                q_heads,
+                n / 32,
+            );
+            return;
+        }
+    }
     // The tiled shader specializes the approved Ministral K/V width; generic
     // mistral3 shapes keep the existing runtime-dimension fallback.
     let (kernel, rows) = if head_dim == 128

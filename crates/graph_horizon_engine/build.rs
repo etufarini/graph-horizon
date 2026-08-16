@@ -46,6 +46,9 @@ fn compile_vulkan_shader(
             ("attention_decode_1024", "ATTENTION_LOCAL_SIZE", "1024"),
         ],
         "attention_prefill" => &[("attention_prefill_wide", "ATTENTION_LOCAL_SIZE", "512")],
+        "attention_prefill_matrix2" => {
+            &[("attention_prefill_matrix2_sparse", "SPARSE_ATTENTION", "1")]
+        }
         "matmul_q4_k_coopmat_f16out" => &[(
             "matmul_q4_k_coopmat_metadata_f16out",
             "Q4_METADATA_BROADCAST",

@@ -107,6 +107,11 @@ impl PipelineRegistry {
                 {
                     map.insert(Kernel::AttentionPrefillMatrix2, pipeline);
                 }
+                if let Ok(pipeline) =
+                    record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2Sparse)
+                {
+                    map.insert(Kernel::AttentionPrefillMatrix2Sparse, pipeline);
+                }
                 if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ4KMatrix2F16Out)
                 {
                     map.insert(Kernel::MatmulQ4KMatrix2F16Out, pipeline);

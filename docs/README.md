@@ -52,6 +52,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-native-weight-frontier-phase13.md](vulkan-native-weight-frontier-phase13.md) | Phase 13 marginal TTFT/VRAM frontier, rejected down expansion, compact-representation audit, and exact-path stop decision |
 | [vulkan-native-lowprecision-weights-phase14.md](vulkan-native-lowprecision-weights-phase14.md) | Phase 14 native low-precision capability audit, rejected INT8 prototypes, numeric evidence, and quality-gated stop decision |
 | [vulkan-attention-algorithm-phase15.md](vulkan-attention-algorithm-phase15.md) | Phase 15 long-context attention physical model, rejected exact/numeric architectures, and dense-attention stop decision |
+| [vulkan-sparse-attention-phase16.md](vulkan-sparse-attention-phase16.md) | Phase 16 sparse/window/global/layer-hybrid quality-performance frontier, rejected prototype, and model-adaptation stop decision |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

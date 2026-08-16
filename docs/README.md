@@ -54,6 +54,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-attention-algorithm-phase15.md](vulkan-attention-algorithm-phase15.md) | Phase 15 long-context attention physical model, rejected exact/numeric architectures, and dense-attention stop decision |
 | [vulkan-sparse-attention-phase16.md](vulkan-sparse-attention-phase16.md) | Phase 16 sparse/window/global/layer-hybrid quality-performance frontier, rejected prototype, and model-adaptation stop decision |
 | [vulkan-sparse-execution-phase17.md](vulkan-sparse-execution-phase17.md) | Phase 17 fixed-mask realization efficiency, rejected traversal/runtime candidates, measured physical floor, and model-adaptation boundary |
+| [vulkan-llamacpp-gap-phase18.md](vulkan-llamacpp-gap-phase18.md) | Phase 18 same-device llama.cpp benchmark, competitive gap attribution, architectural comparison, and Phase 19 candidate ranking |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

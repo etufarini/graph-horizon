@@ -71,7 +71,10 @@ impl MistralConfig {
         let kv_head_count = u("mistral3.attention.head_count_kv")?;
         let key_length = u("mistral3.attention.key_length")?;
         let value_length = u("mistral3.attention.value_length")?;
-        if kv_head_count > head_count || embedding_length % head_count != 0 {
+        if kv_head_count > head_count
+            || !head_count.is_multiple_of(kv_head_count)
+            || !embedding_length.is_multiple_of(head_count)
+        {
             bail!("E06 missing or invalid GGUF metadata 'mistral3.attention.head_count'");
         }
         let rope_dimension = u("mistral3.rope.dimension_count")?;
@@ -284,6 +287,12 @@ mod tests {
     fn error_matrix_e06_rejects_invalid_dense_invariant() {
         let err = match MistralConfig::from_metadata(&md(1, 32, 2, 4), 32, 0, 1) {
             Ok(_) => panic!("invalid KV head invariant must fail"),
+            Err(err) => err.to_string(),
+        };
+        assert!(err.contains("E06 missing or invalid GGUF metadata"));
+
+        let err = match MistralConfig::from_metadata(&md(1, 30, 3, 2), 32, 0, 1) {
+            Ok(_) => panic!("fractional GQA grouping must fail"),
             Err(err) => err.to_string(),
         };
         assert!(err.contains("E06 missing or invalid GGUF metadata"));

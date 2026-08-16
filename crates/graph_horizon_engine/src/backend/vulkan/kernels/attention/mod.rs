@@ -6,6 +6,7 @@
 #![allow(clippy::too_many_arguments)]
 
 mod decode;
+mod policy;
 mod write;
 
 pub(crate) const GQA_DECODE_SPLITS: u32 = 8;
@@ -20,19 +21,6 @@ use ash::vk;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
-
-fn matrix2_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("GRAPH_HORIZON_PREFILL_MATRIX2")
-                .ok()
-                .as_deref(),
-            None | Some("1" | "true" | "yes")
-        )
-    })
-}
 
 pub(crate) fn attention_prefill_int8(
     dev: &Device,
@@ -96,28 +84,30 @@ pub(crate) fn attention_prefill(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    // The tiled shader specializes the approved Ministral K/V width; generic
-    // mistral3 shapes keep the existing runtime-dimension fallback.
-    let (kernel, rows) = if head_dim == 128
-        && n.is_multiple_of(64)
-        && matrix2_enabled()
-        && reg.contains(Kernel::AttentionPrefillMatrix2Q64)
-    {
-        (Kernel::AttentionPrefillMatrix2Q64, n / 64)
-    } else if head_dim == 128
-        && n.is_multiple_of(32)
-        && matrix2_enabled()
-        && reg.contains(Kernel::AttentionPrefillMatrix2)
-    {
-        (Kernel::AttentionPrefillMatrix2, n / 32)
-    } else if head_dim == 128 && reg.contains(Kernel::AttentionPrefillTiledCoopQk) {
-        (Kernel::AttentionPrefillTiledCoopQk, n.div_ceil(16))
-    } else if head_dim == 128 && reg.contains(Kernel::AttentionPrefillTiled) {
-        (Kernel::AttentionPrefillTiled, n.div_ceil(8))
-    } else if reg.contains(Kernel::AttentionPrefillWide) {
-        (Kernel::AttentionPrefillWide, n)
-    } else {
-        (Kernel::AttentionPrefill, n)
+    // The F16 function itself is the datatype gate. The pure policy below owns
+    // every device/shape/workload decision; successful pipeline construction is
+    // the final resource-capability signal and absence always selects a fallback.
+    let pipelines = policy::Pipelines {
+        nvidia_q64: reg.contains(Kernel::AttentionPrefillMatrix2Q64),
+        matrix2_q32: reg.contains(Kernel::AttentionPrefillMatrix2),
+        coop_qk: reg.contains(Kernel::AttentionPrefillTiledCoopQk),
+        tiled: reg.contains(Kernel::AttentionPrefillTiled),
+        wide: reg.contains(Kernel::AttentionPrefillWide),
+    };
+    let shape = policy::Shape {
+        head_dim,
+        kv_heads,
+        q_heads,
+        rows: n,
+    };
+    let (route, rows) = policy::select(shape, pipelines, policy::matrix2_enabled(), policy::mode());
+    let kernel = match route {
+        policy::Route::NvidiaQ64 => Kernel::AttentionPrefillMatrix2Q64,
+        policy::Route::Matrix2Q32 => Kernel::AttentionPrefillMatrix2,
+        policy::Route::CoopQk => Kernel::AttentionPrefillTiledCoopQk,
+        policy::Route::Tiled => Kernel::AttentionPrefillTiled,
+        policy::Route::Wide => Kernel::AttentionPrefillWide,
+        policy::Route::Portable => Kernel::AttentionPrefill,
     };
     dispatch_2d(
         dev,

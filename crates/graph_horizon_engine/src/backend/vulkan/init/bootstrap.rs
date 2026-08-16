@@ -51,13 +51,11 @@ pub(super) fn create_device(
         })
         .unwrap_or(false);
 
-    // Coopmat shape (f16→f32) if exposed; absence means fallback.
+    // Subgroup cooperative matrices and workgroup Matrix2 are independent
+    // optional contracts. Either one may require the shared KHR extension.
     let coopmat = coopmat::detect(entry, instance, physical);
-    let coopmat2 = if coopmat.available {
-        coopmat2::detect(entry, instance, physical)
-    } else {
-        Coopmat2Caps::default()
-    };
+    let coopmat2 = coopmat2::detect(entry, instance, physical);
+    let matrix_extension = coopmat.available || coopmat2.enabled();
 
     // dp4a for the mmvq Q4_K decode GEMV; absence means float GEMV.
     let dp4a = {
@@ -79,16 +77,16 @@ pub(super) fn create_device(
     }
     // Coopmat extension + feature only when a usable shape was found (INV-6); the
     // feature structs must outlive `dci`.
-    if coopmat.available {
+    if matrix_extension {
         ext.push(coopmat::COOPERATIVE_MATRIX.as_ptr());
     }
-    if coopmat.available && coopmat2.available {
+    if coopmat2.enabled() {
         ext.push(coopmat2::COOPERATIVE_MATRIX2.as_ptr());
     }
     let mut f11 = vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
     let mut f12 = vk::PhysicalDeviceVulkan12Features::default()
         .shader_float16(true)
-        .vulkan_memory_model(coopmat2.available);
+        .vulkan_memory_model(coopmat2.enabled());
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
     let mut coop2_feat = coopmat2::enabled_features(coopmat2);
@@ -98,10 +96,10 @@ pub(super) fn create_device(
         .enabled_extension_names(&ext)
         .push_next(&mut f11)
         .push_next(&mut f12);
-    if coopmat.available {
+    if matrix_extension {
         dci = dci.push_next(&mut coop_feat);
     }
-    if coopmat.available && coopmat2.available {
+    if coopmat2.enabled() {
         dci = dci.push_next(&mut coop2_feat);
     }
     if dp4a {

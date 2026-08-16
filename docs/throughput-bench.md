@@ -89,7 +89,7 @@ tokenization and template. `decoded_tokens` counts public `TextDelta` events.
 It is not the model completion-token count: a model token that leaves an
 incomplete UTF-8 sequence produces no immediate public delta.
 
-Each family reports its arithmetic mean, sample standard deviation, and CV.
+Each family reports its arithmetic mean, median, sample standard deviation, and CV.
 CV is sample standard deviation divided by a positive mean and is printed as a
 fractional ratio. With one measured repetition, standard deviation and CV are
 `n/a`, never zero. The benchmark does not print the harness's first/last decode
@@ -101,14 +101,14 @@ A successful invocation writes exactly one newline-terminated stdout record in
 this field order:
 
 ```text
-prompt_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a>
+prompt_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_median=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_median=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_median=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a>
 ```
 
 `fixed-2` has exactly two decimal places. `fixed-4` has exactly four decimal
 places; `0.0500` means 5%. Success output contains no model path, generated
 text, artifact identity, revision, environment identity, or verdict.
 
-All three means must be finite and positive. Every available standard deviation
+All means and medians must be finite and positive. Every available standard deviation
 must be finite and non-negative, and every calculated CV must be finite. At
 least two public text deltas are required. A violation produces no success
 record.

@@ -17,6 +17,7 @@ use crate::harness::stats::{aggregate, rep_metrics};
 
 pub struct Stat {
     pub mean: f64,
+    pub median: f64,
     pub stddev: Option<f64>,
 }
 

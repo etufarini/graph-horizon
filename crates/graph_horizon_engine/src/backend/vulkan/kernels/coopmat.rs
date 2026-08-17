@@ -95,11 +95,23 @@ pub(crate) fn dispatch_matrix2(
     } else {
         (w.offset, w.size)
     };
-    let prompt_tile = if kernel == Kernel::MatmulQ4KMatrix2F16Out {
-        128
-    } else {
-        64
-    };
+    if kernel == Kernel::MatmulQ4KMatrix2F16Out {
+        dispatch_2d(
+            dev,
+            reg,
+            cmd,
+            kernel,
+            &[
+                (w.buffer, weight_offset, weight_size),
+                (a.buffer, a.offset, a.size),
+                (out.buffer, out.offset, out.size),
+            ],
+            &push,
+            out_dim.div_ceil(256).min(MAX_GROUPS_X),
+            n.div_ceil(128).min(MAX_GROUPS_X),
+        );
+        return;
+    }
     dispatch_2d(
         dev,
         reg,
@@ -111,7 +123,7 @@ pub(crate) fn dispatch_matrix2(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        n.div_ceil(prompt_tile).min(MAX_GROUPS_X),
+        n.div_ceil(64).min(MAX_GROUPS_X),
         out_dim.div_ceil(32).min(MAX_GROUPS_X),
     );
 }

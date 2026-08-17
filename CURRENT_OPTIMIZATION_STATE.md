@@ -1271,7 +1271,8 @@ crates/graph_horizon_engine/src/backend/vulkan/
 └── kernels/coopmat.rs (~170): shared direct-Q4/Q6 binding, shape push, and grid
 ```
 
-Invariant: canonical 210-byte Q6_K blocks, FP16 activation/accumulator/output,
+Invariant: canonical 210-byte Q6_K blocks, FP16 activation/output, the retained
+FP32 accumulator,
 token-major output, current eligibility, Q4/direct-FP16/decode paths, and the
 generic fallback remain unchanged. Main risks are Q6 callback instruction depth
 and the smaller affected fraction. The focused Q6 oracle gates diagnostics-free

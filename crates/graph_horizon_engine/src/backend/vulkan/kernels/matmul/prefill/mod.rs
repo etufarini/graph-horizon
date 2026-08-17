@@ -226,6 +226,12 @@ mod tests {
     }
 
     #[test]
+    fn batched_q4k_14b_matrix2_matches_cpu_oracle() {
+        let _ = q4k_cpu_oracle(5120, 16384, 3, "q4_14b_gate_up_matrix2_tail", false);
+        let _ = q4k_cpu_oracle(16384, 5120, 3, "q4_14b_down_matrix2_tail", false);
+    }
+
+    #[test]
     fn batched_predecoded_q4k_matrix2_matches_cpu_oracle() {
         let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_control", false);
         let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_predecoded_matrix2_tail", true);
@@ -395,6 +401,11 @@ mod tests {
         assert!(super::matrix2_shape(3072, 1024));
         assert!(super::matrix2_shape(4096, 14336));
         assert!(super::matrix2_shape(14336, 4096));
+        assert!(super::matrix2_shape(5120, 1024));
+        assert!(super::matrix2_shape(5120, 4096));
+        assert!(super::matrix2_shape(5120, 16384));
+        assert!(super::matrix2_shape(4096, 5120));
+        assert!(super::matrix2_shape(16384, 5120));
         assert!(!super::matrix2_shape(3072, 14336));
         assert!(!super::matrix2_shape(4096, 12288));
         assert!(!super::matrix2_shape(14336, 3072));
@@ -414,6 +425,12 @@ mod tests {
     #[test]
     fn batched_q6k_large_k_matrix2_matches_cpu_oracle() {
         q6k_cpu_oracle(14336, 4096, 3, "q6_large_k_matrix2_tail");
+    }
+
+    #[test]
+    fn batched_q6k_14b_matrix2_matches_cpu_oracle() {
+        q6k_cpu_oracle(5120, 1024, 3, "q6_14b_v_matrix2_tail");
+        q6k_cpu_oracle(16384, 5120, 3, "q6_14b_down_matrix2_tail");
     }
 
     fn q6k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) {

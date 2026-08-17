@@ -44,4 +44,8 @@ pub(super) fn matrix2_shape(in_dim: u32, out_dim: u32) -> bool {
         || (in_dim == 4096 && out_dim == 14336)
         // Large-K qualification is intentionally exact; unmeasured widths fall back.
         || (in_dim == 14336 && out_dim == 4096)
+        // The 14B family is block-aligned and uses the same runtime-dimension ABI.
+        || (in_dim == 5120 && matches!(out_dim, 1024 | 4096 | 16384))
+        || (in_dim == 4096 && out_dim == 5120)
+        || (in_dim == 16384 && out_dim == 5120)
 }

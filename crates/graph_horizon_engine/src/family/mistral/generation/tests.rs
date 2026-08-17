@@ -319,11 +319,15 @@ fn real_vulkan_greedy_sequence_matches_reference() {
                 .expect("invalid sequence token count")
         })
         .unwrap_or(128);
+    let context = std::env::var("GRAPH_HORIZON_SEQUENCE_CONTEXT")
+        .ok()
+        .map(|value| value.parse::<usize>().expect("invalid sequence context"))
+        .unwrap_or(32_768);
     assert!(count > 0, "sequence token count must be positive");
     let model = crate::family::load(
         Path::new(&path),
         &EngineConfig {
-            context_tokens: Some(32_768),
+            context_tokens: Some(context),
             kv_quant: KvQuant::F16,
             ..EngineConfig::default()
         },

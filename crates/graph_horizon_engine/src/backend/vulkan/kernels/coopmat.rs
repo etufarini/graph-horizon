@@ -65,8 +65,8 @@ pub(crate) fn dispatch_coopmat(
     );
 }
 
-// Dispatches a fixed matrix2 quantized matmul. Its workgroup owns 64 prompt
-// rows and 32 output rows; tails are clamped or guarded inside each shader.
+// Dispatches a fixed matrix2 matmul. Q4 owns 128 prompt rows; Q6 and direct
+// FP16 own 64. Every workgroup owns 32 output rows, with shader-guarded tails.
 pub(crate) fn dispatch_matrix2(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -95,6 +95,11 @@ pub(crate) fn dispatch_matrix2(
     } else {
         (w.offset, w.size)
     };
+    let prompt_tile = if kernel == Kernel::MatmulQ4KMatrix2F16Out {
+        128
+    } else {
+        64
+    };
     dispatch_2d(
         dev,
         reg,
@@ -106,7 +111,7 @@ pub(crate) fn dispatch_matrix2(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        n.div_ceil(64).min(MAX_GROUPS_X),
+        n.div_ceil(prompt_tile).min(MAX_GROUPS_X),
         out_dim.div_ceil(32).min(MAX_GROUPS_X),
     );
 }

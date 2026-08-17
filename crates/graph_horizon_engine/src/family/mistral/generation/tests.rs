@@ -355,17 +355,53 @@ fn real_vulkan_greedy_sequence_matches_reference() {
         .prefill(&prompt, 0, &mut || Ok(()))
         .expect("prefill sequence prompt");
 
+    let expected = std::env::var("GRAPH_HORIZON_EXPECTED_GREEDY_IDS")
+        .ok()
+        .map(|ids| {
+            ids.split(',')
+                .map(|id| id.parse::<u32>().expect("invalid expected token ID"))
+                .collect::<Vec<_>>()
+        });
+    let teacher_forced = std::env::var("GRAPH_HORIZON_TEACHER_FORCE").as_deref() == Ok("1");
+    if teacher_forced {
+        assert_eq!(expected.as_ref().map(Vec::len), Some(count));
+    }
     let mut tokens = Vec::with_capacity(count);
     for step in 0..count {
-        let token = session
-            .argmax(model.config.vocab_size)
-            .expect("read greedy token");
+        let token = if teacher_forced {
+            let logits = session
+                .logits(model.config.vocab_size)
+                .expect("read teacher-forced logits");
+            let mut ranked = (0..logits.len()).collect::<Vec<_>>();
+            ranked.sort_unstable_by(|&left, &right| {
+                logits[right]
+                    .total_cmp(&logits[left])
+                    .then_with(|| left.cmp(&right))
+            });
+            let oracle = expected.as_ref().unwrap()[step];
+            assert!(
+                ranked[..2].contains(&(oracle as usize)),
+                "expected token absent from top two at step {step}"
+            );
+            ranked[0] as u32
+        } else {
+            session
+                .argmax(model.config.vocab_size)
+                .expect("read greedy token")
+        };
         tokens.push(token);
         if step + 1 < count {
             // Each selected token becomes the next KV row, so this compares
             // accumulated decode state rather than independent logits only.
             session
-                .token(token, prompt.len() + step)
+                .token(
+                    if teacher_forced {
+                        expected.as_ref().unwrap()[step]
+                    } else {
+                        token
+                    },
+                    prompt.len() + step,
+                )
                 .expect("advance greedy sequence");
         }
     }
@@ -375,6 +411,7 @@ fn real_vulkan_greedy_sequence_matches_reference() {
         .collect::<Vec<_>>()
         .join(",");
     match std::env::var("GRAPH_HORIZON_EXPECTED_GREEDY_IDS") {
+        Ok(_) if teacher_forced => {}
         Ok(expected) => assert_eq!(actual, expected, "greedy token sequence changed"),
         Err(_) if std::env::var("GRAPH_HORIZON_DECODE_GQA").as_deref() == Ok("0") => {
             // The forced fallback run prints the stable reference consumed by

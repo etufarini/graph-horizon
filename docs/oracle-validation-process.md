@@ -82,6 +82,12 @@ when the leading logits are nearly tied. In that case, record local greedy IDs
 but gate on the approved distribution or teacher-forced metric. Exact greedy
 equality remains appropriate inside a path that explicitly promises it.
 
+The ignored real-Vulkan sequence test accepts `GRAPH_HORIZON_TEACHER_FORCE=1`
+only when `GRAPH_HORIZON_EXPECTED_GREEDY_IDS` supplies the complete declared
+sequence. In that mode it feeds the saved token at each step and requires it in
+the local top two, while still reporting every local top-1 ID. Use this for an
+explicitly lossy numeric candidate; do not reinterpret it as exact generation.
+
 ## File Oracles
 
 A file oracle must define:

@@ -1278,3 +1278,40 @@ generic fallback remain unchanged. Main risks are Q6 callback instruction depth
 and the smaller affected fraction. The focused Q6 oracle gates diagnostics-free
 8B/128. Less than 5% whole TTFT gain rejects; a qualifying result proceeds to
 28K profiling, cross-model guards, and the same six-model quality contract.
+
+Result: **REJECTED.** The direct Q6 callback compiles and passes the focused
+oracle at 0.420% maximum / 0.058% mean relative error with unchanged FP32
+accumulation. Diagnostics-free 8B/128 improves only 150.66 to 148.89 ms
+(-1.17%, candidate CV 0.32%); decode movement is ordinary clock noise. This is
+below the 5% gate before a costly long-context run. The direct Q6 shader and
+binding/grid changes are removed exactly, restoring production to `dff4bd8`.
+
+### Cycle 52 candidate: reference-large Q4 Matrix2 ownership
+
+The pinned reference's large cooperative-Matrix2 quant tile is `BM=128`,
+`BN=256`, `BK=64`: 128 canonical-weight output rows by 256 prompt tokens. The
+retained direct kernel is the transposed ownership point, 256 output rows by 128
+tokens. On Graph Horizon's 256-row prefill batches, the reference-large point
+halves repeated canonical weight traversal/callback work and doubles activation
+loads while preserving the workgroup count. Q4 decoding is instruction-heavy,
+and the measured reference selected this exact endpoint, so it is not dominated
+by traffic arithmetic alone.
+
+Direct Q4 is 22.690 s / 42.05% of 8B/28K. A conservative 1.2x local speedup
+removes 3.782 s / 7.0% of profiled time; 1.5x removes 7.563 s / 14.0%. The change
+is a low-complexity exact-device geometry endpoint and clears the moderate gate.
+No new files or functions are required:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_matrix2_f16out.comp
+│   (category K; ~210 lines): direct Q4_K operation with M128/N256 ownership
+└── kernels/coopmat.rs (~140): matching output/token dispatch grid
+```
+
+Canonical bytes and scale reconstruction, FP16 activation/accumulator/output,
+K64 order, direct clamped output, eligibility, every non-Q4 path, and fallback
+remain invariant. Main risk is activation amplification dominating the saved
+callback traversal. The existing Q4 oracle gates 8B/128; less than 5% whole
+gain rejects, while a qualifying result proceeds to 28K and the retained
+quality/regression matrix.

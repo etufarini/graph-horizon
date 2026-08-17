@@ -48,6 +48,12 @@ void scale_min(uint scale_offset, uint group, out uint scale, out uint minimum) 
     }
 }
 
+// Matrix2 lanes own aligned 16-byte Q4 payload spans. Loading one word for
+// each four-byte group avoids four storage reads of the same word.
+uint packed4(uint byte_offset) {
+    return q[byte_offset >> 2u];
+}
+
 void main() {
     uint tid = gl_LocalInvocationIndex;
     uint row_base = gl_WorkGroupID.x * M_TILE;
@@ -92,16 +98,21 @@ void main() {
         dequant_scale = subgroupShuffle(dequant_scale, metadata_lane);
         dequant_minimum = subgroupShuffle(dequant_minimum, metadata_lane);
 
-        for (uint slot = 0u; slot < 16u; slot++) {
-            uint local_k = first_k + slot;
-            float value = 0.0;
-            if (global_output < p.out_dim) {
-                uint remaining = remaining_64 + slot;
-                uint packed = gb(block + 16u + quant_group * 32u + (remaining & 31u));
-                uint quant = remaining < 32u ? packed & 0xFu : packed >> 4u;
-                value = dequant_scale * float(quant) - dequant_minimum;
+        for (uint group = 0u; group < 4u; group++) {
+            uint first_slot = group * 4u;
+            uint remaining = remaining_64 + first_slot;
+            uint packed = global_output < p.out_dim
+                ? packed4(block + 16u + quant_group * 32u + (remaining & 31u))
+                : 0u;
+            for (uint packed_slot = 0u; packed_slot < 4u; packed_slot++) {
+                uint slot = first_slot + packed_slot;
+                uint byte = (packed >> (packed_slot * 8u)) & 0xFFu;
+                uint quant = remaining_64 + slot < 32u ? byte & 0xFu : byte >> 4u;
+                float value = global_output < p.out_dim
+                    ? dequant_scale * float(quant) - dequant_minimum
+                    : 0.0;
+                bs[(first_k + slot) * N_TILE + output_row] = float16_t(value);
             }
-            bs[local_k * N_TILE + output_row] = float16_t(value);
         }
         barrier();
 

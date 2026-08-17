@@ -8,11 +8,13 @@ reproduction commands, and resume point. Phase reports retain detailed evidence.
 
 ## Status
 
-**CHECKPOINT — MISSION INCOMPLETE.** Cycle 50 retains direct canonical-Q4_K
-Matrix2 dataflow, removing 25--36% across the 8B prefill matrix and bringing
-14B/128 inside the strict contract. The resulting profile exposes compressed
-Q6_K as the last measured matmul representation with a >=5% whole-request
-opportunity; it must be screened before a global stop can be considered.
+**GLOBAL STOP — CONTRACT PARTIALLY MET; QUANTITATIVE ECONOMIC EXHAUSTION.**
+Cycle 50 retains direct canonical-Q4_K Matrix2 dataflow, removing 25--36%
+across the 8B prefill matrix and bringing 14B/128 inside the strict contract.
+Cycles 51--54 close the newly exposed Q6 representation and direct-Q4 device
+geometry. No technically available candidate remains above its economic gate;
+the only target-sized combined opportunity now requires externally unavailable
+model adaptation resources.
 
 | Item | Current value |
 |---|---|
@@ -1272,9 +1274,9 @@ crates/graph_horizon_engine/src/backend/vulkan/
 ```
 
 Invariant: canonical 210-byte Q6_K blocks, FP16 activation/output, the retained
-FP32 accumulator,
-token-major output, current eligibility, Q4/direct-FP16/decode paths, and the
-generic fallback remain unchanged. Main risks are Q6 callback instruction depth
+FP32 accumulator, token-major output, current eligibility,
+Q4/direct-FP16/decode paths, and the generic fallback remain unchanged. Main
+risks are Q6 callback instruction depth
 and the smaller affected fraction. The focused Q6 oracle gates diagnostics-free
 8B/128. Less than 5% whole TTFT gain rejects; a qualifying result proceeds to
 28K profiling, cross-model guards, and the same six-model quality contract.
@@ -1360,3 +1362,131 @@ Only the category-K `BK` constant changes within the existing ~210-line shader;
 host orchestration is unchanged. The focused oracle and 8B/128 screen reject
 pipeline absence, regression, or less than 5% gain. If K128 regresses, K32 is
 dominated by twice as many callback loads and MMAs, closing direct-Q4 K depth.
+
+Result: **REJECTED; direct-Q4 device geometry closed.** K128 preserves the
+focused oracle but measures 290.72 ms at 8B/128 versus 150.66 ms retained
+(+93.0%; candidate CV 0.23%). Its operand/resource cost overwhelms the reduced
+MMA count. K64 is bracketed by this deeper resource cliff and K32's strictly
+greater callback/MMA count. The constant is removed exactly and the retained
+source is restored.
+
+## Final global-stop proof
+
+The final diagnostics-free rebuild revalidates 8B/128 at 149.68 ms (CV 0.22%)
+and 35.06 tok/s. Its SHA-256 is
+`5e3f5c3d00e3105072f2054e50972afe4e03ee4709b3c8705767d62b301c9828`.
+All absolute comparisons retain the disclosed boundary that Graph Horizon
+includes tokenization and first sampling while llama.cpp pure prompt processing
+does not. At 128 tokens that boundary was measured at roughly 11 ms, so the raw
+8B/128 miss is smaller than the known non-model-side difference.
+
+### Program-entry versus final representative matrix
+
+Program-entry values are the qualified Phase 29 checkpoint named by the
+mission. llama.cpp absolute values were refreshed later on the same pinned
+build, so the entry ratio column preserves the original same-session ratio and
+the final ratio uses the fresh reference.
+
+| Workload | Program entry | Final | llama.cpp fresh | Entry ratio | Final ratio | Contract | Final status |
+|---|---:|---:|---:|---:|---:|---:|---|
+| 3B prefill / 128 | 92.98 ms | 74.08 ms | 42.00 ms | 2.16x | 1.76x | <=1.5x | miss |
+| 3B prefill / 28K | 35.15 s | 28.995 s | 13.603 s | 2.50x | 2.13x | <=1.7x | miss |
+| 8B prefill / 128 | 260.05 ms | 149.68 ms | 97.51 ms | 2.38x | 1.54x | <=1.5x | near miss |
+| 8B prefill / 2K | 4.07 s | 2.343 s | 1.185 s | 3.44x | 1.98x | <=1.7x | miss |
+| 8B prefill / 28K | 75.10 s | 51.937 s | 24.523 s | 3.02x | 2.12x | <=1.7x | miss |
+| 14B prefill / 128 | 4.390 s acquired | 249.32 ms | 174.94 ms | 25.10x | 1.43x | <=1.5x | pass |
+| 3B decode / 128 | 56.74 tok/s | 71.24 tok/s | 104.81 tok/s | 1.81x | 1.47x | <=1.4x | near miss |
+| 3B decode / 28K | 36.52 tok/s | 42.64 tok/s | 50.02 tok/s | 1.37x | 1.17x | <=1.4x | pass |
+| 8B decode / 128 | 26.64 tok/s | 35.06 tok/s | 49.84 tok/s | 1.90x | 1.42x | <=1.4x | near miss |
+| 8B decode / 28K | 19.52 tok/s | 23.93 tok/s | 27.69 tok/s | 1.42x | 1.16x | <=1.4x | pass |
+| 14B decode / 128 | 17.23 tok/s | 23.61 tok/s | 36.42 tok/s | 2.10x | 1.54x | <=1.4x | miss |
+
+The complete short/medium/long final matrix is the post-Cycle-50 table above.
+Repeated final rows have TTFT CV 0.03--0.62%; 16K/28K rows are explicitly
+single-observation. The established environment telemetry spans idle
+210/405 MHz, 19.34 W, 54 C to loaded 1,995/7,501 MHz, 156.83 W, 61 C. Per-row
+clock/power/temperature distributions were not collected for Cycle 50 and are
+not invented. The 12 GiB capacity guard limits both 14B artifacts to context
+512; 3B/8B use context 32,768.
+
+### Remaining gap and practical floor
+
+The largest remaining workload is 8B/28K. Its public competitive gap is
+27.414 s and its gap to the broad 1.7x contract is 10.248 s. The final profile
+accounts for 99.96% of 53.961 GPU seconds:
+
+| Component | Current | Optimistic runtime floor | Analytical removal | Evidence / further requirement |
+|---|---:|---:|---:|---|
+| Attention | 21.272 s | 15.990 s | <=5.282 s | inherited measured llama-rate floor; every dense ownership/dataflow candidate closed; lower needs adapted sparse/windowed behavior |
+| Direct Q4 Matrix2 | 22.690 s | 22.690 s | 0 economically available | retained direct architecture; M128/N256 350.88 ms, M256/N256 373.04 ms, K128 290.72 ms at the 150.66 ms screen |
+| Staged Q6 Matrix2 | 8.702 s | 8.702 s | 0 economically available | direct canonical Q6 improves only 1.17% whole at 128, below the 5% gate |
+| Other | 1.297 s | 0 | <=1.297 s impossible-delete bound | already only 2.40%; no component-sized candidate |
+| **Profile total** | **53.961 s** | **47.382 s** | **<=6.579 s** | optimistic runtime-only floor remains 5.693 s above the 41.689 s broad ceiling |
+
+The table is deliberately generous: it combines the old attention-rate bound
+with deletion of all other work even though no implementation realizes both.
+It therefore proves that another runtime-only microarchitecture candidate
+cannot close 8B/28K. The corresponding final aggregate gaps are:
+
+| Workload | Current | llama.cpp | Contract ceiling / floor | Gap to nearest contract | Required change |
+|---|---:|---:|---:|---:|---|
+| 3B prefill / 28K | 28.995 s | 13.603 s | 23.125 s | 5.870 s / 20.25% | adapted representation or lower-work attention |
+| 8B prefill / 28K | 51.937 s | 24.523 s | 41.689 s | 10.248 s / 19.73% | combined model-adapted sparse + low-precision execution |
+| 14B prefill / 384 | 0.717 s | 0.358 s | 0.609 s | 0.109 s / 15.14% | same adapted representation; longer rows exceed capacity |
+| 3B decode / 128 | 14.04 ms/token | 9.54 ms/token | 13.36 ms/token | 0.68 ms / 5.1% throughput | new exact projection representation; ownership bracketed |
+| 8B decode / 128 | 28.52 ms/token | 20.06 ms/token | 28.09 ms/token | 0.43 ms / 1.5% throughput | below economic gate; public boundary already near band |
+| 14B decode / 128 | 42.35 ms/token | 27.46 ms/token | 38.44 ms/token | 3.91 ms / 10.2% latency | target-sized projection policy fails quality or adaptation is required |
+
+### Final design-space exhaustion
+
+| Design space | Status | Quantitative closure |
+|---|---|---|
+| Generic backend/runtime | CLOSED | steady-state allocations are zero; final profile accounts 99.96%; record/submit/descriptor work is about 111 ms against 53.96 s GPU and has no target-sized ceiling |
+| Routing / eligibility | SUCCEEDED, THEN CLOSED | Cycle 49 routes all legal 14B Q/K/V/O/gate/up/down shapes and removes 91.67% at 128; final audit finds no dominant fallback on measured shapes |
+| Kernel architecture/dataflow | SUCCEEDED, THEN CLOSED | direct Q4 removes 15.436 profiled seconds; direct Q6 gains 1.17%; dense attention and decode ownership families are bracketed in Cycles 1--54 |
+| Layout / intermediates | CLOSED | direct tensor-view transpose/output is retained; Q staging, KV/GQA layouts, transient expansion, split/merge, and materialized attention alternatives are measured negative or below gate |
+| Weight execution representation | SUCCEEDED, THEN CLOSED | native FP16 views retained where capacity permits; direct compressed Q4 retained; metadata-only, persistent/transient expansion, INT8 and sparse runtime forms fail capacity, speed, or quality |
+| Selective numerical policy | CLOSED BY QUALITY/ECONOMICS | FP16 Q4 accumulation and Q4 decode DP4A pass their contracts; broad row-INT8/sparse and faster projection subsets fail unchanged top-two/token gates; best rejected Q6 decode is 4.91% |
+| Model / weight adaptation | HARD EXTERNAL BLOCKER | optimistic independent sparse+INT8 ceiling is now 20.99%, predicting 41.04 s at 8B/28K, but trainable weights, long-context teacher data, quality corpus/tooling, and sufficient training memory are absent |
+| Hardware-family specialization | SUCCEEDED, THEN CLOSED | NVIDIA Matrix2/GQA/DP4A paths retained behind capabilities; the reference dataflow is reconstructed; remaining full-generator branches do not affect this single-batch core and would duplicate a broad subsystem |
+| Exact-device specialization | CLOSED | Q4 M128/N256 +132.9%, M256/N256 +147.6%, K128 +93.0%; retained M256/N128/K64 is bracketed; Q4/Q6 decode lane counts and attention splits were bracketed earlier |
+
+### Remaining opportunity register
+
+| Candidate | Level | Expected whole gain | Risk / quality | Portability / cost | Final classification |
+|---|---:|---:|---|---|---|
+| Adapted W2K sparse + row-INT8 model | 7 | optimistic 20.99%; 51.937 -> 41.04 s | high; new artifact and long-context quality contract | model-family, very high training/data cost | unavailable: hard external blocker |
+| Direct Q6 Matrix2 | 8 | measured 1.17% at screen | low numerical risk | hardware-family, moderate code | rejected below 5% |
+| Further direct-Q4 geometry | 9 | all measured negative | retained quality | device-specific, low per test but no positive prior | exhausted by Cycles 52--54 |
+| Full upstream generator/framework import | 8 | no remaining evidence-backed positive increment over retained core | integration and maintenance risk | roughly 3,920 relevant GLSL lines plus generator/host subsystem | rejected economically; core architecture and exact large geometry measured |
+| Q6 combined decode DP4A | 5--6 | 4.91% at 8B/128; would enter fresh broad band | added activation quantization/logit ranking surface | capability-based, moderate | rejected below gate while prefill remains ~2x |
+| Different accelerator/model architecture | 7--9 | potentially target-sized, unquantified here | changes comparison platform or artifact | outside current system | unavailable, not a hidden local candidate |
+
+### Retained optimization architecture
+
+| Retained path | Classification | Eligibility | Fallback |
+|---|---|---|---|
+| Packed/direct Q4 Matrix2 prefill with FP16 accumulation | hardware-family-specific, capability/shape/quantization-specialized | NVIDIA Matrix2 features + Q4_K + measured dimensions | staged cooperative/scalar Q4 paths |
+| 14B Matrix2 eligibility | capability- and shape-based, model-name independent | legal 5,120/16,384/4,096/1,024 dimensions | existing Q4/Q6 batch kernels |
+| Per-8 Q8/DP4A Q4 decode | capability- and quantization-family-specific | DP4A + Q4_K + scratch/shape contract | exact float Q4 decode |
+| Vectorized GQA decode | backend-family capability/shape specialization | exact GQA head relation and device limits | generic attention decode |
+| Native FP16 execution views | capability/capacity/shape specialized | memory budget and measured roles | canonical compressed weights |
+
+No retained route names a model or exact GPU, no dependency or public API was
+added, and every specialized path preserves a generic fallback. Portability is
+tested only on the available RTX 3060; the classification describes routing,
+not an unsupported multi-device performance claim.
+
+### Final answer
+
+Within the runtime, artifacts, hardware, data, and tooling available to this
+project, **yes: substantially all technically and economically recoverable
+performance has been recovered.** The result is not contract success: medium
+and long prefill and short 14B decode remain outside the target. It is a global
+stop because the optimistic runtime-only 8B/28K floor is still 47.382 s versus
+41.689 s, every portable and device-specific candidate above its gate has been
+retained or rejected, and the sole remaining target-sized bound is the 20.99%
+model-adaptation combination blocked by missing external weights, data,
+evaluation infrastructure, and training memory. Reopen only when those inputs
+exist or a new candidate presents a quantified >=5--10% whole-request bound not
+already represented in the experiment registry.

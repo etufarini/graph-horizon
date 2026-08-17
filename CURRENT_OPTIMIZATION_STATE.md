@@ -1006,3 +1006,89 @@ upstream generator and its shader framework would be a broad subsystem and
 dependency change, while the direct architecture itself has now failed at each
 isolated and composed stage. The experiment is therefore rejected and every
 production edit is removed; the accepted source returns exactly to `905dc70`.
+
+### Cycle 48: model/weight adaptation feasibility gate
+
+The next mandatory escalation level is model adaptation, not another exact
+kernel sweep. Two measured lossy execution opportunities could in principle be
+taught back toward the existing quality boundary:
+
+| Adaptation target | Measured/ideal whole-request gain | Current quality gap | Runtime prerequisite |
+|---|---:|---|---|
+| W4K/global sparse layers 19--25 | 7.10% measured; <7.82% physical ceiling | strong B only for the more expensive mask | rejected sparse runtime prototype |
+| W2K sparse layers 20--25 | 11.23% predicted ideal | class C; +20 top-10 points plus top-1/retrieval qualification | new adapted artifact and sparse route |
+| row-scaled INT8 gate/up/down | 10.99% measured on 3B | 28K top-1 fails, top-10 1/10 | 2.059 GiB native representation |
+
+Even granting independent composition of the optimistic sparse and INT8 gains
+gives `1 - (1 - .1123) * (1 - .1099) = 20.99%`, far below the 46.1% reduction
+required by retained 8B/28K. The runtime results come from different historical
+3B baselines, so 20.99% is deliberately an upper-bound screening estimate, not
+a benchmark claim. Sparse adaptation alone is also dominated by the stronger
+fact that deleting all retained 21.150 s attention leaves 47.995 s, still
+10.735 s above the 37.26 s contract ceiling.
+
+The local adaptation environment is a **HARD EXTERNAL BLOCKER**:
+
+- only Q4_K_M GGUF inference artifacts are present; no trainable source weights
+  or model-specific adapter checkpoint exists locally;
+- the repository contains neither training code nor a long-context
+  distillation/quality corpus, and Python has none of PyTorch, Transformers,
+  Datasets, Accelerate, PEFT, TRL, Safetensors, or SentencePiece installed;
+- the public, ungated official 3B base checkpoint is 7.70 GB before optimizer
+  and activation state, while the device has 12 GiB VRAM and the host only
+  14 GiB RAM; the official `mistral-finetune` project is archived and recommends
+  A100/H100-class hardware;
+- teaching a 16--28K attention mask requires long-context teacher examples and
+  mask-aware training, not a short generic instruction LoRA. Neither the data
+  nor a quality benchmark capable of accepting the resulting new artifact is
+  available here.
+
+Downloading packages and weights would therefore not resolve the missing
+training/evaluation inputs or the insufficient performance ceiling. No model
+artifact or dependency is added. Reopening Level 7 requires, at minimum, a
+trainable Ministral checkpoint, a representative long-context teacher corpus,
+an explicit adapted-model quality suite, and enough accelerator/host memory to
+train the chosen sparse-plus-execution representation. This closes adaptation
+for the current environment only; it is not used as a global-stop argument by
+itself.
+
+### Cycle 49 candidate: 14B Matrix2 eligibility
+
+Fresh 14B/128 measures 4,381.96 ms versus 174.94 ms in llama.cpp (25.05x),
+while decode is 23.48 versus 36.42 tok/s (1.55x). A current timestamp profile
+accounts for 4,707.73 of 4,707.98 GPU ms and reveals that the exact shape
+allow-list sends Q/K/V/gate/up/down to scalar batched kernels. Those six
+categories consume 4,564.64 ms / 96.96% of GPU prefill; attention is only
+1.44 ms. O alone reaches the older cooperative route.
+
+The relevant dimensions are all legal Q4_K/Q6_K and Matrix2 multiples:
+hidden 5,120, Q/O 4,096, K/V 1,024, and FFN 16,384. The shaders already accept
+runtime dimensions, zero-pad output tails, and require K in 256-value quantized
+blocks. The exclusion is policy history, not an ABI or format limitation.
+
+With whole time `T=4,381.96 ms`, affected fraction `f=0.9696`, and a
+conservative local speedup `S=4`, Amdahl predicts
+`T*((1-f)+f/S)=1,194.7 ms`, removing 3,187.3 ms / 72.74%. Scaling the retained
+8B Matrix2 profile by parameter count instead predicts roughly 0.55--0.60 s.
+The theoretical zero-cost affected floor is about 133 ms; the practical screen
+is the conservative 1.19 s result. This clears the 10% complex-design gate by
+a wide margin and outranks every remaining 8B microcandidate in absolute
+recoverable time.
+
+No new file or directory is warranted; productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/kernels/matmul/prefill/
+├── policy.rs (~55 productive lines): admit the exact 14B projection/MLP family
+└── mod.rs (~170 productive lines, excluding tests): add Q4/Q6 shape oracles
+```
+
+Invariant: canonical Q4_K/Q6_K bytes, FP16 activation/output and retained FP16
+Matrix2 accumulation, graph operation order, attention, decode, KV, logits,
+sampling, all existing 3B/8B routes, and generic fallback remain unchanged.
+Eligibility stays capability/format/shape based and contains no model name.
+The smallest viable production change is the exact dimension family in the
+pure policy. Main risks are an unmeasured resource cliff at K=16,384 and the
+already-qualified FP16-accumulation error composing differently across 40
+layers. Focused Q4/Q6 CPU oracles gate a paired 14B/128 screen; regression or
+less than 10% TTFT gain rejects before the full quality/regression matrix.

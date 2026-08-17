@@ -63,6 +63,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-model2-gate-up-phase24.md](vulkan-model2-gate-up-phase24.md) | Phase 24 Model 2 gate/up attribution, retained compressed Matrix2 route, full qualification, and attention handoff |
 | [vulkan-model2-post-mlp-phase25.md](vulkan-model2-post-mlp-phase25.md) | Phase 25 post-MLP global reprofile, competitive removable-cost ranking, attention causal audit, and exact-path stop decision |
 | [vulkan-whole-inference-phase26.md](vulkan-whole-inference-phase26.md) | Phase 26 whole-inference checkpoint, retained decode kernels, six-model quality matrix, competitive gaps, and next-cycle decision |
+| [vulkan-q4-matrix2-phase27.md](vulkan-q4-matrix2-phase27.md) | Phase 27 packed Q4 Matrix2 payload loads, causal prefill speedup, six-model qualification, and continuation bound |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

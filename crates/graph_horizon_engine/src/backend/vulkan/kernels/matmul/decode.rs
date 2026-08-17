@@ -21,14 +21,25 @@ pub(crate) fn matmul(
     in_dim: u32,
     out_dim: u32,
 ) {
-    let kernel = match w.quant {
-        WeightFormat::F16 => Kernel::MatmulF16,
-        WeightFormat::Q4K => Kernel::MatmulQ4KTiled,
-        WeightFormat::Q6K => Kernel::MatmulQ6K,
-        WeightFormat::Q5K => Kernel::MatmulQ5K,
+    let (kernel, output_rows) = match w.quant {
+        WeightFormat::F16 => (Kernel::MatmulF16, 64),
+        WeightFormat::Q4K => (Kernel::MatmulQ4KTiled, 32),
+        WeightFormat::Q6K => (Kernel::MatmulQ6K, 64),
+        WeightFormat::Q5K => (Kernel::MatmulQ5K, 64),
     };
     trace::log_path_once(kernel);
-    project(dev, reg, cmd, kernel, out, a, w, in_dim, out_dim);
+    project(
+        dev,
+        reg,
+        cmd,
+        kernel,
+        out,
+        a,
+        w,
+        in_dim,
+        out_dim,
+        output_rows,
+    );
 }
 // The parity test needs the CPU Q4_K oracle (`compute::matmul`, cpu-gated) and the
 // Vulkan device, so it only compiles when both backends are present (the hybrid

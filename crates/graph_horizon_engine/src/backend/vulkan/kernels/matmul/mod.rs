@@ -36,7 +36,7 @@ pub(crate) fn logits(
         WeightFormat::Q6K => Kernel::LogitsQ6K,
         WeightFormat::Q5K => Kernel::LogitsQ5K,
     };
-    project(dev, reg, cmd, kernel, out, x, w, in_dim, out_dim);
+    project(dev, reg, cmd, kernel, out, x, w, in_dim, out_dim, 64);
 }
 
 pub(super) fn project(
@@ -49,6 +49,7 @@ pub(super) fn project(
     w: &GpuBuffer,
     in_dim: u32,
     out_dim: u32,
+    output_rows: u32,
 ) {
     let mut push = Vec::with_capacity(8);
     push.extend_from_slice(&in_dim.to_le_bytes());
@@ -64,6 +65,6 @@ pub(super) fn project(
             (out.buffer, out.offset, out.size),
         ],
         &push,
-        out_dim.div_ceil(64),
+        out_dim.div_ceil(output_rows),
     );
 }

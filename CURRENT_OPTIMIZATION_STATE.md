@@ -8,17 +8,16 @@ reproduction commands, and resume point. Phase reports retain detailed evidence.
 
 ## Status
 
-**LOCAL SEARCH EXHAUSTED — PERFORMANCE CONTRACT UNMET.** Exact, alternate
-numeric, representation, ownership, and supported Vulkan specialization paths
-have either been retained or closed by direct measurement. Model adaptation is
-not a valid way to satisfy this same-artifact llama.cpp comparison: it would
-change the model being compared rather than optimize execution of the pinned
-GGUF. The remaining gap therefore needs materially different hardware/compiler
-capability or a changed comparison/model contract, not another local candidate.
+**CHECKPOINT — MISSION INCOMPLETE.** The attached end-to-end mission requires
+escalation beyond each local stop. Cycles 43--47 close the newer decode-vector
+availability question and the portable reconstruction of llama.cpp's scalar
+direct Matrix2 architecture; neither is a global stop. Model adaptation remains
+a distinct later design level, and same-artifact measurements stay mandatory
+for runtime-only candidates.
 
 | Item | Current value |
 |---|---|
-| Date | 2026-08-17 |
+| Date | 2026-08-18 |
 | Branch / retained production HEAD | `perf/systematic-llamacpp-gap` / `905dc70` |
 | Production baseline | `e21fc12` plus Phase 29 source restoration |
 | GPU / driver | RTX 3060 12 GiB / 595.84 |
@@ -785,3 +784,225 @@ The largest remaining bottleneck is still 8B/28K prefill: 69.145 s versus the
 21.150 s attention, and 1.292 s other. The final source state contains only the
 retained FP16-M128 prefill and per-8-Q8 Q4 decode changes; all Cycle 37--42
 production experiments were removed exactly.
+
+### Cycle 43 candidate: vector-decoded direct Q4 Matrix2
+
+The pinned llama.cpp commit contains a materially newer direct-load mechanism
+than Cycles 21 and 33 tested: `GL_NV_cooperative_matrix_decode_vector`, added to
+its Vulkan matmul in May 2026, reconstructs four adjacent Q4 values per tensor-
+load callback. The rejected Graph Horizon callbacks reconstructed one value per
+callback. This distinction can reduce callback invocations, canonical payload
+loads, and address calculations fourfold while also removing the explicit FP16
+weight tile and its synchronization. It therefore reopens the direct-callback
+frontier without repeating the measured scalar design.
+
+Retained Q4 Matrix2 consumes 38.126 s of the 69.145 s 8B/28K request (55.14%).
+A conservative 1.15x local speedup predicts
+`31.019 + 38.126 / 1.15 = 64.172 s`, removing 4.973 s or 7.19% end to end. At
+1.30x it predicts 60.347 s and 12.72%. The candidate clears the 5% moderate-
+redesign gate and directly tests the structural facility used by the reference.
+
+No new directory is warranted. Productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_matrix2_vector_f16out.comp
+│   (category K; ~150 lines): one direct vector-decoded Q4 Matrix2 operation
+├── kernels/coopmat.rs (~115): dispatch the M128/N32 vector variant
+├── kernels/matmul/prefill/mod.rs (~195): select the opt-in candidate first
+├── kernels/matmul/prefill/policy.rs (~65): strict experiment switch
+├── pipeline/kernel.rs (~165): variant ABI and embedded SPIR-V
+└── pipeline/mod.rs (~195): build the optional Matrix2 pipeline
+```
+
+Invariant: canonical Q4_K bytes, FP16 activation/output, retained FP16
+accumulation, M128/N32 ownership, all Q6/decode/attention/KV/sampling paths, and
+the default staged fallback remain unchanged. Eligibility is capability,
+format, and shape based; the experiment is additionally strict opt-in through
+`GRAPH_HORIZON_PREFILL_Q4_VECTOR=1`. Main risks are compiler-generated register
+pressure and unsupported decode-vector SPIR-V on the installed driver. The five
+focused Q4 oracles gate a paired 8B/128 screen. Regression or less than 5%
+whole-request improvement rejects the candidate before a long-context run.
+
+Result: **UNAVAILABLE; hardware/compiler path closed.** Both the repository's
+bundled shaderc and the installed shaderc/glslang 2026.1 reject
+`GL_NV_cooperative_matrix_decode_vector` as unsupported. More decisively,
+`vulkaninfo` lists `VK_NV_cooperative_matrix2` but not
+`VK_NV_cooperative_matrix_decode_vector` for the RTX 3060/595.84 device. The
+pinned llama.cpp CMake cache likewise enables Matrix2 but contains no decode-
+vector support flag, so its measured reference did not use this source-level
+facility. The candidate cannot create a valid pipeline on the benchmark device;
+all temporary shader and host wiring is removed, restoring production exactly
+to `905dc70`. Reopening requires a compiler and driver/device advertising the
+decode-vector extension, which is a hard external hardware/compiler change.
+
+### Cycle 44 candidate: direct global Matrix2 output store
+
+Architectural comparison exposes an untested dataflow difference independent
+of decode callbacks. The retained Q4 kernel cooperatively stores its M128xN32
+accumulator to an 8 KiB shared array, executes a workgroup barrier, then has each
+thread copy 16 FP16 values to global output. The pinned llama.cpp Matrix2 path
+uses `coopMatStoreTensorNV` to write the bounded global tensor directly. Doing
+the same removes the full shared-memory round trip, one barrier, scalar index
+arithmetic, and 4,096 scalar epilogue iterations per workgroup without changing
+the accumulator, weight reconstruction, tile, or output representation.
+
+The affected Q4 component is 38.126 s / 55.14% of 8B/28K. A 1.10x local gain
+predicts `31.019 + 38.126 / 1.10 = 65.679 s`, removing 3.466 s or 5.01% end to
+end. This is the minimum performance gate; the physical ceiling is higher
+because the change also halves shader-declared shared memory from 16 to 8 KiB
+for this variant and may improve residency. Complexity and numerical risk are
+low, so the candidate outranks model adaptation.
+
+No structural split is warranted:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/shaders/matmul/
+└── matmul_q4_k_matrix2_f16out.comp
+    (category K; ~140 lines): store the one Q4 Matrix2 result directly to output
+```
+
+Invariant: canonical Q4_K decoding, FP16 accumulation/output, M128/N32/K128,
+routing, dispatch, all other formats and operations, and pipeline-construction
+fallback remain unchanged. Main risk is a driver-specific direct-store codegen
+regression. The five focused Q4 oracles gate a paired 8B/128 benchmark; less
+than 5% whole-request improvement rejects it before long-context profiling.
+
+Result: **REJECTED.** All nine focused Q4 tests pass with the retained error
+distributions, but diagnostics-free 8B/128 TTFT is 845.04 ms versus a 228.54 ms
+bookend control (+269.8%; CV 0.46% versus 0.22%). Decode is unchanged at
+34.65 versus 34.64 tok/s. The direct tensor store is pathological at the
+retained M128/N32 ownership, so the shared output epilogue is restored exactly.
+
+### Cycle 45 candidate: reference-sized M256/N128/K64 Q4 Matrix2
+
+Cycle 44's isolated direct store does not test the architecture that makes the
+reference's store economical. llama.cpp owns M256xN128 output values per
+workgroup and uses K64, versus retained M128xN32/K128. Combining direct global
+output with that geometry reduces long-M workgroups eightfold. Each workgroup
+decodes four times as many canonical values, so total Q4 decode traversal halves;
+activation tensor loads fall to one quarter, while total output traffic is
+unchanged. Unlike rejected M256/N32, no MxN shared output array remains, and the
+K64xN128 decoded-weight tile stays exactly 16 KiB.
+
+The reference reports 247 registers and 63,616 B total driver shared state for
+its complete direct-callback variant, proving that M256/N128 is executable on
+this device. This staged variant avoids callback address pressure and declares
+only the 16 KiB weight tile plus the existing 8 KiB Matrix2 reservation. If it
+reaches even 1.5x on the 38.126 s Q4 component, Amdahl predicts
+`31.019 + 38.126 / 1.5 = 56.436 s`, removing 12.709 s or 18.38% end to end.
+
+No structural split is warranted; productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_matrix2_f16out.comp
+│   (category K; ~140 lines): staged M256/N128/K64 Q4 Matrix2 with direct output
+├── kernels/coopmat.rs (~110): dispatch M256/N128 ownership
+├── pipeline/kernel.rs (~165): truthful geometry/profile name
+└── exec/profile/summary.rs (~180): classify the candidate path
+```
+
+Invariant: canonical Q4_K decoding, retained FP16 accumulation/output, operation
+coverage, Q6 and non-Q4 paths, and capability fallback remain unchanged. The
+different K grouping may change FP16 accumulation order, so the existing Q4
+error bounds and full-model quality contract apply. Main risks are register
+pressure and the direct-store driver path. Focused oracles gate one paired
+8B/128 screen; regression or less than 5% whole gain rejects the combination.
+
+Result: **REJECTED.** The focused Q4 tests again reproduce the retained error
+summaries, but 8B/128 TTFT is 997.54 ms versus the 226.84 ms bookend control
+(+339.7%; CV 0.13% versus 0.54%). Decode is neutral within clock movement.
+Staging four times as many weights plus the M256/N128 accumulator overwhelms
+the eightfold workgroup reduction. The exact retained M128/N32/K128 source and
+dispatch are restored.
+
+### Cycle 46 candidate: full scalar-direct M256/N128/K64 architecture
+
+The pinned llama.cpp build does not enable decode-vector support, so its
+measured 24.84 s reference uses scalar Q4 tensor callbacks together with
+M256/N128/K64 ownership and direct global output. Cycles 33 and 45 tested each
+half separately, but neither tested their essential composition: the large tile
+amortizes callback work across eight times fewer workgroups, while the callback
+removes the staged 16 KiB weight tile that made Cycle 45 pathological.
+
+For long M, canonical Q4 traversal falls to one half of retained M128 staged,
+activation tensor loads to one quarter, explicit shared weight/output traffic
+to zero, and output traffic stays fixed. The reference's same-device component
+times show a roughly 2.3--3.8x advantage across these projections. Using a more
+conservative 1.5x local speedup still predicts 56.436 s, 18.38% below retained
+8B/28K, and therefore clears the complex-design gate.
+
+The temporary structure matches Cycle 45 plus one distinct category-K shader;
+productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_matrix2_direct_f16out.comp
+│   (category K; ~165 lines): scalar canonical decode, M256/N128/K64, direct output
+├── kernels/matmul/prefill/mod.rs (~195): strict opt-in route before staged Q4
+├── kernels/matmul/prefill/policy.rs (~65): experiment switch
+├── kernels/coopmat.rs (~115): variant-specific ownership
+├── pipeline/kernel.rs (~170): direct variant ABI
+└── pipeline/mod.rs (~200): optional Matrix2 pipeline construction
+```
+
+Invariant: canonical Q4 bytes, retained FP16 accumulator/output contract,
+operation eligibility, every non-Q4 path, and the staged fallback are unchanged.
+Main risk is the 247-register/one-workgroup resource point observed for the
+reference. Existing Q4 oracles gate paired 8B/128 timing; a regression or less
+than 5% whole gain rejects the full architecture.
+
+Result: **REJECTED.** The direct variant routes and reproduces the retained Q4
+error distribution, but 8B/128 TTFT is 1,200.03 ms versus the 229.07 ms
+bookend control (+423.9%; CV 0.40% versus 0.10%). Decode is neutral. Combining
+large ownership with the direct callback does not help while Graph Horizon keeps
+activations as Matrix A and weights as transposed Matrix B.
+
+### Cycle 47 candidate: reference Matrix2 operand orientation
+
+Source inspection corrects the earlier ownership description. In llama.cpp,
+canonical Q4 weights are Matrix A with `BM=256` output rows, activations are
+transposed Matrix B with `BN=128` prompt tokens, and the accumulator is stored
+through a transpose into token-major output. Every Graph Horizon Matrix2 matmul
+instead places prompt rows in Matrix A and weights in Matrix B. Cycle 46 copied
+the dimensions but not this orientation, leaving the decode callback on the B
+operand and creating a driver codegen path the reference does not use.
+
+The corrected candidate keeps K64 and the scalar canonical callback but owns
+256 outputs by 128 tokens per workgroup. Relative to retained M128-token/N32-
+output staging it still launches eight times fewer workgroups, halves repeated
+canonical traversal, quarters repeated activation loads, and removes explicit
+weight/output staging. The same-device llama component measurements provide a
+direct target-sized prior; a conservative 1.5x Q4-local result still predicts
+an 18.38% whole-request gain.
+
+The Cycle 46 file structure and estimates remain valid. Only the category-K
+shader's operand layouts and the direct variant's dispatch axes change.
+Canonical values, FP16 accumulation/output, operation coverage, fallback, and
+all non-Q4 paths remain invariant. The main risk is that Graph Horizon's simpler
+shader still misses another reference compiler hint. Focused Q4 oracles gate a
+paired 8B/128 run; a regression or less than 5% whole gain rejects the corrected
+architecture.
+
+Result: **REJECTED.** Four source-fidelity refinements were measured, and every
+one preserved the retained focused-Q4 oracle distribution:
+
+- corrected operand orientation with redundant full-block metadata reads:
+  1,043.66 ms TTFT;
+- one 16-byte metadata vector per output row and K block: 761.43 ms;
+- explicit tensor strides, full-tile layouts, and unrolled K64 traversal:
+  539.58 ms;
+- reference-style padded scale sharing and packed-16 scalar callback:
+  494.79 ms versus a 227.93 ms bookend control (+117.1%).
+
+Decode remains neutral. The final generated shader is 11,596 bytes of SPIR-V,
+versus 35,712 bytes for the pinned llama.cpp Matrix2 Q4 shader, confirming that
+the upstream generated program contains materially more control/dataflow than
+this compact port. The refinements remove 548.87 ms from the initial corrected
+prototype but still require an implausible further 2.17x gain merely to tie the
+retained kernel, before contributing any end-to-end improvement. Importing the
+upstream generator and its shader framework would be a broad subsystem and
+dependency change, while the direct architecture itself has now failed at each
+isolated and composed stage. The experiment is therefore rejected and every
+production edit is removed; the accepted source returns exactly to `905dc70`.

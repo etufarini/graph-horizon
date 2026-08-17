@@ -60,6 +60,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-matmul-architecture-phase21.md](vulkan-matmul-architecture-phase21.md) | Phase 21 quantized-matmul attribution, down-projection architecture experiment, rejected direct Matrix2 feed, and evidence-based stop decision |
 | [vulkan-second-model-bringup-phase22.md](vulkan-second-model-bringup-phase22.md) | Phase 22 8B weight bring-up, generic and optimized Vulkan qualification, reuse matrix, baseline, and next bottleneck |
 | [vulkan-model2-largek-matmul-phase23.md](vulkan-model2-largek-matmul-phase23.md) | Phase 23 Model 2 large-K down-projection attribution, retained Matrix2 route, full qualification, and next bottleneck |
+| [vulkan-model2-gate-up-phase24.md](vulkan-model2-gate-up-phase24.md) | Phase 24 Model 2 gate/up attribution, retained compressed Matrix2 route, full qualification, and attention handoff |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

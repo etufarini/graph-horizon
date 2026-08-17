@@ -16,7 +16,7 @@ spaces are not globally exhausted.
 | Item | Current value |
 |---|---|
 | Date | 2026-08-17 |
-| Branch / HEAD | `perf/systematic-llamacpp-gap` / `45319e9` |
+| Branch / retained production HEAD | `perf/systematic-llamacpp-gap` / `905dc70` |
 | Production baseline | `e21fc12` plus Phase 29 source restoration |
 | GPU / driver | RTX 3060 12 GiB / 595.84 |
 | llama.cpp | `9bebfcb4bc8b12a316e96ae03f33671eac1e72fd`, build 9826 |
@@ -469,3 +469,163 @@ category-K shaders and one dispatch module. Full workspace tests, formatting,
 diff hygiene, documentation contracts, and warning-free clippy pass before the
 checkpoint commit. Exact free-running identity is not claimed; the explicit
 teacher-forced top-two quality contract is the retained numerical boundary.
+
+### Cycle 37 candidate: tiled per-8 Q8/Q4 DP4A prefill
+
+Cycle 36 reopens one numerical premise from Phase 14: per-8 activation scales
+qualify where whole-row scales did not. The obvious integer Matrix2 extension
+is nevertheless closed by hardware granularity. This device exposes signed
+INT8 Matrix2 only at K32; preserving four independent per-8 scales would require
+four masked K32 MMAs and four weight traversals. The measured direct-INT8 local
+ratio was 0.729 of FP16, so multiplying its dominant work by four cannot beat
+the retained compressed Matrix2 path.
+
+The remaining untested representation is a scalar-integer tiled kernel. One
+256-thread workgroup owns 16 prompt rows by 32 output rows. It quantizes a
+16x256 activation tile to shared per-8 Q8 once, assigns eight lanes to each
+canonical Q4_K output row, reuses each lane's packed Q4 words across all 16
+prompt rows, accumulates in FP32, and reduces the eight lanes with subgroup
+shuffle. It uses no persistent scratch or new weight representation.
+
+The experimental route is opt-in and isolated in the existing prefill domain.
+Productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_dp4a_batch_f16out.comp
+│   (category K; ~125 lines): tiled per-8 Q8/Q4 DP4A batched matmul
+├── kernels/matmul/prefill/
+│   ├── mod.rs (~190): capability-gated route before retained Matrix2
+│   └── dp4a.rs (~60): strict experiment flag and 2D dispatch
+├── pipeline/kernel.rs (~165): declare the shader ABI
+└── pipeline/mod.rs (~198): build it only on DP4A devices
+```
+
+Invariant: canonical weights, retained default Matrix2, Q6, output layout/type,
+attention, KV, sampling, and allocation policy remain unchanged. The smallest
+viable experiment adds one category-K shader and narrow capability/dispatch
+wiring; rejection removes all of it. Main risks are scalar integer throughput,
+the 8x smaller prompt ownership increasing workgroup count, register pressure
+from 16 FP32 accumulators per lane, and composed activation quantization error.
+The focused Q4 oracle runs first. A regression or less than 10% 8B/128 TTFT
+gain rejects the initial M16 geometry before longer contexts or quality work.
+
+M16 result: **REJECTED.** All five focused shapes pass with worst relative
+error below 0.087%, but 8B/128 TTFT is 738.14 ms versus 228.05 ms control
+(+223.7%, candidate CV 0.10%). Decode is unchanged. M16 reloads canonical
+weights eight times per retained M128 ownership, so one upper-bound geometry is
+still warranted: M64 with subgroup reduction and two weight traversals per
+retained tile. M64 uses 32 KiB shared activation state and 64 FP32 accumulators
+per lane. If it does not beat control, M32 is dominated by twice the weight
+traffic and the scalar DP4A prefill family is closed.
+
+M64 result: **REJECTED; family closed.** Focused numerical errors are unchanged,
+but 8B/128 TTFT rises to 917.31 ms versus 229.46 ms control (+299.8%). The
+larger tile is slower than M16 because 64 FP32 accumulators per lane and 32 KiB
+of shared activation state create a resource cliff. M32 is dominated: it keeps
+the same scalar DP4A count while traversing weights twice as often as M64. The
+shader, route, flag, pipeline, trace, and profile hooks were removed; production
+code is restored exactly to checkpoint `905dc70`.
+
+### Cycle 38 candidate: canonical Q4_K with K32 INT8 Matrix2 partials
+
+The rejected Phase 14 route quantized each complete output row of weights and
+therefore changed the model. This candidate keeps every canonical Q4_K nibble,
+block scale, and block minimum. For each K32 block it quantizes only the FP16
+activation row, multiplies signed Q8 activations by the original unsigned
+0--15 Q4 codes with native SINT8 Matrix2, then converts the I32 partial to FP32
+with the exact Q4 scale/minimum correction before accumulation. The identity is
+`d_a * (d_w * dot(q_a,q_w) - m_w * sum(q_a))`; only activation quantization is
+approximate. Unlike per-8 scales, one per-K32 scale matches the advertised INT8
+Matrix2 granularity without masked MMAs.
+
+The clean production baseline is checkpoint `905dc70`; the immediate 8B/128
+controls surrounding Cycle 37 are 228.05 and 229.46 ms TTFT. The experiment is
+strictly opt-in through `GRAPH_HORIZON_PREFILL_Q4_INT8_PARTIAL=1`. Productive
+estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_i8_matrix2_f16out.comp
+│   (category K; ~155 lines): K32 activation quantization, canonical Q4 decode,
+│   INT8 Matrix2, scale/min correction, and FP32 accumulation
+├── coopmat2/
+│   ├── abi.rs (~190): exact SINT8 WG256 capability predicate
+│   └── mod.rs (~150): expose the detected SINT8 contract
+├── kernels/matmul/prefill/
+│   ├── mod.rs (~160 productive lines before tests): isolated candidate route
+│   └── policy.rs (~55): strict experiment flag
+├── kernels/coopmat.rs (~120): admit the candidate's existing M128/three-buffer ABI
+├── pipeline/kernel.rs (~165): candidate shader ABI
+├── pipeline/caps.rs (~180 productive lines before tests): shared-memory gate
+└── pipeline/mod.rs (~200): capability-gated pipeline construction
+```
+
+Invariant: model bytes, Q4_K semantics, FP32 accumulation, output layout/type,
+decode, Q6, attention, KV, sampling, persistent memory, and default routing do
+not change. The smallest viable change is one category-K shader plus narrow
+capability, pipeline, dispatch, trace, and profile wiring. Main risks are four
+K32 Matrix2 operations and partial epilogues per retained K128 step, activation
+quantization error, and compiler support for cross-type per-element conversion.
+The focused five-shape Q4 oracle runs first, followed by 8B/128 economics. A
+compile/pipeline failure, numerical failure, or less than 10% short-prefill gain
+rejects the candidate before long-context qualification.
+
+Result: **REJECTED; representation closed.** The compiler and driver accept and
+select the exact SINT8 pipeline. All five focused Q4 tests pass without a
+tolerance change; the three Matrix2 shapes have worst relative error below
+0.0790%, confirming the canonical scale/minimum identity. Performance is
+terminal: 8B/128 TTFT is 766.02 ms versus 226.56 ms control (+238.1%), with
+0.18--0.19% CV, while decode remains neutral (34.76 versus 34.90 tok/s). Four
+K32 MMAs, activation quantization, I32-to-FP32 conversion, and four per-block
+epilogues cost far more than the saved payload/dequant work. Larger K cannot
+represent independent canonical Q4 scales; smaller M/N increases workgroup and
+weight traffic. The capability, shader, flag, pipeline, dispatch, trace,
+profile, and tests are removed; production returns exactly to `905dc70`.
+
+### Cycle 39 candidate: canonical Q6_K per-8 Q8 DP4A decode
+
+After Cycle 36, Q6_K V/down remain the largest decode-only format family. The
+Phase 26 8B/128 profile attributed about 377 ms across 31 decode steps to these
+two roles, or roughly 12.2 ms/token; the nearest target needs 2.89 ms/token.
+The existing per-8 Q8 activation representation is already qualified across
+all six models for Q4. Q6_K has no minimum term: each canonical signed 6-bit
+code is multiplied by its original per-16 scale, so one eight-lane output row
+can consume four per-8 activation blocks per lane with DP4A and FP32
+accumulation. No weight conversion or new scratch is required.
+
+The production baseline is clean checkpoint `905dc70`; the fresh 8B/128
+control is 34.90 tok/s. Q4 MMVQ stays at its retained default, while Q6 is
+strictly opt-in through `GRAPH_HORIZON_DECODE_MMVQ_Q6=1`. Productive estimates
+exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q6_k_mmvq_f16out.comp
+│   (category K; ~85 lines): canonical Q6 unpack, per-8 DP4A, FP32 reduction
+├── kernels/mmvq.rs (~145): format-specific eligibility and kernel selection
+├── pipeline/kernel.rs (~165): Q6 MMVQ shader ABI
+└── pipeline/mod.rs (~200): build the Q6 kernel on DP4A devices
+```
+
+Invariant: Q6 bytes/scales, per-8 activation quantization, output type/layout,
+FP32 accumulation, Q4 routing, prefill, attention, KV, sampling, scratch size,
+and default Q6 behavior remain unchanged. The smallest viable experiment is
+one category-K shader plus the existing MMVQ route/pipeline/profile wiring.
+Main risks are Q6 bit-plane indexing, fourfold lower row ownership than the
+float Q6 kernel, and compounded Q6/activation error. A focused CPU oracle gates
+8B/128 performance; less than 5% whole-decode gain rejects before model quality.
+
+M8 result: the CPU oracle passes and 8B/128 improves from 35.02 to 36.33 tok/s
+(+3.74%, candidate CV 0.15%), below the 5% gate. The kernel's 32 rows/WG are
+half the float Q6 dispatch ownership. One bounded M4 endpoint keeps 64 rows/WG
+and assigns two adjacent 32-value spans to each lane; it changes only constants,
+indexing, and dispatch geometry in the same recorded files. If M4 also misses
+5%, M16 is dominated by twice M8's workgroups and the Q6 DP4A family closes.
+
+M4 result: **REJECTED; family closed.** The same focused Q6 oracle passes, but
+8B/128 falls to 34.22 tok/s versus the 35.02 control and M8's 36.33. Preserving
+64 rows/WG makes each lane's serial decode too long; M8 reduces that work but
+still misses the gate, while M16 is dominated by twice M8's workgroups. The Q6
+shader, opt-in flag, route changes, pipeline, trace, and profile hooks are
+removed; production returns exactly to `905dc70`.

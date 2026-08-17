@@ -4,21 +4,18 @@
 
 // AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K tiled.
 
-// Tiled Q4_K matmul: y = W * a, batch 1, with shared-memory staging of the
-// activation and a 4-lane split per output row.
+// Tiled Q4_K matmul: y = W * a, batch 1, with a 4-lane split per output row.
 //
 // Tiling (fixed): workgroup 256 invocations, output tile = 64 rows, K-chunk = one
-// Q4_K super-block (256 weights) staged in shared memory per iteration; the per-row
-// reduction over the 4 lanes uses shared memory (no subgroup-arithmetic dependency,
-// hardware-agnostic). The K-chunk is the 256-weight super-block (not the generic 32
-// of the plan) because Q4_K's scales are per-super-block: the natural dequant unit.
+// Q4_K super-block (256 weights); the per-row reduction over the 4 lanes uses shared
+// memory (no subgroup-arithmetic dependency, hardware-agnostic). The activation is
+// read directly: the complete decode vector fits in cache, and this preserves the
+// arithmetic order while avoiding two workgroup barriers per super-block.
 //
 // Lane map: tid = 4*row_local + lane. The 64 rows of a workgroup all read the SAME
-// staged activation super-block, so each super-block's 256 activations are loaded
-// from global memory ONCE per workgroup (64x fewer global reads of `a` than the
-// one-invocation-per-row naive kernel). Each row's 256 weights split across its 4
-// lanes by the four 64-weight j-blocks of the super-block (j = lane*64), matching
-// the Q4_K dequant order exactly, so the value is bit-equivalent.
+// activation vector. Each row's 256 weights split across its 4 lanes by the four
+// 64-weight j-blocks of the super-block (j = lane*64), matching the Q4_K dequant
+// order exactly, so the value is bit-equivalent.
 //
 // Boundary: out_dim need not be a multiple of 64 — out-of-range rows still help
 // stage the shared activation but write nothing. in_dim is always a multiple of 256
@@ -31,8 +28,7 @@ layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
 
 layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
 
-// Staged activation of the current super-block (256 values) and per-lane partials.
-shared float asb[256];
+// Per-lane partials for the four-way row reduction.
 shared float partial[256];
 
 // One byte at absolute byte address b within the raw weight buffer.
@@ -67,11 +63,6 @@ void main() {
     float acc = 0.0;
 
     for (uint s = 0u; s < nsb; s++) {
-        // Stage the 256 activations of super-block s into shared memory (one per
-        // invocation), so all 64 rows reuse them from shared, not global.
-        asb[tid] = float(a[s * 256u + tid]);
-        barrier();
-
         if (live) {
             uint blk = (o * nsb + s) * 144u; // byte base of this Q4_K block
             float d = hf(blk);
@@ -97,14 +88,12 @@ void main() {
                     uint qv = (word >> (b * 8u)) & 0xFFu;
                     uint l = u * 4u + b;
                     float w0 = d1 * float(qv & 0xFu) - m1;
-                    acc += w0 * asb[j + l];
+                    acc += w0 * float(a[s * 256u + j + l]);
                     float w1 = d2 * float(qv >> 4u) - m2;
-                    acc += w1 * asb[j + 32u + l];
+                    acc += w1 * float(a[s * 256u + j + 32u + l]);
                 }
             }
         }
-        // Re-stage on the next iteration overwrites asb: keep all lanes in step.
-        barrier();
     }
 
     // Reduce the 4 lanes of each row via shared memory; lane 0 writes the result.

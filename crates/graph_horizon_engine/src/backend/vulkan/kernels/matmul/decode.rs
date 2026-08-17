@@ -23,7 +23,7 @@ pub(crate) fn matmul(
 ) {
     let (kernel, output_rows) = match w.quant {
         WeightFormat::F16 => (Kernel::MatmulF16, 64),
-        WeightFormat::Q4K => (Kernel::MatmulQ4KTiled, 32),
+        WeightFormat::Q4K => (Kernel::MatmulQ4KTiled, 16),
         WeightFormat::Q6K => (Kernel::MatmulQ6K, 64),
         WeightFormat::Q5K => (Kernel::MatmulQ5K, 64),
     };

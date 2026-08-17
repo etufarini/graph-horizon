@@ -21,6 +21,12 @@ shared float partial[256];
 uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
 float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
 int s8(uint b) { int v = int(gb(b)); return v >= 128 ? v - 256 : v; }
+// Q6_K's 210-byte stride alternates aligned and half-word-aligned blocks.
+uint packed4(uint b) {
+    uint shift = (b & 3u) * 8u;
+    uint lo = q[b >> 2u];
+    return shift == 0u ? lo : (lo >> shift) | (q[(b >> 2u) + 1u] << (32u - shift));
+}
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
@@ -49,19 +55,31 @@ void main() {
             uint qlb = qlo + seg * 64u;
             uint qhb = qho + seg * 32u;
             uint scb = sco + seg * 8u;
-            for (uint l = 0u; l < 32u; l++) {
-                uint is = l / 16u;
-                uint lo0 = gb(qlb + l);
-                uint lo1 = gb(qlb + l + 32u);
-                uint h = gb(qhb + l);
-                int q0 = int(((lo0 >> nibble_shift) & 0xFu) |
-                             (((h >> scale_shift) & 3u) << 4u)) - 32;
-                int q1 = int(((lo1 >> nibble_shift) & 0xFu) |
-                             (((h >> (scale_shift + 2u)) & 3u) << 4u)) - 32;
-                acc += d * float(s8(scb + is + scale_shift)) * float(q0) *
-                       asb[activation_shift + l];
-                acc += d * float(s8(scb + is + scale_shift + 2u)) * float(q1) *
-                       asb[activation_shift + l + 32u];
+            float q0_scale_0 = d * float(s8(scb + scale_shift));
+            float q0_scale_1 = d * float(s8(scb + scale_shift + 1u));
+            float q1_scale_0 = d * float(s8(scb + scale_shift + 2u));
+            float q1_scale_1 = d * float(s8(scb + scale_shift + 3u));
+            // Four packed loads replace twelve repeated byte-extracting loads;
+            // u,b still visit l=0..31 in the original accumulation order.
+            for (uint u = 0u; u < 8u; u++) {
+                uint lo0 = packed4(qlb + u * 4u);
+                uint lo1 = packed4(qlb + 32u + u * 4u);
+                uint hi = packed4(qhb + u * 4u);
+                float q0_scale = u < 4u ? q0_scale_0 : q0_scale_1;
+                float q1_scale = u < 4u ? q1_scale_0 : q1_scale_1;
+                for (uint b = 0u; b < 4u; b++) {
+                    uint l = u * 4u + b;
+                    uint byte_shift = b * 8u;
+                    uint lo0_byte = (lo0 >> byte_shift) & 0xFFu;
+                    uint lo1_byte = (lo1 >> byte_shift) & 0xFFu;
+                    uint hi_byte = (hi >> byte_shift) & 0xFFu;
+                    int q0 = int(((lo0_byte >> nibble_shift) & 0xFu) |
+                                 (((hi_byte >> scale_shift) & 3u) << 4u)) - 32;
+                    int q1 = int(((lo1_byte >> nibble_shift) & 0xFu) |
+                                 (((hi_byte >> (scale_shift + 2u)) & 3u) << 4u)) - 32;
+                    acc += q0_scale * float(q0) * asb[activation_shift + l];
+                    acc += q1_scale * float(q1) * asb[activation_shift + l + 32u];
+                }
             }
         }
         barrier();

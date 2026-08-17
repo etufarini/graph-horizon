@@ -48,11 +48,9 @@ void main() {
 
     vec4 qd[Q_GROUP];
     vec4 acc[Q_GROUP];
-    float m_g[Q_GROUP];
-    float l_g[Q_GROUP];
+    vec4 m_g = vec4(-1e30);
+    vec4 l_g = vec4(0.0);
     for (uint h = 0u; h < Q_GROUP; h++) {
-        m_g[h] = -1e30;
-        l_g[h] = 0.0;
         qd[h] = vec4(q[(h0 + h) * head_vecs + l]);
         acc[h] = vec4(0.0);
     }
@@ -61,15 +59,18 @@ void main() {
         uint base = ((p.layer * p.context + t) * p.kv_heads + kvh) * head_vecs;
         vec4 kd = vec4(kc[base + l]);
         vec4 vd = vec4(vc[base + l]);
+        vec4 prod;
         for (uint h = 0u; h < Q_GROUP; h++) {
-            float prod = dot(qd[h], kd);
-            float score = subgroupAdd(prod) * p.scale;
-            float m_new = max(m_g[h], score);
-            float alpha = exp(m_g[h] - m_new);
-            float pw = exp(score - m_new);
-            l_g[h] = l_g[h] * alpha + pw;
-            acc[h] = acc[h] * alpha + pw * vd;
-            m_g[h] = m_new;
+            prod[h] = dot(qd[h], kd);
+        }
+        vec4 score = subgroupAdd(prod) * p.scale;
+        vec4 m_new = max(m_g, score);
+        vec4 alpha = exp(m_g - m_new);
+        vec4 pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        m_g = m_new;
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            acc[h] = acc[h] * alpha[h] + pw[h] * vd;
         }
     }
 

@@ -68,10 +68,10 @@ fn run() -> Result<(), BenchFailure> {
         if !seen.insert(flag) {
             return Err(usage(message));
         }
-        let value = pair.get(1).ok_or(usage(message))?;
+        let value = pair.get(1).ok_or_else(|| usage(message))?;
         match flag.as_str() {
             "--context" => context = Some(number(value, 1, usize::MAX, message)?),
-            "--kv" => kv = Some(KvQuant::parse(value).ok_or(usage(message))?),
+            "--kv" => kv = Some(KvQuant::parse(value).ok_or_else(|| usage(message))?),
             "--weights-percent" => weights_percent = Some(number(value, 0, 100, message)? as u8),
             "--prompt" if !value.is_empty() => prompt = value.clone(),
             "--prompt" => return Err(usage(message)),
@@ -81,8 +81,8 @@ fn run() -> Result<(), BenchFailure> {
             _ => unreachable!(),
         }
     }
-    let context = context.ok_or(usage("bench: invalid --context"))?;
-    let kv = kv.ok_or(usage("bench: invalid --kv"))?;
+    let context = context.ok_or_else(|| usage("bench: invalid --context"))?;
+    let kv = kv.ok_or_else(|| usage("bench: invalid --kv"))?;
     let engine = Engine::new(
         Path::new(model),
         EngineConfig {

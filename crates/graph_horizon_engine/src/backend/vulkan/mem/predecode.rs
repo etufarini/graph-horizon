@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — Vulkan execution-weight predecode
  * Converts one validated Q4_K matrix from canonical GGUF blocks to the exact
- * row-major FP16 values consumed by the experimental Matrix2 prefill path.
+ * row-major FP16 values consumed by the qualified Matrix2 prefill path.
  * It performs no I/O, allocation ownership, routing, or model selection.
  */
 
@@ -15,21 +15,27 @@ const BLOCK_VALUES: usize = 256;
 const BLOCK_BYTES: usize = 144;
 
 pub(crate) fn q4_f16(bytes: &[u8], in_dim: usize, out_dim: usize) -> Result<Vec<u8>> {
+    if in_dim == 0 || out_dim == 0 || !in_dim.is_multiple_of(BLOCK_VALUES) {
+        bail!("vulkan: invalid predecoded weight");
+    }
     let blocks_per_row = in_dim / BLOCK_VALUES;
-    let expected = out_dim
+    let Some(expected) = out_dim
         .checked_mul(blocks_per_row)
-        .and_then(|blocks| blocks.checked_mul(BLOCK_BYTES));
-    let output_bytes = in_dim
+        .and_then(|blocks| blocks.checked_mul(BLOCK_BYTES))
+    else {
+        bail!("vulkan: invalid predecoded weight");
+    };
+    let Some(output_bytes) = in_dim
         .checked_mul(out_dim)
-        .and_then(|values| values.checked_mul(2));
-    if !in_dim.is_multiple_of(BLOCK_VALUES)
-        || expected != Some(bytes.len())
-        || output_bytes.is_none()
-    {
+        .and_then(|values| values.checked_mul(2))
+    else {
+        bail!("vulkan: invalid predecoded weight");
+    };
+    if expected != bytes.len() {
         bail!("vulkan: invalid predecoded weight");
     }
 
-    let mut output = vec![0u8; output_bytes.unwrap()];
+    let mut output = vec![0u8; output_bytes];
     for row in 0..out_dim {
         for block_index in 0..blocks_per_row {
             let block = (row * blocks_per_row + block_index) * BLOCK_BYTES;
@@ -102,6 +108,8 @@ mod tests {
     #[test]
     fn malformed_shape_is_rejected() {
         assert!(q4_f16(&[0; BLOCK_BYTES], BLOCK_VALUES - 1, 1).is_err());
+        assert!(q4_f16(&[], 0, 1).is_err());
+        assert!(q4_f16(&[], BLOCK_VALUES, 0).is_err());
     }
 
     #[cfg(feature = "vulkan-hybrid")]

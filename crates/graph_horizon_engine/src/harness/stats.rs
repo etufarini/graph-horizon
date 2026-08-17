@@ -24,7 +24,7 @@ pub(super) fn mean_std(xs: &[f64]) -> Stat {
     let mean = xs.iter().sum::<f64>() / n as f64;
     let mut ordered = xs.to_vec();
     ordered.sort_by(f64::total_cmp);
-    let median = if n % 2 == 0 {
+    let median = if n.is_multiple_of(2) {
         (ordered[n / 2 - 1] + ordered[n / 2]) / 2.0
     } else {
         ordered[n / 2]

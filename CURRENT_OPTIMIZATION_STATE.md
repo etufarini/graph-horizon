@@ -8,10 +8,13 @@ reproduction commands, and resume point. Phase reports retain detailed evidence.
 
 ## Status
 
-**CHECKPOINT — MISSION INCOMPLETE.** Phase 29 closed the exact/same-numeric
-Vulkan search, but the performance contract remains unmet and the broader
-representation, selective-numerical, model-adaptation, and specialization
-spaces are not globally exhausted.
+**LOCAL SEARCH EXHAUSTED — PERFORMANCE CONTRACT UNMET.** Exact, alternate
+numeric, representation, ownership, and supported Vulkan specialization paths
+have either been retained or closed by direct measurement. Model adaptation is
+not a valid way to satisfy this same-artifact llama.cpp comparison: it would
+change the model being compared rather than optimize execution of the pinned
+GGUF. The remaining gap therefore needs materially different hardware/compiler
+capability or a changed comparison/model contract, not another local candidate.
 
 | Item | Current value |
 |---|---|
@@ -629,3 +632,156 @@ M4 result: **REJECTED; family closed.** The same focused Q6 oracle passes, but
 still misses the gate, while M16 is dominated by twice M8's workgroups. The Q6
 shader, opt-in flag, route changes, pipeline, trace, and profile hooks are
 removed; production returns exactly to `905dc70`.
+
+### Cycle 40 candidate: 16-lane per-8 Q8/Q4 DP4A decode
+
+The retained Q4 MMVQ assigns one lane to each 32-value canonical scale group;
+each lane serially consumes four per-8 activation blocks. A 16-lane variant
+assigns two lanes to each scale group and two activation blocks per lane. It
+doubles workgroups from 32 to 16 output rows each, but halves per-lane decode
+and dot-product depth while keeping weight traffic, arithmetic, activation
+representation, FP32 accumulation, and scratch unchanged. This geometry was
+not tested by the older per-32 activation experiments.
+
+The clean baseline is evidence commit `c8335a2` with retained production at
+`905dc70`; fresh 8B/128 control is 35.02 tok/s and the nearest contract requires
+39.03 tok/s. The candidate is strict opt-in through
+`GRAPH_HORIZON_DECODE_MMVQ_L16=1`. Productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/
+├── build.rs (~95 Vulkan productive lines): compile one Q4 MMVQ macro variant
+└── src/backend/vulkan/
+    ├── shaders/matmul/matmul_q4_k_mmvq_f16out.comp
+    │   (category K; ~90 lines): cohesive L8/L16 variants of Q4 MMVQ
+    ├── kernels/mmvq.rs (~135): strict variant flag and dispatch geometry
+    ├── pipeline/kernel.rs (~165): variant ABI
+    └── pipeline/mod.rs (~200): DP4A-gated variant pipeline
+```
+
+Invariant: canonical Q4 bytes/scales/minimums, per-8 activation quantization,
+FP32 accumulation, output layout/type, Q6, prefill, attention, KV, sampling,
+scratch, and default L8 routing remain unchanged. Main risk is that doubled
+workgroup traffic outweighs shorter lane dependency chains. The existing MMVQ
+CPU oracle runs through the selected variant first; failure to improve 8B/128
+by at least 5% rejects L16, and L32 is then dominated by another doubling of
+workgroups.
+
+Result: **REJECTED; geometry closed.** The selected L16 variant passes the
+existing Q4 CPU oracle, but 8B/128 is 34.72 tok/s versus 34.84 control (CV
+0.32% versus 0.24%). Doubled workgroup traffic offsets the shorter per-lane dot
+chain; L32 is dominated by another doubling. The build variant, shader branch,
+flag, dispatch, pipeline, trace, and profile hooks are removed. The retained
+eight-lane kernel remains the measured optimum and production returns exactly
+to `905dc70`.
+
+### Cycle 41 candidate: Q6 DP4A including FP32 logits
+
+Cycle 39 measured Q6 MMVQ only through the generic FP16 matmul interface, so it
+affected V/down but not the separate Q6 logits route. The Phase 26 8B profile
+attributes about 2.7 ms/token to logits, nearly the complete 2.89 ms/token gap,
+and the M8 V/down candidate already supplied +3.74% whole decode. A combined
+candidate reuses the identical canonical-Q6/per-8-Q8 DP4A arithmetic with an
+FP32 output variant for logits. This is a new affected domain, not another Q6
+lane sweep.
+
+The clean production state is `905dc70` plus evidence commit `c8335a2`; fresh
+8B/128 control is 34.84 tok/s. Both Q6 routes are strict opt-in through
+`GRAPH_HORIZON_DECODE_MMVQ_Q6=1`. Productive estimates exclude tests:
+
+```text
+crates/graph_horizon_engine/
+├── build.rs (~95 Vulkan productive lines): compile the FP32-output shader variant
+└── src/backend/vulkan/
+    ├── shaders/matmul/matmul_q6_k_mmvq_f16out.comp
+    │   (category K; ~90 lines): cohesive FP16/FP32 Q6 MMVQ variants
+    ├── kernels/mmvq.rs (~190): Q6 matmul and logits eligibility/dispatch
+    ├── kernels/matmul/mod.rs (~75): try Q6 logits MMVQ before exact fallback
+    ├── backend.rs (category I): pass existing fixed scratch to the delegator
+    ├── pipeline/kernel.rs (~170): two Q6 MMVQ ABIs
+    └── pipeline/mod.rs (~200): DP4A-gated pipelines
+```
+
+Invariant: canonical Q6 bytes/scales, per-8 activation quantization, FP32
+accumulation, exact FP32 logits storage, Q4, prefill, attention, KV, sampling,
+scratch size, and default Q6 routes remain unchanged. Main risks are vocabulary-
+wide workgroup amplification and the same composed activation error now touching
+token ranking directly. The existing Q6 matmul+logits CPU oracle gates 8B/128;
+the candidate must improve decode by at least 5% before full-model quality.
+
+M8 combined result: the matmul+FP32-logits oracle passes and 8B/128 improves
+35.02 -> 36.74 tok/s (+4.91%, candidate CV 0.41%), just below the gate and far
+below the 39.03 tok/s contract. One logits-specific M4 endpoint is warranted:
+vocabulary-wide logits launch 4,096 M8 workgroups, so retaining 64 rows/WG can
+matter more there than on V/down. The next binary keeps M8 for V/down and adds
+an opt-in M4 FP32 logits variant in the same shader/pipeline files. If it does
+not materially exceed M8, the combined Q6 DP4A family closes.
+
+M4-logits result: **REJECTED; combined family closed.** The focused FP16/FP32
+oracle passes, but M8 V/down plus M4 logits reaches 36.36 tok/s, below the M8
+combined candidate's 36.74. M8 combined improves 35.02 -> 36.74 (+4.91%) but
+misses both the 5% experiment gate and the 39.03 tok/s contract. Finer logits
+row ownership is dominated; coarser ownership already regressed. All Q6 MMVQ
+shaders, flags, scratch delegation, dispatch, pipeline, trace, and profile hooks
+are removed; production returns exactly to `905dc70`.
+
+### Cycle 42 candidate: four-lane per-8 Q8/Q4 DP4A decode
+
+Cycle 40 closes the finer-than-L8 side but not the coarser endpoint. L4 assigns
+two canonical 32-value Q4 groups to each lane and restores 64 output rows/WG.
+It halves workgroups and the reduction width while doubling each lane's serial
+DP4A/scale/min work. Q6's analogous endpoint regressed, but Q4 has different
+payload unpack and minimum-correction costs, so inference alone is insufficient.
+
+This uses the same temporary build/shader/host/pipeline structure and line
+estimates recorded for Cycle 40, with strict opt-in
+`GRAPH_HORIZON_DECODE_MMVQ_L4=1`. The clean retained baseline is `905dc70` and
+fresh 8B/128 control is 35.02 tok/s. Canonical weights, per-8 activation Q8,
+scratch, accumulation, outputs, all non-Q4 paths, and default L8 remain fixed.
+The existing CPU oracle gates one 8B/128 comparison. A regression or less than
+5% gain closes the L4/L8/L16 geometry bracket.
+
+Result: **REJECTED; full Q4 row geometry bracket closed.** The L4 oracle passes,
+but 8B/128 collapses to 26.30 tok/s versus the 35.02 control (candidate CV
+0.15%). L4 is limited by doubled serial unpack/dot/correction depth; L16 is
+limited by doubled workgroups; retained L8 is the measured optimum between
+them. Every temporary variant and host hook is removed, restoring production
+exactly to `905dc70`.
+
+## Final systematic stop decision
+
+No post-`905dc70` production candidate is retained. Cycles 37--42 close the
+remaining integer-prefill and decode-format questions that were still open at
+the Cycle 36 checkpoint:
+
+| Frontier | Best measured candidate | Required result | Terminal evidence |
+|---|---:|---:|---|
+| 8B/28K prefill | retained 69.145 s | <=37.26 s | deleting all 21.150 s attention still leaves 47.995 s; the missing >=10.735 s must come from matmul |
+| scalar DP4A prefill | 738.14 ms at M16 | <204 ms at 8B/128 screening gate | M16 +223.7%, M64 +299.8%; M32 dominated |
+| canonical block-scaled INT8 Matrix2 | 766.02 ms | <204 ms | +238.1%; K32 scale granularity is irreducible |
+| Q4 Matrix2 geometry/representation | retained FP16 M128/N32 | target-sized local speedup | M256, N16, direct callbacks, transient expansion, and integer partials all regress |
+| sparse/model-semantic attention | historical <7.82% physical ceiling | 46.1% whole-request reduction | even zero-cost attention cannot meet prefill target; adapted weights would violate same-artifact comparison |
+| 8B/128 decode | 36.74 tok/s rejected Q6-combined | >=39.03 tok/s | candidate gains only 4.91%; retained result remains 35.07 tok/s |
+| Q4 per-8 DP4A ownership | retained L8 | >=5% incremental | L4 26.30, L8 35.02 control, L16 34.72 tok/s |
+| Q6 per-8 DP4A ownership/output | M8 combined 36.74 tok/s | >=39.03 tok/s | M4 V/down 34.22; M4-logits 36.36; M8 below contract |
+
+The prefill impossibility statement is an Amdahl bound, not a claim that
+attention has zero optimization headroom. It proves that attention alone cannot
+qualify. The required companion matmul breakthrough has been tested across
+exact compressed Matrix2, FP16 execution views, direct canonical callbacks,
+transient dequantization, scalar DP4A, row-scaled persistent INT8, and canonical
+block-scaled INT8 partials. Their retained/rejected evidence is in this file and
+the phase reports; no unmeasured combination can add already-overlapping gains.
+
+For decode, the best new representation remains below the nearest threshold
+before its required six-model teacher-forced quality suite. Retaining it would
+increase complexity and numerical surface without satisfying the task. Q4 and
+Q6 lane counts are bracketed on both sides of their optima, quantization costs
+only 0.44 ms/token in the retained profile, and CPU/dispatch overhead is below
+the missing budget. Further micro-sweeps are not evidence-driven.
+
+The largest remaining bottleneck is still 8B/28K prefill: 69.145 s versus the
+37.26 s contract ceiling, with 37.373 s in gate/up/down, 9.477 s in Q/K/V/O,
+21.150 s attention, and 1.292 s other. The final source state contains only the
+retained FP16-M128 prefill and per-8-Q8 Q4 decode changes; all Cycle 37--42
+production experiments were removed exactly.

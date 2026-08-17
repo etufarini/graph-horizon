@@ -1188,3 +1188,43 @@ Fresh repeated Graph Horizon TTFT CV is 0.01--0.44% for the 3B/8B rows through
 SD is 0.17/60.33 ms for 3B 128/28K, 0.17/9.91 ms for 8B, and 2.83/3.12 ms for
 14B 128/384. The unavoidable timing boundary remains: Graph Horizon includes
 tokenization and first sampling; llama pure `pp` does not.
+
+### Cycle 50 candidate: upstream-fidelity Q4_K Matrix2 dataflow
+
+The global-stop audit leaves one hardware-family architecture untested at full
+fidelity. Cycle 47 reproduced its dimensions, orientation, scale staging, and
+direct output separately, but retained a compact hand-written callback and
+control structure. The pinned reference instead uses typed 144-byte Q4_K block
+views, a tensor block size of 256, callback-based cooperative loads, double-
+buffered scale fetch/store state, a K64 inner tile unrolled across each full
+K256 quant block, tensor-view transposition for activations and output, and
+separate clamped/unclamped tensor layouts. Its generated Q4 shader is 35,712
+SPIR-V bytes versus 11,596 bytes for the final compact Cycle 47 prototype.
+
+At 8B/28K, compressed Q4 accounts for 38.126 s and everything else for about
+31.120 s. Matching a 2.3x reference-side local advantage predicts 47.70 s
+(-31.1% whole request); matching the high observed endpoint of 3.8x predicts
+41.15 s (-40.6%) and clears the broad 1.7x ceiling of 41.689 s. The exact local
+speedups required are 3.61x for the broad ceiling and 6.73x for the strict 1.5x
+ceiling. This is high-risk but clears the >=10% hardware-specific economic gate.
+
+No new domain or orchestration split is warranted. The experiment replaces the
+existing compressed-Q4 shader and specializes its existing dispatch while the
+retained diagnostics-free binary supplies the A control. Productive estimates
+exclude tests:
+
+```text
+crates/graph_horizon_engine/src/backend/vulkan/
+├── shaders/matmul/matmul_q4_k_matrix2_f16out.comp
+│   (category K; ~340 lines): one typed Q4_K Matrix2 matmul operation
+└── kernels/coopmat.rs (~150): Q4-specific binding order, shape push, and grid
+```
+
+Invariant: canonical Q4_K bytes, FP16 activation/accumulator/output, token-major
+output, capability/shape eligibility, every Q6/direct-FP16/decode path, and the
+existing generic fallback remain unchanged. The main risk is that the earlier
+compact port already captured the performance-relevant instructions and that
+the larger callback form only increases register pressure. The focused Q4 CPU
+oracle gates a diagnostics-free 8B/128 screen. A regression or less than 10%
+whole TTFT gain rejects before 28K; a qualifying screen proceeds to profile,
+8B/28K, multi-model regression, and the existing quality suite.

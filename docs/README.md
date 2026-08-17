@@ -59,6 +59,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-specialization-architecture-phase20.md](vulkan-specialization-architecture-phase20.md) | Phase 20 NVIDIA Matrix2 attention capability/shape routing, portability inventory, preserved performance, and future GPU/model policy |
 | [vulkan-matmul-architecture-phase21.md](vulkan-matmul-architecture-phase21.md) | Phase 21 quantized-matmul attribution, down-projection architecture experiment, rejected direct Matrix2 feed, and evidence-based stop decision |
 | [vulkan-second-model-bringup-phase22.md](vulkan-second-model-bringup-phase22.md) | Phase 22 8B weight bring-up, generic and optimized Vulkan qualification, reuse matrix, baseline, and next bottleneck |
+| [vulkan-model2-largek-matmul-phase23.md](vulkan-model2-largek-matmul-phase23.md) | Phase 23 Model 2 large-K down-projection attribution, retained Matrix2 route, full qualification, and next bottleneck |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 For installation, catalogs, and operational scripts, also see

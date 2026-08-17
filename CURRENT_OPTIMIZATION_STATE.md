@@ -8,32 +8,31 @@ reproduction commands, and resume point. Phase reports retain detailed evidence.
 
 ## Status
 
-**CHECKPOINT — MISSION INCOMPLETE.** The attached end-to-end mission requires
-escalation beyond each local stop. Cycles 43--47 close the newer decode-vector
-availability question and the portable reconstruction of llama.cpp's scalar
-direct Matrix2 architecture; neither is a global stop. Model adaptation remains
-a distinct later design level, and same-artifact measurements stay mandatory
-for runtime-only candidates.
+**CHECKPOINT — MISSION INCOMPLETE.** Cycle 49 retains a 91.67% 14B/128 routing
+gain and reopens the global ranking. Cycles 43--47 close decode-vector
+availability and compact reconstructions of llama.cpp's scalar-direct Matrix2
+architecture, while Cycle 48 blocks model adaptation in this environment. One
+upstream-fidelity, Q4_K-only Matrix2 reconstruction remains to be screened
+before a global stop can be considered.
 
 | Item | Current value |
 |---|---|
 | Date | 2026-08-18 |
-| Branch / retained production HEAD | `perf/systematic-llamacpp-gap` / `905dc70` |
+| Branch / retained production HEAD | `perf/systematic-llamacpp-gap` / `9eb83b1` |
 | Production baseline | `e21fc12` plus Phase 29 source restoration |
 | GPU / driver | RTX 3060 12 GiB / 595.84 |
 | llama.cpp | `9bebfcb4bc8b12a316e96ae03f33671eac1e72fd`, build 9826 |
 | Runtime | pure Vulkan, full offload, F16 KV, greedy |
 | Supported artifacts | Ministral 3B, 8B, and capacity-guarded 14B instruct/reasoning Q4_K_M |
-| Retained latest changes | FP16 M128 Q4 prefill; per-8 Q8/DP4A Q4 decode |
+| Retained latest changes | FP16 M128 Q4 prefill; per-8 Q8/DP4A Q4 decode; 14B Matrix2 eligibility |
 
 The authenticated 3B artifact remains 2,147,023,008 bytes with SHA-256
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
 
-## Competitive matrix
+## Competitive matrix (superseded pre-Cycle-49 snapshot)
 
-The first row is the fresh same-session revalidation. Remaining rows are the
-latest qualified Phase 28/29 matrix and must be bookended again after a retained
-architectural change.
+This snapshot preserves the resume-time evidence. The fresh post-Cycle-49
+matrix near the end of this document supersedes it.
 
 | Model / workload | Graph Horizon | llama.cpp | Latency ratio | Contract | Status |
 |---|---:|---:|---:|---:|---|
@@ -67,13 +66,14 @@ The retained Cycle 31b 8B/28K profile attributes 99.97% of 69.31 GPU seconds:
 | Other | 1.292 s | 1.86% |
 | **Total** | **69.292 s** | **99.97% accounted** |
 
-The 1.5x target permits 37.26 s, leaving 32.03 s to remove. The old 65.30 s
+The fresh llama.cpp endpoint makes the strict 1.5x target 36.785 s, leaving
+32.461 s to remove from 69.246 s public time. The old 65.30 s
 same-numeric floor is retired rather than silently reused: Cycle 31 crossed its
 numeric boundary and removed another 5.60 profiled seconds. At 8B/128 decode,
 the target requires 39.03 tok/s; retained per-8 Q8/DP4A reaches 35.07 tok/s,
 leaving a 10.1% throughput gap to the nearest threshold.
 
-## Global Amdahl ranking
+## Historical pre-Cycle-43 Amdahl ranking
 
 | Rank | Workload / component | Current | Practical candidate floor | Removable | Predicted whole gain | Level | Portability | Quality risk | Complexity |
 |---:|---|---:|---:|---:|---:|---:|---|---|---|
@@ -747,9 +747,9 @@ limited by doubled workgroups; retained L8 is the measured optimum between
 them. Every temporary variant and host hook is removed, restoring production
 exactly to `905dc70`.
 
-## Final systematic stop decision
+## Historical Cycle-42 design-space stop (superseded)
 
-No post-`905dc70` production candidate is retained. Cycles 37--42 close the
+At that checkpoint no post-`905dc70` production candidate was retained. Cycles 37--42 close the
 remaining integer-prefill and decode-format questions that were still open at
 the Cycle 36 checkpoint:
 
@@ -1092,3 +1092,99 @@ pure policy. Main risks are an unmeasured resource cliff at K=16,384 and the
 already-qualified FP16-accumulation error composing differently across 40
 layers. Focused Q4/Q6 CPU oracles gate a paired 14B/128 screen; regression or
 less than 10% TTFT gain rejects before the full quality/regression matrix.
+
+Result: **KEEP.** Focused Q4 and Q6 oracles cover both directions of the
+5,120/16,384 family. Q4 FP16-accumulator worst relative/mean-relative error is
+3.596%/1.382%; Q6 is at most 0.509%/0.095%, all inside the declared bounds.
+
+Diagnostics-free 14B Instruct A/B/A at 128 tokens is
+4,375.47 / **365.60** / 4,403.73 ms. The 4,389.60 ms surrounding baseline
+therefore falls by 4,024.00 ms / **91.67%**; candidate CV is 0.28%. Decode is
+23.34 tok/s versus 23.50 across the controls (-0.66%, inside the 1% guard).
+Against fresh llama.cpp at 174.94 ms, the ratio improves from 25.10x to 2.09x.
+
+The candidate profile routes Q/K/V/O/gate/up/down through the existing Q4/Q6
+Matrix2 kernels and reduces accounted GPU prefill from 4,707.73 to 520.47 ms
+(-88.95%). Per-category movement is:
+
+| Category | Scalar/legacy baseline | Matrix2 | Local speedup |
+|---|---:|---:|---:|
+| Q | 371.55 ms | 32.81 ms | 11.33x |
+| K | 115.11 ms | 14.24 ms | 8.08x |
+| V | 113.05 ms | 14.03 ms | 8.06x |
+| O | 127.41 ms | 31.09 ms | 4.10x |
+| Gate | 1,338.56 ms | 126.08 ms | 10.62x |
+| Up | 1,321.74 ms | 129.02 ms | 10.24x |
+| Down | 1,304.63 ms | 150.65 ms | 8.66x |
+
+The 14B Reasoning 251-token row improves from the acquired 8,816.82 to
+715.48 ms (-91.88%). Both 14B artifacts pass the established 128-step
+teacher-forced top-two contract at context capacity 512; Reasoning retains its
+exact local top-1 stream, while Instruct first changes local top-1 at step 20.
+This is reported as the qualified FP16-accumulation numerical boundary, not as
+bit-exact execution. At a near-capacity 384-token Instruct prompt, pure Vulkan
+measures 1,071.32 ms (CV 0.05%) versus 358.10 ms in llama.cpp, or 2.99x.
+
+Fresh 3B/128 and 8B/128 guards are 100.28 and 226.05 ms, respectively, versus
+99.59 and 228.12 ms controls (+0.69%/-0.91%); decode is unchanged. Full release
+validation passes: root 166/166, engine 233 passed with four intentional
+ignores, integration 6 passed with one ignore, semantic 12 passed with one
+ignore, formatting clean, and Vulkan plus Vulkan-hybrid all-target Clippy clean
+with warnings denied. The diagnostics-free pure-Vulkan executable SHA-256 is
+`a6db731ea7d7cae6989dec0323fb3461c710977a80a1ae48e92b11dd2a98b690`.
+The retained change is capability-, format-, and shape-based with the existing
+fallback; production commit is `9eb83b1`.
+
+## Fresh post-Cycle-49 workload matrix
+
+Graph Horizon rows are diagnostics-free and use the final source. The 3B/8B
+long rows were captured immediately before Cycle 49; the new exact dimensions
+cannot match their route predicates, and fresh 128 guards confirm no movement.
+llama.cpp 128/28K endpoints and both 14B points are same-session fresh. Middle
+llama.cpp rows reuse the qualified pinned-build values because its source and
+tuple are unchanged. Single-repetition long Graph Horizon rows report no SD/CV.
+
+### Prefill
+
+| Model | Tokens | Graph Horizon | llama.cpp | GH/llama | Contract | Status |
+|---|---:|---:|---:|---:|---:|---|
+| 3B | 128 | 99.59 ms | 42.00 ms | 2.37x | <=1.5x | miss |
+| 3B | 512 | 373.02 ms | 130.16 ms | 2.87x | <=1.7x | miss |
+| 3B | 2K | 1.544 s | 0.541 s | 2.85x | <=1.7x | miss |
+| 3B | 8K | 7.185 s | 2.612 s | 2.75x | <=1.7x | miss |
+| 3B | 16K | 17.156 s | 6.435 s | 2.67x | <=1.7x | miss |
+| 3B | 28K | 36.099 s | 13.603 s | 2.65x | <=1.7x | miss |
+| 8B | 128 | 228.12 ms | 97.51 ms | 2.34x | <=1.5x | miss |
+| 8B | 512 | 891.69 ms | 287.81 ms | 3.10x | <=1.7x | miss |
+| 8B | 2K | 3.632 s | 1.185 s | 3.06x | <=1.7x | miss |
+| 8B | 8K | 15.900 s | 5.300 s | 3.00x | <=1.7x | miss |
+| 8B | 16K | 35.311 s | 12.283 s | 2.87x | <=1.7x | miss |
+| 8B | 28K | 69.246 s | 24.523 s | 2.82x | <=1.5--1.7x | miss |
+| 14B | 128 | 365.60 ms | 174.94 ms | 2.09x | <=1.5x | miss |
+| 14B | 384 | 1.071 s | 0.358 s | 2.99x | <=1.7x | miss |
+
+### Decode
+
+Ratios are latency-equivalent `llama tok/s / GH tok/s`; lower is better.
+
+| Model | KV tokens | Graph Horizon | llama.cpp | Latency ratio | Contract | Status |
+|---|---:|---:|---:|---:|---:|---|
+| 3B | 128 | 70.88 tok/s | 104.81 tok/s | 1.48x | <=1.3--1.4x | near miss |
+| 3B | 512 | 70.01 tok/s | 101.97 tok/s | 1.46x | <=1.3--1.4x | near miss |
+| 3B | 2K | 69.40 tok/s | 95.06 tok/s | 1.37x | <=1.3--1.4x | pass |
+| 3B | 8K | 60.22 tok/s | 78.21 tok/s | 1.30x | <=1.3--1.4x | pass |
+| 3B | 16K | 51.28 tok/s | 63.01 tok/s | 1.23x | <=1.3--1.4x | pass |
+| 3B | 28K | 42.36 tok/s | 50.02 tok/s | 1.18x | <=1.3--1.4x | pass |
+| 8B | 128 | 34.60 tok/s | 49.84 tok/s | 1.44x | <=1.3--1.4x | near miss |
+| 8B | 512 | 34.35 tok/s | 49.37 tok/s | 1.44x | <=1.3--1.4x | near miss |
+| 8B | 2K | 33.38 tok/s | 47.15 tok/s | 1.41x | <=1.3--1.4x | near miss |
+| 8B | 8K | 30.44 tok/s | 39.32 tok/s | 1.29x | <=1.3--1.4x | pass |
+| 8B | 16K | 27.23 tok/s | 35.17 tok/s | 1.29x | <=1.3--1.4x | pass |
+| 8B | 28K | 23.91 tok/s | 27.69 tok/s | 1.16x | <=1.3--1.4x | pass |
+| 14B | 128 | 23.48 tok/s | 36.42 tok/s | 1.55x | <=1.3--1.4x | miss |
+
+Fresh repeated Graph Horizon TTFT CV is 0.01--0.44% for the 3B/8B rows through
+8K, 0.28% for retained 14B/128, and 0.05% for 14B/384. Fresh llama endpoint
+SD is 0.17/60.33 ms for 3B 128/28K, 0.17/9.91 ms for 8B, and 2.83/3.12 ms for
+14B 128/384. The unavoidable timing boundary remains: Graph Horizon includes
+tokenization and first sampling; llama pure `pp` does not.

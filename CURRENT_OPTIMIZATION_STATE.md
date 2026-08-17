@@ -1341,3 +1341,22 @@ within ~210/~140 productive lines. Canonical Q4 arithmetic, K64 order, output
 ownership, types, eligibility, non-Q4 paths, and fallback are invariant. The Q4
 oracle and 8B/128 screen reject pipeline absence, regression, or less than 5%
 whole gain before any long run.
+
+Result: **REJECTED.** M256/N256 passes the focused oracle but measures 373.04 ms
+at 8B/128 versus 150.66 ms retained (+147.6%; candidate CV 0.20%). Doubling the
+accumulator crosses a severe Matrix2 resource/code-generation cliff. The token
+constant and grid are removed exactly; production returns to `dff4bd8`.
+
+### Cycle 54 candidate: direct Q4 K128 inner tile
+
+The retained direct callback uses the pinned reference's K64 inner matrix. A
+K128 endpoint halves cooperative load/MMA statements while leaving M256/N128,
+workgroups, canonical traversal, scale staging, accumulator, and all traffic
+classes unchanged. The former staged kernel proved that K128 is a legal device
+shape, but it did not test K128 with direct canonical callbacks.
+
+At the 42.05% direct-Q4 share, a 1.15x local result predicts 5.49% whole removal.
+Only the category-K `BK` constant changes within the existing ~210-line shader;
+host orchestration is unchanged. The focused oracle and 8B/128 screen reject
+pipeline absence, regression, or less than 5% gain. If K128 regresses, K32 is
+dominated by twice as many callback loads and MMAs, closing direct-Q4 K depth.

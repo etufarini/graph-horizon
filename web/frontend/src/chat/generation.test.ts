@@ -248,7 +248,7 @@ test('timeout wins over a later Stop and rolls back partial output', async t => 
   await Promise.resolve();
   await Promise.resolve();
 
-  t.mock.timers.tick(60_000);
+  t.mock.timers.tick(5 * 60_000);
   generation.stop();
   await pending;
 
@@ -268,7 +268,7 @@ test('Stop wins over the later watchdog and checkpoints once', async t => {
   await Promise.resolve();
 
   generation.stop();
-  t.mock.timers.tick(60_000);
+  t.mock.timers.tick(5 * 60_000);
   await pending;
 
   assert.equal(get(store).status, 'idle');

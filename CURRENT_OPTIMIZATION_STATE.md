@@ -1315,3 +1315,29 @@ remain invariant. Main risk is activation amplification dominating the saved
 callback traversal. The existing Q4 oracle gates 8B/128; less than 5% whole
 gain rejects, while a qualifying result proceeds to 28K and the retained
 quality/regression matrix.
+
+Result: **REJECTED.** The focused Q4 oracle reproduces the retained error
+distribution, but diagnostics-free 8B/128 regresses from 150.66 to 350.88 ms
+(+132.9%; candidate CV 0.18%). The extra activation work and smaller output
+ownership dominate the saved canonical traversal. The constants and grid are
+removed exactly, restoring production to `dff4bd8`. The reference-large and
+retained ownership points now bracket the output/token orientation trade-off.
+
+### Cycle 53 candidate: combined M256/N256 Q4 ownership
+
+One adjacent direct-Q4 endpoint is not dominated by Cycle 52. Keeping the
+retained 256 output rows while increasing token ownership from 128 to 256
+halves workgroups and repeated canonical weight callbacks without increasing
+total activation loads. Unlike the reference M128/N256 point, it does not
+sacrifice output reuse. The risk is an accumulator/resource cliff: the FP16
+M256/N256 accumulator is twice the retained size and the reference does not
+offer this combination.
+
+At the 22.690 s direct-Q4 share, even a conservative 1.15x local gain predicts
+2.960 s / 5.49% whole removal; an ideal callback-dominated 2x removes 11.345 s.
+This clears the final exact-device geometry screen. Only the category-K shader
+token constant and existing Q4 grid change; the recorded Cycle 52 files remain
+within ~210/~140 productive lines. Canonical Q4 arithmetic, K64 order, output
+ownership, types, eligibility, non-Q4 paths, and fallback are invariant. The Q4
+oracle and 8B/128 screen reject pipeline absence, regression, or less than 5%
+whole gain before any long run.

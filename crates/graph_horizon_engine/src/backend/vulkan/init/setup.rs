@@ -2,7 +2,7 @@
  * graph_horizon_engine — Vulkan backend construction
  * Builds a `VulkanBackend` from a weight source and placement: the shared
  * `load_inner` bootstrap (pipeline capabilities → budget/plan → buffer creation →
- * scratch alloc), the mmvq Q8_1 scratch allocation, and the test-only `bare`
+ * scratch alloc), the MMVQ per-8 Q8 scratch allocation, and the test-only `bare`
  * device/pipeline entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
 */
 
@@ -115,11 +115,11 @@ impl VulkanBackend {
         })
     }
 
-    // The mmvq Q8_1 scratch: packed int8 quants (in_dim/4 uints = in_dim bytes)
-    // plus per-32-block (d, s) f32 pairs, sized to MMVQ_SCRATCH_IN_DIM.
+    // The MMVQ Q8 scratch: packed int8 quants (in_dim/4 uints = in_dim bytes)
+    // plus per-8-block (d, s) f32 pairs, sized to MMVQ_SCRATCH_IN_DIM.
     fn alloc_mmvq_scratch(dev: &Device) -> Result<(GpuBuffer, GpuBuffer)> {
         let qs = GpuBuffer::alloc(dev, MMVQ_SCRATCH_IN_DIM, false)?;
-        let ds_bytes = (MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4).max(attention::GQA_DECODE_STATE_BYTES);
+        let ds_bytes = (MMVQ_SCRATCH_IN_DIM / 8 * 2 * 4).max(attention::GQA_DECODE_STATE_BYTES);
         let ds = match GpuBuffer::alloc(dev, ds_bytes, false) {
             Ok(ds) => ds,
             Err(err) => {

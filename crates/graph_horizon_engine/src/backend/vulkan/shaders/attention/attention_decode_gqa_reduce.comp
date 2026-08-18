@@ -20,21 +20,26 @@ layout(push_constant) uniform P {
     float scale;
 } p;
 
+const uint Q_GROUP = 4u;
 const uint SPLITS = 8u;
 
 void main() {
     uint h = gl_WorkGroupID.x;
     uint lane = gl_LocalInvocationID.x;
+    uint pair = h / Q_GROUP;
+    uint slot = h % Q_GROUP;
     float m = -1e30;
     for (uint split = 0u; split < SPLITS; split++) {
-        uint part = split * p.q_heads + h;
+        uint pairs = p.q_heads / Q_GROUP;
+        uint part = (split * pairs + pair) * Q_GROUP + slot;
         m = max(m, state[part * 2u]);
     }
     float l = 0.0;
     vec4 num = vec4(0.0);
     uint head_vecs = p.head_dim / 4u;
     for (uint split = 0u; split < SPLITS; split++) {
-        uint part = split * p.q_heads + h;
+        uint pairs = p.q_heads / Q_GROUP;
+        uint part = (split * pairs + pair) * Q_GROUP + slot;
         float alpha = exp(state[part * 2u] - m);
         l += state[part * 2u + 1u] * alpha;
         num += partial[part * head_vecs + lane] * alpha;

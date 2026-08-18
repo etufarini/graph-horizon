@@ -37,9 +37,8 @@ shared vec4 sh_acc[MAX_G * 32u];
 
 void main() {
     uint pair = gl_WorkGroupID.x;
-    // Host dispatch admits only q_heads == 4 * kv_heads, so one workgroup pair
-    // maps directly to one KV head and four consecutive query heads.
-    uint kvh = pair;
+    uint pairs_per_kv = (p.q_heads / p.kv_heads) / Q_GROUP;
+    uint kvh = pair / pairs_per_kv;
     uint split = gl_WorkGroupID.y;
     uint G = gl_NumSubgroups;
     uint g = gl_SubgroupID;
@@ -89,7 +88,8 @@ void main() {
             for (uint gg = 0u; gg < G; gg++) {
                 l_split += sh_l[gg] * exp(sh_m[gg] - m_split);
             }
-            uint part = split * p.q_heads + h0 + h;
+            uint pairs = p.q_heads / Q_GROUP;
+            uint part = (split * pairs + pair) * Q_GROUP + h;
             if (subgroupElect()) {
                 state[part * 2u] = m_split;
                 state[part * 2u + 1u] = l_split;

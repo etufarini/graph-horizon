@@ -251,6 +251,15 @@ exposed the error, and none of those mislabeled results are retained.
 | M00 | baseline | pinned same-device competitive map | n/a | rows above | KEEP evidence |
 | M01 | attribution | stage-sampled contiguous operation passes | >=95% at prioritized prefill | 97.7% at 512; 97.6% at 2K | KEEP diagnostic feature |
 | M02 | early tiled GQA prefill | use the existing exact F16 tile from base zero | about 2.0x request; 63.6% gap recovery | 2.40x request; 74.7% gap recovery | KEEP production route |
+| M03a | batched quantized matrix occupancy | eight SIMD groups, four accumulators/group, unchanged K32/output tile | 1.1--1.4x matrix family | 1.8% request at 128; 3.5% at 512 | REJECT modest |
+| M03b | batched quantized matrix occupancy | sixteen SIMD groups, two accumulators/group, unchanged K32/output tile | exceed M03a | 15.9% regression at 128; 16.7% at 512 | REJECT regression |
+
+M03 isolated accumulator pressure from tile shape and dequantization. Doubling
+from four to eight SIMD groups produced only a 1.8--3.5% request improvement;
+doubling again regressed 15.9--16.7%. The weak midpoint is not retained because
+it is below the specialization threshold and sits next to a sharp resource
+cliff. Production code is restored to M02; the next matrix experiment must
+change data movement or useful work rather than threadgroup size alone.
 
 ## Qualification status
 

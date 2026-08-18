@@ -354,6 +354,7 @@ too costly until the attention/Q6 bottleneck is reduced.
 | AMD-010 | required wave32 for tiled prefill attention | run the shader's intended two-subgroup/query partition | about 1.08x total at 8K | attention 10,136.55 → 9,980.77 ms; total GPU +0.85% | boundary attention parity exact | REJECTED: below threshold |
 | AMD-011 | four-head grouped GQA prefill | load each K/V tile once for all four query heads sharing it | attention about 1.5--2x; total 1.25--1.43x at 8K | attention 10,136.55 → 20,746.94 ms; total GPU 25,228.58 → 37,068.83 ms | boundary attention parity exact | REJECTED: regression |
 | AMD-012 | two-head grouped GQA prefill | recover occupancy while retaining two-way K/V reuse | attention at least 1.10x; total at least 1.05x at 8K | attention 10,136.55 → 10,804.51 ms; total GPU 25,228.58 → 26,170.25 ms | boundary attention parity exact | REJECTED: regression |
+| AMD-013 | 16-query tiled prefill | halve K/V loads without multi-head accumulator state | attention at least 1.15x; total at least 1.05x at 8K | attention 10,136.55 → 9,076.60 ms; total GPU 25,228.58 → 24,053.72 ms (4.66%) | boundary attention parity exact | REJECTED: below threshold |
 
 The grouped-GQA experiments reduce dispatch X from 32 query heads to eight or
 16 workgroups per query tile, respectively. The four-head variant requires
@@ -375,8 +376,9 @@ The first candidate ranking is:
 | 4 | Q6_K down/logits decode path | 47.99% of classified baseline decode GPU time; 1.92x Amdahl ceiling if removed | medium | high | next decode candidate after prefill screen |
 | 5 | bounded prefill command checkpoints | still needed only if 3B/28K resets after faster kernels | medium | high where watchdogs bound long queues | await direct long-context screen |
 
-The next attention experiment keeps one query head per invocation and doubles
-the query tile to 16 with a 1,024-thread workgroup. It should halve K/V tile
-loads without the grouped kernels' extra live accumulators. If it does not clear
-the 5% end-to-end threshold at 8K, attention specialization stops and the
-investigation returns to cross-model/context qualification and decode Q6.
+The 16-query experiment kept one query head per invocation and halved K/V loads,
+but its 10.46% attention gain produced only 4.66% total GPU and about 4.1%
+public-TTFT improvement. The extra 1,024-thread AMD pipeline is not retained for
+a result below the declared 5% threshold. Attention specialization stops here;
+the investigation returns to retained-state cross-model/context qualification
+and then decode Q6.

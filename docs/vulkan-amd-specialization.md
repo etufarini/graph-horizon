@@ -8,13 +8,12 @@ routing audit, experiment decisions, qualification, and quantitative stop state.
 
 ## Status
 
-The capability inventory, baseline screen, first attribution, and path audit are
-complete. An AMD integer-dot Q4_K batched matmul candidate is retained after
-hardware parity and competitive measurement. A Q6_K variant was rejected after
-the established integration parity suite found a quality regression. A reversible 64-row control first
-confirmed that the resets were watchdog failures caused by one long full-graph
-submission. The 64-row control is not retained; long-workload qualification of
-the Q4-only state remains pending.
+The capability inventory, baseline, attribution, optimization screen, and final
+qualification are complete. The retained state combines an AMD integer-dot Q4_K
+batched matmul with a 128-row AMD prefill submission bound. Exact Q6_K and
+attention candidates either regressed, failed quality, or remained below the 5%
+retention threshold. The final state passes the Vulkan suites and completes the
+3B 28K workload that resets the device at the portable 256-row submission size.
 
 Raw local evidence is retained under `target/amd-baseline/` and is intentionally
 ignored by Git. Values below are promoted only after checking the tuple and raw
@@ -246,11 +245,13 @@ shape. For decode, integer-dot Q4 MMVQ is active and reusable; the 32-wide GQA
 path is excluded because pipeline capability code tests the default subgroup
 size (64) rather than creating a required-size-32 pipeline.
 
-Decode attribution at 128 accounts for 92.32% of GPU time; its unexplained
-7.68% residual must be resolved before claiming 95% decode attribution. The
-largest classified shares are Q6 down (23.94%), Q6 logits (24.05%), Q4
-gate+up (20.62%), and the remaining projections. Attention is only 2.50% at
-KV 128.
+Decode attribution at 128 splits 92.41% into timestamped kernels and 7.59% into
+the measured command-span residual between those timestamps (dispatch and
+global-barrier gaps), covering the complete GPU span. The largest kernel shares
+are Q6 down (24.02%), Q6 logits (24.31%), Q4 gate+up (20.39%), and the remaining
+projections. Attention is only 2.53% at KV 128. AMD-009 tested the most direct
+wave32 route for this family and regressed or remained below threshold across
+3B, 8B, and 14B.
 
 ## Long-context failure
 
@@ -289,7 +290,8 @@ routing.
 An unqualified Q4+Q6 prototype made the original 256-row setting complete
 14B/128 in 1,291.19 ms and 8B/512 in 2,877.89 ms, but that state was discarded
 after Q6 parity failed. These values are diagnostic only. The retained Q4-only
-state still needs direct 14B/8B and 3B/16K/28K qualification.
+kernel state later completed 14B/128, 8B/512, 8B/2K, and 3B/16K, but still reset
+at 3B/28K. AMD-014's retained 128-row AMD bound completes every listed row.
 
 ## Retained candidate measurement
 
@@ -315,27 +317,36 @@ scratch. Product names and model IDs are not consulted. NVIDIA continues to
 build/use its existing decode MMVQ and qualified Matrix2/cooperative prefill
 paths; the AMD batch pipelines are not registered there.
 
-### Scaling and model-size screen
+### Final scaling and model-size qualification
 
-These retained AMD-002 rows used the 4-row MMQ tile; they remain useful evidence
-for availability and scaling. AMD-005 qualification currently covers 3B/128,
-512, and 2K.
+The final rows use the retained 8-row MMQ tile and, except for a single 128-row
+prompt which is already one submission, the retained 128-row AMD submission
+bound. The 16K, 28K, and 8K rows are one measured repetition; the shorter rows
+use one warm-up plus three measured repetitions.
 
-| Model/workload | Baseline | AMD-002 | Speedup | llama.cpp | Remaining ratio |
+| Model/workload | Baseline | Final | Speedup | llama.cpp | Remaining ratio |
 |---|---:|---:|---:|---:|---:|
-| 3B prefill 512 | 2,458.54 ms | 1,054.76 ms | 2.33x | 220.47 ms | 4.78x |
-| 3B prefill 2K | 10,264.76 ms | 4,670.49 ms | 2.20x | 1,190.97 ms | 3.92x |
-| 3B prefill 8K | 49,418.34 ms | 28,051.50 ms | 1.76x | 6,068.10 ms | 4.62x |
-| 3B prefill 16K | reset | 79,592.64 ms | available | 19,394.49 ms | 4.10x |
-| 8B prefill 128 | 1,464.95 ms | 674.83 ms | 2.17x | 295.96 ms | 2.28x |
-| 8B prefill 512 | reset | 2,913.88 ms | available | 508.46 ms | 5.73x |
-| 14B prefill 128 | reset | 1,134.87 ms | available | 435.02 ms | 2.61x |
+| 3B prefill 128 | 624.35 ms | 223.07 ms | 2.80x | 158.46 ms | 1.41x |
+| 3B prefill 512 | 2,458.54 ms | 908.20 ms | 2.71x | 220.47 ms | 4.12x |
+| 3B prefill 2K | 10,264.76 ms | 4,141.48 ms | 2.48x | 1,190.97 ms | 3.48x |
+| 3B prefill 8K | 49,418.34 ms | 24,748.24 ms | 2.00x | 6,068.10 ms | 4.08x |
+| 3B prefill 16K | reset | 75,379.84 ms | available | 19,394.49 ms | 3.89x |
+| 3B prefill 28K | not run after reset | 191,055.22 ms | available | 56,225.97 ms | 3.40x |
+| 8B prefill 128 | 1,464.95 ms | 571.13 ms | 2.56x | 295.96 ms | 1.93x |
+| 8B prefill 512 | reset | 2,305.96 ms | available | 508.46 ms | 4.54x |
+| 8B prefill 2K | reset | 9,821.13 ms | available | 2,169.23 ms | 4.53x |
+| 14B prefill 128 | reset | 937.37 ms | available | 435.02 ms | 2.15x |
 
-At 3B, AMD-005 reduces 512-token TTFT from 1,054.76 to 896.51 ms
-(17.7%) and 2K from 4,670.49 to 4,029.69 ms (15.9%). The 16K AMD-002 smoke
-completed with the original 256-row capacity, confirming that the retained Q4
-speed provides watchdog headroom. A repeated long-context qualification remains
-too costly until the attention/Q6 bottleneck is reduced.
+The shorter repeated final rows have TTFT CV at most 0.26%. The 14B row uses a
+2K configured context because its weights plus a 32K F16 KV allocation exceed
+this 12 GB device; this does not change its 128-token compute workload. Decode
+remains outside the batched Q4 route and materially unchanged.
+
+The 256-row final-kernel state completed 16K in 72,927.67 ms but reset at 28K
+after a gfx-ring timeout. The retained 128-row policy completes 28K and costs
+1.3% at 3B/512, 2.8% at 3B/2K, and 3.4% at 3B/16K; the measured 8B rows varied
+slightly faster. It is selected by AMD vendor identity, not a product string,
+and leaves every other Vulkan vendor at 256 rows.
 
 ## Experiment registry
 
@@ -355,6 +366,7 @@ too costly until the attention/Q6 bottleneck is reduced.
 | AMD-011 | four-head grouped GQA prefill | load each K/V tile once for all four query heads sharing it | attention about 1.5--2x; total 1.25--1.43x at 8K | attention 10,136.55 → 20,746.94 ms; total GPU 25,228.58 → 37,068.83 ms | boundary attention parity exact | REJECTED: regression |
 | AMD-012 | two-head grouped GQA prefill | recover occupancy while retaining two-way K/V reuse | attention at least 1.10x; total at least 1.05x at 8K | attention 10,136.55 → 10,804.51 ms; total GPU 25,228.58 → 26,170.25 ms | boundary attention parity exact | REJECTED: regression |
 | AMD-013 | 16-query tiled prefill | halve K/V loads without multi-head accumulator state | attention at least 1.15x; total at least 1.05x at 8K | attention 10,136.55 → 9,076.60 ms; total GPU 25,228.58 → 24,053.72 ms (4.66%) | boundary attention parity exact | REJECTED: below threshold |
+| AMD-014 | bounded AMD submissions | 128 rows keep late long-context full-graph commands below the watchdog | complete 28K with less than 5% short-workload cost | 28K reset → 191,055.22 ms; 512/2K/16K cost 1.3%/2.8%/3.4% | full Vulkan and Vulkan-hybrid suites | RETAINED |
 
 The grouped-GQA experiments reduce dispatch X from 32 query heads to eight or
 16 workgroups per query tile, respectively. The four-head variant requires
@@ -364,21 +376,37 @@ slower, so this RDNA2/RADV path is sensitive to the added per-workgroup state
 and serial head loop despite fewer K/V reads. All grouped-GQA production code
 and routing were removed; raw profiles remain as `amd-011-*` and `amd-012-*`.
 
-## Current ranking and next action
+## Final bottleneck ranking
 
-The first candidate ranking is:
+The final measured ranking is:
 
 | Rank | Opportunity | Measured removable share / value | Maintenance | AMD-family reuse | State |
 |---:|---|---|---|---|---|
-| 1 | long-context tiled attention | 40.18% of 3B/8K GPU time; wave32 and grouped-GQA routes failed the threshold | medium-high | high for 4:1 GQA | screen a 16-query tile without per-invocation multi-head state |
+| 1 | long-context tiled attention | 40.18% of 3B/8K GPU time; wave32/grouped routes failed and Q16 gained only 4.66% total | medium-high | high for 4:1 GQA | portable kernel retained |
 | 2 | Q4_K batch MMQ | 31.87% of 3B/8K GPU time after the retained 8-row tile | medium | high | retain; 16-row tile regressed |
 | 3 | exact Q6_K batch arithmetic | 26.71% of 3B/8K GPU time; lossy Q8 route is disqualified | medium-high | high | retain portable path; exact staging was below threshold |
-| 4 | Q6_K down/logits decode path | 47.99% of classified baseline decode GPU time; 1.92x Amdahl ceiling if removed | medium | high | next decode candidate after prefill screen |
-| 5 | bounded prefill command checkpoints | still needed only if 3B/28K resets after faster kernels | medium | high where watchdogs bound long queues | await direct long-context screen |
+| 4 | Q6_K down/logits decode path | 48.33% of classified retained decode GPU time; wave32 regressed and exact staging's prefill Amdahl value was below threshold | medium | high | portable kernel retained |
+| 5 | bounded prefill command checkpoints | 28K resets at 256 rows and completes at 128 | low | AMD-family watchdog safety | retained |
 
 The 16-query experiment kept one query head per invocation and halved K/V loads,
 but its 10.46% attention gain produced only 4.66% total GPU and about 4.1%
 public-TTFT improvement. The extra 1,024-thread AMD pipeline is not retained for
 a result below the declared 5% threshold. Attention specialization stops here;
-the investigation returns to retained-state cross-model/context qualification
-and then decode Q6.
+the remaining prefill gap is dominated by portable attention and exact Q6_K,
+whose screened candidates did not meet the quality/performance gates.
+The explicit stop condition is therefore met: every measured high-share family
+has a retained improvement or a documented quality, regression, or maintenance-
+threshold rejection, and the largest unsupported workload now completes.
+
+## Final verification and state
+
+- Pure Vulkan: 156 passed, 0 failed, 5 ignored; family integration 5 passed and
+  1 ignored; semantic 12 passed and 1 ignored.
+- Vulkan-hybrid: 229 passed, 0 failed, 4 ignored; family integration 5 passed
+  and 1 ignored; semantic 12 passed and 1 ignored.
+- Focused attention parity covers base/row boundaries and is exact against
+  sequential Vulkan decode; Q4 MMQ tail tests cover five rows and 70 outputs.
+- Final production files contain only AMD-005 and AMD-014. Rejected shader,
+  wave-size, grouped-GQA, and Q16 routes are absent.
+- Nothing was pushed. Raw benchmark/profile evidence remains ignored under
+  `target/amd-baseline/`.

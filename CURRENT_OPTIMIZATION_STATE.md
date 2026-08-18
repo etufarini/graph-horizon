@@ -8,10 +8,10 @@ optimizations. Detailed experiment logs remain available in Git history.
 ## Scope
 
 The retained implementation targets Vulkan inference for the supported
-Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models on an RTX 3060. It
-adds no dependency, public API, model-name route, or device-name route. Every
-specialized path is capability-, format-, and shape-gated and preserves the
-generic fallback.
+Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models on NVIDIA and AMD.
+It adds no dependency, public API, model-name route, or device-name route.
+Every specialized path is capability-, vendor-family-, format-, and shape-gated
+and preserves the generic fallback.
 
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
@@ -26,6 +26,8 @@ The authenticated 3B artifact used throughout the investigation was
 | Per-8 Q8/DP4A Q4 decode | DP4A, Q4_K, scratch and shape contract | exact float Q4 decode | 8B/128 decode 26.64 → 35.06 tok/s across the full program |
 | Vectorized GQA decode | exact GQA relation and device limits | generic attention decode | retained after focused parity and six-model qualification |
 | Tiled and Matrix2 attention | qualified subgroup, shared-memory, and shape caps | wide/generic attention | improves short and long prefill without changing the public contract |
+| AMD Q4 MMQ prefill | AMD, accelerated integer dot, Q4_K, aligned shape and bounded scratch | portable Q4 batch kernel | RX 6750 XT 3B/128 TTFT 624.35 → 223.07 ms |
+| AMD bounded prefill submissions | AMD vendor family | existing 256-row Vulkan capacity elsewhere | RX 6750 XT 3B/28K reset → 191.055 s completion |
 | Request KV reuse | serialized Vulkan requests; keyed calls may also reuse an identical token prefix | fresh state on cache failure | avoids reallocating request-local cache while preserving fresh tail logits |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
@@ -80,6 +82,10 @@ tokens and is not subtracted from the table.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
 
+The AMD program's complete capability inventory, llama.cpp comparison,
+experiment registry, rejected candidates, and raw-evidence locations are in
+[`docs/vulkan-amd-specialization.md`](docs/vulkan-amd-specialization.md).
+
 ## Deliberately Excluded
 
 The final source does not contain the rejected sparse-attention, low-precision
@@ -96,3 +102,8 @@ about 42% to direct Q4 Matrix2, 39% to attention, 16% to staged Q6 Matrix2, and
 2% to other work. Tested runtime-only variants cannot close the remaining gap
 to the 1.7x target; doing so would require a separately approved model-adaptation
 and quality-validation effort.
+
+On the RX 6750 XT, the largest remaining 3B/8K shares are tiled attention
+(40.18%), retained Q4 MMQ projections (31.87%), and portable exact Q6_K
+(26.71%). Wave32, grouped-GQA, wider attention tiles, and exact/lossy Q6
+candidates did not pass the established whole-request or quality thresholds.

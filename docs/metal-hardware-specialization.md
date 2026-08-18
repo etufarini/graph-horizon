@@ -261,6 +261,15 @@ it is below the specialization threshold and sits next to a sharp resource
 cliff. Production code is restored to M02; the next matrix experiment must
 change data movement or useful work rather than threadgroup size alone.
 
+| M04 | batched result staging | narrow SIMD FP32 matrices into F16 threadgroup storage, reducing the tile from 14 to 10 KiB | 1.2--1.5x matrix family if three groups reside | Metal requires matching matrix/store types; explicit storage conversion crashes compiler | REJECT infeasible |
+
+M04 failed before runtime and made no production change. Metal's SIMD-group
+store requires identical accumulator and destination element types. An explicit
+FP32-to-F16 matrix-storage conversion then terminated the Apple Metal compiler
+itself. Retaining FP32 accumulation therefore requires the current FP32 staging
+tile unless the graph's output representation changes, which is outside this
+candidate's narrow scope.
+
 ## Qualification status
 
 M02 passes the complete ordinary Metal suite (136 passed, 2 ignored), the

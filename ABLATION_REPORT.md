@@ -14,8 +14,8 @@
 - Hardware: NVIDIA RTX 3060 12 GiB, driver 595.84; pure Vulkan, full offload,
   F16 KV, one warm-up and three measured repetitions.
 
-The final upstream delta contains 38 Rust files, including one dedicated test
-file and the benchmark/build support, 16 compute shaders, six Markdown files,
+The final upstream delta contains 39 Rust files, including two dedicated test
+files and the benchmark/build support, 16 compute shaders, six Markdown files,
 one shell tool, and `.gitignore`. All 37 non-dedicated-test Rust files and all
 16 shaders were reviewed against their active route, fallback, tests, and
 performance purpose.

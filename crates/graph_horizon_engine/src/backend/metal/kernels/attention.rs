@@ -75,6 +75,7 @@ pub(crate) fn encode(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn geometry(
     mixed_placement: bool,
     rows: u32,

@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Device;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(usize)]
 pub(crate) enum Kernel {
     Embedding,

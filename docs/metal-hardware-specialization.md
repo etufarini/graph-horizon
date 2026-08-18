@@ -62,6 +62,8 @@ capabilities and resource limits.
 | Function pointers / dynamic libraries | supported | queried: `MTLDevice` |
 | SIMD-group reduction | supported | queried by llama.cpp capability probe; exercised by current shaders |
 | SIMD-group 8x8 matrix multiply | supported | derived from successful pipeline compilation and current execution |
+| Counter sampling at dispatch boundary | unavailable | queried: `MTLDevice` |
+| Counter sampling at encoder stage boundary | supported | queried: `MTLDevice` |
 | BF16 arithmetic | supported | queried by llama.cpp capability probe |
 | Tensor acceleration | unavailable on pre-M5/pre-A19 | queried by llama.cpp capability probe |
 | Buffer-view alignment used by runtime | 4 bytes | current runtime contract; not a device-wide optimum claim |
@@ -155,20 +157,73 @@ the first attribution target. 8K/16K/28K and 8B/14B rows remain pending.
 
 | Model | Workload | Dominant component | Component time | Realistically removable |
 |---|---|---|---:|---:|
-| 3B | prefill 512 | pending Metal timestamps / routing trace | pending | pending |
-| 3B | prefill 2K | pending Metal timestamps / routing trace | pending | pending |
-| 3B | decode KV128 | quantized projection suspected, not yet proven | pending | pending |
+| 3B | prefill 128 | quantized Q/K/V/O + MLP | 587.08 ms | routing target remains attention because matrices scale normally |
+| 3B | prefill 512 | attention | 3,709.19 ms | about 3,092 ms from existing tiled-path behavior |
+| 3B | prefill 2K | quantized Q/K/V/O + MLP | 9,124.18 ms | separate matrix candidate pending after routing win |
+| 3B | decode KV128 | quantized projections + logits, then attention | 727.15 ms / 259.84 ms over 31 steps | decode already inside historical 1.4x envelope |
 
-No kernel candidate is authorized by evidence yet. The next experiment is
-minimal Metal phase/category timestamp attribution plus dispatch counts for
-prefill 128/512/2K. It must account for at least 95% of GPU time before an
-Amdahl-ranked production prototype is selected.
+The profiler directly accounts for 89.6%, 97.7%, and 97.6% of GPU command time
+at prefill 128, 512, and 2K respectively. The remainder is reported as sampled
+encoder-transition/command residual. At the prioritized 512/2K workloads the
+95% attribution gate is met.
+
+The external Metal System Trace attempt was rejected: a 512-token diagnostic
+run remained active for minutes, produced an incomplete 1 GB trace, and could
+not export its template tables. The trace was moved to the temporary recovery
+directory and is not performance evidence. Device queries then selected the
+smallest usable in-runtime design:
+
+```text
+metal/exec/profile/
+├── mod.rs       (~180 productive lines: sampled-pass ownership)
+├── category.rs  (~115 productive lines: phase/operation classification)
+├── summary.rs   (~75 productive lines: marks and totals aggregation)
+└── report.rs    (~80 productive lines: diagnostic output)
+```
+
+Feature-manifest wiring and focused changes to `device.rs`, `encoder.rs`,
+`dispatch.rs`, and `pipeline.rs` remain below 200 productive lines per
+orchestration file. The diagnostic feature uses stage-sampled compute passes
+inside the original command buffer because this Apple9 device does not expose
+dispatch-boundary sampling. Ordinary `metal` builds retain the single-encoder
+path at compile time.
+
+The first 32-row request proved that an 8,192-sample buffer is rejected by the
+device while 4,096 is accepted. The retained diagnostic design therefore uses
+one sampled pass for each contiguous run of the same category and records the
+dispatch count inside the run. This preserves operation attribution without
+sampling thousands of row-wise embedding/RoPE dispatches separately.
+
+At 512, all 16 batches remain below the existing `base >= 512` tiled-attention
+eligibility gate. Attention consumes 3,709.19 ms (59.3% of GPU command time),
+quantized Q/K/V/O and MLP consume 2,318.56 ms, and the remaining sampled work is
+88.51 ms. At 2K, attention is 5,560.46 ms while quantized matrix work is
+9,124.18 ms. The first 16 slow batches therefore consume about 3.71 s, while
+the next 48 already-tiled batches add only about 1.85 s.
+
+For the 512 routing candidate:
+
+```text
+T = 6.189 s
+f_attention = 0.593 of GPU command time
+practical attention floor ~= 0.617 s (16 x measured later-tiled batch mean)
+S_local ~= 6.0x
+removable_time ~= 3.092 s
+predicted whole-request speedup ~= 2.0x
+competitive-gap recovery ~= 63.6%
+```
+
+This clears the strong specialization gate without a new shader. The next
+prototype removes only the context restriction from the already-qualified
+32-row, F16, head-dimension-128, exact-4:1-GQA tiled route. Partial rows, INT8,
+mixed placement, other dimensions, and other GQA ratios retain their fallbacks.
 
 ## Experiment registry
 
 | ID | Target | Hypothesis / architecture | Predicted | Measured | Decision |
 |---|---|---|---:|---:|---|
 | M00 | baseline | pinned same-device competitive map | n/a | rows above | KEEP evidence |
+| M01 | attribution | stage-sampled contiguous operation passes | >=95% at prioritized prefill | 97.7% at 512; 97.6% at 2K | KEEP diagnostic feature |
 
 ## Qualification status
 

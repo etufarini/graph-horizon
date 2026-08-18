@@ -299,13 +299,14 @@ llama.cpp screen:
 | State | TTFT | Prompt throughput | Decode | CV TTFT | vs baseline | vs llama.cpp |
 |---|---:|---:|---:|---:|---:|---:|
 | baseline | 624.35 ms | 205.03 tok/s | 72.95 tok/s | 1.16% | 1.00x | 3.94x slower |
-| AMD-002 Q4 MMQ | 258.19 ms | 495.76 tok/s | 72.43 tok/s | 0.14% | 2.42x | 1.63x slower |
+| AMD-002 Q4 MMQ, 4-row tile | 258.19 ms | 495.76 tok/s | 72.43 tok/s | 0.14% | 2.42x | 1.63x slower |
+| AMD-005 Q4 MMQ, 8-row tile | 223.07 ms | 573.82 tok/s | 73.30 tok/s | 0.03% | 2.80x | 1.41x slower |
 | llama.cpp | 158.46 ms | 807.77 tok/s | 126.07 tok/s | 0.92% | 3.94x | 1.00x |
 
-The accepted profile accounts for 99.30% of prefill GPU time. Across four runs,
-Q4 MMQ owns 564.92 ms, portable Q6_K V/down 449.29 ms, Q8 quantization 1.91 ms,
-attention 11.25 ms, and all other classified work 24.75 ms. Relative to baseline,
-the Q4 projection family improves 3.11x. Decode remains outside the batch route
+The current profile accounts for 99.12% of prefill GPU time. Across four runs,
+Q4 MMQ owns 447.11 ms, portable Q6_K V/down 423.84 ms, Q8 quantization 1.82 ms,
+attention 11.25 ms, and all other classified work 24.80 ms. Relative to baseline,
+the Q4 projection family improves 3.93x. Decode remains outside the batch route
 and is statistically unchanged in the public binary.
 
 Routing requires AMD vendor identity plus the accelerated integer-dot feature,
@@ -313,6 +314,28 @@ Q4_K format, a 256-aligned input width, and bounded persistent
 scratch. Product names and model IDs are not consulted. NVIDIA continues to
 build/use its existing decode MMVQ and qualified Matrix2/cooperative prefill
 paths; the AMD batch pipelines are not registered there.
+
+### Scaling and model-size screen
+
+These retained AMD-002 rows used the 4-row MMQ tile; they remain useful evidence
+for availability and scaling. AMD-005 qualification currently covers 3B/128,
+512, and 2K.
+
+| Model/workload | Baseline | AMD-002 | Speedup | llama.cpp | Remaining ratio |
+|---|---:|---:|---:|---:|---:|
+| 3B prefill 512 | 2,458.54 ms | 1,054.76 ms | 2.33x | 220.47 ms | 4.78x |
+| 3B prefill 2K | 10,264.76 ms | 4,670.49 ms | 2.20x | 1,190.97 ms | 3.92x |
+| 3B prefill 8K | 49,418.34 ms | 28,051.50 ms | 1.76x | 6,068.10 ms | 4.62x |
+| 3B prefill 16K | reset | 79,592.64 ms | available | 19,394.49 ms | 4.10x |
+| 8B prefill 128 | 1,464.95 ms | 674.83 ms | 2.17x | 295.96 ms | 2.28x |
+| 8B prefill 512 | reset | 2,913.88 ms | available | 508.46 ms | 5.73x |
+| 14B prefill 128 | reset | 1,134.87 ms | available | 435.02 ms | 2.61x |
+
+At 3B, AMD-005 reduces 512-token TTFT from 1,054.76 to 896.51 ms
+(17.7%) and 2K from 4,670.49 to 4,029.69 ms (15.9%). The 16K AMD-002 smoke
+completed with the original 256-row capacity, confirming that the retained Q4
+speed provides watchdog headroom. A repeated long-context qualification remains
+too costly until the attention/Q6 bottleneck is reduced.
 
 ## Experiment registry
 
@@ -323,6 +346,7 @@ paths; the AMD batch pipelines are not registered there.
 | AMD-002 | Q4_K batch MMQ | reuse Q8_1 decode arithmetic and packed dot across four prompt rows | about 2.2x end-to-end if Q4 improves 4x | 624.35 → 258.19 ms, 2.42x; Q4 family 3.11x | full Vulkan-hybrid suite; CV 0.14% | RETAINED |
 | AMD-003 | Q6_K batch MMQ | signed packed dot removes scalar Q6 FP32 FMAs | about 1.39x incremental if Q6 improves 3x | 258.29 → 233.35 ms, 1.107x; Q6 family 1.33x | four established Q6 prefill parity tests failed by about 0.06--0.07 | REJECTED: quality |
 | AMD-004 | Q6 eight-lane rows | halve workgroups/reduction by processing both 128-value segments per lane | at least 1.05x total | 233.35 → 241.01 ms, 3.3% regression | prototype parity passed, parent candidate later failed integration parity | REJECTED |
+| AMD-005 | Q4_K MMQ 8-row tile | reuse each packed weight across twice as many prompt rows | about 1.10x total if Q4 improves 20% | 258.19 → 223.07 ms, 1.157x; Q4 family 1.26x | full suite; 128/512/2K CV at most 0.10% | RETAINED |
 
 ## Current ranking and next action
 
@@ -330,8 +354,8 @@ The first candidate ranking is:
 
 | Rank | Opportunity | Measured removable share / value | Maintenance | AMD-family reuse | State |
 |---:|---|---|---|---|---|
-| 1 | portable Q6_K batch arithmetic | 42.41% of accepted prefill GPU time; lossy Q8 route is disqualified | medium-high | high | seek exact-FP16/vectorized unpack, not relaxed tolerance |
-| 2 | Q4_K batch MMQ tiling | 53.57% of accepted prefill GPU time; remaining llama TTFT gap is 99.83 ms | medium | high | tile screen after cross-model sweep |
+| 1 | portable Q6_K batch arithmetic | 46.23% of current prefill GPU time; lossy Q8 route is disqualified | medium-high | high | exact-FP16 tile/reuse screen |
+| 2 | Q4_K batch MMQ tiling | 48.76% of current prefill GPU time; remaining llama TTFT gap is 64.61 ms | medium | high | 16-row tile only if predicted total gain clears 5% |
 | 3 | Q6_K down/logits decode path | 47.99% of classified baseline decode GPU time; 1.92x Amdahl ceiling if removed | medium | high | next decode candidate |
 | 4 | bounded prefill command checkpoints | still needed only if 3B/16K or 28K resets after faster kernels | medium | high where watchdogs bound long queues | await direct long-context screen |
 | 5 | required-wave32 GQA attention | 2.50% of classified decode time at KV 128; only 1.026x Amdahl ceiling | low-medium | RDNA-focused | defer |

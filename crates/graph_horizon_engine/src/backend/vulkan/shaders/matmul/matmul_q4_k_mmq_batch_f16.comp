@@ -5,7 +5,7 @@
 // AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K batch MMQ.
 
 // Batched Q4_K x Q8_1 integer matmul. Eight lanes cooperate on one output row;
-// each lane reuses its packed weights across four prompt rows. Activations and
+// each lane reuses its packed weights across eight prompt rows. Activations and
 // metadata are row-major in the persistent Q8 scratch, while output retains the
 // graph's token-major FP16 layout.
 layout(local_size_x = 256) in;
@@ -17,7 +17,7 @@ layout(std430, binding = 3) writeonly buffer Y { float16_t y[]; };
 
 layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
 
-const uint TILE_COLS = 4u;
+const uint TILE_COLS = 8u;
 shared float partial[256u * TILE_COLS];
 
 uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }

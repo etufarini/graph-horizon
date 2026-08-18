@@ -151,7 +151,7 @@ pub(crate) fn dispatch_mmq_batched(
         ],
         &push,
         out_dim.div_ceil(32),
-        n.div_ceil(4),
+        n.div_ceil(8),
     );
     true
 }

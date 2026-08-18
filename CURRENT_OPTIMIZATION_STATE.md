@@ -25,9 +25,8 @@ The authenticated 3B artifact used throughout the investigation was
 | 14B Matrix2 routing | legal 5,120/16,384/4,096/1,024 dimensions | existing Q4/Q6 batch kernels | 14B/128 prefill 4.390 s → 249.32 ms across the full program |
 | Per-8 Q8/DP4A Q4 decode | DP4A, Q4_K, scratch and shape contract | exact float Q4 decode | 8B/128 decode 26.64 → 35.06 tok/s across the full program |
 | Vectorized GQA decode | exact GQA relation and device limits | generic attention decode | retained after focused parity and six-model qualification |
-| Native FP16 execution views | memory budget, role, capacity, and shape gates | canonical compressed weights | removes repeated prefill conversion where residency is economical |
 | Tiled and Matrix2 attention | qualified subgroup, shared-memory, and shape caps | wide/generic attention | improves short and long prefill without changing the public contract |
-| Request KV reuse | identical request key and token prefix | fresh KV allocation | avoids reallocating request-local cache while preserving fresh tail logits |
+| Request KV reuse | serialized Vulkan requests; keyed calls may also reuse an identical token prefix | fresh state on cache failure | avoids reallocating request-local cache while preserving fresh tail logits |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
@@ -84,10 +83,11 @@ tokens and is not subtracted from the table.
 ## Deliberately Excluded
 
 The final source does not contain the rejected sparse-attention, low-precision
-weight, M256/N256, direct-Q6, K128 direct-Q4, experimental tracing, or one-shot
-diagnostic paths. They regressed performance, failed the established quality
-gate, or did not clear the minimum whole-request gain. Their detailed evidence
-is retained in Git history rather than in the working documentation.
+weight, native-FP16 predecode, M256/N256, direct-Q6, K128 direct-Q4,
+experimental tracing, or one-shot diagnostic paths. They regressed
+performance, failed the established quality gate, or did not clear the minimum
+whole-request gain. Their detailed evidence is retained in Git history rather
+than in the working documentation.
 
 ## Remaining Limit
 

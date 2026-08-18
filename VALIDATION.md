@@ -72,8 +72,8 @@ backend, KV, placement od oracle.
 ## Qualifica semantica
 
 I tre Instruct conservano l'evidenza revisionata del Piano 05. I tre Reasoning
-sono l'evidenza corrente del Piano 07, eseguita una sola volta con System prompt
-Reasoning implicito, `context=4096`, `max_tokens=4096`, KV `f16`, Vulkan
+riportano la campagna corrente del 18 agosto 2026, eseguita una sola volta con
+System prompt Reasoning implicito, `context=4096`, `max_tokens=4096`, KV `f16`, Vulkan
 all-GPU, `temperature=0.7`, `seed=0`, `top_p=1`, `top_k=0`, `min_p=0` e
 `repeat_penalty=1`.
 
@@ -87,11 +87,18 @@ prompt personalizzati.
 qualification: model_id=3b-instruct profile=instruct evidence=preserved status=qualified reason=plan-05-pass critical=4/4 semantic=8/9
 qualification: model_id=3b-reasoning profile=reasoning evidence=current status=qualified reason=semantic-gate-pass critical=4/4 semantic=9/9
 qualification: model_id=8b-instruct profile=instruct evidence=preserved status=qualified reason=plan-05-pass critical=4/4 semantic=8/9
-qualification: model_id=8b-reasoning profile=reasoning evidence=current status=qualified reason=semantic-gate-pass critical=4/4 semantic=9/9
+qualification: model_id=8b-reasoning profile=reasoning evidence=current status=not-qualified reason=incomplete-generation critical=4/4 semantic=8/9
 qualification: model_id=14b-instruct profile=instruct evidence=preserved status=qualified reason=plan-05-pass critical=4/4 semantic=9/9
 qualification: model_id=14b-reasoning profile=reasoning evidence=current status=qualified reason=semantic-gate-pass critical=4/4 semantic=9/9
-summary: qualified=6 not_qualified=0 external_verification=0 total=6
+summary: qualified=5 not_qualified=1 external_verification=0 total=6
 ```
+
+La riga 8B Reasoning ha raggiunto il limite di contesto in S08 prima della
+chiusura dei marker di ragionamento. Ha superato la soglia semantica, ma il
+protocollo senza retry classifica correttamente la generazione incompleta come
+`not-qualified`. Un confronto diagnostico sulla sorgente precedente al refactor
+ha prodotto una traiettoria campionata diversa e 9/9; non sostituisce lo stato
+terminale della campagna corrente.
 
 ## Verifiche Vulkan successive
 

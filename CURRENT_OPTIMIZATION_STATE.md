@@ -8,10 +8,10 @@ optimizations. Detailed experiment logs remain available in Git history.
 ## Scope
 
 The retained implementation targets Vulkan inference for the supported
-Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models on an RTX 3060. It
-adds no dependency, public API, model-name route, or device-name route. Every
-specialized path is capability-, format-, and shape-gated and preserves the
-generic fallback.
+Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models on NVIDIA and AMD.
+It adds no dependency, public API, model-name route, or device-name route.
+Every specialized path is capability-, vendor-family-, format-, and shape-gated
+and preserves the generic fallback.
 
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
@@ -26,6 +26,11 @@ The authenticated 3B artifact used throughout the investigation was
 | Per-8 Q8/DP4A Q4 decode | DP4A, Q4_K, scratch and shape contract | exact float Q4 decode | 8B/128 decode 26.64 → 35.06 tok/s across the full program |
 | Vectorized GQA decode | exact GQA relation and device limits | generic attention decode | retained after focused parity and six-model qualification |
 | Tiled and Matrix2 attention | qualified subgroup, shared-memory, and shape caps | wide/generic attention | improves short and long prefill without changing the public contract |
+| AMD Q4 MMQ prefill | AMD, accelerated integer dot, Q4_K, aligned shape and bounded scratch | portable Q4 batch kernel | RX 6750 XT 3B/128 TTFT 624.35 → 223.07 ms |
+| AMD bounded prefill submissions | AMD vendor plus graph depth/context | existing 256-row Vulkan capacity elsewhere | 3B/28K reset → 191.055 s at 128 rows; 8B/28K reset → 352.347 s at 64 rows |
+| AMD required-wave32 Q6 decode/logits | AMD plus Vulkan subgroup-size control | default-subgroup pipeline | adds 6.3--6.5% at 3B KV128/2K on top of GQA |
+| AMD required-wave32 4:1 GQA decode | AMD, required subgroup 32, F16 KV, head 128, exact 4:1 GQA | exact wave64 or generic decode | 3B/28K 16.144 → 49.398 tok/s; 8B/28K 18.868 fallback → 28.374 tok/s |
+| Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
 | Request KV reuse | serialized Vulkan requests; keyed calls may also reuse an identical token prefix | fresh state on cache failure | avoids reallocating request-local cache while preserving fresh tail logits |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
@@ -69,16 +74,38 @@ Graph Horizon includes tokenization and first sampling in TTFT; llama.cpp pure
 prompt processing does not. This boundary was measured at about 11 ms for 128
 tokens and is not subtracted from the table.
 
+### AMD Final Comparison
+
+These rows use the RX 6750 XT, RADV 26.0.3, full Vulkan placement, F16 KV, and
+the pinned llama.cpp Vulkan build `9bebfcb4b`.
+
+| Workload | AMD final | llama.cpp | Final ratio |
+|---|---:|---:|---:|
+| 3B prefill / 128 | 223.07 ms | 158.46 ms | 1.41x |
+| 3B prefill / 28K | 191.055 s | 56.226 s | 3.40x |
+| 3B decode / 2K | 74.907 tok/s | 40.215 tok/s | 0.54x latency |
+| 3B decode / 28K | 49.398 tok/s | 59.826 tok/s | 1.21x latency |
+| 8B prefill / 28K | 352.347 s | 87.818 s | 4.01x |
+| 8B decode / 28K | 28.374 tok/s | 37.766 tok/s | 1.33x latency |
+| 14B prefill / 8K | 75.383 s | 23.831 s | 3.16x |
+| 14B decode / 8K | 21.840 tok/s | 36.715 tok/s | 1.68x latency |
+
 ## Correctness And Portability
 
 - Focused CPU/Vulkan numeric oracles cover Q4, Q6, attention, GQA, and retained
   Matrix2 shapes.
 - Teacher-forced top-two checks cover the six supported 3B/8B/14B Instruct and
-  Reasoning artifacts for numeric paths that do not promise bit identity.
+  Reasoning artifacts for numeric paths that do not promise bit identity. The
+  final AMD route additionally passes the pinned external 16-token teacher on
+  3B/8B/14B with exact prompt IDs and zero crossings.
 - The final local matrix passes CPU, Vulkan, and Vulkan-hybrid tests and
   warning-denied Clippy. Metal remains external verification on macOS.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
+
+The AMD program's complete capability inventory, llama.cpp comparison,
+experiment registry, rejected candidates, and raw-evidence locations are in
+[`docs/vulkan-amd-specialization.md`](docs/vulkan-amd-specialization.md).
 
 ## Deliberately Excluded
 
@@ -96,3 +123,11 @@ about 42% to direct Q4 Matrix2, 39% to attention, 16% to staged Q6 Matrix2, and
 2% to other work. Tested runtime-only variants cannot close the remaining gap
 to the 1.7x target; doing so would require a separately approved model-adaptation
 and quality-validation effort.
+
+On the RX 6750 XT, the largest remaining prefill shares are tiled attention,
+retained Q4 MMQ projections, and portable exact Q6_K. Grouped-prefill GQA
+regressed, Q16 attention gained only 4.66% total, larger Q4 tiles regressed, exact
+Q6 gained 2.15%, and lossy Q6 failed quality. Long decode now retains wave32
+GQA/Q6 and meets the historical envelope on 3B/8B; larger-model short decode is
+weight/Q6 dominated and further large gains require a separately approved
+numeric or persistent-representation contract.

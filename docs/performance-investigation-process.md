@@ -27,16 +27,6 @@ Before changing code, declare:
 - the changed runtime profile;
 - the narrow correctness gate selected for that path.
 
-### Active Long-Context Prefill Investigation
-
-- Target: `prefill`; decode is a regression control only.
-- Intentional variable: feature-gated Vulkan attribution detail, followed by
-  isolated prefill-only causal and structural candidates selected from it.
-- Runtime profile: standalone Vulkan, F16 KV, 32,768-token context, exact prompt
-  lengths from 128 through 28,000 tokens, and greedy sampling.
-- Correctness gate: profiler unit tests and release build for diagnostics;
-  bounded Vulkan attention oracle plus end-to-end generation for numeric kernels.
-
 ### Autonomous Investigation Loop
 
 Before editing production code, verify that the worktree is clean and `HEAD` is

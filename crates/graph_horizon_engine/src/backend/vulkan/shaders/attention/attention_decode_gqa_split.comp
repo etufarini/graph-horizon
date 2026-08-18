@@ -6,7 +6,7 @@
 
 // AGENTS deroga K: kernel numerico split-KV della sola attention decode F16 GQA.
 
-// One workgroup owns one of eight disjoint history splits for one KV head and
+// One workgroup owns one disjoint history split for one KV head and
 // reuses every packed K/V load across all four query heads in its 4:1 GQA group.
 // It emits unnormalized FP32 online-softmax partials for the reduction kernel.
 layout(local_size_x = 256) in;

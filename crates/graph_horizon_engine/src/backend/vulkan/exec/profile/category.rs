@@ -95,7 +95,9 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
         | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaWave64Split
         | Kernel::AttentionDecodeGqaReduce
+        | Kernel::AttentionDecodeGqaWave64Reduce
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
@@ -116,7 +118,8 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::MatmulQ6KCoopmatF16Out
         | Kernel::MatmulQ6KMatrix2F16Out
         | Kernel::QuantAQ8F16
-        | Kernel::MatmulQ4KMmvqF16Out => Category::Matmul,
+        | Kernel::MatmulQ4KMmvqF16Out
+        | Kernel::MatmulQ4KMmqBatchF16Out => Category::Matmul,
         Kernel::Logits | Kernel::LogitsQ4K | Kernel::LogitsQ5K | Kernel::LogitsQ6K => {
             Category::Logits
         }
@@ -146,6 +149,7 @@ const fn is_projection_matmul(kernel: Kernel) -> bool {
             | Kernel::MatmulQ6KCoopmatF16Out
             | Kernel::MatmulQ6KMatrix2F16Out
             | Kernel::MatmulQ4KMmvqF16Out
+            | Kernel::MatmulQ4KMmqBatchF16Out
     )
 }
 
@@ -162,7 +166,9 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
         | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaWave64Split
         | Kernel::AttentionDecodeGqaReduce
+        | Kernel::AttentionDecodeGqaWave64Reduce
         | Kernel::AttentionDecodeInt8 => Some(Phase::Decode),
         Kernel::Argmax | Kernel::TopkPartial => Some(Phase::Sampling),
         _ => None,

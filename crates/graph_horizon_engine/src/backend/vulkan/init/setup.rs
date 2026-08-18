@@ -8,7 +8,7 @@
 
 use color_eyre::eyre::Result;
 
-use super::device::Device;
+use super::device::{AMD_VENDOR_ID, Device};
 use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::kernels::{attention, reduce};
@@ -18,7 +18,7 @@ use crate::backend::vulkan::mem::budget::device_budget;
 #[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::plan;
 use crate::backend::vulkan::pipeline::PipelineRegistry;
-use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
+use crate::backend::vulkan::{MMVQ_SCRATCH_ELEMENTS, VulkanBackend};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 
@@ -105,11 +105,16 @@ impl VulkanBackend {
         })
     }
 
-    // The MMVQ Q8 scratch: packed int8 quants (in_dim/4 uints = in_dim bytes)
-    // plus per-8-block (d, s) f32 pairs, sized to MMVQ_SCRATCH_IN_DIM.
+    // Packed Q8 quants and per-8-block (d, s) pairs each consume one byte per
+    // activation element and cover the largest supported prefill batch.
     fn alloc_mmvq_scratch(dev: &Device) -> Result<(GpuBuffer, GpuBuffer)> {
-        let qs = GpuBuffer::alloc(dev, MMVQ_SCRATCH_IN_DIM, false)?;
-        let ds_bytes = (MMVQ_SCRATCH_IN_DIM / 8 * 2 * 4).max(attention::GQA_DECODE_STATE_BYTES);
+        let elements = if dev.vendor_id == AMD_VENDOR_ID && dev.dp4a {
+            MMVQ_SCRATCH_ELEMENTS
+        } else {
+            crate::backend::vulkan::MMVQ_SCRATCH_IN_DIM
+        };
+        let qs = GpuBuffer::alloc(dev, elements, false)?;
+        let ds_bytes = elements.max(attention::GQA_DECODE_STATE_BYTES);
         let ds = match GpuBuffer::alloc(dev, ds_bytes, false) {
             Ok(ds) => ds,
             Err(err) => {

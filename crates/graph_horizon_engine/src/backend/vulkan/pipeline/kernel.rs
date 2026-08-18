@@ -23,7 +23,9 @@ pub(crate) enum Kernel {
     AttentionDecodeWide,
     AttentionDecode1024,
     AttentionDecodeGqaSplit,
+    AttentionDecodeGqaWave64Split,
     AttentionDecodeGqaReduce,
+    AttentionDecodeGqaWave64Reduce,
     AttentionPrefill,
     AttentionPrefillWide,
     AttentionPrefillTiled,
@@ -45,7 +47,39 @@ pub(crate) enum Kernel {
     MatmulQ6KMatrix2F16Out,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
+    MatmulQ4KMmqBatchF16Out,
 }
+
+// Pipelines required on every supported Vulkan device. Optional variants are
+// appended by the registry only after their capability checks pass.
+pub(super) const BASE: &[Kernel] = &[
+    Kernel::MatmulF16,
+    Kernel::MatmulQ4KTiled,
+    Kernel::MatmulQ5K,
+    Kernel::MatmulQ6K,
+    Kernel::Logits,
+    Kernel::LogitsQ4K,
+    Kernel::LogitsQ5K,
+    Kernel::LogitsQ6K,
+    Kernel::EmbedF16,
+    Kernel::EmbedQ4K,
+    Kernel::EmbedQ5K,
+    Kernel::EmbedQ6K,
+    Kernel::RmsNormX,
+    Kernel::Rope,
+    Kernel::Residual,
+    Kernel::KvWrite,
+    Kernel::AttentionDecode,
+    Kernel::AttentionPrefill,
+    Kernel::KvWriteInt8,
+    Kernel::AttentionDecodeInt8,
+    Kernel::AttentionPrefillInt8,
+    Kernel::Argmax,
+    Kernel::TopkPartial,
+    Kernel::SiluMul,
+    Kernel::MatmulQ4KBatchF16Out,
+    Kernel::MatmulQ6KBatchF16Out,
+];
 
 #[cfg(feature = "vulkan-profile")]
 impl Kernel {
@@ -71,7 +105,9 @@ impl Kernel {
             Self::AttentionDecodeWide => "attention_decode_wide",
             Self::AttentionDecode1024 => "attention_decode_1024",
             Self::AttentionDecodeGqaSplit => "attention_decode_gqa_split8_q4_vec4_wg256",
-            Self::AttentionDecodeGqaReduce => "attention_decode_gqa_reduce8_q4_vec4",
+            Self::AttentionDecodeGqaWave64Split => "attention_decode_gqa_split4_q4_wave64_wg256",
+            Self::AttentionDecodeGqaReduce => "attention_decode_gqa_reduce_q4_vec4",
+            Self::AttentionDecodeGqaWave64Reduce => "attention_decode_gqa_reduce16_q4_wave64",
             Self::AttentionPrefill => "attention_prefill",
             Self::AttentionPrefillWide => "attention_prefill_wide",
             Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q8_kv64",
@@ -93,6 +129,7 @@ impl Kernel {
             Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m64_n32_k128",
             Self::QuantAQ8F16 => "quant_a_q8_f16",
             Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
+            Self::MatmulQ4KMmqBatchF16Out => "matmul_q4k_mmq_batch_f16",
         }
     }
 }
@@ -124,8 +161,12 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::AttentionDecode => (spv!("attention_decode"), 4, 32),
         Kernel::AttentionDecodeWide => (spv!("attention_decode_wide"), 4, 32),
         Kernel::AttentionDecode1024 => (spv!("attention_decode_1024"), 4, 32),
-        Kernel::AttentionDecodeGqaSplit => (spv!("attention_decode_gqa_split"), 5, 32),
-        Kernel::AttentionDecodeGqaReduce => (spv!("attention_decode_gqa_reduce"), 3, 32),
+        Kernel::AttentionDecodeGqaSplit => (spv!("attention_decode_gqa_split"), 5, 28),
+        Kernel::AttentionDecodeGqaWave64Split => (spv!("attention_decode_gqa_wave64_split"), 5, 32),
+        Kernel::AttentionDecodeGqaReduce => (spv!("attention_decode_gqa_reduce"), 3, 28),
+        Kernel::AttentionDecodeGqaWave64Reduce => {
+            (spv!("attention_decode_gqa_wave64_reduce"), 3, 32)
+        }
         Kernel::AttentionPrefill => (spv!("attention_prefill"), 4, 32),
         Kernel::AttentionPrefillWide => (spv!("attention_prefill_wide"), 4, 32),
         Kernel::AttentionPrefillTiled => (spv!("attention_prefill_tiled"), 4, 32),
@@ -149,5 +190,6 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::MatmulQ6KMatrix2F16Out => (spv!("matmul_q6_k_matrix2_f16out"), 3, 12),
         Kernel::QuantAQ8F16 => (spv!("quant_a_q8_f16"), 3, 4),
         Kernel::MatmulQ4KMmvqF16Out => (spv!("matmul_q4_k_mmvq_f16out"), 4, 8),
+        Kernel::MatmulQ4KMmqBatchF16Out => (spv!("matmul_q4_k_mmq_batch_f16"), 4, 12),
     }
 }

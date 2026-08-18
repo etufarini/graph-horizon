@@ -32,7 +32,7 @@ pub(crate) fn log_path_once(kernel: Kernel) {
     });
 }
 
-pub(super) fn log_batched_path_once(kernel: Kernel) {
+pub(crate) fn log_batched_path_once(kernel: Kernel) {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         if enabled() {
@@ -41,6 +41,7 @@ pub(super) fn log_batched_path_once(kernel: Kernel) {
                 Kernel::MatmulQ4KCoopmatF16Out | Kernel::MatmulQ4KCoopmatMetadataF16Out => {
                     "Q4_K coopmat (f16-out)"
                 }
+                Kernel::MatmulQ4KMmqBatchF16Out => "Q4_K MMQ batch (int8/dp4a)",
                 _ => "Q4_K batched f16-out",
             };
             eprintln!("matmul_batched: path={path}");

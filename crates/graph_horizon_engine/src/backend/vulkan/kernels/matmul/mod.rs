@@ -18,7 +18,7 @@ use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch};
 
 pub(crate) use decode::matmul;
 pub(crate) use prefill::{matmul_batched_q4k, matmul_batched_q6k};
-pub(crate) use trace::log_path_once;
+pub(crate) use trace::{log_batched_path_once, log_path_once};
 
 pub(crate) fn logits(
     dev: &Device,

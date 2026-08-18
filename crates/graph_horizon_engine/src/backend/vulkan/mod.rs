@@ -54,9 +54,55 @@ impl VulkanBackend {
 
 // Upper activation width covered by the persistent Q8 MMVQ scratch.
 pub(crate) const MMVQ_SCRATCH_IN_DIM: u64 = 32768;
+// Q8 activation scratch covers the largest public prefill batch without allocation.
+pub(crate) const MMVQ_SCRATCH_ROWS: u64 = 256;
+pub(crate) const MMVQ_SCRATCH_ELEMENTS: u64 = MMVQ_SCRATCH_IN_DIM * MMVQ_SCRATCH_ROWS;
 // Eight complete Matrix2 row tiles amortize command recording without padding.
 #[cfg(feature = "vulkan")]
-pub(crate) const PREFILL_ROWS: usize = 256;
+const PREFILL_ROWS: usize = 256;
+// RADV's watchdog bounds one full-graph submission on the measured AMD family.
+// Sixteen Q4-MMQ row tiles keep late long-context chunks below that boundary.
+#[cfg(feature = "vulkan")]
+const AMD_PREFILL_ROWS: usize = 128;
+// Deeper long-context graphs need a second duration bound: 8B/28K resets at
+// 128 rows while the same capability/shape class remains stable at 64.
+#[cfg(feature = "vulkan")]
+const AMD_LONG_PREFILL_ROWS: usize = 64;
+
+#[cfg(feature = "vulkan")]
+const fn prefill_rows(vendor_id: u32, block_count: usize, context: usize) -> usize {
+    if vendor_id == device::AMD_VENDOR_ID && block_count >= 32 && context >= 16_384 {
+        AMD_LONG_PREFILL_ROWS
+    } else if vendor_id == device::AMD_VENDOR_ID {
+        AMD_PREFILL_ROWS
+    } else {
+        PREFILL_ROWS
+    }
+}
+
+#[cfg(feature = "vulkan")]
+impl VulkanBackend {
+    pub(crate) fn prefill_rows(&self, block_count: usize, context: usize) -> usize {
+        prefill_rows(self.dev.vendor_id, block_count, context)
+    }
+}
+
+#[cfg(all(test, feature = "vulkan"))]
+mod prefill_policy_tests {
+    use super::{AMD_LONG_PREFILL_ROWS, AMD_PREFILL_ROWS, PREFILL_ROWS, prefill_rows};
+
+    #[test]
+    fn amd_bounds_prefill_submissions_without_changing_other_vendors() {
+        let amd = super::device::AMD_VENDOR_ID;
+        assert_eq!(prefill_rows(amd, 26, 28_160), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 31, 16_384), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_384), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 33, 16_384), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_383), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_385), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(0x10de, 40, 32_768), PREFILL_ROWS);
+    }
+}
 
 #[cfg(test)]
 thread_local! {
@@ -134,8 +180,8 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
             .and_then(|bytes| bytes.checked_mul(8))
             .map(|bytes| bytes.max(kernels::attention::GQA_DECODE_PARTIAL_BYTES))
             .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
-        let mmvq = MMVQ_SCRATCH_IN_DIM
-            + (MMVQ_SCRATCH_IN_DIM / 8 * 2 * 4).max(kernels::attention::GQA_DECODE_STATE_BYTES);
+        let mmvq = MMVQ_SCRATCH_ELEMENTS
+            + MMVQ_SCRATCH_ELEMENTS.max(kernels::attention::GQA_DECODE_STATE_BYTES);
         Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
             host: logits,
             device: logits

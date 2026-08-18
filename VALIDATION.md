@@ -95,18 +95,14 @@ summary: qualified=6 not_qualified=0 external_verification=0 total=6
 
 ## Verifiche Vulkan successive
 
-Il bring-up 8B e le ottimizzazioni Vulkan successive hanno aggiunto controlli
-mirati di correttezza, senza rieseguire una campagna semantica completa:
+Il bring-up 8B e le ottimizzazioni Vulkan successive hanno aggiunto oracle
+CPU/Vulkan, confronti teacher-forced e controlli dei fallback per Q4_K, Q6_K,
+attention e proiezioni Matrix2. Il riepilogo delle sole modifiche mantenute e
+dei relativi limiti è in
+[`CURRENT_OPTIMIZATION_STATE.md`](CURRENT_OPTIMIZATION_STATE.md).
 
-- [Phase 22](docs/vulkan-second-model-bringup-phase22.md): parita CPU/Vulkan
-  teacher-forced, oracle esterno e fallback del secondo modello;
-- [Phase 23](docs/vulkan-model2-largek-matmul-phase23.md): gate numerico e
-  non-regressione per la proiezione down large-K;
-- [Phase 24](docs/vulkan-model2-gate-up-phase24.md): oracle Q4_K, parita
-  teacher-forced e fallback per gate/up.
-
-Questi risultati qualificano soltanto i percorsi e le tuple dichiarati nei
-rispettivi report. Non cambiano gli stati delle due matrici precedenti.
+Questi risultati qualificano soltanto i percorsi e le tuple dichiarati nel
+riepilogo. Non cambiano gli stati delle due matrici precedenti.
 
 ## Aggiornamento del registro
 

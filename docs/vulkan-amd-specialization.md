@@ -643,10 +643,19 @@ Every measured delta is within 0.2%, well inside the 1% neutrality target.
 ### Quality and validation
 
 - The mission's six-artifact, 128-step gate belongs to the already-completed
-  NVIDIA cleanup recorded in `ABLATION_REPORT.md`; its saved 128-token teachers
-  are not part of the current repository contract or retained evidence. The
-  checked-in AMD protocol instead pins a llama.cpp external teacher for 16
-  tokens on the three Instruct artifacts.
+  NVIDIA cleanup recorded in `ABLATION_REPORT.md`. Git history recovers its
+  generating protocol: commit `033996f` runs the generic GQA fallback with
+  `GRAPH_HORIZON_DECODE_GQA=0`, then supplies that 128-token sequence to the
+  optimized path teacher-forced. The fixed teachers used by the original
+  campaign were not retained.
+- A freshly generated authenticated 3B-Instruct teacher from that immutable
+  source was applied unchanged to untouched AMD checkpoint `5fbadc1` and cleaned
+  checkpoint `c4782db`. Both missed top two at step 3 for teacher digest
+  `e4a03776a1e4fd5a7f16a9525bac77ccaabc7ea27bb01a1c650c11575fc6cc6f`.
+  Because the first required row fails identically on the AMD baseline and
+  cleaned code, a six-row AMD PASS cannot be claimed from the historical
+  NVIDIA protocol. The checked-in AMD protocol instead pins a llama.cpp
+  external teacher for 16 tokens on the three Instruct artifacts.
 - The final 8B and 14B external 16-token rows passed. The first final 3B row
   failed the wrapper's local parity assertion; a diagnostic rerun passed exact
   prompt IDs and all 16 positions. Under the documented no-retry rule, this

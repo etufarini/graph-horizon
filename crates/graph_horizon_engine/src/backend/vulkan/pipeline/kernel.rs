@@ -50,6 +50,37 @@ pub(crate) enum Kernel {
     MatmulQ4KMmqBatchF16Out,
 }
 
+// Pipelines required on every supported Vulkan device. Optional variants are
+// appended by the registry only after their capability checks pass.
+pub(super) const BASE: &[Kernel] = &[
+    Kernel::MatmulF16,
+    Kernel::MatmulQ4KTiled,
+    Kernel::MatmulQ5K,
+    Kernel::MatmulQ6K,
+    Kernel::Logits,
+    Kernel::LogitsQ4K,
+    Kernel::LogitsQ5K,
+    Kernel::LogitsQ6K,
+    Kernel::EmbedF16,
+    Kernel::EmbedQ4K,
+    Kernel::EmbedQ5K,
+    Kernel::EmbedQ6K,
+    Kernel::RmsNormX,
+    Kernel::Rope,
+    Kernel::Residual,
+    Kernel::KvWrite,
+    Kernel::AttentionDecode,
+    Kernel::AttentionPrefill,
+    Kernel::KvWriteInt8,
+    Kernel::AttentionDecodeInt8,
+    Kernel::AttentionPrefillInt8,
+    Kernel::Argmax,
+    Kernel::TopkPartial,
+    Kernel::SiluMul,
+    Kernel::MatmulQ4KBatchF16Out,
+    Kernel::MatmulQ6KBatchF16Out,
+];
+
 #[cfg(feature = "vulkan-profile")]
 impl Kernel {
     pub(crate) const fn name(self) -> &'static str {

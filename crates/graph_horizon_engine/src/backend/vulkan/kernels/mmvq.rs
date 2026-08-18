@@ -30,12 +30,7 @@ fn applies(dp4a: bool, format: WeightFormat, in_dim: u32) -> bool {
 }
 
 fn batch_applies(vendor_id: u32, dp4a: bool, format: WeightFormat, in_dim: u32, n: u32) -> bool {
-    vendor_id == AMD_VENDOR_ID
-        && dp4a
-        && format == WeightFormat::Q4K
-        && in_dim.is_multiple_of(256)
-        && u64::from(in_dim) <= MMVQ_SCRATCH_IN_DIM
-        && n > 1
+    vendor_id == AMD_VENDOR_ID && n > 1 && applies(dp4a, format, in_dim)
 }
 
 // y[out_dim] = W[out_dim,in_dim] · a[in_dim] via the FP16-interface MMVQ path.
@@ -95,7 +90,6 @@ pub(crate) fn dispatch_mmvq(
 
 // Batched y[n,out_dim] = W[out_dim,in_dim] * a[n,in_dim]. Q8 scratch is
 // overwritten for every projection and consumed before the next dispatch.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn dispatch_mmq_batched(
     dev: &Device,
     reg: &PipelineRegistry,

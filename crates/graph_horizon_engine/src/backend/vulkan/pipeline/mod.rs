@@ -14,6 +14,7 @@ use super::device::AMD_VENDOR_ID;
 use super::device::Device;
 
 mod caps;
+mod compiler;
 mod kernel;
 mod record;
 
@@ -30,36 +31,6 @@ pub(crate) struct PipelineRegistry {
     map: HashMap<Kernel, Pipeline>,
     cache: vk::PipelineCache,
 }
-
-// Capability-gated variants are added separately during construction.
-const KERNELS: [Kernel; 26] = [
-    Kernel::MatmulF16,
-    Kernel::MatmulQ4KTiled,
-    Kernel::MatmulQ5K,
-    Kernel::MatmulQ6K,
-    Kernel::Logits,
-    Kernel::LogitsQ4K,
-    Kernel::LogitsQ5K,
-    Kernel::LogitsQ6K,
-    Kernel::EmbedF16,
-    Kernel::EmbedQ4K,
-    Kernel::EmbedQ5K,
-    Kernel::EmbedQ6K,
-    Kernel::RmsNormX,
-    Kernel::Rope,
-    Kernel::Residual,
-    Kernel::KvWrite,
-    Kernel::AttentionDecode,
-    Kernel::AttentionPrefill,
-    Kernel::KvWriteInt8,
-    Kernel::AttentionDecodeInt8,
-    Kernel::AttentionPrefillInt8,
-    Kernel::Argmax,
-    Kernel::TopkPartial,
-    Kernel::SiluMul,
-    Kernel::MatmulQ4KBatchF16Out,
-    Kernel::MatmulQ6KBatchF16Out,
-];
 
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
@@ -84,90 +55,85 @@ impl PipelineRegistry {
 
         let mut map = HashMap::new();
         let built = (|| -> Result<()> {
-            for &k in &KERNELS {
-                let amd_wave32_q6 = dev.vendor_id == AMD_VENDOR_ID
-                    && dev.wave32_control
-                    && matches!(k, Kernel::MatmulQ6K | Kernel::LogitsQ6K);
-                let pipeline = if amd_wave32_q6 {
-                    record::build_one_wave32(dev, cache, k)?
+            let amd_wave32 = dev.vendor_id == AMD_VENDOR_ID && dev.wave32_control;
+            for &k in kernel::BASE {
+                let pipeline = if amd_wave32 && matches!(k, Kernel::MatmulQ6K | Kernel::LogitsQ6K) {
+                    compiler::build_wave32(dev, cache, k)?
                 } else {
-                    record::build_one(dev, cache, k)?
+                    compiler::build(dev, cache, k)?
                 };
                 map.insert(k, pipeline);
             }
             if wide_attention {
                 for k in [Kernel::AttentionDecodeWide, Kernel::AttentionPrefillWide] {
-                    map.insert(k, record::build_one(dev, cache, k)?);
+                    map.insert(k, compiler::build(dev, cache, k)?);
                 }
             }
             if tiled_attention {
                 map.insert(
                     Kernel::AttentionPrefillTiled,
-                    record::build_one(dev, cache, Kernel::AttentionPrefillTiled)?,
+                    compiler::build(dev, cache, Kernel::AttentionPrefillTiled)?,
                 );
             }
             if coop_qk_attention {
                 map.insert(
                     Kernel::AttentionPrefillTiledCoopQk,
-                    record::build_one(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
+                    compiler::build(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
                 );
             }
             if matrix2 {
                 // A driver may advertise NV2 but reject an exact SPIR-V shape.
                 // Pipeline absence is therefore a capability fallback, not fatal.
-                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2)
-                {
+                if let Ok(pipeline) = compiler::build(dev, cache, Kernel::AttentionPrefillMatrix2) {
                     map.insert(Kernel::AttentionPrefillMatrix2, pipeline);
                 }
-                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ4KMatrix2F16Out)
-                {
+                if let Ok(pipeline) = compiler::build(dev, cache, Kernel::MatmulQ4KMatrix2F16Out) {
                     map.insert(Kernel::MatmulQ4KMatrix2F16Out, pipeline);
                 }
-                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ6KMatrix2F16Out)
-                {
+                if let Ok(pipeline) = compiler::build(dev, cache, Kernel::MatmulQ6KMatrix2F16Out) {
                     map.insert(Kernel::MatmulQ6KMatrix2F16Out, pipeline);
                 }
             }
             if matrix2_attention_q64
                 && let Ok(pipeline) =
-                    record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2Q64)
+                    compiler::build(dev, cache, Kernel::AttentionPrefillMatrix2Q64)
             {
                 map.insert(Kernel::AttentionPrefillMatrix2Q64, pipeline);
             }
             if attention_1024 {
                 map.insert(
                     Kernel::AttentionDecode1024,
-                    record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
+                    compiler::build(dev, cache, Kernel::AttentionDecode1024)?,
                 );
             }
             if gqa_decode {
                 map.insert(
                     Kernel::AttentionDecodeGqaSplit,
-                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
+                    compiler::build(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
                 );
                 map.insert(
                     Kernel::AttentionDecodeGqaReduce,
-                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
+                    compiler::build(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
                 );
             }
             if gqa_decode_required_wave32 {
                 map.insert(
                     Kernel::AttentionDecodeGqaSplit,
-                    record::build_one_wave32(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
+                    compiler::build_wave32(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
                 );
                 map.insert(
                     Kernel::AttentionDecodeGqaReduce,
-                    record::build_one_wave32(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
+                    compiler::build_wave32(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
                 );
             }
             if gqa_decode_wave64 && !gqa_decode_required_wave32 {
                 map.insert(
                     Kernel::AttentionDecodeGqaWave64Split,
-                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaWave64Split)?,
+                    compiler::build(dev, cache, Kernel::AttentionDecodeGqaWave64Split)?,
                 );
                 map.insert(
                     Kernel::AttentionDecodeGqaWave64Reduce,
-                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaWave64Reduce)?,
+                    compiler::build(dev, cache, Kernel::AttentionDecodeGqaWave64Reduce)?,
                 );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.
@@ -176,22 +142,22 @@ impl PipelineRegistry {
                     Kernel::MatmulQ4KCoopmatF16Out,
                     Kernel::MatmulQ6KCoopmatF16Out,
                 ] {
-                    map.insert(k, record::build_one(dev, cache, k)?);
+                    map.insert(k, compiler::build(dev, cache, k)?);
                 }
                 if q4_metadata {
                     map.insert(
                         Kernel::MatmulQ4KCoopmatMetadataF16Out,
-                        record::build_one(dev, cache, Kernel::MatmulQ4KCoopmatMetadataF16Out)?,
+                        compiler::build(dev, cache, Kernel::MatmulQ4KCoopmatMetadataF16Out)?,
                     );
                 }
             }
             if dev.dp4a {
                 for k in [Kernel::QuantAQ8F16, Kernel::MatmulQ4KMmvqF16Out] {
-                    map.insert(k, record::build_one(dev, cache, k)?);
+                    map.insert(k, compiler::build(dev, cache, k)?);
                 }
                 if dev.vendor_id == AMD_VENDOR_ID {
                     let k = Kernel::MatmulQ4KMmqBatchF16Out;
-                    map.insert(k, record::build_one(dev, cache, k)?);
+                    map.insert(k, compiler::build(dev, cache, k)?);
                 }
             }
             Ok(())

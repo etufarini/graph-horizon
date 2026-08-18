@@ -28,44 +28,25 @@ fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> 
     invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
 }
 
-fn supports_gqa_decode(
-    invocations: u32,
-    size_x: u32,
-    shared_bytes: u32,
-    subgroup_size: u32,
-) -> bool {
-    invocations >= 256
-        && size_x >= 256
-        && shared_bytes >= GQA_DECODE_SHARED_BYTES
-        && subgroup_size == 32
+fn supports_gqa_decode_resources(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
+    invocations >= 256 && size_x >= 256 && shared_bytes >= GQA_DECODE_SHARED_BYTES
 }
 
-fn supports_gqa_decode_wave64(
-    invocations: u32,
-    size_x: u32,
-    shared_bytes: u32,
-    subgroup_size: u32,
-) -> bool {
-    invocations >= 256
-        && size_x >= 256
-        && shared_bytes >= GQA_DECODE_SHARED_BYTES
-        && subgroup_size == 64
+fn supports_gqa_decode(resources: bool, subgroup_size: u32) -> bool {
+    resources && subgroup_size == 32
 }
 
 fn supports_gqa_decode_required_wave32(
-    invocations: u32,
-    size_x: u32,
-    shared_bytes: u32,
+    resources: bool,
     subgroup_size: u32,
     wave32_control: bool,
     amd: bool,
 ) -> bool {
-    subgroup_size == 64
-        && wave32_control
-        && amd
-        && invocations >= 256
-        && size_x >= 256
-        && shared_bytes >= GQA_DECODE_SHARED_BYTES
+    resources && subgroup_size == 64 && wave32_control && amd
+}
+
+fn supports_gqa_decode_wave64(resources: bool, subgroup_size: u32) -> bool {
+    resources && subgroup_size == 64
 }
 
 fn supports_tiled_attention(
@@ -155,6 +136,7 @@ pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
     let subgroup = vulkan11.subgroup_size;
     let tiled = supports_tiled_attention(available.0, available.1, available.2, subgroup);
     let coop_qk = supports_coop_qk_attention(tiled, available.2, subgroup, dev.coopmat);
+    let gqa = supports_gqa_decode_resources(available.0, available.1, available.2);
     let matrix2 = supports_matrix2(
         available.2,
         dev.coopmat2.reserved_shared_memory,
@@ -173,21 +155,14 @@ pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
             dev.coopmat2.attention_q64_wg128,
         ),
         attention_1024: supports_attention_1024(available.0, available.1, available.2),
-        gqa_decode: supports_gqa_decode(available.0, available.1, available.2, subgroup),
+        gqa_decode: supports_gqa_decode(gqa, subgroup),
         gqa_decode_required_wave32: supports_gqa_decode_required_wave32(
-            available.0,
-            available.1,
-            available.2,
+            gqa,
             subgroup,
             dev.wave32_control,
             dev.vendor_id == AMD_VENDOR_ID,
         ),
-        gqa_decode_wave64: supports_gqa_decode_wave64(
-            available.0,
-            available.1,
-            available.2,
-            subgroup,
-        ),
+        gqa_decode_wave64: supports_gqa_decode_wave64(gqa, subgroup),
         q4_metadata: supports_q4(subgroup, vulkan11.subgroup_supported_operations),
     })
 }
@@ -248,52 +223,33 @@ mod tests {
 
     #[test]
     fn gqa_decode_requires_its_exact_subgroup_and_resources() {
-        assert!(supports_gqa_decode(256, 256, GQA_DECODE_SHARED_BYTES, 32));
-        assert!(!supports_gqa_decode(255, 256, GQA_DECODE_SHARED_BYTES, 32));
-        assert!(!supports_gqa_decode(256, 255, GQA_DECODE_SHARED_BYTES, 32));
-        assert!(!supports_gqa_decode(
+        assert!(supports_gqa_decode_resources(
             256,
             256,
-            GQA_DECODE_SHARED_BYTES - 1,
-            32
+            GQA_DECODE_SHARED_BYTES
         ));
-        assert!(!supports_gqa_decode(256, 256, GQA_DECODE_SHARED_BYTES, 64));
-        assert!(supports_gqa_decode_wave64(
+        assert!(!supports_gqa_decode_resources(
+            255,
             256,
-            256,
-            GQA_DECODE_SHARED_BYTES,
-            64
+            GQA_DECODE_SHARED_BYTES
         ));
-        assert!(!supports_gqa_decode_wave64(
+        assert!(!supports_gqa_decode_resources(
             256,
-            256,
-            GQA_DECODE_SHARED_BYTES,
-            32
+            255,
+            GQA_DECODE_SHARED_BYTES
         ));
-        assert!(supports_gqa_decode_required_wave32(
+        assert!(!supports_gqa_decode_resources(
             256,
             256,
-            GQA_DECODE_SHARED_BYTES,
-            64,
-            true,
-            true,
+            GQA_DECODE_SHARED_BYTES - 1
         ));
-        assert!(!supports_gqa_decode_required_wave32(
-            256,
-            256,
-            GQA_DECODE_SHARED_BYTES,
-            64,
-            false,
-            true,
-        ));
-        assert!(!supports_gqa_decode_required_wave32(
-            256,
-            256,
-            GQA_DECODE_SHARED_BYTES,
-            64,
-            true,
-            false,
-        ));
+        assert!(supports_gqa_decode(true, 32));
+        assert!(!supports_gqa_decode(true, 64));
+        assert!(supports_gqa_decode_wave64(true, 64));
+        assert!(!supports_gqa_decode_wave64(true, 32));
+        assert!(supports_gqa_decode_required_wave32(true, 64, true, true));
+        assert!(!supports_gqa_decode_required_wave32(true, 64, false, true));
+        assert!(!supports_gqa_decode_required_wave32(true, 64, true, false));
     }
 
     #[test]

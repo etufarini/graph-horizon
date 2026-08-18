@@ -7,7 +7,7 @@
 
 use ash::vk;
 
-use super::GQA_DECODE_SPLITS;
+use super::{GQA_DECODE_SPLITS, GQA_DECODE_WAVE64_PARTS, GQA_DECODE_WAVE64_WORKGROUPS};
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
@@ -34,12 +34,33 @@ pub(crate) fn f16(
         push.extend_from_slice(&value.to_le_bytes());
     }
     push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    let scratch_fits = partial.size >= u64::from(q_heads) * 128 * u64::from(GQA_DECODE_SPLITS) * 4
-        && state.size >= u64::from(q_heads) * u64::from(GQA_DECODE_SPLITS) * 2 * 4;
+    let (split_kernel, reduce_kernel, workgroups_y, parts, wave64) =
+        if reg.contains(Kernel::AttentionDecodeGqaWave64Split) {
+            (
+                Kernel::AttentionDecodeGqaWave64Split,
+                Kernel::AttentionDecodeGqaWave64Reduce,
+                GQA_DECODE_WAVE64_WORKGROUPS,
+                GQA_DECODE_WAVE64_PARTS,
+                true,
+            )
+        } else {
+            (
+                Kernel::AttentionDecodeGqaSplit,
+                Kernel::AttentionDecodeGqaReduce,
+                GQA_DECODE_SPLITS,
+                GQA_DECODE_SPLITS,
+                false,
+            )
+        };
+    if wave64 {
+        push.extend_from_slice(&parts.to_le_bytes());
+    }
+    let scratch_fits = partial.size >= u64::from(q_heads) * 128 * u64::from(parts) * 4
+        && state.size >= u64::from(q_heads) * u64::from(parts) * 2 * 4;
     if head_dim == 128
         && kv_heads.checked_mul(4) == Some(q_heads)
         && scratch_fits
-        && reg.contains(Kernel::AttentionDecodeGqaSplit)
+        && reg.contains(split_kernel)
     {
         // These aliases are fully consumed here before their normal projection
         // and sampling users can overwrite the same scratch allocations.
@@ -47,7 +68,7 @@ pub(crate) fn f16(
             dev,
             reg,
             cmd,
-            Kernel::AttentionDecodeGqaSplit,
+            split_kernel,
             &[
                 (q.buffer, q.offset, q.size),
                 (kc.buffer, kc.offset, kc.size),
@@ -57,13 +78,13 @@ pub(crate) fn f16(
             ],
             &push,
             kv_heads,
-            GQA_DECODE_SPLITS,
+            workgroups_y,
         );
         dispatch(
             dev,
             reg,
             cmd,
-            Kernel::AttentionDecodeGqaReduce,
+            reduce_kernel,
             &[
                 (partial.buffer, partial.offset, partial.size),
                 (state.buffer, state.offset, state.size),

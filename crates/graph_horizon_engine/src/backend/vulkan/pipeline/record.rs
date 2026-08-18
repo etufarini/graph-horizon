@@ -120,6 +120,23 @@ fn record(
 }
 
 pub(super) fn build_one(dev: &Device, cache: vk::PipelineCache, k: Kernel) -> Result<Pipeline> {
+    build(dev, cache, k, None)
+}
+
+pub(super) fn build_one_wave32(
+    dev: &Device,
+    cache: vk::PipelineCache,
+    k: Kernel,
+) -> Result<Pipeline> {
+    build(dev, cache, k, Some(32))
+}
+
+fn build(
+    dev: &Device,
+    cache: vk::PipelineCache,
+    k: Kernel,
+    required_subgroup_size: Option<u32>,
+) -> Result<Pipeline> {
     let (bytes, bindings, push_size) = spec(k);
     let code = ash::util::read_spv(&mut Cursor::new(bytes))
         .map_err(|_| eyre!("vulkan: malformed SPIR-V module"))?;
@@ -181,10 +198,15 @@ pub(super) fn build_one(dev: &Device, cache: vk::PipelineCache, k: Kernel) -> Re
         }
     };
 
-    let stage = vk::PipelineShaderStageCreateInfo::default()
+    let mut stage = vk::PipelineShaderStageCreateInfo::default()
         .stage(vk::ShaderStageFlags::COMPUTE)
         .module(module)
         .name(c"main");
+    let mut subgroup = vk::PipelineShaderStageRequiredSubgroupSizeCreateInfo::default();
+    if let Some(size) = required_subgroup_size {
+        subgroup = subgroup.required_subgroup_size(size);
+        stage = stage.push_next(&mut subgroup);
+    }
     let info = vk::ComputePipelineCreateInfo::default()
         .stage(stage)
         .layout(layout);

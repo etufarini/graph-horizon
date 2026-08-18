@@ -95,7 +95,9 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
         | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaWave64Split
         | Kernel::AttentionDecodeGqaReduce
+        | Kernel::AttentionDecodeGqaWave64Reduce
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
         | Kernel::AttentionPrefillTiled
@@ -164,7 +166,9 @@ pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
         | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaWave64Split
         | Kernel::AttentionDecodeGqaReduce
+        | Kernel::AttentionDecodeGqaWave64Reduce
         | Kernel::AttentionDecodeInt8 => Some(Phase::Decode),
         Kernel::Argmax | Kernel::TopkPartial => Some(Phase::Sampling),
         _ => None,

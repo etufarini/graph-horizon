@@ -25,6 +25,7 @@ pub(super) struct DeviceBoot {
     pub coopmat: CoopmatCaps,
     pub coopmat2: Coopmat2Caps,
     pub dp4a: bool,
+    pub wave32_control: bool,
     pub push_desc: ash::khr::push_descriptor::Device,
     pub cmd_pool: vk::CommandPool,
 }
@@ -57,15 +58,24 @@ pub(super) fn create_device(
     let coopmat2 = coopmat2::detect(entry, instance, physical);
     let matrix_extension = coopmat.available || coopmat2.enabled();
 
-    // dp4a for the mmvq Q4_K decode GEMV; absence means float GEMV.
-    let dp4a = {
-        let mut f13 = vk::PhysicalDeviceVulkan13Features::default();
-        let mut feats = vk::PhysicalDeviceFeatures2::default().push_next(&mut f13);
-        // SAFETY: `instance`/`physical` are live; `feats` (with `f13` chained via
-        // push_next) is a stack struct that outlives the call the driver writes into.
-        unsafe { instance.get_physical_device_features2(physical, &mut feats) };
-        f13.shader_integer_dot_product != 0
-    };
+    // Integer dot products and required subgroup sizes are optional Vulkan 1.3
+    // contracts. Wave32 is retained only when 32 is in range for compute stages.
+    let mut supported13 = vk::PhysicalDeviceVulkan13Features::default();
+    let mut features = vk::PhysicalDeviceFeatures2::default().push_next(&mut supported13);
+    let mut subgroup_control = vk::PhysicalDeviceSubgroupSizeControlProperties::default();
+    let mut properties = vk::PhysicalDeviceProperties2::default().push_next(&mut subgroup_control);
+    // SAFETY: every queried struct is stack-owned and outlives its driver call.
+    unsafe {
+        instance.get_physical_device_features2(physical, &mut features);
+        instance.get_physical_device_properties2(physical, &mut properties);
+    }
+    let dp4a = supported13.shader_integer_dot_product != 0;
+    let wave32_control = supported13.subgroup_size_control != 0
+        && subgroup_control.min_subgroup_size <= 32
+        && subgroup_control.max_subgroup_size >= 32
+        && subgroup_control
+            .required_subgroup_size_stages
+            .contains(vk::ShaderStageFlags::COMPUTE);
 
     let priorities = [1.0f32];
     let qci = [vk::DeviceQueueCreateInfo::default()
@@ -90,7 +100,9 @@ pub(super) fn create_device(
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
     let mut coop2_feat = coopmat2::enabled_features(coopmat2);
-    let mut f13 = vk::PhysicalDeviceVulkan13Features::default().shader_integer_dot_product(true);
+    let mut f13 = vk::PhysicalDeviceVulkan13Features::default()
+        .shader_integer_dot_product(dp4a)
+        .subgroup_size_control(wave32_control);
     let mut dci = vk::DeviceCreateInfo::default()
         .queue_create_infos(&qci)
         .enabled_extension_names(&ext)
@@ -102,7 +114,7 @@ pub(super) fn create_device(
     if coopmat2.enabled() {
         dci = dci.push_next(&mut coop2_feat);
     }
-    if dp4a {
+    if dp4a || wave32_control {
         dci = dci.push_next(&mut f13);
     }
     // SAFETY: `instance`/`physical` are live; `dci` and every feature/queue struct it
@@ -135,6 +147,7 @@ pub(super) fn create_device(
         coopmat,
         coopmat2,
         dp4a,
+        wave32_control,
         push_desc,
         cmd_pool,
     })

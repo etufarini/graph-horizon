@@ -1,0 +1,101 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico wave64 split-KV della sola attention decode F16 GQA.
+
+// One workgroup owns one KV head/split and reuses each K/V load across its four
+// query heads. Wave64 preserves the established decoder's two-dimensions-per-lane
+// dot-product order. Its 16 wave partials are reduced in the generic path's order.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer Partial { float partial[]; };
+layout(std430, binding = 4) writeonly buffer State { float state[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    float scale;
+    uint parts;
+} p;
+
+const uint Q_GROUP = 4u;
+const uint MAX_DPL = 2u;
+
+void main() {
+    uint pair = gl_WorkGroupID.x;
+    uint pairs_per_kv = (p.q_heads / p.kv_heads) / Q_GROUP;
+    uint kvh = pair / pairs_per_kv;
+    uint split = gl_WorkGroupID.y;
+    uint G = gl_NumSubgroups;
+    uint S = gl_SubgroupSize;
+    uint g = gl_SubgroupID;
+    uint l = gl_SubgroupInvocationID;
+    uint h0 = pair * Q_GROUP;
+
+    float qd[Q_GROUP][MAX_DPL];
+    float acc[Q_GROUP][MAX_DPL];
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        for (uint j = 0u; j < MAX_DPL; j++) {
+            uint d = l + j * S;
+            qd[h][j] = float(q[(h0 + h) * p.head_dim + d]);
+            acc[h][j] = 0.0;
+        }
+    }
+    float m_g[Q_GROUP];
+    float l_g[Q_GROUP];
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        m_g[h] = -1e30;
+        l_g[h] = 0.0;
+    }
+
+    uint wave_part = split * G + g;
+    for (uint t = wave_part; t <= p.pos; t += p.parts) {
+        uint base = ((p.layer * p.context + t) * p.kv_heads + kvh) * p.head_dim;
+        float prod[Q_GROUP];
+        for (uint h = 0u; h < Q_GROUP; h++) prod[h] = 0.0;
+        float vd[MAX_DPL];
+        for (uint j = 0u; j < MAX_DPL; j++) {
+            uint d = l + j * S;
+            float kd = float(kc[base + d]);
+            vd[j] = float(vc[base + d]);
+            for (uint h = 0u; h < Q_GROUP; h++) prod[h] += qd[h][j] * kd;
+        }
+        float score[Q_GROUP];
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            score[h] = subgroupAdd(prod[h]) * p.scale;
+        }
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            float m_new = max(m_g[h], score[h]);
+            float alpha = exp(m_g[h] - m_new);
+            float pw = exp(score[h] - m_new);
+            l_g[h] = l_g[h] * alpha + pw;
+            for (uint j = 0u; j < MAX_DPL; j++) {
+                acc[h][j] = acc[h][j] * alpha + pw * vd[j];
+            }
+            m_g[h] = m_new;
+        }
+    }
+
+    uint pairs = p.q_heads / Q_GROUP;
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        uint part = (wave_part * pairs + pair) * Q_GROUP + h;
+        if (subgroupElect()) {
+            state[part * 2u] = m_g[h];
+            state[part * 2u + 1u] = l_g[h];
+        }
+        for (uint j = 0u; j < MAX_DPL; j++) {
+            uint d = l + j * S;
+            partial[part * p.head_dim + d] = acc[h][j];
+        }
+    }
+}

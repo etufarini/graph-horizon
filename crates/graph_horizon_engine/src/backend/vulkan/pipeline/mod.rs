@@ -71,6 +71,8 @@ impl PipelineRegistry {
             matrix2_attention_q64,
             attention_1024,
             gqa_decode,
+            gqa_decode_required_wave32,
+            gqa_decode_wave64,
             q4_metadata,
         } = caps::check(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
@@ -83,7 +85,15 @@ impl PipelineRegistry {
         let mut map = HashMap::new();
         let built = (|| -> Result<()> {
             for &k in &KERNELS {
-                map.insert(k, record::build_one(dev, cache, k)?);
+                let amd_wave32_q6 = dev.vendor_id == AMD_VENDOR_ID
+                    && dev.wave32_control
+                    && matches!(k, Kernel::MatmulQ6K | Kernel::LogitsQ6K);
+                let pipeline = if amd_wave32_q6 {
+                    record::build_one_wave32(dev, cache, k)?
+                } else {
+                    record::build_one(dev, cache, k)?
+                };
+                map.insert(k, pipeline);
             }
             if wide_attention {
                 for k in [Kernel::AttentionDecodeWide, Kernel::AttentionPrefillWide] {
@@ -138,6 +148,26 @@ impl PipelineRegistry {
                 map.insert(
                     Kernel::AttentionDecodeGqaReduce,
                     record::build_one(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
+                );
+            }
+            if gqa_decode_required_wave32 {
+                map.insert(
+                    Kernel::AttentionDecodeGqaSplit,
+                    record::build_one_wave32(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
+                );
+                map.insert(
+                    Kernel::AttentionDecodeGqaReduce,
+                    record::build_one_wave32(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
+                );
+            }
+            if gqa_decode_wave64 && !gqa_decode_required_wave32 {
+                map.insert(
+                    Kernel::AttentionDecodeGqaWave64Split,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaWave64Split)?,
+                );
+                map.insert(
+                    Kernel::AttentionDecodeGqaWave64Reduce,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaWave64Reduce)?,
                 );
             }
             // Capability-gated SPIR-V is built only when the device can execute it.

@@ -9,6 +9,7 @@ use color_eyre::eyre::{Result, eyre};
 
 use super::Device;
 use crate::backend::vulkan::coopmat::CoopmatCaps;
+use crate::backend::vulkan::device::AMD_VENDOR_ID;
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
@@ -37,6 +38,34 @@ fn supports_gqa_decode(
         && size_x >= 256
         && shared_bytes >= GQA_DECODE_SHARED_BYTES
         && subgroup_size == 32
+}
+
+fn supports_gqa_decode_wave64(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+) -> bool {
+    invocations >= 256
+        && size_x >= 256
+        && shared_bytes >= GQA_DECODE_SHARED_BYTES
+        && subgroup_size == 64
+}
+
+fn supports_gqa_decode_required_wave32(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+    wave32_control: bool,
+    amd: bool,
+) -> bool {
+    subgroup_size == 64
+        && wave32_control
+        && amd
+        && invocations >= 256
+        && size_x >= 256
+        && shared_bytes >= GQA_DECODE_SHARED_BYTES
 }
 
 fn supports_tiled_attention(
@@ -94,6 +123,8 @@ pub(super) struct PipelineCaps {
     pub matrix2_attention_q64: bool,
     pub attention_1024: bool,
     pub gqa_decode: bool,
+    pub gqa_decode_required_wave32: bool,
+    pub gqa_decode_wave64: bool,
     pub q4_metadata: bool,
 }
 
@@ -143,6 +174,20 @@ pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
         ),
         attention_1024: supports_attention_1024(available.0, available.1, available.2),
         gqa_decode: supports_gqa_decode(available.0, available.1, available.2, subgroup),
+        gqa_decode_required_wave32: supports_gqa_decode_required_wave32(
+            available.0,
+            available.1,
+            available.2,
+            subgroup,
+            dev.wave32_control,
+            dev.vendor_id == AMD_VENDOR_ID,
+        ),
+        gqa_decode_wave64: supports_gqa_decode_wave64(
+            available.0,
+            available.1,
+            available.2,
+            subgroup,
+        ),
         q4_metadata: supports_q4(subgroup, vulkan11.subgroup_supported_operations),
     })
 }
@@ -213,6 +258,42 @@ mod tests {
             32
         ));
         assert!(!supports_gqa_decode(256, 256, GQA_DECODE_SHARED_BYTES, 64));
+        assert!(supports_gqa_decode_wave64(
+            256,
+            256,
+            GQA_DECODE_SHARED_BYTES,
+            64
+        ));
+        assert!(!supports_gqa_decode_wave64(
+            256,
+            256,
+            GQA_DECODE_SHARED_BYTES,
+            32
+        ));
+        assert!(supports_gqa_decode_required_wave32(
+            256,
+            256,
+            GQA_DECODE_SHARED_BYTES,
+            64,
+            true,
+            true,
+        ));
+        assert!(!supports_gqa_decode_required_wave32(
+            256,
+            256,
+            GQA_DECODE_SHARED_BYTES,
+            64,
+            false,
+            true,
+        ));
+        assert!(!supports_gqa_decode_required_wave32(
+            256,
+            256,
+            GQA_DECODE_SHARED_BYTES,
+            64,
+            true,
+            false,
+        ));
     }
 
     #[test]

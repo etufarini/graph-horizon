@@ -570,6 +570,8 @@ representation changes, and the rest is device-specific micro-tuning.
 ### Baseline and scope
 
 - Branch: `perf/amd-hardware-specialization`.
+- Hardware-independent completion audit start: `67c74ee`; the worktree was
+  clean before the audit.
 - Pre-refactor HEAD: `5fbadc1`; code-cleanup checkpoint: `1be0d41`.
 - Local `main` and merge-base: `2d7d7f7`.
 - The requested `perf/systematic-llamacpp-gap` branch was not the checked-out
@@ -675,6 +677,18 @@ Every measured delta is within 0.2%, well inside the 1% neutrality target.
 - Formatting, diff whitespace, warning-denied Vulkan and Vulkan-hybrid Clippy,
   shader/build checks, and documentation/source contract tests pass. Metal
   remains external verification on this Linux host.
+- The completion audit reran the workspace CPU suite, pure Vulkan,
+  Vulkan-hybrid, and the supported `vulkan-profile` build. The results remained
+  166 root CPU tests; 159 engine CPU tests with two ignored; 156 pure Vulkan
+  tests with five ignored; 229 Vulkan-hybrid tests with four ignored; and 160
+  Vulkan-profile tests with five ignored. Their integration and semantic suites
+  retained the counts above, and warning-denied Clippy passed for CPU, Vulkan,
+  Vulkan-hybrid, and Vulkan-profile.
+- The audit's representative local Vulkan baseline used the authenticated 3B
+  Instruct artifact, F16 KV, context 4096, 251 prompt tokens, one warm-up, and
+  three repetitions. It measured 442.73 ms mean TTFT (CV 0.0009), 566.94
+  prompt tok/s, and 81.03 decode tok/s. The audit changed no production code, so
+  this binary is also the final candidate for that row.
 
 ### Remaining differences from `main`
 
@@ -699,12 +713,50 @@ Every measured delta is within 0.2%, well inside the 1% neutrality target.
 | Merge all GQA predicates | Resource eligibility is shared, but subgroup/vendor controls select materially different pipelines |
 | Remove profiling classifications | The supported profiler must classify every reachable kernel without changing disabled-path execution |
 
+### External qualification status
+
+| Qualification | Status | Reason |
+|---|---|---|
+| Hardware-independent CPU/build/test gates | PASS | Formatting, source contracts, CPU tests, and warning-denied Clippy pass locally |
+| Vulkan shader/static and local AMD numeric gates | PASS | Shader compilation, pure/hybrid/profile builds, focused Q4/GQA oracles, and local device tests pass |
+| AMD cleanup performance preservation | PASS | Matched `5fbadc1`/cleaned measurements above remain within 0.2%; this audit made no production edit |
+| 8B/14B pinned 16-token external teacher | PASS | Fresh no-retry Vulkan/F16 rows passed exact prompt IDs, all local top-two checks, and zero crossings |
+| 3B pinned 16-token external teacher | FAIL | The fresh no-retry wrapper row failed; the exact captured baseline input then produced identical passing IDs on `5fbadc1` and the cleaned candidate, so no stable cleanup difference was established |
+| Six-artifact historical 128-step teacher gate | HISTORICAL FIXTURE UNAVAILABLE | The original fixed teacher sequences were not retained; reconstructed 3B rows fail identically before and after cleanup and are non-authoritative |
+| NVIDIA performance qualification | EXTERNAL QUALIFICATION PENDING | Separate hardware integration concern; no NVIDIA device is required for cleanup |
+| Metal build/runtime/performance qualification | EXTERNAL QUALIFICATION PENDING | Requires a supported macOS/Metal environment |
+
+### Historical unavailable fixture
+
+The unavailable gate is the six-artifact, 128-step teacher-forced top-two
+matrix reported in `ABLATION_REPORT.md`. Repository history retains the
+generating protocol in `033996f`, and `support/models.tsv` retains artifact
+identities, but the six exact teacher sequences and their fixture hashes were
+not committed. The audit searched tracked fixtures, current tests and docs,
+history across local and remote refs, tags, available artifacts, and local
+worktrees. Only later generated or external 16-token evidence remains.
+
+Reconstructing the missing teachers would silently replace the original oracle:
+the generic-path generation itself depends on the historical numeric session.
+The authenticated reconstructed 3B teacher missed at the same step on
+`5fbadc1` and the cleaned source, and the external-teacher 128-token extension
+also missed at the same step on both. This is **SAME-SOURCE PRESERVATION: PASS**
+and **HISTORICAL FIXTURE UNAVAILABLE**, not a cleanup regression.
+
+A future deterministic fixture should persist the model hash, exact input and
+teacher tokens, expected top-two data, step count, protocol version, tolerances,
+reference configuration, and a fixture hash. No such fixture was invented in
+this cleanup.
+
 ### Assessment
 
 Every remaining production-code difference from `main` maps to a retained AMD
 optimization, capability/shape/format eligibility, an executable fallback,
 resource ownership, or its correctness/attribution coverage. The source and
-performance refactor is complete and simpler. Full mission qualification is
-not claimed because the requested six-artifact 128-step evidence is not the
-current branch's reproducible gate and the no-retry 3B external row failed in
-this session; neither issue was introduced by the refactor.
+performance refactor is complete and simpler. The hardware-independent cleanup
+mission is complete: every changed production file was audited, all locally
+reproducible preservation gates pass, the same-source comparisons show no
+cleanup regression, and unavailable cross-hardware or historical qualification
+is separated above. The no-retry 3B external row remains recorded as `FAIL` and
+the missing 128-step fixture as `HISTORICAL FIXTURE UNAVAILABLE`; neither result
+is masked or used to alter the retained production implementation.

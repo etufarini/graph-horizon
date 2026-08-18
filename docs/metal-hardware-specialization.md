@@ -218,14 +218,52 @@ prototype removes only the context restriction from the already-qualified
 32-row, F16, head-dimension-128, exact-4:1-GQA tiled route. Partial rows, INT8,
 mixed placement, other dimensions, and other GQA ratios retain their fallbacks.
 
+### M02 retained result
+
+The candidate changed only that routing restriction. Its 512-token post-change
+profile measured 123.57 ms of attention, down 96.7% from 3,709.19 ms. Total
+prefill GPU time fell from 6,258.92 ms to 2,616.82 ms. Quantized Q/K/V/O and
+MLP work remained stable at 2,294.89 ms and now accounts for 92.4% of sampled
+kernel time. The profiler accounts for 95.0% after rounding; the unsampled
+131.98 ms command residual is retained explicitly.
+
+Diagnostics-free measurements retained the win at every calibrated short
+prompt:
+
+| Prompt | Baseline TTFT | M02 TTFT | Reduction | M02 / llama |
+|---:|---:|---:|---:|---:|
+| 128 | 914.88 ms | 677.26 ms | 26.0% | 2.09x |
+| 512 | 6,188.66 ms | 2,554.70 ms | 58.7% | 1.93x |
+| 2,048 | 15,037.83 ms | 11,449.03 ms | 23.9% | 1.99x |
+
+The stricter 512-token baseline/candidate/baseline bracket measured 6,129.29,
+2,546.25, and 6,120.03 ms respectively, with TTFT CV at or below 0.16%. That is
+a 2.40x whole-request speedup and recovers 74.7% of the original competitive
+gap, exceeding the 2.0x Amdahl estimate. Decode throughput did not regress in
+the bracket. An earlier bracket was rejected because its detached target had
+accidentally been compiled from the candidate source tree; identical timings
+exposed the error, and none of those mislabeled results are retained.
+
 ## Experiment registry
 
 | ID | Target | Hypothesis / architecture | Predicted | Measured | Decision |
 |---|---|---|---:|---:|---|
 | M00 | baseline | pinned same-device competitive map | n/a | rows above | KEEP evidence |
 | M01 | attribution | stage-sampled contiguous operation passes | >=95% at prioritized prefill | 97.7% at 512; 97.6% at 2K | KEEP diagnostic feature |
+| M02 | early tiled GQA prefill | use the existing exact F16 tile from base zero | about 2.0x request; 63.6% gap recovery | 2.40x request; 74.7% gap recovery | KEEP production route |
 
 ## Qualification status
 
-No production change has been made. Existing Metal correctness and long-context
-qualification remain the starting contract. Global stop conditions are not met.
+M02 passes the complete ordinary Metal suite (136 passed, 2 ignored), the
+complete Metal-hybrid suite (202 passed, 2 ignored), diagnostics-free and
+profile-feature clippy with warnings denied, and formatting. Its focused
+numeric oracle compares tiled and serial attention at both base zero and base
+512. Authenticated 3B teacher-forced lifecycle parity matches the pinned
+llama.cpp oracle for both F16 and INT8 KV, including all 16 completion token
+IDs. INT8, mixed placement, partial rows, and non-exact GQA remain on their
+previous routes.
+
+The global stop conditions are not met. At short prefill the remaining 128-token
+ratio is 2.09x, and the long-context/model-size matrix remains incomplete. The
+post-M02 top measured family is quantized projection and MLP matrix work; the
+ranking will be rebuilt across longer contexts before selecting M03.

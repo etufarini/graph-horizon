@@ -1,6 +1,6 @@
 /*
  * graph_horizon_engine — qualified Metal device ownership
- * Acquires the system default Apple M4, validates unified Metal capability,
+ * Acquires the system default device, validates required Metal capabilities,
  * snapshots budget inputs, and owns one command queue. It allocates no model data.
  */
 
@@ -16,6 +16,9 @@ use std::sync::Arc;
 
 #[cfg(feature = "metal-profile")]
 use super::exec::profile::Profile;
+
+const REQUIRED_THREADS: usize = 128;
+const REQUIRED_THREADGROUP_MEMORY: usize = 16 * 1024;
 
 pub(crate) struct Device {
     pub(crate) raw: Retained<ProtocolObject<dyn MTLDevice>>,
@@ -37,12 +40,8 @@ impl Device {
     pub(crate) fn acquire() -> Result<Self> {
         let raw =
             MTLCreateSystemDefaultDevice().ok_or_else(|| eyre!("Metal backend is unavailable"))?;
-        let name = raw.name().to_string();
-        if name != "Apple M4"
-            || !raw.hasUnifiedMemory()
-            || !raw.supportsFamily(MTLGPUFamily::Apple9)
-        {
-            bail!("Metal device is unsupported: Apple M4 with unified memory is required");
+        if !Self::qualified(&raw) {
+            bail!("Metal device does not satisfy the required capabilities");
         }
         let recommended_max = raw.recommendedMaxWorkingSetSize();
         let current_allocated = u64::try_from(raw.currentAllocatedSize())
@@ -69,11 +68,7 @@ impl Device {
         let Some(raw) = MTLCreateSystemDefaultDevice() else {
             return Ok(None);
         };
-        let name = raw.name().to_string();
-        if name != "Apple M4"
-            || !raw.hasUnifiedMemory()
-            || !raw.supportsFamily(MTLGPUFamily::Apple9)
-        {
+        if !Self::qualified(&raw) {
             return Ok(None);
         }
         let recommended_max = raw.recommendedMaxWorkingSetSize();
@@ -94,12 +89,29 @@ impl Device {
         }))
     }
 
+    fn qualified(raw: &ProtocolObject<dyn MTLDevice>) -> bool {
+        let maximum = raw.maxThreadsPerThreadgroup();
+        raw.hasUnifiedMemory()
+            && raw.supportsFamily(MTLGPUFamily::Apple9)
+            && maximum.width >= REQUIRED_THREADS
+            && raw.maxThreadgroupMemoryLength() >= REQUIRED_THREADGROUP_MEMORY
+    }
+
     #[cfg(test)]
-    pub(crate) fn validate(name: &str, unified: bool, family: bool) -> Result<()> {
-        if name == "Apple M4" && unified && family {
+    pub(crate) fn validate(
+        unified: bool,
+        family: bool,
+        threads: usize,
+        threadgroup_memory: usize,
+    ) -> Result<()> {
+        if unified
+            && family
+            && threads >= REQUIRED_THREADS
+            && threadgroup_memory >= REQUIRED_THREADGROUP_MEMORY
+        {
             Ok(())
         } else {
-            bail!("Metal device is unsupported: Apple M4 with unified memory is required")
+            bail!("Metal device does not satisfy the required capabilities")
         }
     }
 }
@@ -117,17 +129,18 @@ mod tests {
 
     #[test]
     fn device_contract_rejects_every_missing_capability() {
-        assert!(Device::validate("Apple M4", true, true).is_ok());
+        assert!(Device::validate(true, true, 128, 16 * 1024).is_ok());
         for row in [
-            ("Apple M3", true, true),
-            ("Apple M4", false, true),
-            ("Apple M4", true, false),
+            (false, true, 128, 16 * 1024),
+            (true, false, 128, 16 * 1024),
+            (true, true, 127, 16 * 1024),
+            (true, true, 128, 16 * 1024 - 1),
         ] {
             assert_eq!(
-                Device::validate(row.0, row.1, row.2)
+                Device::validate(row.0, row.1, row.2, row.3)
                     .unwrap_err()
                     .to_string(),
-                "Metal device is unsupported: Apple M4 with unified memory is required"
+                "Metal device does not satisfy the required capabilities"
             );
         }
     }

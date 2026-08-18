@@ -80,9 +80,10 @@ measured variants or profiler evidence.
 
 - Correct generic execution remains available through CPU and portable backend
   semantics. Metal fast paths are optional operation routes.
-- Device acquisition currently requires the product string `Apple M4`, unified
-  memory, and Apple9. The string gate conflicts with this mission and must be
-  replaced by a capability/resource gate before final qualification.
+- Device acquisition requires unified memory, Apple9-family support, at least
+  128 threads per threadgroup, and at least 16 KiB threadgroup memory. Product
+  names are reporting-only. Pipeline compilation and operation-local SIMD-width
+  checks retain the canonical failure/fallback boundary.
 - Every Metal allocation currently uses `StorageModeShared`. Model weights are
   copied once from the read-only GGUF mapping into shared Metal buffers.
 - CPU readback occurs only after synchronous command completion. There is no

@@ -9,11 +9,11 @@ routing audit, experiment decisions, qualification, and quantitative stop state.
 ## Status
 
 The capability inventory, baseline, attribution, optimization screen, and final
-qualification are complete. The retained state combines an AMD integer-dot Q4_K
-batched matmul with a 128-row AMD prefill submission bound. Exact Q6_K and
-attention candidates either regressed, failed quality, or remained below the 5%
-retention threshold. The final state passes the Vulkan suites and completes the
-3B 28K workload that resets the device at the portable 256-row submission size.
+qualification are complete. The retained state combines the AMD integer-dot
+Q4_K batched matmul, required-wave32 Q6_K decode/logits, required-wave32 4:1-GQA
+decode attention, an exact-order wave64 GQA fallback, and an adaptive 128/64-row
+AMD prefill submission bound. The final path recovers 68% of the 3B/28K decode
+competitive gap and completes both 3B/28K and 8B/28K without a device reset.
 
 Raw local evidence is retained under `target/amd-baseline/` and is intentionally
 ignored by Git. Values below are promoted only after checking the tuple and raw
@@ -142,28 +142,33 @@ The sustained 3B/8K Graph Horizon row measured 99% GPU use, 2,630 MHz shader
 clock, 135--140 W package power, 54--56 C edge, 86--90 C junction, and 52 C
 memory. Idle was about 500 MHz, 8--10 W, and 49--51 C.
 
-RADV exposes pipeline executable and performance-query capabilities, but the
-current runtime does not enable/query executable statistics. VGPR, SGPR, LDS
-allocation per compiled pipeline, spills, scratch, achieved occupancy, and
-resident waves are therefore currently **unavailable**, not estimated. A
-minimal feature-gated query is permitted only after the competitive ranking
-shows which pipelines need that evidence.
+RADV compiler statistics were captured with `RADV_DEBUG=shader_stats`. The
+retained wave32 GQA split uses 64 VGPRs, 108 SGPRs, 5,120 bytes LDS, no scratch,
+no spills, and reports 16 subgroups/SIMD; its reduction uses 48 VGPRs, no LDS,
+no scratch, and no spills. The exact wave64 split fallback uses 40 VGPRs, no
+LDS/scratch/spills, reports 24 subgroups/SIMD, and compiles to 273 instructions;
+its reduction uses 16 VGPRs and 65 instructions. Hardware counters for achieved
+occupancy, cache hit rate, and DRAM bytes remain **unavailable**; compiler
+residency is a limit, not an achieved-occupancy measurement.
 
 ## Initial AMD architecture model
 
-- Effective wave model: hardware and llama.cpp use wave32; Graph Horizon's
-  current Vulkan pipelines observe the RADV default subgroup 64 unless a future
-  pipeline explicitly requests 32.
+- Effective wave model: RADV defaults to wave64 but exposes required subgroup
+  sizes 32--64 for compute. The retained AMD decode pipelines explicitly request
+  wave32; unrelated pipelines keep their established subgroup behavior.
 - Matrix strategy: no usable AMD cooperative-matrix Vulkan path exists on this
   stack. The viable classes are packed integer dot, subgroup/vector, and
   vectorized scalar/FMA.
-- Resource model: 64 KiB LDS and 1,024 work-items/CU bound occupancy. Exact
-  VGPR cliffs remain unavailable pending pipeline-executable instrumentation.
+- Resource model: 64 KiB LDS, 1,024 work-items/CU, and VGPR allocation all bound
+  occupancy. The measured wave32 GQA split lands at 64 VGPR and 5 KiB LDS with
+  no spill; its 256-thread/eight-wave workgroup is work-item limited to one
+  workgroup/CU but exposes the device's 32-wave ceiling across workgroups.
 - Sustained 99% GPU utilization with only 3--4% reported memory activity on the
   slow portable prefill path is compatible with instruction/dequantization or
   dependency limits, not proof of a DRAM-bandwidth floor.
-- The 8K row is stable at full clocks. The 16K failure is a gfx ring timeout,
-  not ordinary thermal throttling or VRAM exhaustion.
+- Long rows are stable at 2,630 MHz. Earlier failures are gfx ring timeouts, not
+  VRAM exhaustion; bounding long 32+-layer graphs to 64 rows removes the reset.
+  The 8B/28K qualification used 80% VRAM and sustained 99% GPU use.
 
 This model is provisional until focused kernel timestamps and executable
 statistics cover the dominant pipelines.
@@ -249,9 +254,10 @@ Decode attribution at 128 splits 92.41% into timestamped kernels and 7.59% into
 the measured command-span residual between those timestamps (dispatch and
 global-barrier gaps), covering the complete GPU span. The largest kernel shares
 are Q6 down (24.02%), Q6 logits (24.31%), Q4 gate+up (20.39%), and the remaining
-projections. Attention is only 2.53% at KV 128. AMD-009 tested the most direct
-wave32 route for this family and regressed or remained below threshold across
-3B, 8B, and 14B.
+projections. Attention is only 2.53% at KV 128, but grows to 79.07% at KV 28K.
+AMD-009's Q6 wave32 result was initially rejected in isolation; after GQA
+attention became dominant-path qualified, the same small capability plumbing
+made it an economical combined path and it was requalified as AMD-029.
 
 ## Long-context failure
 
@@ -317,12 +323,47 @@ scratch. Product names and model IDs are not consulted. NVIDIA continues to
 build/use its existing decode MMVQ and qualified Matrix2/cooperative prefill
 paths; the AMD batch pipelines are not registered there.
 
+### Quantized dataflow and representation audit
+
+Canonical Q4_K stores 256 weights in 144 bytes: 128 quant bytes, 12 packed
+scale/min bytes, and two FP16 block factors. The retained MMQ reads that format
+directly, extracts two packed 4-bit vectors per lane/part, and feeds RADV's
+accelerated `dotPacked4x8AccSatEXT`. Eight lanes own one output row; WG256 emits
+32 rows by eight prompt rows with 8 KiB LDS and one barrier/reduction. Q8_1
+activations occupy two 32-bit packed words plus two FP32 factors per eight
+values, or 2 bytes/value. Their conversion is only 0.16--0.18% of profiled
+prefill GPU time, so activation conversion is not the limiting dataflow.
+
+For the 3B shape, one layer's Q4 Q/K/O/gate/up matrices contain about 47.78 MB
+of canonical weights; all 26 layers contain about 1.24 GB. Expanding quant
+nibbles to persistent bytes would require at least 272 bytes/block including
+unchanged metadata, 88.9% more than canonical and about 1.10 GB additional VRAM
+for those matrices alone. It would also replace the retained packed-dot input
+with twice the quant traffic, so there is no request-count break-even: load-time
+conversion is amortizable, but the extra bytes recur on every weight pass while
+the current instruction already consumes packed nibbles directly.
+
+Canonical Q6_K uses 210 bytes/256 weights (128 low-bit bytes, 64 high-bit bytes,
+16 signed scales, and one FP16 factor). An int8 expansion is at least 272 bytes,
+29.5% more traffic. The Q8-activation packed-dot prototype improved the Q6
+family 1.33x but violated four established numeric gates; a persistent repack
+does not remove that accumulation/activation-quantization error. The exact
+packed-staging alternative preserved quality but improved whole-request time
+only 2.15%. Consequently canonical Q4 direct execution is retained, canonical
+Q6 remains the portable source, and no AMD execution-native persistent weight
+copy is economically or numerically qualified.
+
+Hardware performance counters for actual bytes/s are unavailable. Effective
+bandwidth is therefore not invented: byte counts above are derived from shader
+loads and block layouts, while elapsed component times and compiler instruction
+classes are measured separately.
+
 ### Final scaling and model-size qualification
 
-The final rows use the retained 8-row MMQ tile and, except for a single 128-row
-prompt which is already one submission, the retained 128-row AMD submission
-bound. The 16K, 28K, and 8K rows are one measured repetition; the shorter rows
-use one warm-up plus three measured repetitions.
+The final rows use the retained 8-row MMQ tile and the 128-row AMD submission
+bound. Graphs with at least 32 layers and configured context at least 16K use
+64 rows. The 16K, 28K, and 8K rows are one measured repetition; the shorter
+rows use one warm-up plus three measured repetitions.
 
 | Model/workload | Baseline | Final | Speedup | llama.cpp | Remaining ratio |
 |---|---:|---:|---:|---:|---:|
@@ -335,18 +376,90 @@ use one warm-up plus three measured repetitions.
 | 8B prefill 128 | 1,464.95 ms | 571.13 ms | 2.56x | 295.96 ms | 1.93x |
 | 8B prefill 512 | reset | 2,305.96 ms | available | 508.46 ms | 4.54x |
 | 8B prefill 2K | reset | 9,821.13 ms | available | 2,169.23 ms | 4.53x |
+| 8B prefill 8K | reset | 49,628 ms | available | 11,521.81 ms | 4.31x |
+| 8B prefill 16K | reset | 147,040 ms | available | 45,619.86 ms | 3.22x |
+| 8B prefill 28K | reset | 352,347 ms | available | 87,818.25 ms | 4.01x |
 | 14B prefill 128 | reset | 937.37 ms | available | 435.02 ms | 2.15x |
+| 14B prefill 512 | reset | 3,782 ms | available | 1,145.64 ms | 3.30x |
+| 14B prefill 2K | reset | 15,800 ms | available | 3,420.10 ms | 4.62x |
+| 14B prefill 8K | reset | 75,383 ms | available | 23,830.89 ms | 3.16x |
 
 The shorter repeated final rows have TTFT CV at most 0.26%. The 14B row uses a
 2K configured context because its weights plus a 32K F16 KV allocation exceed
 this 12 GB device; this does not change its 128-token compute workload. Decode
-remains outside the batched Q4 route and materially unchanged.
+remains outside the batched Q4 route; its new paths are reported below.
 
 The 256-row final-kernel state completed 16K in 72,927.67 ms but reset at 28K
-after a gfx-ring timeout. The retained 128-row policy completes 28K and costs
+after a gfx-ring timeout. The retained 128-row policy completes 3B/28K and costs
 1.3% at 3B/512, 2.8% at 3B/2K, and 3.4% at 3B/16K; the measured 8B rows varied
-slightly faster. It is selected by AMD vendor identity, not a product string,
-and leaves every other Vulkan vendor at 256 rows.
+slightly faster. A 64-row bound completes 8B/28K where 128 rows resets. Both
+are selected by AMD vendor identity plus graph shape, not a product/model
+string, and every other Vulkan vendor remains at 256 rows.
+
+Final F16-KV decode uses five complete 32-token repetitions. `Fallback` is the
+best pre-AMD-GQA or exact-wave64 row available when the generic workload was
+previously blocked by reset. Ratios compare latency, so below 1.0 means Graph
+Horizon is faster.
+
+| Model / KV depth | Baseline or fallback tok/s | Final tok/s | Final ms/token | llama.cpp tok/s | llama ms/token | Final latency ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| 3B / 128 | 77.445 | 78.164 | 12.794 | 126.066 | 7.932 | 1.61x |
+| 3B / 2K | 61.801 | 74.907 | 13.350 | 40.215 | 24.866 | 0.54x |
+| 3B / 28K | 16.144 | 49.398 | 20.244 | 59.826 | 16.715 | 1.21x |
+| 8B / 128 | 36.610 | 39.322 | 25.431 | 64.075 | 15.607 | 1.63x |
+| 8B / 2K | 35.966 fallback | 38.259 | 26.138 | 61.972 | 16.136 | 1.62x |
+| 8B / 28K | 18.868 fallback | 28.374 | 35.244 | 37.766 | 26.479 | 1.33x |
+| 14B / 128 | 23.105 fallback | 23.564 | 42.437 | 42.209 | 23.692 | 1.79x |
+| 14B / 512 | unavailable | 23.436 | 42.669 | 34.140 | 29.292 | 1.46x |
+| 14B / 2K | unavailable | 23.145 | 43.206 | 41.918 | 23.856 | 1.81x |
+| 14B / 8K | unavailable | 21.840 | 45.788 | 36.715 | 27.237 | 1.68x |
+
+All final decode CVs are below 0.45%. The 3B/28K final row recovers 68.0% of
+the original competitive throughput gap; 8B/28K is 50.4% faster than the exact
+wave64 fallback. The short 8B and 14B ratios remain outside the historical
+envelope because attention is a small share there and exact Q6/logits plus Q4
+GEMV dominate.
+
+The 14B artifact completes through 8K. A 16,448-token allocation fails during
+model initialization because weights, F16 KV, and working storage exceed the
+available heap; 16K and 28K are therefore capacity-unavailable rows, not reset
+or performance results. No smaller context is substituted for them.
+
+### Retained decode architecture
+
+The production hierarchy remains portable: a device with a native subgroup 32
+uses the established split GQA kernel; a compatible AMD device whose default is
+64 but which exposes required subgroup-size control builds that kernel as
+wave32; a default-wave64 device without that control uses the exact-order
+wave64 split; every other shape keeps generic sequential decode attention.
+Eligibility is F16 KV, head dimension 128, exact 4:1 GQA, scratch capacity,
+workgroup/resource limits, and the reported subgroup contract. No product or
+model string participates.
+
+Why the retained GQA path is faster on AMD is quantitative:
+
+- Generic decode assigns one workgroup to each of 32 query heads. At 4:1 GQA it
+  rereads the same K and V four times: 16,384 bytes per history position/layer.
+  The grouped path assigns one workgroup to each of eight KV heads and reuses
+  each load for four queries: 4,096 bytes, a 75% reduction.
+- At 28K and 26 layers, generic K/V traffic is about 11.93 GB per generated
+  token; grouped traffic is about 2.98 GB. Its 8-part FP32 partial/state traffic
+  is only about 133 KiB/layer, or 3.46 MB/token.
+- The retained split is WG256, eight wave32 subgroups, eight history splits,
+  5,120 bytes LDS, 64 VGPRs, no scratch, and no spills. RADV reports 16
+  subgroups/SIMD. The reduce is WG32, 48 VGPRs, no LDS, and no spills.
+- On 3B/28K, attention falls from 79.07% of the generic profile to 37.28% of the
+  combined final profile. Public decode rises from 16.144 to 49.398 tok/s
+  (3.06x); the isolated GQA change accounts for 47.464 tok/s (2.94x).
+- Required wave32 Q6_K/logits adds 6.5% at 3B/128 and 6.3% at 3B/2K. It reuses
+  the same capability contract and shader sources, so its maintenance cost is
+  limited to pipeline creation/routing rather than another numeric kernel.
+
+The exact wave64 fallback provides the same 4:1 K/V reuse without required
+subgroup control. It removes LDS entirely, lowers split VGPRs from the generic
+64 to 40, has no spills, and compiles to 273 split plus 65 reduce instructions.
+It measured 29.762 tok/s at 3B/28K, 84.4% above the generic baseline, but the
+available AMD device selects the faster qualified wave32 mapping.
 
 ## Experiment registry
 
@@ -367,6 +480,21 @@ and leaves every other Vulkan vendor at 256 rows.
 | AMD-012 | two-head grouped GQA prefill | recover occupancy while retaining two-way K/V reuse | attention at least 1.10x; total at least 1.05x at 8K | attention 10,136.55 → 10,804.51 ms; total GPU 25,228.58 → 26,170.25 ms | boundary attention parity exact | REJECTED: regression |
 | AMD-013 | 16-query tiled prefill | halve K/V loads without multi-head accumulator state | attention at least 1.15x; total at least 1.05x at 8K | attention 10,136.55 → 9,076.60 ms; total GPU 25,228.58 → 24,053.72 ms (4.66%) | boundary attention parity exact | REJECTED: below threshold |
 | AMD-014 | bounded AMD submissions | 128 rows keep late long-context full-graph commands below the watchdog | complete 28K with less than 5% short-workload cost | 28K reset → 191,055.22 ms; 512/2K/16K cost 1.3%/2.8%/3.4% | full Vulkan and Vulkan-hybrid suites | RETAINED |
+| AMD-015 | required-wave32 4:1 GQA decode | reuse each K/V load across four queries with the established eight-split kernel | up to 3x at 28K from 4x lower K/V traffic | 3B 16.144 → 49.398 tok/s; 128/2K 78.279/75.260 tok/s | approved external teacher was not yet run; self-generated sequence proved nondeterministic | SUPERSEDED pending valid oracle |
+| AMD-016 | wave32 two-split corrective variant | fewer partials/reduce traffic may improve short decode | small short gain, possible lost long parallelism | no stable advantage over eight splits | invalid self-generated oracle did not decide quality | REJECTED: no advantage |
+| AMD-017 | exact-order wave64 grouped GQA | preserve generic wave64 dot/order while removing 4x K/V reads | at least 1.5x at 28K | viable architecture; refined through AMD-020 | bounded attention checks pass | PROVISIONAL |
+| AMD-018 | wave64 part/order refinement | match generic wave64 dot and online-partition order exactly | retain most of the traffic win with lower quality risk | no independent public row; converged into AMD-020 | exact arithmetic boundary checks | SUPERSEDED |
+| AMD-019 | GQA driver/resource audit | identify occupancy, LDS, spill, and instruction cliffs | explain the mapping delta | wave32 64 VGPR/5 KiB LDS/0 spill; wave64 40 VGPR/0 LDS/0 spill | compiler evidence only | COMPLETE |
+| AMD-020 | exact wave64 final + approved teacher | qualify exact grouped GQA with pinned external vectors | at least 1.5x at 28K | 3B 16.144 → 29.762 tok/s (84.4%); all 16 tokens local top-two on 3B/8B/14B | pass at `13f2b28b098623391b1aacfd27995e1c8b7de9a9` | RETAINED fallback |
+| AMD-021 | wave64 WG128/eight-WG variant | expose more resident workgroups with half the workgroup size | at least 3% over WG256 if occupancy-limited | 29.762 → 29.801 tok/s (0.13%) | same exact arithmetic | REJECTED: no effect |
+| AMD-022 | 64-row deep-graph bound | keep 32+-layer, 16K+ command durations below the RADV watchdog | make 8B/28K available | 128 rows reset; 64 rows completes in 352.1--352.7 s at 80% VRAM | policy boundary tests; repeated completion | RETAINED |
+| AMD-023 | approved wave32 GQA requalification | the prior quality rejection used an invalid oracle, so test the fastest mapping directly | recover AMD-015 if approved gate passes | identical 16-token local IDs, top-two pass, zero crossings on 3B/8B/14B | pass | RETAINED |
+| AMD-024 | fixed wave32 split/reduce bounds | restore compile-time eight-part loops after a shared dynamic ABI | recover the compiler regression | 3B/2K 70.145 → 70.454 tok/s; push ABI still differed | correctness preserved | INCONCLUSIVE |
+| AMD-025 | exact wave32 shader ABI | remove the unused eighth push word | recover prior generated code | no material change: about 70.18 tok/s at 2K | correctness preserved | REJECTED: no effect |
+| AMD-026 | exact wave32 pipeline push range | restore the prior 28-byte pipeline range | recover prior generated code | 70.30 tok/s at 2K | correctness preserved | REJECTED: no effect |
+| AMD-027 | eight-part scratch-size ablation | test whether doubled fallback scratch perturbs allocation/cache placement | recover the remaining cross-session delta | 70.30 tok/s at 2K, unchanged | correctness preserved | REJECTED: no effect |
+| AMD-028 | isolated wave32 GQA bookend | measure the qualified GQA route without Q6 wave32 | about 3x at long KV | 3B/28K 16.144 → 47.464 tok/s (2.94x), CV 0.16% | AMD-023 teacher applies | RETAINED |
+| AMD-029 | combined wave32 Q6 + GQA | reuse subgroup control for the earlier low-cost Q6/logits signal | +5--7% short/medium, about +4% long | 3B 73.361 → 78.164 at 128; 70.454 → 74.907 at 2K; historical combined 49.398 at 28K | final external teacher and suites pass | RETAINED |
 
 The grouped-GQA experiments reduce dispatch X from 32 query heads to eight or
 16 workgroups per query tile, respectively. The four-head variant requires
@@ -378,25 +506,43 @@ and routing were removed; raw profiles remain as `amd-011-*` and `amd-012-*`.
 
 ## Final bottleneck ranking
 
-The final measured ranking is:
+The final combined 3B/28K decode profile accounts for 95.01% of the complete GPU
+span. Attention is 37.28%, Q6 down 15.42%, Q6 logits 15.62%, Q4 gate/up 13.07%,
+other projections 10.58%, and measured dispatch/barrier residual 4.99%.
+Attention's fused split contains equal 2,048-byte K and V reads per history
+position across all KV heads; QK, online softmax, and AV share one shader and
+cannot be separated by timestamps without changing it. Source/traffic counts
+therefore classify those subcomponents as derived, not independently measured.
 
-| Rank | Opportunity | Measured removable share / value | Maintenance | AMD-family reuse | State |
-|---:|---|---|---|---|---|
-| 1 | long-context tiled attention | 40.18% of 3B/8K GPU time; wave32/grouped routes failed and Q16 gained only 4.66% total | medium-high | high for 4:1 GQA | portable kernel retained |
-| 2 | Q4_K batch MMQ | 31.87% of 3B/8K GPU time after the retained 8-row tile | medium | high | retain; 16-row tile regressed |
-| 3 | exact Q6_K batch arithmetic | 26.71% of 3B/8K GPU time; lossy Q8 route is disqualified | medium-high | high | retain portable path; exact staging was below threshold |
-| 4 | Q6_K down/logits decode path | 48.33% of classified retained decode GPU time; wave32 regressed and exact staging's prefill Amdahl value was below threshold | medium | high | portable kernel retained |
-| 5 | bounded prefill command checkpoints | 28K resets at 256 rows and completes at 128 | low | AMD-family watchdog safety | retained |
+### Global-stop proof
 
-The 16-query experiment kept one query head per invocation and halved K/V loads,
-but its 10.46% attention gain produced only 4.66% total GPU and about 4.1%
-public-TTFT improvement. The extra 1,024-thread AMD pipeline is not retained for
-a result below the declared 5% threshold. Attention specialization stops here;
-the remaining prefill gap is dominated by portable attention and exact Q6_K,
-whose screened candidates did not meet the quality/performance gates.
-The explicit stop condition is therefore met: every measured high-share family
-has a retained improvement or a documented quality, regression, or maintenance-
-threshold rejection, and the largest unsupported workload now completes.
+`Floor` is the fastest qualified mapping actually measured, not a peak-hardware
+claim. Remaining removable time includes only in-scope candidates that survived
+quality and maintenance constraints.
+
+| Workload | Graph Horizon | llama.cpp | Remaining gap | Dominant final component | AMD practical floor / removable time | Candidate families and terminal reason |
+|---|---:|---:|---:|---|---|---|
+| 3B prefill 128 | 223.07 ms | 158.46 ms | 64.61 ms | Q4 MMQ + exact Q6 | 218.37 ms tested, 2.15% removable | Q4 16-row regressed 12.9%; exact Q6 staging below 5%; lossy Q6 failed quality |
+| 3B prefill 8K | 24.748 s | 6.068 s | 18.680 s | attention 40.18%, Q4 31.87%, Q6 26.71% | 24.054 s profiled, 4.66% removable | grouped 4/2-head attention regressed; Q16 attention below 5%; Q4/Q6 tile space exhausted |
+| 3B prefill 28K | 191.055 s | 56.226 s | 134.829 s | attention 70.11%, Q6 down 11.15% | no qualified AMD prefill candidate above 5% | same attention mappings and exact/lossy Q6 alternatives; persistent repack lacks an end-to-end bound |
+| 3B decode 128 | 78.164 tok/s | 126.066 tok/s | 4.86 ms/token | Q6 down/logits; attention small | retained Q6 wave32; no exact numeric route above gate | packed/lossy Q6 changes numerical contract; further GQA tuning cannot recover short gap |
+| 3B decode 2K | 74.907 tok/s | 40.215 tok/s | Graph Horizon 11.52 ms/token faster | Q6/logits | performance contract exceeded | no competitive gap to recover |
+| 3B decode 28K | 49.398 tok/s | 59.826 tok/s | 3.53 ms/token | GQA 37.28%, Q6 down/logits 31.04% | wave32 eight-split is 3.06x generic; about 3.5 ms/token remains | two-split no gain; WG128 wave64 +0.13%; further precision/reorder changes exceed quality risk |
+| 8B prefill 28K | 352.347 s | 87.818 s | 264.529 s | same portable long-prefill attention/Q6 families | 64-row policy is capacity floor, not speed win | prefill candidates above all failed regression, quality, or 5% economics |
+| 8B decode 28K | 28.374 tok/s | 37.766 tok/s | 8.77 ms/token | long GQA plus larger weight pass | retained wave32 GQA is 50.4% over wave64 fallback | same split/WG alternatives exhausted; remaining weight work is shared generic arithmetic |
+| 14B decode 128 | 23.564 tok/s | 42.209 tok/s | 18.75 ms/token | Q6/logits and weight GEMV | wave32 Q6 gives only low-single-digit local value | another vendor kernel cannot clear 10% without changing numeric representation |
+
+The prefill gap remains large, but every measured architectural class with a
+credible AMD-family implementation is bounded: packed-dot Q4 is retained;
+lossy packed-dot Q6 violates the quality contract; exact Q6 and Q16 attention
+are below the 5% low-complexity threshold; larger Q4 tiles and grouped prefill
+attention regress. Decode long-context now meets the historical contract on 3B
+and 8B. Short larger-model decode is weight/Q6 dominated, where the available
+wave-size improvement is retained and further gains require a new numerical or
+persistent weight representation outside the qualified hardware-only boundary.
+This satisfies global-stop conditions 2, 4, and 5: no remaining AMD-family
+candidate clears the economic gate, the remaining large gains require numeric/
+representation changes, and the rest is device-specific micro-tuning.
 
 ## Final verification and state
 
@@ -404,9 +550,15 @@ threshold rejection, and the largest unsupported workload now completes.
   1 ignored; semantic 12 passed and 1 ignored.
 - Vulkan-hybrid: 229 passed, 0 failed, 4 ignored; family integration 6 passed
   and 1 ignored; semantic 12 passed and 1 ignored.
+- Warning-denied Clippy passes for every target in both profiles; formatting and
+  the productive-line/source-structure audit pass.
 - Focused attention parity covers base/row boundaries and is exact against
   sequential Vulkan decode; Q4 MMQ tail tests cover five rows and 70 outputs.
-- Final production files contain only AMD-005 and AMD-014. Rejected shader,
-  wave-size, grouped-GQA, and Q16 routes are absent.
+- Pinned llama.cpp `13f2b28b098623391b1aacfd27995e1c8b7de9a9`
+  teacher qualification passes 3B/8B/14B: exact prompt IDs, 16/16 local top-two,
+  zero crossings, matching local greedy IDs, lifecycle and cancellation pass.
+- Final production contains AMD-005, AMD-014/022, AMD-020, AMD-023/028, and
+  AMD-029 only. Rejected prefill GQA/Q16, dynamic-split, two-split, and WG128
+  variants are absent. The temporary decode probe was removed.
 - Nothing was pushed. Raw benchmark/profile evidence remains ignored under
   `target/amd-baseline/`.

@@ -66,7 +66,7 @@ pub(in crate::backend::vulkan) fn matmul(
     out_dim: u32,
 ) {
     // mmvq int8/dp4a decode path for the dense GEMV, opt-in and gated by
-    // GRAPH_HORIZON_DECODE_MMVQ; f16 variants over the reused scratch. Falls back to the
+    // retained DP4A route; f16 variants use the reused scratch. Falls back to the
     // per-format GEMV when off, scratch too small, or the shape is declined.
     if kernels::mmvq::dispatch_mmvq(
         &b.dev, &b.reg, *enc, out, a, &b.mmvq_qs, &b.mmvq_ds, w, in_dim, out_dim,

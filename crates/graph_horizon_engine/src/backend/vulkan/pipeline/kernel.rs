@@ -4,7 +4,6 @@
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum Kernel {
     MatmulF16,
-    MatmulF16Matrix2F16Out,
     MatmulQ4KTiled,
     MatmulQ5K,
     MatmulQ6K,
@@ -53,7 +52,6 @@ impl Kernel {
     pub(crate) const fn name(self) -> &'static str {
         match self {
             Self::MatmulF16 => "matmul_f16",
-            Self::MatmulF16Matrix2F16Out => "matmul_f16_matrix2_wg256_m64_n32_k128",
             Self::MatmulQ4KTiled => "matmul_q4k_tiled",
             Self::MatmulQ5K => "matmul_q5k",
             Self::MatmulQ6K => "matmul_q6k",
@@ -108,7 +106,6 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
     }
     match kernel {
         Kernel::MatmulF16 => (spv!("matmul_fp16"), 3, 8),
-        Kernel::MatmulF16Matrix2F16Out => (spv!("matmul_f16_matrix2_f16out"), 3, 12),
         Kernel::MatmulQ4KTiled => (spv!("matmul_tiled"), 3, 8),
         Kernel::MatmulQ5K => (spv!("matmul_q5_k"), 3, 8),
         Kernel::MatmulQ6K => (spv!("matmul_q6_k"), 3, 8),

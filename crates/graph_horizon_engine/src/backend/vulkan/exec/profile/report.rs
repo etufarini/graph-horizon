@@ -5,7 +5,7 @@
  */
 
 use super::category::{Category, Phase};
-use super::summary::{MatmulPath, PhaseTotals};
+use super::summary::PhaseTotals;
 
 pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: f64) {
     eprintln!(
@@ -19,15 +19,12 @@ pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: 
         let total_ms = totals.gpu_ms[0].max(f64::MIN_POSITIVE);
         let accounted = totals.gpu_ms[1] / total_ms * 100.0;
         eprintln!(
-            "vulkan_profile phase={} counts_command_dispatch_barrier={:?} gpu_total_kernel_ms={:?} residual_ms={:.3} accounted_pct={:.2} gaps_over_50us_count_total_max_ms=[{},{:.3},{:.3}] cpu_record_submit_wait_descriptor_ms={:?}",
+            "vulkan_profile phase={} counts_command_dispatch_barrier={:?} gpu_total_kernel_ms={:?} residual_ms={:.3} accounted_pct={:.2} cpu_record_submit_wait_descriptor_ms={:?}",
             phase.name(),
             totals.counts,
             totals.gpu_ms,
             (totals.gpu_ms[0] - totals.gpu_ms[1]).max(0.0),
             accounted,
-            totals.gap_count,
-            totals.gap_ms,
-            totals.gap_max_ms,
             totals.cpu_ms,
         );
         for category in Category::ALL {
@@ -50,23 +47,6 @@ pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: 
                 average,
                 totals.category_groups[index],
             );
-            for path in MatmulPath::ALL {
-                let path_count = totals.matmul_path_count[index][path as usize];
-                if path_count == 0 {
-                    continue;
-                }
-                let path_ms = totals.matmul_path_ms[index][path as usize];
-                eprintln!(
-                    "vulkan_profile phase={} category={} matmul_path={} gpu_ms={:.3} pct={:.2} invocations={} avg_ms={:.6}",
-                    phase.name(),
-                    category.name(),
-                    path.name(),
-                    path_ms,
-                    path_ms / total_ms * 100.0,
-                    path_count,
-                    path_ms / path_count as f64,
-                );
-            }
         }
         let mut layers = totals
             .layer_ms
@@ -77,18 +57,12 @@ pub(super) fn write(totals: &PhaseTotals, allocations: [u64; 3], allocation_ms: 
         layers.sort_by(f64::total_cmp);
         if let (Some(min), Some(max)) = (layers.first(), layers.last()) {
             eprintln!(
-                "vulkan_profile phase={} layer_count={} layer_gpu_min_median_max_ms=[{:.3},{:.3},{:.3}] layer_gpu_ms={:?}",
+                "vulkan_profile phase={} layer_count={} layer_gpu_min_median_max_ms=[{:.3},{:.3},{:.3}]",
                 phase.name(),
                 layers.len(),
                 min,
                 layers[layers.len() / 2],
                 max,
-                totals
-                    .layer_ms
-                    .iter()
-                    .zip(totals.layer_attention_count)
-                    .filter_map(|(&ms, count)| (count > 0).then_some(ms))
-                    .collect::<Vec<_>>(),
             );
         }
     }

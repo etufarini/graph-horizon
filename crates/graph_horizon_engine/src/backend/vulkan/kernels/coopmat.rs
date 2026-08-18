@@ -65,8 +65,8 @@ pub(crate) fn dispatch_coopmat(
     );
 }
 
-// Dispatches a fixed matrix2 matmul. Q4 owns 128 prompt rows; Q6 and direct
-// FP16 own 64. Every workgroup owns 32 output rows, with shader-guarded tails.
+// Dispatches a fixed Matrix2 matmul. Q4 owns 128 prompt rows and Q6 owns 64.
+// Every workgroup owns 32 output rows, with shader-guarded tails.
 pub(crate) fn dispatch_matrix2(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -81,20 +81,12 @@ pub(crate) fn dispatch_matrix2(
 ) {
     debug_assert!(matches!(
         kernel,
-        Kernel::MatmulQ4KMatrix2F16Out
-            | Kernel::MatmulQ6KMatrix2F16Out
-            | Kernel::MatmulF16Matrix2F16Out
+        Kernel::MatmulQ4KMatrix2F16Out | Kernel::MatmulQ6KMatrix2F16Out
     ));
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());
     push.extend_from_slice(&n.to_le_bytes());
-    let (weight_offset, weight_size) = if kernel == Kernel::MatmulF16Matrix2F16Out {
-        let native = w.native_offset.expect("native Matrix2 weight offset");
-        (w.offset + native, w.size - native)
-    } else {
-        (w.offset, w.size)
-    };
     if kernel == Kernel::MatmulQ4KMatrix2F16Out {
         dispatch_2d(
             dev,
@@ -102,7 +94,7 @@ pub(crate) fn dispatch_matrix2(
             cmd,
             kernel,
             &[
-                (w.buffer, weight_offset, weight_size),
+                (w.buffer, w.offset, w.size),
                 (a.buffer, a.offset, a.size),
                 (out.buffer, out.offset, out.size),
             ],
@@ -119,7 +111,7 @@ pub(crate) fn dispatch_matrix2(
         kernel,
         &[
             (a.buffer, a.offset, a.size),
-            (w.buffer, weight_offset, weight_size),
+            (w.buffer, w.offset, w.size),
             (out.buffer, out.offset, out.size),
         ],
         &push,

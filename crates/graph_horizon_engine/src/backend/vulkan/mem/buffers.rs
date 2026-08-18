@@ -34,9 +34,6 @@ pub(crate) struct GpuBuffer {
     pub size: u64,
     pub host_visible: bool,
     pub quant: WeightFormat,
-    // Optional FP16 execution representation inside this same owned allocation.
-    // The canonical quantized bytes remain at offset zero for decode/fallback.
-    pub native_offset: Option<u64>,
     // Origin in bytes inside `buffer`/`memory`. Always 0 for buffers returned by
     // `alloc`; non-zero only for sub-views produced by `view`. A view shares the
     // parent's `buffer`/`memory` handles and MUST NOT be destroyed: `destroy`
@@ -108,7 +105,6 @@ impl GpuBuffer {
             size: req.size,
             host_visible: host,
             quant: WeightFormat::F16,
-            native_offset: None,
             offset: 0,
         })
     }
@@ -129,7 +125,6 @@ impl GpuBuffer {
             size: len,
             host_visible: self.host_visible,
             quant: self.quant,
-            native_offset: None,
             offset: self.offset + offset,
         }
     }
@@ -211,7 +206,6 @@ mod tests {
             size: 100,
             host_visible: false,
             quant: WeightFormat::F16,
-            native_offset: None,
             offset: 0,
         };
         let v = base.view(16, 32);

@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — Vulkan matmul namespace
  * Exports decode/prefill dispatch and records the shared FP32 logits projection.
- * Environment policy and synthetic parity stay in focused child modules.
+ * Selection policy and numeric parity stay in focused child modules.
  */
 
 #![allow(clippy::too_many_arguments)]

@@ -112,10 +112,6 @@ impl PipelineRegistry {
                 {
                     map.insert(Kernel::MatmulQ4KMatrix2F16Out, pipeline);
                 }
-                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulF16Matrix2F16Out)
-                {
-                    map.insert(Kernel::MatmulF16Matrix2F16Out, pipeline);
-                }
                 if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ6KMatrix2F16Out)
                 {
                     map.insert(Kernel::MatmulQ6KMatrix2F16Out, pipeline);

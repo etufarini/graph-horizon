@@ -6,6 +6,4 @@
 pub(crate) mod budget;
 pub(crate) mod buffers;
 pub(crate) mod memory;
-pub(crate) mod native;
-pub(crate) mod predecode;
 pub(crate) mod weights;

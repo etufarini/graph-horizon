@@ -100,7 +100,7 @@ pub(crate) fn attention_prefill(
         q_heads,
         rows: n,
     };
-    let (route, rows) = policy::select(shape, pipelines, policy::matrix2_enabled(), policy::mode());
+    let (route, rows) = policy::select(shape, pipelines);
     let kernel = match route {
         policy::Route::NvidiaQ64 => Kernel::AttentionPrefillMatrix2Q64,
         policy::Route::Matrix2Q32 => Kernel::AttentionPrefillMatrix2,

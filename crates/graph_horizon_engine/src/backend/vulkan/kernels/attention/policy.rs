@@ -1,12 +1,9 @@
 /*
  * graph_horizon_engine — Vulkan F16 prefill-attention routing policy
- * Selects one attention specialization from immutable pipeline availability,
- * runtime shape, and the retained diagnostic switch. It performs no hardware
- * query, command recording, allocation, or shader execution, so route decisions
- * remain unit-testable without a physical GPU.
+ * Selects one attention specialization from immutable pipeline availability and
+ * runtime shape. It performs no hardware query, command recording, allocation,
+ * or shader execution, so route decisions remain unit-testable without a GPU.
  */
-
-use std::sync::OnceLock;
 
 const MATRIX2_HEAD_DIM: u32 = 128;
 const NVIDIA_Q64_ROWS: u32 = 64;
@@ -20,13 +17,6 @@ pub(super) enum Route {
     Tiled,
     Wide,
     Portable,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Mode {
-    Auto,
-    Generic,
-    Phase19,
 }
 
 #[derive(Clone, Copy)]
@@ -46,33 +36,6 @@ pub(super) struct Pipelines {
     pub wide: bool,
 }
 
-pub(super) fn matrix2_enabled() -> bool {
-    static ENABLED: OnceLock<bool> = OnceLock::new();
-    *ENABLED.get_or_init(|| {
-        matches!(
-            std::env::var("GRAPH_HORIZON_PREFILL_MATRIX2")
-                .ok()
-                .as_deref(),
-            None | Some("1" | "true" | "yes")
-        )
-    })
-}
-
-pub(super) fn mode() -> Mode {
-    static MODE: OnceLock<Mode> = OnceLock::new();
-    *MODE.get_or_init(|| {
-        match std::env::var("GRAPH_HORIZON_PREFILL_ATTENTION_ROUTE")
-            .ok()
-            .as_deref()
-        {
-            None | Some("auto") => Mode::Auto,
-            Some("phase19") => Mode::Phase19,
-            // A malformed diagnostic request fails toward the portable path.
-            Some("generic") | Some(_) => Mode::Generic,
-        }
-    })
-}
-
 pub(super) fn nvidia_q64_eligible(shape: Shape, pipeline: bool) -> bool {
     pipeline
         && shape.head_dim == MATRIX2_HEAD_DIM
@@ -83,22 +46,10 @@ pub(super) fn nvidia_q64_eligible(shape: Shape, pipeline: bool) -> bool {
         && shape.q_heads / shape.kv_heads == QUALIFIED_GQA_RATIO
 }
 
-pub(super) fn select(
-    shape: Shape,
-    pipelines: Pipelines,
-    matrix2: bool,
-    mode: Mode,
-) -> (Route, u32) {
-    if mode == Mode::Generic {
-        return (Route::Portable, shape.rows);
-    }
-    if nvidia_q64_eligible(shape, pipelines.nvidia_q64) && (matrix2 || mode == Mode::Phase19) {
+pub(super) fn select(shape: Shape, pipelines: Pipelines) -> (Route, u32) {
+    if nvidia_q64_eligible(shape, pipelines.nvidia_q64) {
         (Route::NvidiaQ64, shape.rows / NVIDIA_Q64_ROWS)
-    } else if mode == Mode::Phase19 {
-        // Forced routing never bypasses safety; unsupported tuples fall back.
-        (Route::Portable, shape.rows)
-    } else if matrix2
-        && shape.head_dim == MATRIX2_HEAD_DIM
+    } else if shape.head_dim == MATRIX2_HEAD_DIM
         && shape.rows != 0
         && shape.rows.is_multiple_of(32)
         && pipelines.matrix2_q32
@@ -170,16 +121,10 @@ mod tests {
     #[test]
     fn q64_boundaries_and_short_complete_tile_are_explicit() {
         for rows in [63, 65, 127, 129, 255, 257] {
-            assert_ne!(
-                select(shape(rows), pipelines(), true, Mode::Auto).0,
-                Route::NvidiaQ64
-            );
+            assert_ne!(select(shape(rows), pipelines()).0, Route::NvidiaQ64);
         }
         for rows in [64, 128, 256] {
-            assert_eq!(
-                select(shape(rows), pipelines(), true, Mode::Auto).0,
-                Route::NvidiaQ64
-            );
+            assert_eq!(select(shape(rows), pipelines()).0, Route::NvidiaQ64);
         }
     }
 
@@ -187,20 +132,12 @@ mod tests {
     fn missing_capability_or_forced_baseline_falls_back() {
         let mut available = pipelines();
         available.nvidia_q64 = false;
-        assert_eq!(
-            select(shape(64), available, true, Mode::Auto),
-            (Route::Matrix2Q32, 2)
-        );
-        assert_eq!(
-            select(shape(64), pipelines(), false, Mode::Auto),
-            (Route::CoopQk, 4)
-        );
+        assert_eq!(select(shape(64), available), (Route::Matrix2Q32, 2));
+        available.matrix2_q32 = false;
+        assert_eq!(select(shape(64), available), (Route::CoopQk, 4));
 
         let unavailable = Pipelines::default();
-        assert_eq!(
-            select(shape(64), unavailable, true, Mode::Auto),
-            (Route::Portable, 64)
-        );
+        assert_eq!(select(shape(64), unavailable), (Route::Portable, 64));
     }
 
     #[test]
@@ -210,33 +147,11 @@ mod tests {
             kv_heads: 1,
             ..shape(64)
         };
-        assert_eq!(
-            select(wrong_gqa, pipelines(), true, Mode::Auto),
-            (Route::Matrix2Q32, 2)
-        );
+        assert_eq!(select(wrong_gqa, pipelines()), (Route::Matrix2Q32, 2));
         let wrong_dimension = Shape {
             head_dim: 64,
             ..shape(64)
         };
-        assert_eq!(
-            select(wrong_dimension, pipelines(), true, Mode::Auto),
-            (Route::Wide, 64)
-        );
-    }
-
-    #[test]
-    fn diagnostic_modes_force_exact_safe_endpoints() {
-        assert_eq!(
-            select(shape(64), pipelines(), true, Mode::Generic),
-            (Route::Portable, 64)
-        );
-        assert_eq!(
-            select(shape(64), pipelines(), false, Mode::Phase19),
-            (Route::NvidiaQ64, 1)
-        );
-        assert_eq!(
-            select(shape(65), pipelines(), true, Mode::Phase19),
-            (Route::Portable, 65)
-        );
+        assert_eq!(select(wrong_dimension, pipelines()), (Route::Wide, 64));
     }
 }

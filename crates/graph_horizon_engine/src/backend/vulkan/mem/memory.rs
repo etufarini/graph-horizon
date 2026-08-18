@@ -42,7 +42,6 @@ pub(crate) struct Budget {
 #[cfg(feature = "vulkan")]
 pub(crate) struct MemoryPlan {
     pub host: Vec<bool>,
-    pub native_matrix2: bool,
 }
 
 // Builds an all-device placement. Hybrid range placement uses its independent
@@ -53,7 +52,6 @@ pub(crate) fn plan(
     ws: &dyn WeightSource,
     context_len: usize,
     budget: &Budget,
-    native_matrix2: bool,
 ) -> Result<MemoryPlan> {
     let kv_bytes = checked_product(&[
         4,
@@ -75,22 +73,15 @@ pub(crate) fn plan(
         eyre!("context {context_len} does not fit the selected backend; context was not reduced")
     })?;
     let tensors = ws.tensors();
+    let mut weight_bytes = Vec::with_capacity(tensors.len());
     let mut weights_total = 0u64;
-    let mut peak_staging_bytes = 0u64;
     for t in &tensors {
         let raw = t
             .byte_len()
             .ok_or_else(|| eyre!("memory: cannot size tensor '{}'", t.name))?;
-        let native = super::native::bytes(t, native_matrix2).unwrap_or(0);
-        let resident = raw.checked_add(native).ok_or_else(|| {
-            eyre!(
-                "Vulkan memory is insufficient: required overflow bytes, available {} bytes",
-                budget.vram
-            )
-        })?;
         // GGUF tensors are independently aligned to 32 bytes. Tied weights occur
         // once in WeightSource, so this is both aligned and unique accounting.
-        let b = aligned_weight_bytes(resident).ok_or_else(|| {
+        let b = aligned_weight_bytes(raw).ok_or_else(|| {
             eyre!(
                 "Vulkan memory is insufficient: required overflow bytes, available {} bytes",
                 budget.vram
@@ -102,13 +93,9 @@ pub(crate) fn plan(
                 budget.vram
             )
         })?;
-        // Canonical and native bytes upload sequentially into one allocation, so
-        // steady-state residency sums them while peak staging needs only the larger.
-        peak_staging_bytes = peak_staging_bytes.max(
-            aligned_weight_bytes(raw.max(native))
-                .ok_or_else(|| eyre!("memory: cannot size tensor '{}'", t.name))?,
-        );
+        weight_bytes.push(b);
     }
+    let peak_staging_bytes = weight_bytes.iter().copied().max().unwrap_or(0);
     super::budget::pure_preflight(
         budget.vram,
         super::budget::reserve_bytes(budget.vram, super::budget::configured_reserve_mib()),
@@ -122,7 +109,6 @@ pub(crate) fn plan(
     )?;
     Ok(MemoryPlan {
         host: vec![false; tensors.len()],
-        native_matrix2,
     })
 }
 
@@ -193,7 +179,7 @@ mod tests {
         let ws = Vecs(vec![ti("token_embd", u64::MAX / 2), ti("output_norm", 2)]);
         let meta = tiny_meta();
         let budget = Budget { vram: u64::MAX };
-        let err = match plan(&meta, &ws, 8, &budget, false) {
+        let err = match plan(&meta, &ws, 8, &budget) {
             Ok(_) => panic!("overflowing weight total must fail"),
             Err(err) => err.to_string(),
         };

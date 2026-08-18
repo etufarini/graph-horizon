@@ -12,13 +12,6 @@ use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
 
-fn gqa_enabled() -> bool {
-    !matches!(
-        std::env::var("GRAPH_HORIZON_DECODE_GQA").ok().as_deref(),
-        Some("0" | "false" | "no")
-    )
-}
-
 pub(crate) fn f16(
     dev: &Device,
     reg: &PipelineRegistry,
@@ -46,7 +39,6 @@ pub(crate) fn f16(
     if head_dim == 128
         && kv_heads.checked_mul(4) == Some(q_heads)
         && scratch_fits
-        && gqa_enabled()
         && reg.contains(Kernel::AttentionDecodeGqaSplit)
     {
         // These aliases are fully consumed here before their normal projection

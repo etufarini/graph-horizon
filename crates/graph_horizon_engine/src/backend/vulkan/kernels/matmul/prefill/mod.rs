@@ -14,10 +14,7 @@ use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
 
 mod policy;
 
-use policy::{
-    coopmat_enabled, coopmat_shape, matrix2_enabled, matrix2_shape, q4_metadata_enabled,
-    q4_metadata_shape,
-};
+use policy::{coopmat_shape, matrix2_shape, q4_metadata_shape};
 
 pub(crate) fn matmul_batched_q4k(
     dev: &Device,
@@ -31,30 +28,7 @@ pub(crate) fn matmul_batched_q4k(
     n: u32,
 ) {
     let caps = dev.coopmat;
-    if matrix2_enabled()
-        && w.native_offset.is_some()
-        && dev.coopmat2.available
-        && matrix2_shape(in_dim, out_dim)
-        && reg.contains(Kernel::MatmulF16Matrix2F16Out)
-    {
-        trace::log_batched_path_once(Kernel::MatmulF16Matrix2F16Out);
-        super::super::coopmat::dispatch_matrix2(
-            dev,
-            reg,
-            cmd,
-            out,
-            a,
-            w,
-            in_dim,
-            out_dim,
-            n,
-            Kernel::MatmulF16Matrix2F16Out,
-        );
-        return;
-    }
-    if coopmat_enabled()
-        && matrix2_enabled()
-        && w.quant == WeightFormat::Q4K
+    if w.quant == WeightFormat::Q4K
         && dev.coopmat2.available
         && matrix2_shape(in_dim, out_dim)
         && reg.contains(Kernel::MatmulQ4KMatrix2F16Out)
@@ -74,8 +48,7 @@ pub(crate) fn matmul_batched_q4k(
         );
         return;
     }
-    if coopmat_enabled()
-        && w.quant == WeightFormat::Q4K
+    if w.quant == WeightFormat::Q4K
         && caps.available
         && caps.m == 16
         && caps.n == 16
@@ -85,14 +58,12 @@ pub(crate) fn matmul_batched_q4k(
         // one-subgroup candidate for that shape had regressed.
         && coopmat_shape(in_dim)
     {
-        let kernel = if q4_metadata_shape(out_dim)
-            && q4_metadata_enabled()
-            && reg.contains(Kernel::MatmulQ4KCoopmatMetadataF16Out)
-        {
-            Kernel::MatmulQ4KCoopmatMetadataF16Out
-        } else {
-            Kernel::MatmulQ4KCoopmatF16Out
-        };
+        let kernel =
+            if q4_metadata_shape(out_dim) && reg.contains(Kernel::MatmulQ4KCoopmatMetadataF16Out) {
+                Kernel::MatmulQ4KCoopmatMetadataF16Out
+            } else {
+                Kernel::MatmulQ4KCoopmatF16Out
+            };
         trace::log_batched_path_once(kernel);
         super::super::coopmat::dispatch_coopmat(
             dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps, kernel,
@@ -132,9 +103,7 @@ pub(crate) fn matmul_batched_q6k(
     n: u32,
 ) {
     let caps = dev.coopmat;
-    if coopmat_enabled()
-        && matrix2_enabled()
-        && w.quant == WeightFormat::Q6K
+    if w.quant == WeightFormat::Q6K
         && dev.coopmat2.available
         && matrix2_shape(in_dim, out_dim)
         && reg.contains(Kernel::MatmulQ6KMatrix2F16Out)
@@ -153,8 +122,7 @@ pub(crate) fn matmul_batched_q6k(
         );
         return;
     }
-    if coopmat_enabled()
-        && w.quant == WeightFormat::Q6K
+    if w.quant == WeightFormat::Q6K
         && caps.available
         && caps.m == 16
         && caps.n == 16
@@ -207,48 +175,36 @@ mod tests {
 
     #[test]
     fn batched_q4k_metadata_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(3072, 3072, 3, "q4_metadata", false);
+        let _ = q4k_cpu_oracle(3072, 3072, 3, "q4_metadata");
     }
 
     #[test]
     fn batched_q4k_matrix2_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail", false);
+        let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_tail");
     }
 
     #[test]
     fn batched_q4k_large_k_matrix2_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(14336, 4096, 3, "q4_large_k_matrix2_tail", false);
+        let _ = q4k_cpu_oracle(14336, 4096, 3, "q4_large_k_matrix2_tail");
     }
 
     #[test]
     fn batched_q4k_model2_gate_up_matrix2_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(4096, 14336, 3, "q4_model2_gate_up_matrix2_tail", false);
+        let _ = q4k_cpu_oracle(4096, 14336, 3, "q4_model2_gate_up_matrix2_tail");
     }
 
     #[test]
     fn batched_q4k_14b_matrix2_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(5120, 16384, 3, "q4_14b_gate_up_matrix2_tail", false);
-        let _ = q4k_cpu_oracle(16384, 5120, 3, "q4_14b_down_matrix2_tail", false);
-    }
-
-    #[test]
-    fn batched_predecoded_q4k_matrix2_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_matrix2_control", false);
-        let _ = q4k_cpu_oracle(3072, 9216, 3, "q4_predecoded_matrix2_tail", true);
+        let _ = q4k_cpu_oracle(5120, 16384, 3, "q4_14b_gate_up_matrix2_tail");
+        let _ = q4k_cpu_oracle(16384, 5120, 3, "q4_14b_down_matrix2_tail");
     }
 
     #[test]
     fn batched_q4k_small_output_matches_cpu_oracle() {
-        let _ = q4k_cpu_oracle(4096, 70, 37, "q4_small_output", false);
+        let _ = q4k_cpu_oracle(4096, 70, 37, "q4_small_output");
     }
 
-    fn q4k_cpu_oracle(
-        in_dim: usize,
-        out_dim: usize,
-        rows: usize,
-        label: &str,
-        predecoded: bool,
-    ) -> Vec<u8> {
+    fn q4k_cpu_oracle(in_dim: usize, out_dim: usize, rows: usize, label: &str) -> Vec<u8> {
         let backend = match VulkanBackend::bare() {
             Ok(backend) => backend,
             Err(_) => {
@@ -293,27 +249,12 @@ mod tests {
         backend
             .upload_bytes(&input, &activation_bytes)
             .expect("upload input");
-        let native = predecoded.then(|| {
-            crate::backend::vulkan::mem::predecode::q4_f16(&qbytes, in_dim, out_dim).unwrap()
-        });
-        let mut weights = GpuBuffer::alloc(
-            &backend.dev,
-            (qbytes.len() + native.as_ref().map_or(0, Vec::len)) as u64,
-            false,
-        )
-        .expect("weights");
+        let mut weights =
+            GpuBuffer::alloc(&backend.dev, qbytes.len() as u64, false).expect("weights");
         weights.quant = WeightFormat::Q4K;
         backend
             .upload_bytes(&weights, &qbytes)
             .expect("upload weights");
-        if let Some(native) = native {
-            let offset = qbytes.len() as u64;
-            let view = weights.view(offset, native.len() as u64);
-            backend
-                .upload_bytes(&view, &native)
-                .expect("upload native weights");
-            weights.native_offset = Some(offset);
-        }
         let output = backend
             .alloc_buffer((rows * out_dim * 2) as u64)
             .expect("output");
@@ -335,7 +276,7 @@ mod tests {
         let mut mean_abs = 0.0f64;
         let mut max_relative = 0.0f32;
         let mut mean_relative = 0.0f64;
-        let fp16_accumulator = super::matrix2_shape(in_dim as u32, out_dim as u32) && !predecoded;
+        let fp16_accumulator = super::matrix2_shape(in_dim as u32, out_dim as u32);
         for (index, bytes) in raw.chunks_exact(2).enumerate() {
             let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
             let reference = expected[index];

@@ -18,7 +18,6 @@ use crate::backend::vulkan::mem::budget::device_budget;
 #[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::plan;
 #[cfg(feature = "vulkan")]
-use crate::backend::vulkan::pipeline::Kernel;
 use crate::backend::vulkan::pipeline::PipelineRegistry;
 use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
 use crate::gguf::loader::GgufFile;
@@ -36,21 +35,13 @@ impl VulkanBackend {
         context: usize,
     ) -> Result<Self> {
         let budget = placement_budget(&dev);
-        let reg = PipelineRegistry::build(&dev)?;
-        // Resolve native-weight eligibility from the pipeline that will actually
-        // execute it. Unsupported devices retain compressed residency and startup.
-        let native_matrix2 = reg.contains(Kernel::MatmulF16Matrix2F16Out);
-        let plan = match plan(meta, ws, context, &budget, native_matrix2) {
-            Ok(plan) => plan,
+        let plan = plan(meta, ws, context, &budget)?;
+        let (buf, logits_host) = loader::create_buffers(&dev, &plan, gguf, ws, meta)?;
+        let reg = match PipelineRegistry::build(&dev) {
+            Ok(reg) => reg,
             Err(err) => {
-                reg.destroy(&dev);
-                return Err(err);
-            }
-        };
-        let (buf, logits_host) = match loader::create_buffers(&dev, &plan, gguf, ws, meta) {
-            Ok(buffers) => buffers,
-            Err(err) => {
-                reg.destroy(&dev);
+                logits_host.destroy(&dev);
+                loader::destroy_buffers(&dev, &buf);
                 return Err(err);
             }
         };

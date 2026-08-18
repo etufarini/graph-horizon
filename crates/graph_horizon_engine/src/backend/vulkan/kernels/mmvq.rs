@@ -23,28 +23,10 @@ use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch};
 // Conservative floor of Vulkan maxComputeWorkGroupCount[0].
 const MAX_GROUPS_X: u32 = 65535;
 
-// Route eligible dense decode GEMV through the retained int8/DP4A path. The
-// diagnostic environment variable is read once; `0`/`false`/`no` restores the
-// float GEMV, invalid values fail closed to that fallback, and absence enables
-// the capability-gated default qualified by the model and kernel tests.
-pub(crate) fn decode_mmvq_enabled() -> bool {
-    use std::sync::OnceLock;
-    static FLAG: OnceLock<bool> = OnceLock::new();
-    *FLAG.get_or_init(
-        || match std::env::var("GRAPH_HORIZON_DECODE_MMVQ").ok().as_deref() {
-            None | Some("1") | Some("true") | Some("yes") => true,
-            Some("0") | Some("false") | Some("no") => false,
-            Some(_) => false,
-        },
-    )
-}
-
 // Pure form of the complete route gate, kept testable without global state or a
 // Vulkan device.
-fn applies(enabled: bool, dp4a: bool, format: WeightFormat, in_dim: u32) -> bool {
-    enabled
-        && dp4a
-        && format == WeightFormat::Q4K
+fn applies(dp4a: bool, format: WeightFormat, in_dim: u32) -> bool {
+    dp4a && format == WeightFormat::Q4K
         && in_dim.is_multiple_of(256)
         && u64::from(in_dim) <= MMVQ_SCRATCH_IN_DIM
 }
@@ -63,7 +45,7 @@ pub(crate) fn dispatch_mmvq(
     in_dim: u32,
     out_dim: u32,
 ) -> bool {
-    if !applies(decode_mmvq_enabled(), dev.dp4a, w.quant, in_dim) {
+    if !applies(dev.dp4a, w.quant, in_dim) {
         return false; // out of scope: caller keeps the float GEMV
     }
     // Quantize A → int8 Q8 (one invocation per 8-wide block). The trailing compute
@@ -109,14 +91,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_route_gate_requires_flag_device_format_shape_and_scratch() {
-        assert!(applies(true, true, WeightFormat::Q4K, 256));
-        assert!(!applies(false, true, WeightFormat::Q4K, 256));
-        assert!(!applies(true, false, WeightFormat::Q4K, 256));
-        assert!(!applies(true, true, WeightFormat::Q5K, 256));
-        assert!(!applies(true, true, WeightFormat::Q4K, 255));
+    fn complete_route_gate_requires_device_format_shape_and_scratch() {
+        assert!(applies(true, WeightFormat::Q4K, 256));
+        assert!(!applies(false, WeightFormat::Q4K, 256));
+        assert!(!applies(true, WeightFormat::Q5K, 256));
+        assert!(!applies(true, WeightFormat::Q4K, 255));
         assert!(!applies(
-            true,
             true,
             WeightFormat::Q4K,
             MMVQ_SCRATCH_IN_DIM as u32 + 256

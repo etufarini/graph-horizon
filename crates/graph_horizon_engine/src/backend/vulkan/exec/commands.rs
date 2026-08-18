@@ -141,10 +141,10 @@ impl Device {
                 return Err(error);
             }
         }
-        // A GPU watchdog (TDR) reset surfaces as VK_ERROR_DEVICE_LOST on the submit or the
-        // fence wait. Tag those with the stable `E_DEVICE_LOST` marker so the prefill
-        // driver can recognise them and retry at a smaller chunk (m1-T2) without naming
-        // Vulkan in the backend-agnostic skeleton. Other failures keep their own message.
+        // A GPU watchdog reset surfaces as VK_ERROR_DEVICE_LOST on submit or fence wait.
+        // Preserve a stable marker for bounded reporting; the lost logical device cannot
+        // safely retry work even when the physical device later recovers. Other failures
+        // keep their own message.
         // SAFETY: `queue` and `device` are alive; `cmd` is recorded and ended; `fence`
         // was just created unsignaled. The fence wait blocks until the GPU is idle, so
         // destroying the fence and freeing `cmd` afterwards races nothing in flight.

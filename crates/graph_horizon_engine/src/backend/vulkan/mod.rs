@@ -59,7 +59,38 @@ pub(crate) const MMVQ_SCRATCH_ROWS: u64 = 256;
 pub(crate) const MMVQ_SCRATCH_ELEMENTS: u64 = MMVQ_SCRATCH_IN_DIM * MMVQ_SCRATCH_ROWS;
 // Eight complete Matrix2 row tiles amortize command recording without padding.
 #[cfg(feature = "vulkan")]
-pub(crate) const PREFILL_ROWS: usize = 256;
+const PREFILL_ROWS: usize = 256;
+// RADV's watchdog bounds one full-graph submission on the measured AMD family.
+// Sixteen Q4-MMQ row tiles keep late long-context chunks below that boundary.
+#[cfg(feature = "vulkan")]
+const AMD_PREFILL_ROWS: usize = 128;
+
+#[cfg(feature = "vulkan")]
+const fn prefill_rows(vendor_id: u32) -> usize {
+    if vendor_id == device::AMD_VENDOR_ID {
+        AMD_PREFILL_ROWS
+    } else {
+        PREFILL_ROWS
+    }
+}
+
+#[cfg(feature = "vulkan")]
+impl VulkanBackend {
+    pub(crate) fn prefill_rows(&self) -> usize {
+        prefill_rows(self.dev.vendor_id)
+    }
+}
+
+#[cfg(all(test, feature = "vulkan"))]
+mod prefill_policy_tests {
+    use super::{AMD_PREFILL_ROWS, PREFILL_ROWS, prefill_rows};
+
+    #[test]
+    fn amd_bounds_prefill_submissions_without_changing_other_vendors() {
+        assert_eq!(prefill_rows(super::device::AMD_VENDOR_ID), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(0x10de), PREFILL_ROWS);
+    }
+}
 
 #[cfg(test)]
 thread_local! {

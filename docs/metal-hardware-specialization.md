@@ -144,9 +144,11 @@ latency ratio is equivalently llama tok/s divided by Graph Horizon tok/s.
 | 3B | prefill 128 | 914.88 ms | 323.55 ms | 2.83x | 591.33 ms |
 | 3B | prefill 512 | 6,188.66 ms | 1,326.42 ms | 4.67x | 4,862.24 ms |
 | 3B | prefill 2K | 15,037.83 ms | 5,767.88 ms | 2.61x | 9,269.95 ms |
+| 3B | M02 prefill 8K | 71,100.02 ms | 35,175.63 ms | 2.02x | 35,924.39 ms |
 | 3B | decode KV128 | 26.30 tok/s | 35.72 tok/s | 1.36x | 10.05 ms/token |
 | 3B | decode KV512 | 22.91 tok/s | 30.45 tok/s | 1.33x | 10.81 ms/token |
 | 3B | decode KV2K | 25.31 tok/s | 27.56 tok/s | 1.09x | 3.22 ms/token |
+| 3B | M02 decode KV8K | 12.15 tok/s | 19.89 tok/s | 1.64x | 32.02 ms/token |
 
 Measured CVs are 0.16--0.29% for the retained Graph Horizon prefill points,
 apart from 5.36% decode CV at KV512. llama prompt samples are similarly stable.
@@ -269,6 +271,15 @@ FP32-to-F16 matrix-storage conversion then terminated the Apple Metal compiler
 itself. Retaining FP32 accumulation therefore requires the current FP32 staging
 tile unless the graph's output representation changes, which is outside this
 candidate's narrow scope.
+
+| M05 | tiled prefill attention reuse | eight query rows per shared K/V tile instead of four; identical per-head online softmax | 1.15--1.35x attention; >0.75 s at 8K | 1.09x attention; 2.15% bracketed request gain | REJECT modest |
+
+M05 passed the serial-attention numeric oracle and was neutral within 1.3% at
+128/512. Its first 8K screen was 66.09 s, but profiling measured only an 8.5%
+attention reduction (31.98 to 29.26 s) and a 2.5% command reduction. The heated
+8K M02/M05/M02 bracket measured 73.90/73.79/76.92 s, so M05 improved only 2.15%
+against the bookend mean. The initial screen is retained as an outlier, not a
+claim. Production code is restored to M02.
 
 ## Qualification status
 

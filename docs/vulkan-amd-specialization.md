@@ -402,7 +402,7 @@ threshold rejection, and the largest unsupported workload now completes.
 
 - Pure Vulkan: 156 passed, 0 failed, 5 ignored; family integration 5 passed and
   1 ignored; semantic 12 passed and 1 ignored.
-- Vulkan-hybrid: 229 passed, 0 failed, 4 ignored; family integration 5 passed
+- Vulkan-hybrid: 229 passed, 0 failed, 4 ignored; family integration 6 passed
   and 1 ignored; semantic 12 passed and 1 ignored.
 - Focused attention parity covers base/row boundaries and is exact against
   sequential Vulkan decode; Q4 MMQ tail tests cover five rows and 70 outputs.

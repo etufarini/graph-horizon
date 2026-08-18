@@ -1,9 +1,9 @@
 /*
  * graph_horizon_engine — Vulkan backend construction
  * Builds a `VulkanBackend` from a weight source and placement: the shared
- * `load_inner` bootstrap (pipeline capabilities → budget/plan → buffer creation →
- * scratch alloc), the MMVQ per-8 Q8 scratch allocation, and the test-only `bare`
- * device/pipeline entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
+ * `load_inner` bootstrap (budget/plan → buffer creation → pipeline build → scratch
+ * allocation), the MMVQ per-8 Q8 scratch, and the test-only `bare` device/pipeline
+ * entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
 */
 
 use color_eyre::eyre::Result;
@@ -17,7 +17,6 @@ use crate::backend::vulkan::loader;
 use crate::backend::vulkan::mem::budget::device_budget;
 #[cfg(feature = "vulkan")]
 use crate::backend::vulkan::mem::memory::plan;
-#[cfg(feature = "vulkan")]
 use crate::backend::vulkan::pipeline::PipelineRegistry;
 use crate::backend::vulkan::{MMVQ_SCRATCH_IN_DIM, VulkanBackend};
 use crate::gguf::loader::GgufFile;

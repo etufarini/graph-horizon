@@ -41,9 +41,7 @@ pub(super) fn nvidia_q64_eligible(shape: Shape, pipeline: bool) -> bool {
         && shape.head_dim == MATRIX2_HEAD_DIM
         && shape.rows != 0
         && shape.rows.is_multiple_of(NVIDIA_Q64_ROWS)
-        && shape.kv_heads != 0
-        && shape.q_heads.is_multiple_of(shape.kv_heads)
-        && shape.q_heads / shape.kv_heads == QUALIFIED_GQA_RATIO
+        && shape.kv_heads.checked_mul(QUALIFIED_GQA_RATIO) == Some(shape.q_heads)
 }
 
 pub(super) fn select(shape: Shape, pipelines: Pipelines) -> (Route, u32) {
@@ -129,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_capability_or_forced_baseline_falls_back() {
+    fn missing_capabilities_select_successive_fallbacks() {
         let mut available = pipelines();
         available.nvidia_q64 = false;
         assert_eq!(select(shape(64), available), (Route::Matrix2Q32, 2));

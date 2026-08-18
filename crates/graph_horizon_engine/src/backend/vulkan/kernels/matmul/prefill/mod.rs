@@ -8,7 +8,7 @@
 use ash::vk;
 
 use super::trace;
-use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
+use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
 
@@ -28,11 +28,9 @@ pub(crate) fn matmul_batched_q4k(
     n: u32,
 ) {
     let caps = dev.coopmat;
-    if w.quant == WeightFormat::Q4K
-        && dev.coopmat2.available
-        && matrix2_shape(in_dim, out_dim)
-        && reg.contains(Kernel::MatmulQ4KMatrix2F16Out)
-    {
+    // The format-specific caller validates Q4_K; registered pipelines are the
+    // capability boundary, so no second device-feature check is needed here.
+    if matrix2_shape(in_dim, out_dim) && reg.contains(Kernel::MatmulQ4KMatrix2F16Out) {
         trace::log_batched_path_once(Kernel::MatmulQ4KMatrix2F16Out);
         super::super::coopmat::dispatch_matrix2(
             dev,
@@ -48,14 +46,11 @@ pub(crate) fn matmul_batched_q4k(
         );
         return;
     }
-    if w.quant == WeightFormat::Q4K
-        && caps.available
+    if caps.available
         && caps.m == 16
         && caps.n == 16
         && caps.k == 16
-        // Only measured 3B projection/MLP K dimensions select coopmat. K=4096
-        // is viable with the retained two-subgroup B reuse; the earlier
-        // one-subgroup candidate for that shape had regressed.
+        // Only qualified projection/MLP K dimensions use this layout.
         && coopmat_shape(in_dim)
     {
         let kernel =
@@ -103,11 +98,9 @@ pub(crate) fn matmul_batched_q6k(
     n: u32,
 ) {
     let caps = dev.coopmat;
-    if w.quant == WeightFormat::Q6K
-        && dev.coopmat2.available
-        && matrix2_shape(in_dim, out_dim)
-        && reg.contains(Kernel::MatmulQ6KMatrix2F16Out)
-    {
+    // The format-specific caller validates Q6_K; pipeline registration is the
+    // single source of truth for Matrix2 support.
+    if matrix2_shape(in_dim, out_dim) && reg.contains(Kernel::MatmulQ6KMatrix2F16Out) {
         super::super::coopmat::dispatch_matrix2(
             dev,
             reg,
@@ -122,13 +115,7 @@ pub(crate) fn matmul_batched_q6k(
         );
         return;
     }
-    if w.quant == WeightFormat::Q6K
-        && caps.available
-        && caps.m == 16
-        && caps.n == 16
-        && caps.k == 16
-        && coopmat_shape(in_dim)
-    {
+    if caps.available && caps.m == 16 && caps.n == 16 && caps.k == 16 && coopmat_shape(in_dim) {
         super::super::coopmat::dispatch_coopmat(
             dev,
             reg,

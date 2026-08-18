@@ -350,6 +350,7 @@ too costly until the attention/Q6 bottleneck is reduced.
 | AMD-006 | exact Q6_K 64-row tile | halve repeated dequantization with 16 KiB LDS | about 1.07--1.12x total | 223.07 → 237.76 ms, 6.6% regression | focused established Q6 parity passed | REJECTED |
 | AMD-007 | Q4_K MMQ 16-row tile | double packed-weight reuse again | about 1.05x total | 223.07 → 251.81 ms, 12.9% regression | focused Q4 parity passed | REJECTED |
 | AMD-008 | exact Q6_K packed staging | unpack eight contiguous weights per lane with shared metadata | about 1.20x total | 223.07 → 218.37 ms, 2.15% gain | all established Q6 oracles passed | REJECTED: below threshold |
+| AMD-009 | required wave32 for Q6 decode/logits | match RDNA native wave and llama.cpp subgroup choice | about 1.10x decode | 3B +7.2%; 8B below 5% and noisy; 14B +3.2% | Q6 parity passed; cross-model value inconsistent | REJECTED |
 
 ## Current ranking and next action
 

@@ -27,18 +27,6 @@ Before changing code, declare:
 - the changed runtime profile;
 - the narrow correctness gate selected for that path.
 
-### Active AMD Vulkan Investigation
-
-- Target: global `prefill` and `decode`; neither is only a regression control.
-- Intentional variables: AMD/capability-gated packed arithmetic, subgroup
-  ownership, GQA dataflow, and bounded submission size, one isolated candidate
-  at a time after competitive attribution.
-- Runtime profile: standalone Vulkan, F16 KV, full GPU placement, exact prompt
-  or KV depths 128, 512, 2K, 8K, 16K, and 28K where model capacity permits.
-- Correctness gate: bounded numeric/attention tests while iterating; pinned
-  external teacher-forced top-two qualification and complete Vulkan/hybrid
-  suites before retaining arithmetic or shared-routing changes.
-
 ### Autonomous Investigation Loop
 
 Before editing production code, verify that the worktree is clean and `HEAD` is

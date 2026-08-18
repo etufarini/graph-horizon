@@ -564,3 +564,138 @@ representation changes, and the rest is device-specific micro-tuning.
   variants are absent. The temporary decode probe was removed.
 - Nothing was pushed. Raw benchmark/profile evidence remains ignored under
   `target/amd-baseline/`.
+
+## Production refactor qualification
+
+### Baseline and scope
+
+- Branch: `perf/amd-hardware-specialization`.
+- Pre-refactor HEAD: `5fbadc1`; code-cleanup checkpoint: `1be0d41`.
+- Local `main` and merge-base: `2d7d7f7`.
+- The requested `perf/systematic-llamacpp-gap` branch was not the checked-out
+  repository state. Its production cleanup is already represented by the
+  merge-base and `ABLATION_REPORT.md`; this audit therefore covers the complete
+  additional AMD delta actually present in the worktree.
+- Scope before cleanup: 25 files, 1,351 insertions, 71 deletions against
+  `main`; 18 Rust files and four shaders contained production or embedded-test
+  changes. Four Rust files contain embedded-test changes; there were no
+  dedicated test files in this delta.
+
+### Removed and simplified
+
+- Dead functions, fields, types, shader variants, configuration fields, and
+  temporary buffers: none remained in the AMD production delta.
+- Obsolete branches and diagnostic infrastructure: none remained. Rejected
+  grouped-prefill, Q16, alternate split, and alternate workgroup candidates
+  exist only in this historical report and ignored evidence.
+- Duplicated routing: the three GQA variants now share one resource-eligibility
+  predicate while preserving their distinct subgroup, vendor, and wave-control
+  predicates.
+- Redundant expressions: AMD Q4 batch eligibility composes the established
+  single-row MMVQ predicate rather than repeating its format, alignment, DP4A,
+  and scratch checks.
+- Pipeline responsibilities: compute-pipeline compilation moved from dispatch
+  recording into `pipeline/compiler.rs`; unconditional kernel inventory moved
+  beside the kernel ABI. Registry assembly, recording, compilation, and ABI
+  ownership are now separate, direct responsibilities, each below 200
+  productive lines.
+- Documentation: the completed AMD task no longer appears as an active
+  investigation in the model-neutral process document.
+
+The refactor commit changes six source files by 217 insertions and 266
+deletions, a net reduction of 49 source lines. Against `main`, production source
+changed from 22 files / 734 insertions / 57 deletions before cleanup to 23 files
+/ 851 insertions / 223 deletions after cleanup. The extra file is the required
+compiler responsibility split; the net production delta falls from 677 to 628
+lines. No dependency, public API, route, shader ABI, resource lifetime, or error
+message changed.
+
+### Retained feature map
+
+| Feature | Production path | Eligibility and fallback | Protection / reason |
+|---|---|---|---|
+| AMD Q4 MMQ prefill | dispatch, MMVQ host, scratch, registry, Q4 MMQ shader | AMD + integer dot + Q4_K + aligned shape + bounded scratch; portable Q4 batch fallback | CPU oracle/tail test; dominant retained AMD short-prefill gain |
+| Bounded AMD prefill | backend selection and Vulkan row policy | AMD plus graph depth/context selects 128 or 64 rows; other devices retain 256 | policy boundary tests; prevents long-graph device loss |
+| Required-wave32 Q6/logits | bootstrap feature query, device state, compiler, registry | AMD + supported required subgroup 32; default-subgroup pipeline otherwise | capability tests and full suites; retained short/medium decode gain |
+| Required-wave32 4:1 GQA | attention route, shared scratch, split/reduce kernels | F16 KV + head 128 + exact 4:1 + resources + AMD wave32 control; wave64/generic fallback | exact attention oracles; retained long-decode gain |
+| Exact wave64 4:1 GQA | attention route, registry, wave64 split/reduce shaders | default subgroup 64 + exact GQA/resource contract; generic fallback otherwise | exact arithmetic tests; portable fallback without subgroup control |
+| Inherited Matrix2 Q4/14B paths | unchanged merge-base implementation | existing capability/shape/quantization predicates and fallbacks | previously qualified and unaffected by this AMD-only delta |
+
+### Performance neutrality
+
+Matched binaries from `5fbadc1` and the cleaned source used identical probes,
+artifacts, placement, F16 KV, and session state. Short rows used three measured
+repetitions; long prefill used the established single exact-length row and long
+decode used five samples. CV is a fractional ratio.
+
+| Workload / metric | Before (CV) | After (CV) | Delta |
+|---|---:|---:|---:|
+| 8B/128 TTFT | 569.85 ms (.0012) | 570.12 ms (.0009) | +0.047% |
+| 14B/128 TTFT | 934.69 ms (.0011) | 935.29 ms (.0018) | +0.064% |
+| 8B/128 decode | 40.4654 tok/s (.001387) | 40.5373 tok/s (.002626) | +0.178% |
+| 8B/28K TTFT | 352,201 ms (single row) | 352,171 ms (single row) | -0.0085% |
+| 8B/28K decode | 29.1174 tok/s (.001704) | 29.0804 tok/s (.001379) | -0.127% |
+| 3B/28K TTFT | 192,414 ms (single row) | 192,584 ms (single row) | +0.088% |
+| 3B/28K decode | 51.6296 tok/s (.001349) | 51.6966 tok/s (.002554) | +0.130% |
+
+Every measured delta is within 0.2%, well inside the 1% neutrality target.
+
+### Quality and validation
+
+- The mission's six-artifact, 128-step gate belongs to the already-completed
+  NVIDIA cleanup recorded in `ABLATION_REPORT.md`; its saved 128-token teachers
+  are not part of the current repository contract or retained evidence. The
+  checked-in AMD protocol instead pins a llama.cpp external teacher for 16
+  tokens on the three Instruct artifacts.
+- The final 8B and 14B external 16-token rows passed. The first final 3B row
+  failed the wrapper's local parity assertion; a diagnostic rerun passed exact
+  prompt IDs and all 16 positions. Under the documented no-retry rule, this
+  session's 3B terminal result remains **FAIL**, with the later pass recorded
+  only as diagnostic evidence.
+- A diagnostic extension of the pinned external teacher to 128 tokens missed
+  top two at step 126 on both untouched `5fbadc1` and the cleaned code. This is
+  paired evidence that the refactor preserved the numerical behavior, but it
+  cannot be represented as a passing 128-step qualification.
+- Focused AMD Q4 MMQ and attention/numeric oracles pass. No tolerance or oracle
+  was changed.
+- Root CPU: 166 passed. Engine CPU: 159 passed / 2 ignored; integration 5 passed
+  / 1 ignored; semantic 12 passed / 1 ignored.
+- Pure Vulkan: 156 passed / 5 ignored; integration 5 passed / 1 ignored;
+  semantic 12 passed / 1 ignored. Vulkan-hybrid: 229 passed / 4 ignored;
+  integration 6 passed / 1 ignored; semantic 12 passed / 1 ignored.
+- Formatting, diff whitespace, warning-denied Vulkan and Vulkan-hybrid Clippy,
+  shader/build checks, and documentation/source contract tests pass. Metal
+  remains external verification on this Linux host.
+
+### Remaining differences from `main`
+
+| File/component | Required reason |
+|---|---|
+| Selection and Vulkan row policy | Bounded 128/64-row AMD long-prefill execution with unchanged non-AMD capacity |
+| Device bootstrap/state | Query and own AMD vendor, integer-dot, and required-subgroup capabilities |
+| Pipeline caps, compiler, ABI, and registry | Build only legal wave32, wave64 GQA, and AMD MMQ pipelines with exact fallback behavior |
+| Batched dispatch, MMVQ host/scratch, Q4 shader | Retained canonical-Q4 AMD integer-dot prefill dataflow |
+| Attention host/scratch and GQA shaders | Retained wave32 GQA route, exact wave64 fallback, and generic fallback |
+| Profile categories and route trace names | Correct attribution of every reachable retained kernel |
+| Embedded capability/numeric tests | Protect route boundaries, resource bounds, arithmetic, and tails |
+| Optimization state and AMD report | Durable support limits, measured decisions, and rejected-candidate evidence |
+
+### Rejected cleanup candidates
+
+| Candidate | Reason retained |
+|---|---|
+| Remove the exact wave64 GQA pair | It is the qualified fallback when required-wave32 control is absent |
+| Collapse registry, compiler, and recording | It mixes resource ownership, pipeline construction, and command recording and violates the orchestration limit |
+| Remove AMD MMQ scratch growth | Eight-row Q4 MMQ requires the retained activation capacity; smaller devices keep the old allocation |
+| Merge all GQA predicates | Resource eligibility is shared, but subgroup/vendor controls select materially different pipelines |
+| Remove profiling classifications | The supported profiler must classify every reachable kernel without changing disabled-path execution |
+
+### Assessment
+
+Every remaining production-code difference from `main` maps to a retained AMD
+optimization, capability/shape/format eligibility, an executable fallback,
+resource ownership, or its correctness/attribution coverage. The source and
+performance refactor is complete and simpler. Full mission qualification is
+not claimed because the requested six-artifact 128-step evidence is not the
+current branch's reproducible gate and the no-retry 3B external row failed in
+this session; neither issue was introduced by the refactor.

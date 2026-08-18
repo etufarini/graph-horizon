@@ -8,7 +8,7 @@
 
 use super::throughput::{RepSample, Stat};
 
-// Mean + sample standard deviation of a non-empty set of per-rep values. With a
+// Mean, median, and sample standard deviation of non-empty per-rep values. With a
 // single observation σ is undefined ⇒ `None` (n/a), never `0`. Called only on
 // non-empty sets (the aggregation gathers `Some` values; the empty case is mapped
 // to `None` upstream), but it guards the empty input defensively.
@@ -17,17 +17,29 @@ pub(super) fn mean_std(xs: &[f64]) -> Stat {
     if n == 0 {
         return Stat {
             mean: 0.0,
+            median: 0.0,
             stddev: None,
         };
     }
     let mean = xs.iter().sum::<f64>() / n as f64;
+    let mut ordered = xs.to_vec();
+    ordered.sort_by(f64::total_cmp);
+    let median = if n.is_multiple_of(2) {
+        (ordered[n / 2 - 1] + ordered[n / 2]) / 2.0
+    } else {
+        ordered[n / 2]
+    };
     let stddev = if n < 2 {
         None // one observation: dispersion not defined
     } else {
         let var = xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n - 1) as f64;
         Some(var.sqrt())
     };
-    Stat { mean, stddev }
+    Stat {
+        mean,
+        median,
+        stddev,
+    }
 }
 
 // A rate `count / duration`, but only when the duration is finite and strictly
@@ -106,13 +118,21 @@ mod tests {
         // mean of [2,4,6] = 4; sample variance = ((4+0+4)/2) = 4 ⇒ σ = 2.
         let s = mean_std(&[2.0, 4.0, 6.0]);
         approx(s.mean, 4.0);
+        approx(s.median, 4.0);
         approx(s.stddev.unwrap(), 2.0);
+    }
+
+    #[test]
+    fn mean_std_even_median_uses_middle_pair() {
+        let s = mean_std(&[8.0, 2.0, 4.0, 6.0]);
+        approx(s.median, 5.0);
     }
 
     #[test]
     fn mean_std_single_observation_has_no_stddev() {
         let s = mean_std(&[7.0]);
         approx(s.mean, 7.0);
+        approx(s.median, 7.0);
         assert!(s.stddev.is_none());
     }
 
@@ -120,6 +140,7 @@ mod tests {
     fn mean_std_empty_is_defined() {
         let s = mean_std(&[]);
         approx(s.mean, 0.0);
+        approx(s.median, 0.0);
         assert!(s.stddev.is_none());
     }
 

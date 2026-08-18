@@ -26,7 +26,8 @@ pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
         bail!("mistral graph: empty prompt");
     }
     let buffers = BatchBuffers::new(backend, cfg, row_capacity)?;
-    for (batch_index, tokens) in prompt.chunks(row_capacity).enumerate() {
+    let mut batches = prompt.chunks(row_capacity).enumerate().peekable();
+    while let Some((batch_index, tokens)) = batches.next() {
         before_batch()?;
         let offset = batch_index
             .checked_mul(row_capacity)
@@ -34,7 +35,12 @@ pub(crate) fn prefill<B: Backend, F: FnMut() -> Result<()>>(
         let position = base
             .checked_add(offset)
             .ok_or_else(|| color_eyre::eyre::eyre!("mistral prefill: buffer size overflow"))?;
-        record_batch(backend, cfg, kv, &buffers, tokens, position, true, true)?;
+        // Intermediate chunks only extend KV state. Their logits are overwritten
+        // before sampling, so the graph tail belongs exclusively to the last chunk.
+        let with_tail = batches.peek().is_none();
+        record_batch(
+            backend, cfg, kv, &buffers, tokens, position, true, with_tail,
+        )?;
     }
     Ok(())
 }
@@ -131,6 +137,14 @@ mod tests {
         })
         .unwrap();
         assert_eq!(calls.get(), 2);
+        assert_eq!(
+            backend
+                .trace()
+                .iter()
+                .filter(|operation| operation.starts_with("logits:"))
+                .count(),
+            1
+        );
         assert_eq!(
             BatchBuffers::new(&backend, &cfg, 0)
                 .err()

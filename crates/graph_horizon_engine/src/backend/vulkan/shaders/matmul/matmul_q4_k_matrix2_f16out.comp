@@ -1,0 +1,208 @@
+#version 460
+#extension GL_EXT_control_flow_attributes : enable
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_8bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+
+// AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K matrix2.
+
+/*
+ * graph_horizon_engine — direct canonical-Q4_K Matrix2 prefill matmul
+ *
+ * Treats canonical 144-byte Q4_K blocks as Matrix A and token activations as
+ * transposed Matrix B. One workgroup owns 256 output rows by 128 tokens, stages
+ * only the eight scale/min pairs per weight row, and lets cooperative tensor
+ * callbacks decode Q4 values directly into four K64 matrix operations. Full
+ * tiles use unclamped layouts; edge tiles preserve the same dataflow with
+ * constant-zero clamping. The accumulator and token-major output remain FP16.
+ */
+layout(local_size_x = 256) in;
+
+const uint BLOCK_SIZE = 256u;
+const uint BM = 256u;
+const uint BN = 128u;
+const uint BK = 64u;
+const uint QUANT_K = 256u;
+
+struct BlockQ4K {
+    f16vec2 dm;
+    uint8_t scales[12];
+    uint8_t qs[128];
+};
+
+struct BlockQ4KPacked16 {
+    f16vec2 dm;
+    uint16_t scales[6];
+    uint16_t qs[64];
+};
+
+struct BlockQ4KPacked128 {
+    uvec4 words[9];
+};
+
+layout(std430, binding = 0) readonly buffer W { BlockQ4K w[]; };
+layout(std430, binding = 0) readonly buffer W128 { BlockQ4KPacked128 w128[]; };
+layout(std430, binding = 1) readonly buffer A { float16_t a[]; };
+layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P {
+    uint in_dim;
+    uint out_dim;
+    uint n;
+} p;
+
+layout(buffer_reference, std430, buffer_reference_align = 16) buffer Q4Ref {
+    BlockQ4K block;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) buffer Q4Ref16 {
+    BlockQ4KPacked16 block;
+};
+
+// Padding prevents shared-memory bank aliasing between adjacent output rows.
+const uint SCALE_STRIDE = BM + 2u;
+shared vec2 scale_min[8u * SCALE_STRIDE];
+uvec4 pending_scale_min;
+
+void fetch_scale_min(uint row_base, uint block_k, uint tid, bool in_bounds) {
+    uint row = row_base + tid;
+    uint block = row * (p.in_dim / QUANT_K) + block_k / QUANT_K;
+    if (in_bounds || row < p.out_dim) {
+        pending_scale_min = w128[block].words[0];
+    }
+}
+
+void store_scale_min(uint tid) {
+    // Every callback from the preceding K256 tile has consumed shared state.
+    barrier();
+    vec2 dm = unpackFloat2x16(pending_scale_min.x);
+    uint scale0 = pending_scale_min.y;
+    uint scale4 = pending_scale_min.z;
+    uint scale8 = pending_scale_min.w;
+    uint scale_hi = (scale8 & 0x0F0F0F0Fu) | ((scale0 & 0xC0C0C0C0u) >> 2u);
+    uint min_hi = ((scale8 & 0xF0F0F0F0u) >> 4u) | ((scale4 & 0xC0C0C0C0u) >> 2u);
+
+    [[unroll]] for (uint group = 0u; group < 8u; group++) {
+        uint shift = 8u * (group & 3u);
+        uint scale = ((group < 4u ? scale0 : scale_hi) >> shift) & 0x3Fu;
+        uint minimum = ((group < 4u ? scale4 : min_hi) >> shift) & 0x3Fu;
+        scale_min[group * SCALE_STRIDE + tid] =
+            vec2(dm.x * float(scale), dm.y * float(minimum));
+    }
+    barrier();
+}
+
+float16_t decode_q4(
+    const in Q4Ref block,
+    const in uint block_coords[2],
+    const in uint coords[2]
+) {
+    Q4Ref16 packed = Q4Ref16(block);
+    uint index = coords[1];
+    uint group = (index & 0xE0u) >> 5u;
+    vec2 dm = scale_min[group * SCALE_STRIDE + (block_coords[0] % BM)];
+    uint packed_index = ((index & 0xC0u) >> 2u) + ((index & 0x1Eu) >> 1u);
+    uint value = uint32_t(packed.block.qs[packed_index]);
+    value = (value >> (((index & 0x20u) >> 3u) + 8u * (index & 1u))) & 0xFu;
+    return float16_t(dm.x * float(value) - dm.y);
+}
+
+void main() {
+    uint tid = gl_LocalInvocationIndex;
+    uint output_tile = gl_WorkGroupID.x;
+    uint token_tile = gl_WorkGroupID.y;
+    uint output_base = output_tile * BM;
+    uint token_base = token_tile * BN;
+    bool full_tile = output_base + BM <= p.out_dim && token_base + BN <= p.n;
+
+    tensorLayoutNV<2> weight_layout = createTensorLayoutNV(2);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> weight_clamp =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    tensorLayoutNV<2> activation_layout = createTensorLayoutNV(2);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> activation_clamp =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+    tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> output_layout =
+        createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+
+    weight_layout = setTensorLayoutBlockSizeNV(weight_layout, 1, QUANT_K);
+    weight_clamp = setTensorLayoutBlockSizeNV(weight_clamp, 1, QUANT_K);
+    weight_layout = setTensorLayoutDimensionNV(weight_layout, p.out_dim, p.in_dim);
+    weight_clamp = setTensorLayoutDimensionNV(weight_clamp, p.out_dim, p.in_dim);
+    activation_layout = setTensorLayoutDimensionNV(activation_layout, p.n, p.in_dim);
+    activation_clamp = setTensorLayoutDimensionNV(activation_clamp, p.n, p.in_dim);
+    output_layout = setTensorLayoutDimensionNV(output_layout, p.n, p.out_dim);
+
+    uint weight_stride = p.in_dim / QUANT_K;
+    weight_layout = setTensorLayoutStrideNV(weight_layout, weight_stride, 1u);
+    weight_clamp = setTensorLayoutStrideNV(weight_clamp, weight_stride, 1u);
+    activation_layout = setTensorLayoutStrideNV(activation_layout, p.in_dim, 1u);
+    activation_clamp = setTensorLayoutStrideNV(activation_clamp, p.in_dim, 1u);
+    output_layout = setTensorLayoutStrideNV(output_layout, p.out_dim, 1u);
+    tensorViewNV<2, false, 1, 0> transpose = createTensorViewNV(2, false, 1, 0);
+
+    coopmat<float16_t, gl_ScopeWorkgroup, BM, BN, gl_MatrixUseAccumulator> sum =
+        coopmat<float16_t, gl_ScopeWorkgroup, BM, BN,
+                gl_MatrixUseAccumulator>(float16_t(0.0));
+
+    fetch_scale_min(output_base, 0u, tid, full_tile);
+    for (uint block_k = 0u; block_k < p.in_dim; block_k += QUANT_K) {
+        store_scale_min(tid);
+        if (block_k + QUANT_K < p.in_dim) {
+            fetch_scale_min(output_base, block_k + QUANT_K, tid, full_tile);
+        }
+
+        if (full_tile) {
+            [[unroll]] for (uint inner = 0u; inner < QUANT_K; inner += BK) {
+                coopmat<float16_t, gl_ScopeWorkgroup, BM, BK, gl_MatrixUseA> weights;
+                coopmat<float16_t, gl_ScopeWorkgroup, BK, BN, gl_MatrixUseB> activations;
+                uint k = block_k + inner;
+                coopMatLoadTensorNV(
+                    weights,
+                    w,
+                    0u,
+                    sliceTensorLayoutNV(weight_layout, int(output_base), BM, int(k), BK),
+                    decode_q4);
+                coopMatLoadTensorNV(
+                    activations,
+                    a,
+                    0u,
+                    sliceTensorLayoutNV(activation_layout, int(token_base), BN, int(k), BK),
+                    transpose);
+                sum = coopMatMulAdd(weights, activations, sum);
+            }
+        } else {
+            [[unroll]] for (uint inner = 0u; inner < QUANT_K; inner += BK) {
+                coopmat<float16_t, gl_ScopeWorkgroup, BM, BK, gl_MatrixUseA> weights;
+                coopmat<float16_t, gl_ScopeWorkgroup, BK, BN, gl_MatrixUseB> activations;
+                uint k = block_k + inner;
+                coopMatLoadTensorNV(
+                    weights,
+                    w,
+                    0u,
+                    sliceTensorLayoutNV(weight_clamp, int(output_base), BM, int(k), BK),
+                    decode_q4);
+                coopMatLoadTensorNV(
+                    activations,
+                    a,
+                    0u,
+                    sliceTensorLayoutNV(activation_clamp, int(token_base), BN, int(k), BK),
+                    transpose);
+                sum = coopMatMulAdd(weights, activations, sum);
+            }
+        }
+    }
+
+    coopMatStoreTensorNV(
+        sum,
+        y,
+        0u,
+        sliceTensorLayoutNV(output_layout, int(token_base), BN, int(output_base), BM),
+        transpose);
+}

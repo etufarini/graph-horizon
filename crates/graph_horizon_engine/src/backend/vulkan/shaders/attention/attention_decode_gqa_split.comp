@@ -1,0 +1,105 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico split-KV della sola attention decode F16 GQA.
+
+// One workgroup owns one of eight disjoint history splits for one KV head and
+// reuses every packed K/V load across all four query heads in its 4:1 GQA group.
+// It emits unnormalized FP32 online-softmax partials for the reduction kernel.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Q { f16vec4 q[]; };
+layout(std430, binding = 1) readonly buffer KC { f16vec4 kc[]; };
+layout(std430, binding = 2) readonly buffer VC { f16vec4 vc[]; };
+layout(std430, binding = 3) writeonly buffer Partial { vec4 partial[]; };
+layout(std430, binding = 4) writeonly buffer State { float state[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint Q_GROUP = 4u;
+const uint SPLITS = 8u;
+const uint MAX_G = 8u;
+
+shared float sh_m[MAX_G];
+shared float sh_l[MAX_G];
+shared vec4 sh_acc[MAX_G * 32u];
+
+void main() {
+    uint pair = gl_WorkGroupID.x;
+    uint pairs_per_kv = (p.q_heads / p.kv_heads) / Q_GROUP;
+    uint kvh = pair / pairs_per_kv;
+    uint split = gl_WorkGroupID.y;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint l = gl_SubgroupInvocationID;
+    uint h0 = pair * Q_GROUP;
+    uint head_vecs = p.head_dim / 4u;
+
+    vec4 qd[Q_GROUP];
+    vec4 acc[Q_GROUP];
+    vec4 m_g = vec4(-1e30);
+    vec4 l_g = vec4(0.0);
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        qd[h] = vec4(q[(h0 + h) * head_vecs + l]);
+        acc[h] = vec4(0.0);
+    }
+
+    for (uint t = split * G + g; t <= p.pos; t += SPLITS * G) {
+        uint base = ((p.layer * p.context + t) * p.kv_heads + kvh) * head_vecs;
+        vec4 kd = vec4(kc[base + l]);
+        vec4 vd = vec4(vc[base + l]);
+        vec4 prod;
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            prod[h] = dot(qd[h], kd);
+        }
+        vec4 score = subgroupAdd(prod) * p.scale;
+        vec4 m_new = max(m_g, score);
+        vec4 alpha = exp(m_g - m_new);
+        vec4 pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        m_g = m_new;
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            acc[h] = acc[h] * alpha[h] + pw[h] * vd;
+        }
+    }
+
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        if (subgroupElect()) {
+            sh_m[g] = m_g[h];
+            sh_l[g] = l_g[h];
+        }
+        sh_acc[g * head_vecs + l] = acc[h];
+        barrier();
+        if (g == 0u) {
+            float m_split = -1e30;
+            for (uint gg = 0u; gg < G; gg++) m_split = max(m_split, sh_m[gg]);
+            float l_split = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                l_split += sh_l[gg] * exp(sh_m[gg] - m_split);
+            }
+            uint pairs = p.q_heads / Q_GROUP;
+            uint part = (split * pairs + pair) * Q_GROUP + h;
+            if (subgroupElect()) {
+                state[part * 2u] = m_split;
+                state[part * 2u + 1u] = l_split;
+            }
+            vec4 num = vec4(0.0);
+            for (uint gg = 0u; gg < G; gg++) {
+                num += sh_acc[gg * head_vecs + l] * exp(sh_m[gg] - m_split);
+            }
+            partial[part * head_vecs + l] = num;
+        }
+        barrier();
+    }
+}

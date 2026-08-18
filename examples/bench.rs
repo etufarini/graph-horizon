@@ -68,10 +68,10 @@ fn run() -> Result<(), BenchFailure> {
         if !seen.insert(flag) {
             return Err(usage(message));
         }
-        let value = pair.get(1).ok_or(usage(message))?;
+        let value = pair.get(1).ok_or_else(|| usage(message))?;
         match flag.as_str() {
             "--context" => context = Some(number(value, 1, usize::MAX, message)?),
-            "--kv" => kv = Some(KvQuant::parse(value).ok_or(usage(message))?),
+            "--kv" => kv = Some(KvQuant::parse(value).ok_or_else(|| usage(message))?),
             "--weights-percent" => weights_percent = Some(number(value, 0, 100, message)? as u8),
             "--prompt" if !value.is_empty() => prompt = value.clone(),
             "--prompt" => return Err(usage(message)),
@@ -81,8 +81,8 @@ fn run() -> Result<(), BenchFailure> {
             _ => unreachable!(),
         }
     }
-    let context = context.ok_or(usage("bench: invalid --context"))?;
-    let kv = kv.ok_or(usage("bench: invalid --kv"))?;
+    let context = context.ok_or_else(|| usage("bench: invalid --context"))?;
+    let kv = kv.ok_or_else(|| usage("bench: invalid --kv"))?;
     let engine = Engine::new(
         Path::new(model),
         EngineConfig {
@@ -111,12 +111,15 @@ fn run() -> Result<(), BenchFailure> {
     if report.decoded_tokens < 2 {
         return Err(INVALID_MEASUREMENT);
     }
-    let metric = |mean: f64, stddev: Option<f64>, scale: f64| {
+    let metric = |mean: f64, median: f64, stddev: Option<f64>, scale: f64| {
         let shown_mean = mean * scale;
+        let shown_median = median * scale;
         let shown_stddev = stddev.map(|value| value * scale);
         let cv = stddev.map(|value| value / mean);
         if !shown_mean.is_finite()
             || shown_mean <= 0.0
+            || !shown_median.is_finite()
+            || shown_median <= 0.0
             || shown_stddev.is_some_and(|value| !value.is_finite() || value < 0.0)
             || cv.is_some_and(|value| !value.is_finite())
         {
@@ -124,19 +127,29 @@ fn run() -> Result<(), BenchFailure> {
         }
         Ok([
             format!("{shown_mean:.2}"),
+            format!("{shown_median:.2}"),
             shown_stddev.map_or_else(|| "n/a".into(), |value| format!("{value:.2}")),
             cv.map_or_else(|| "n/a".into(), |value| format!("{value:.4}")),
         ])
     };
-    let [p_mean, p_sd, p_cv] = metric(report.prompt_tps.mean, report.prompt_tps.stddev, 1.0)?;
-    let [t_mean, t_sd, t_cv] =
-        metric(report.ttft_seconds.mean, report.ttft_seconds.stddev, 1000.0)?;
+    let [p_mean, p_median, p_sd, p_cv] = metric(
+        report.prompt_tps.mean,
+        report.prompt_tps.median,
+        report.prompt_tps.stddev,
+        1.0,
+    )?;
+    let [t_mean, t_median, t_sd, t_cv] = metric(
+        report.ttft_seconds.mean,
+        report.ttft_seconds.median,
+        report.ttft_seconds.stddev,
+        1000.0,
+    )?;
     let decode = report.tg.ok_or(INVALID_MEASUREMENT)?;
-    let [d_mean, d_sd, d_cv] = metric(decode.mean, decode.stddev, 1.0)?;
+    let [d_mean, d_median, d_sd, d_cv] = metric(decode.mean, decode.median, decode.stddev, 1.0)?;
     let prompt_tokens = report.n_prompt;
     let decoded_tokens = report.decoded_tokens;
     println!(
-        "prompt_tokens={prompt_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_stddev={t_sd} ttft_cv={t_cv} decode_tps_mean={d_mean} decode_tps_stddev={d_sd} decode_tps_cv={d_cv}"
+        "prompt_tokens={prompt_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_median={p_median} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_median={t_median} ttft_ms_stddev={t_sd} ttft_cv={t_cv} decode_tps_mean={d_mean} decode_tps_median={d_median} decode_tps_stddev={d_sd} decode_tps_cv={d_cv}"
     );
     Ok(())
 }

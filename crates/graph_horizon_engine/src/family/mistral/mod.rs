@@ -72,7 +72,8 @@ pub(crate) struct RuntimeModel {
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
     pub(crate) backend: selection::SelectedBackend,
     #[cfg(feature = "vulkan")]
-    pub(in crate::family::mistral) prefix_cache: std::sync::Mutex<Option<generation::PrefixCache>>,
+    pub(in crate::family::mistral) session_cache:
+        std::sync::Mutex<Option<generation::SessionCache>>,
 }
 
 impl RuntimeModel {
@@ -98,7 +99,7 @@ impl RuntimeModel {
             scheme: settings.kv_quant,
             backend,
             #[cfg(feature = "vulkan")]
-            prefix_cache: std::sync::Mutex::new(None),
+            session_cache: std::sync::Mutex::new(None),
         })
     }
 
@@ -115,7 +116,7 @@ impl RuntimeModel {
 impl Drop for RuntimeModel {
     fn drop(&mut self) {
         let slot = self
-            .prefix_cache
+            .session_cache
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(cache) = slot.take() {

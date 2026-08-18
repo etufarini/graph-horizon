@@ -58,6 +58,7 @@ pub(crate) fn rope_yarn(
     head_dim: u32,
     rope_dim: u32,
     pos: u32,
+    rows: u32,
     freq_base: f32,
     factor: f32,
     beta_fast: f32,
@@ -65,8 +66,8 @@ pub(crate) fn rope_yarn(
     original_context: u32,
     post_scale: f32,
 ) {
-    let mut push = Vec::with_capacity(48);
-    for v in [n_heads, head_dim, rope_dim, pos] {
+    let mut push = Vec::with_capacity(44);
+    for v in [n_heads, head_dim, rope_dim, pos, rows] {
         push.extend_from_slice(&v.to_le_bytes());
     }
     for v in [
@@ -79,7 +80,7 @@ pub(crate) fn rope_yarn(
     ] {
         push.extend_from_slice(&v.to_le_bytes());
     }
-    let pairs = n_heads * (head_dim / 2);
+    let pairs = rows * n_heads * (head_dim / 2);
     dispatch(
         dev,
         reg,

@@ -410,10 +410,10 @@ fn docs_contract() {
         );
     }
     assert!(
-        validation.contains("summary: qualified=6 not_qualified=0 external_verification=0 total=6")
+        validation.contains("summary: qualified=5 not_qualified=1 external_verification=0 total=6")
     );
     assert!(validation.contains("summary: pass=1 external_verification=73 failure=0 total=74"));
-    for model in ["3b-reasoning", "8b-reasoning", "14b-reasoning"] {
+    for model in ["3b-reasoning", "14b-reasoning"] {
         assert!(
             validation.contains(&format!(
                 "model_id={model} profile=reasoning evidence=current status=qualified"
@@ -421,6 +421,9 @@ fn docs_contract() {
             "validation register missing current Reasoning row: {model}"
         );
     }
+    assert!(validation.contains(
+        "model_id=8b-reasoning profile=reasoning evidence=current status=not-qualified reason=incomplete-generation"
+    ));
     let production_args = args.split("#[cfg(test)]").next().unwrap();
     assert!(
         !production_args.contains("--think"),

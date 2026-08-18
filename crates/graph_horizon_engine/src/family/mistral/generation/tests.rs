@@ -15,6 +15,8 @@ use crate::kv_cache::scheme::KvQuant;
 use crate::kv_cache::{self, Kv};
 use color_eyre::eyre::bail;
 use std::cell::Cell;
+#[cfg(feature = "vulkan")]
+use std::path::Path;
 use std::rc::Rc;
 
 struct Request {
@@ -292,6 +294,139 @@ fn request(max_tokens: usize) -> Request {
         context: 8,
         kv_quant: KvQuant::F16,
     }
+}
+
+#[cfg(feature = "vulkan")]
+#[test]
+#[ignore = "requires an authenticated Ministral model and Vulkan device"]
+fn real_vulkan_greedy_sequence_matches_reference() {
+    use crate::api::engine::EngineConfig;
+    use crate::api::message::{Message, Role};
+    use crate::backend::selection;
+    use crate::family::mistral::graph::MistralGraph;
+    use crate::runtime::RuntimeSession;
+
+    let path = std::env::var("GRAPH_HORIZON_MODEL").expect("GRAPH_HORIZON_MODEL required");
+    let repeats = std::env::var("GRAPH_HORIZON_SEQUENCE_REPEATS")
+        .ok()
+        .map(|value| value.parse::<usize>().expect("invalid sequence repeats"))
+        .unwrap_or(2045);
+    let count = std::env::var("GRAPH_HORIZON_SEQUENCE_TOKENS")
+        .ok()
+        .map(|value| {
+            value
+                .parse::<usize>()
+                .expect("invalid sequence token count")
+        })
+        .unwrap_or(128);
+    let context = std::env::var("GRAPH_HORIZON_SEQUENCE_CONTEXT")
+        .ok()
+        .map(|value| value.parse::<usize>().expect("invalid sequence context"))
+        .unwrap_or(32_768);
+    assert!(count > 0, "sequence token count must be positive");
+    let model = crate::family::load(
+        Path::new(&path),
+        &EngineConfig {
+            context_tokens: Some(context),
+            kv_quant: KvQuant::F16,
+            ..EngineConfig::default()
+        },
+    )
+    .expect("load authenticated Vulkan model");
+    let prompt = template::render(
+        &[Message {
+            role: Role::User,
+            content: " a".repeat(repeats),
+        }],
+        &model.tokenizer,
+        model.context,
+    )
+    .expect("render sequence prompt");
+    assert!(prompt.len() + count <= model.context);
+    let session = selection::session::<MistralGraph>(
+        &model.backend,
+        &model.config,
+        model.shape(),
+        model.context,
+        model.scheme,
+    )
+    .expect("create Vulkan sequence session");
+    session
+        .prefill(&prompt, 0, &mut || Ok(()))
+        .expect("prefill sequence prompt");
+
+    let expected = std::env::var("GRAPH_HORIZON_EXPECTED_GREEDY_IDS")
+        .ok()
+        .map(|ids| {
+            ids.split(',')
+                .map(|id| id.parse::<u32>().expect("invalid expected token ID"))
+                .collect::<Vec<_>>()
+        });
+    let teacher_forced = std::env::var("GRAPH_HORIZON_TEACHER_FORCE").as_deref() == Ok("1");
+    if teacher_forced {
+        assert_eq!(expected.as_ref().map(Vec::len), Some(count));
+    }
+    let mut tokens = Vec::with_capacity(count);
+    for step in 0..count {
+        let token = if teacher_forced {
+            let logits = session
+                .logits(model.config.vocab_size)
+                .expect("read teacher-forced logits");
+            let mut ranked = (0..logits.len()).collect::<Vec<_>>();
+            ranked.sort_unstable_by(|&left, &right| {
+                logits[right]
+                    .total_cmp(&logits[left])
+                    .then_with(|| left.cmp(&right))
+            });
+            let oracle = expected.as_ref().unwrap()[step];
+            assert!(
+                ranked[..2].contains(&(oracle as usize)),
+                "expected token absent from top two at step {step}"
+            );
+            ranked[0] as u32
+        } else {
+            session
+                .argmax(model.config.vocab_size)
+                .expect("read greedy token")
+        };
+        tokens.push(token);
+        if step + 1 < count {
+            // Each selected token becomes the next KV row, so this compares
+            // accumulated decode state rather than independent logits only.
+            session
+                .token(
+                    if teacher_forced {
+                        expected.as_ref().unwrap()[step]
+                    } else {
+                        token
+                    },
+                    prompt.len() + step,
+                )
+                .expect("advance greedy sequence");
+        }
+    }
+    let actual = tokens
+        .iter()
+        .map(u32::to_string)
+        .collect::<Vec<_>>()
+        .join(",");
+    match (expected, teacher_forced) {
+        (Some(_), true) => {}
+        (Some(expected), false) => assert_eq!(
+            actual,
+            expected
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(","),
+            "greedy token sequence changed"
+        ),
+        (None, _) => panic!("GRAPH_HORIZON_EXPECTED_GREEDY_IDS required"),
+    }
+    println!(
+        "vulkan-greedy-sequence: prompt={} ids={actual}",
+        prompt.len()
+    );
 }
 
 #[test]

@@ -1,10 +1,10 @@
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 
-// AGENTS deroga K: kernel numerico della sola quantizzazione attivazioni Q8_1.
+// AGENTS deroga K: kernel numerico della sola quantizzazione attivazioni Q8 a blocchi.
 
-// Quantizes dense FP16 decode activations to Q8_1: packed int8 quants plus
-// per-block d/s metadata. The near-zero maximum guard prevents infinite scales.
+// Quantizes dense FP16 decode activations to packed int8 quants plus per-8-block
+// d/s metadata. The near-zero maximum guard prevents infinite scales.
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer A { float16_t a[]; };   // [in_dim] f16 activations
@@ -15,19 +15,19 @@ layout(push_constant) uniform P { uint in_dim; } p;
 
 void main() {
     uint blk = gl_GlobalInvocationID.x;
-    uint nblocks = p.in_dim / 32u;
+    uint nblocks = p.in_dim / 8u;
     if (blk >= nblocks) return;
-    uint base = blk * 32u;
+    uint base = blk * 8u;
 
     float amax = 0.0;
-    for (uint i = 0u; i < 32u; i++) {
+    for (uint i = 0u; i < 8u; i++) {
         amax = max(amax, abs(float(a[base + i])));
     }
     float d = amax / 127.0;
     float id = (amax > 0.0) ? (127.0 / amax) : 0.0;
 
     int isum = 0;
-    for (uint g = 0u; g < 8u; g++) {
+    for (uint g = 0u; g < 2u; g++) {
         uint packed = 0u;
         for (uint t = 0u; t < 4u; t++) {
             int q = int(round(float(a[base + g * 4u + t]) * id));
@@ -35,7 +35,7 @@ void main() {
             isum += q;
             packed |= (uint(q) & 0xFFu) << (t * 8u);
         }
-        qs[blk * 8u + g] = packed;
+        qs[blk * 2u + g] = packed;
     }
     ds[blk * 2u] = d;
     ds[blk * 2u + 1u] = d * float(isum);

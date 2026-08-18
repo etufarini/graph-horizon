@@ -65,9 +65,8 @@ pub(in crate::backend::vulkan) fn matmul(
     in_dim: u32,
     out_dim: u32,
 ) {
-    // mmvq int8/dp4a decode path for the dense GEMV, opt-in and gated by
-    // GRAPH_HORIZON_DECODE_MMVQ; f16 variants over the reused scratch. Falls back to the
-    // per-format GEMV when off, scratch too small, or the shape is declined.
+    // MMVQ int8/DP4A decode path for the dense Q4_K GEMV; FP16 interfaces use
+    // reused scratch. Unsupported devices and shapes keep the per-format GEMV.
     if kernels::mmvq::dispatch_mmvq(
         &b.dev, &b.reg, *enc, out, a, &b.mmvq_qs, &b.mmvq_ds, w, in_dim, out_dim,
     ) {
@@ -92,13 +91,24 @@ pub(in crate::backend::vulkan) fn matmul_batched(
     out_dim: u32,
     n: u32,
 ) {
-    if n > 1 && matches!(w.quant, WeightFormat::Q4K) {
-        kernels::matmul::matmul_batched_q4k(&b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n);
-        return;
-    }
-    if n > 1 && matches!(w.quant, WeightFormat::Q6K) {
-        kernels::matmul::matmul_batched_q6k(&b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n);
-        return;
+    if n > 1 {
+        // These format-specific entry points may assume their weight format;
+        // all other formats retain the per-token fallback below.
+        match w.quant {
+            WeightFormat::Q4K => {
+                kernels::matmul::matmul_batched_q4k(
+                    &b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n,
+                );
+                return;
+            }
+            WeightFormat::Q6K => {
+                kernels::matmul::matmul_batched_q6k(
+                    &b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim, n,
+                );
+                return;
+            }
+            WeightFormat::F16 | WeightFormat::Q5K => {}
+        }
     }
     let a_stride = in_dim as u64 * 2; // FP16 activation row
     let o_stride = out_dim as u64 * 2; // FP16 output row

@@ -1,0 +1,48 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// AGENTS deroga K: riduzione dei partial split-KV della attention decode GQA.
+
+layout(local_size_x = 32) in;
+
+layout(std430, binding = 0) readonly buffer Partial { vec4 partial[]; };
+layout(std430, binding = 1) readonly buffer State { float state[]; };
+layout(std430, binding = 2) writeonly buffer O { f16vec4 o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint Q_GROUP = 4u;
+const uint SPLITS = 8u;
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint lane = gl_LocalInvocationID.x;
+    uint pair = h / Q_GROUP;
+    uint slot = h % Q_GROUP;
+    float m = -1e30;
+    for (uint split = 0u; split < SPLITS; split++) {
+        uint pairs = p.q_heads / Q_GROUP;
+        uint part = (split * pairs + pair) * Q_GROUP + slot;
+        m = max(m, state[part * 2u]);
+    }
+    float l = 0.0;
+    vec4 num = vec4(0.0);
+    uint head_vecs = p.head_dim / 4u;
+    for (uint split = 0u; split < SPLITS; split++) {
+        uint pairs = p.q_heads / Q_GROUP;
+        uint part = (split * pairs + pair) * Q_GROUP + slot;
+        float alpha = exp(state[part * 2u] - m);
+        l += state[part * 2u + 1u] * alpha;
+        num += partial[part * head_vecs + lane] * alpha;
+    }
+    o[h * head_vecs + lane] = f16vec4(num / l);
+}

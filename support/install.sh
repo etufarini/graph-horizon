@@ -6,7 +6,10 @@
 
 set -euo pipefail
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script_source="${BASH_SOURCE[0]}"
+script_parent="${script_source%/*}"
+[[ "${script_parent}" != "${script_source}" ]] || script_parent="."
+script_dir="$(cd -- "${script_parent}" && pwd)"
 project_dir="$(cd "${script_dir}/.." && pwd)"
 backend=""
 profile="release"

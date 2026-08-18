@@ -12,6 +12,7 @@ use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
 use crate::backend::vulkan::coopmat::{self, CoopmatCaps};
+use crate::backend::vulkan::coopmat2::{self, Coopmat2Caps};
 
 const PUSH_DESCRIPTOR: &std::ffi::CStr = ash::khr::push_descriptor::NAME;
 const MEMORY_BUDGET: &std::ffi::CStr = ash::ext::memory_budget::NAME;
@@ -22,6 +23,7 @@ pub(super) struct DeviceBoot {
     pub queue: vk::Queue,
     pub memory_budget_enabled: bool,
     pub coopmat: CoopmatCaps,
+    pub coopmat2: Coopmat2Caps,
     pub dp4a: bool,
     pub push_desc: ash::khr::push_descriptor::Device,
     pub cmd_pool: vk::CommandPool,
@@ -49,8 +51,11 @@ pub(super) fn create_device(
         })
         .unwrap_or(false);
 
-    // Coopmat shape (f16→f32) if exposed; absence means fallback.
+    // Subgroup cooperative matrices and workgroup Matrix2 are independent
+    // optional contracts. Either one may require the shared KHR extension.
     let coopmat = coopmat::detect(entry, instance, physical);
+    let coopmat2 = coopmat2::detect(entry, instance, physical);
+    let matrix_extension = coopmat.available || coopmat2.enabled();
 
     // dp4a for the mmvq Q4_K decode GEMV; absence means float GEMV.
     let dp4a = {
@@ -72,21 +77,30 @@ pub(super) fn create_device(
     }
     // Coopmat extension + feature only when a usable shape was found (INV-6); the
     // feature structs must outlive `dci`.
-    if coopmat.available {
+    if matrix_extension {
         ext.push(coopmat::COOPERATIVE_MATRIX.as_ptr());
     }
+    if coopmat2.enabled() {
+        ext.push(coopmat2::COOPERATIVE_MATRIX2.as_ptr());
+    }
     let mut f11 = vk::PhysicalDeviceVulkan11Features::default().storage_buffer16_bit_access(true);
-    let mut f12 = vk::PhysicalDeviceVulkan12Features::default().shader_float16(true);
+    let mut f12 = vk::PhysicalDeviceVulkan12Features::default()
+        .shader_float16(true)
+        .vulkan_memory_model(coopmat2.enabled());
     let mut coop_feat =
         vk::PhysicalDeviceCooperativeMatrixFeaturesKHR::default().cooperative_matrix(true);
+    let mut coop2_feat = coopmat2::enabled_features(coopmat2);
     let mut f13 = vk::PhysicalDeviceVulkan13Features::default().shader_integer_dot_product(true);
     let mut dci = vk::DeviceCreateInfo::default()
         .queue_create_infos(&qci)
         .enabled_extension_names(&ext)
         .push_next(&mut f11)
         .push_next(&mut f12);
-    if coopmat.available {
+    if matrix_extension {
         dci = dci.push_next(&mut coop_feat);
+    }
+    if coopmat2.enabled() {
+        dci = dci.push_next(&mut coop2_feat);
     }
     if dp4a {
         dci = dci.push_next(&mut f13);
@@ -119,6 +133,7 @@ pub(super) fn create_device(
         queue,
         memory_budget_enabled,
         coopmat,
+        coopmat2,
         dp4a,
         push_desc,
         cmd_pool,

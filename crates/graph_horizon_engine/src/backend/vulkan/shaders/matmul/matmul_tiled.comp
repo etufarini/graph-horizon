@@ -4,21 +4,17 @@
 
 // AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K tiled.
 
-// Tiled Q4_K matmul: y = W * a, batch 1, with shared-memory staging of the
-// activation and a 4-lane split per output row.
+// Tiled Q4_K matmul: y = W * a, batch 1, with a 4-lane split per output row.
 //
-// Tiling (fixed): workgroup 256 invocations, output tile = 64 rows, K-chunk = one
-// Q4_K super-block (256 weights) staged in shared memory per iteration; the per-row
-// reduction over the 4 lanes uses shared memory (no subgroup-arithmetic dependency,
-// hardware-agnostic). The K-chunk is the 256-weight super-block (not the generic 32
-// of the plan) because Q4_K's scales are per-super-block: the natural dequant unit.
+// Tiling (fixed): workgroup 256 invocations, output tile = 16 rows, K-chunk = one
+// Q4_K super-block (256 weights); the per-row reduction over 16 lanes uses shared
+// memory (no subgroup-arithmetic dependency, hardware-agnostic). The activation is
+// read directly: the complete decode vector fits in cache, and this preserves the
+// arithmetic order while avoiding two workgroup barriers per super-block.
 //
-// Lane map: tid = 4*row_local + lane. The 64 rows of a workgroup all read the SAME
-// staged activation super-block, so each super-block's 256 activations are loaded
-// from global memory ONCE per workgroup (64x fewer global reads of `a` than the
-// one-invocation-per-row naive kernel). Each row's 256 weights split across its 4
-// lanes by the four 64-weight j-blocks of the super-block (j = lane*64), matching
-// the Q4_K dequant order exactly, so the value is bit-equivalent.
+// Lane map: tid = 16*row_local + lane. The 16 rows of a workgroup read the same
+// activation vector. Two lanes split each 32-weight Q4_K sub-block, shortening
+// serial dot work while keeping canonical storage and FP32 partial accumulation.
 //
 // Boundary: out_dim need not be a multiple of 64 — out-of-range rows still help
 // stage the shared activation but write nothing. in_dim is always a multiple of 256
@@ -31,8 +27,7 @@ layout(std430, binding = 2) writeonly buffer Y { float16_t y[]; };  // [out_dim]
 
 layout(push_constant) uniform P { uint in_dim; uint out_dim; } p;
 
-// Staged activation of the current super-block (256 values) and per-lane partials.
-shared float asb[256];
+// Per-lane partials for the four-way row reduction.
 shared float partial[256];
 
 // One byte at absolute byte address b within the raw weight buffer.
@@ -55,63 +50,55 @@ void scale_min(uint sco, uint j, out uint sc, out uint mn) {
 
 void main() {
     uint tid = gl_LocalInvocationID.x;
-    uint row_local = tid >> 2u;            // 0..63
-    uint lane = tid & 3u;                  // 0..3 → handles j-block j = lane*64
-    uint o = gl_WorkGroupID.x * 64u + row_local;
+    uint row_local = tid >> 4u;            // 0..15
+    uint lane = tid & 15u;                 // two lanes per Q4_K sub-block
+    uint o = gl_WorkGroupID.x * 16u + row_local;
     bool live = o < p.out_dim;
 
     uint nsb = p.in_dim / 256u;            // super-blocks per output row
-    uint j = lane * 64u;                   // this lane's 64-weight j-block
-    uint is = lane * 2u;                   // its first sub-block index (2 per j-block)
-    uint qb = lane * 32u;                  // its byte offset into qs[128]
+    uint subblock = lane >> 1u;
+    uint segment_half = lane & 1u;
+    uint pair = subblock >> 1u;             // 64-value packed-nibble pair
+    uint activation_shift = pair * 64u + (subblock & 1u) * 32u + segment_half * 16u;
+    uint qb = pair * 32u + segment_half * 16u;
+    uint nibble_shift = (subblock & 1u) * 4u;
     float acc = 0.0;
 
     for (uint s = 0u; s < nsb; s++) {
-        // Stage the 256 activations of super-block s into shared memory (one per
-        // invocation), so all 64 rows reuse them from shared, not global.
-        asb[tid] = float(a[s * 256u + tid]);
-        barrier();
-
         if (live) {
             uint blk = (o * nsb + s) * 144u; // byte base of this Q4_K block
             float d = hf(blk);
             float dmin = hf(blk + 2u);
             uint sco = blk + 4u;             // scales[12]
             uint qso = blk + 16u;            // qs[128]
-            uint sc1, mn1, sc2, mn2;
-            scale_min(sco, is, sc1, mn1);
-            scale_min(sco, is + 1u, sc2, mn2);
-            float d1 = d * float(sc1);
-            float m1 = dmin * float(mn1);
-            float d2 = d * float(sc2);
-            float m2 = dmin * float(mn2);
+            uint sc, mn;
+            scale_min(sco, subblock, sc, mn);
+            float ds = d * float(sc);
+            float dm = dmin * float(mn);
             // Read this lane's 32 qs bytes as 8 uints (one global load each) instead
             // of 32 byte-extracting gb() calls that re-load the same uint 4×. qso+qb
             // is 4-aligned (qso=blk+16, qb=lane*32, blk a multiple of 144), so the
             // uint index is exact. Same qv values and same accumulation order over
             // l=0..31 ⇒ bit-identical to the gb() loop.
             uint qbase = (qso + qb) >> 2u;
-            for (uint u = 0u; u < 8u; u++) {
+            for (uint u = 0u; u < 4u; u++) {
                 uint word = q[qbase + u];
                 for (uint b = 0u; b < 4u; b++) {
                     uint qv = (word >> (b * 8u)) & 0xFFu;
                     uint l = u * 4u + b;
-                    float w0 = d1 * float(qv & 0xFu) - m1;
-                    acc += w0 * asb[j + l];
-                    float w1 = d2 * float(qv >> 4u) - m2;
-                    acc += w1 * asb[j + 32u + l];
+                    float weight = ds * float((qv >> nibble_shift) & 0xFu) - dm;
+                    acc += weight * float(a[s * 256u + activation_shift + l]);
                 }
             }
         }
-        // Re-stage on the next iteration overwrites asb: keep all lanes in step.
-        barrier();
     }
 
-    // Reduce the 4 lanes of each row via shared memory; lane 0 writes the result.
+    // Reduce the 16 lanes of each row via shared memory; lane 0 writes the result.
     partial[tid] = acc;
     barrier();
     if (lane == 0u && live) {
-        float sum = partial[tid] + partial[tid + 1u] + partial[tid + 2u] + partial[tid + 3u];
+        float sum = partial[tid];
+        for (uint i = 1u; i < 16u; i++) sum += partial[tid + i];
         y[o] = float16_t(sum);
     }
 }

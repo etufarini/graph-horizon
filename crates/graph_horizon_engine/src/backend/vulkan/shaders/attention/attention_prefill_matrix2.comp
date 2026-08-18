@@ -1,0 +1,190 @@
+#version 460
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_NV_cooperative_matrix2 : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill F16 matrix2.
+
+// NVIDIA workgroup-scope prefill attention. One 256-thread workgroup owns 32
+// queries and scans 64 keys at a time. Tensor loads feed Q/K/V directly from
+// their strided buffers; score stays in a cooperative matrix. FP16 probability
+// is staged for AV, while one FP32 cooperative output remains live across KV
+// tiles for the online merge. Decode, INT8 and query tails use existing paths.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint QUERY_TILE = 32u;
+const uint KV_TILE = 64u;
+const uint HEAD_DIM = 128u;
+const uint OUTPUTS_PER_THREAD = QUERY_TILE * HEAD_DIM / 256u;
+
+shared float sh_scratch[QUERY_TILE * HEAD_DIM];
+shared float sh_m[QUERY_TILE];
+shared float sh_l[QUERY_TILE];
+shared float sh_alpha[QUERY_TILE];
+shared float16_t sh_probability[QUERY_TILE * KV_TILE];
+
+float scale_and_mask(
+    const in uint row,
+    const in uint col,
+    const in float value,
+    const in uint first,
+    const in uint tile,
+    const in uint base,
+    const in float scale
+) {
+    uint position = base + first + row;
+    return tile + col <= position ? value * scale : -1e30;
+}
+
+float rescale_output(const in uint row, const in uint col, const in float value) {
+    return value * sh_alpha[row];
+}
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (h >= p.q_heads || first >= p.n) return;
+
+    uint lane = gl_LocalInvocationIndex;
+    uint group = p.q_heads / p.kv_heads;
+    uint kvh = h / group;
+    uint last_pos = p.base + first + QUERY_TILE - 1u;
+    uint cache_width = p.kv_heads * HEAD_DIM;
+    uint cache_layer = p.layer * p.context * cache_width;
+
+    if (lane < QUERY_TILE) {
+        sh_m[lane] = -1e30;
+        sh_l[lane] = 0.0;
+        sh_alpha[lane] = 1.0;
+    }
+    barrier();
+
+    coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+            gl_MatrixUseAccumulator> output_matrix =
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator>(0.0);
+
+    for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> score =
+            coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                    gl_MatrixUseAccumulator>(0.0);
+
+        for (uint dimension = 0u; dimension < HEAD_DIM; dimension += 16u) {
+            coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, 16,
+                    gl_MatrixUseA> query_fragment =
+                coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, 16,
+                        gl_MatrixUseA>(float16_t(0.0));
+            coopmat<float16_t, gl_ScopeWorkgroup, 16, KV_TILE,
+                    gl_MatrixUseB> key_fragment =
+                coopmat<float16_t, gl_ScopeWorkgroup, 16, KV_TILE,
+                        gl_MatrixUseB>(float16_t(0.0));
+
+            tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> query_layout =
+                createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+            query_layout = setTensorLayoutDimensionNV(
+                query_layout, p.n, p.q_heads * HEAD_DIM);
+            query_layout = sliceTensorLayoutNV(
+                query_layout, int(first), QUERY_TILE,
+                int(h * HEAD_DIM + dimension), 16u);
+            coopMatLoadTensorNV(query_fragment, q, 0u, query_layout);
+
+            tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> key_layout =
+                createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+            key_layout = setTensorLayoutDimensionNV(
+                key_layout, p.base + p.n, cache_width);
+            key_layout = sliceTensorLayoutNV(
+                key_layout, int(tile), KV_TILE,
+                int(kvh * HEAD_DIM + dimension), 16u);
+            tensorViewNV<2, false, 1, 0> transpose =
+                createTensorViewNV(2, false, 1, 0);
+            coopMatLoadTensorNV(key_fragment, kc, cache_layer, key_layout, transpose);
+
+            score = coopMatMulAdd(query_fragment, key_fragment, score);
+        }
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseAccumulator> scaled;
+        coopMatPerElementNV(scaled, score, scale_and_mask, first, tile, p.base, p.scale);
+        coopMatStore(scaled, sh_scratch, 0u, KV_TILE,
+                     gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+        uint subgroup = gl_SubgroupID;
+        uint subgroup_lane = gl_SubgroupInvocationID;
+        for (uint query = subgroup; query < QUERY_TILE; query += gl_NumSubgroups) {
+            float lane_maximum = -1e30;
+            for (uint key = subgroup_lane; key < KV_TILE; key += gl_SubgroupSize) {
+                lane_maximum = max(lane_maximum, sh_scratch[query * KV_TILE + key]);
+            }
+            float tile_maximum = subgroupMax(lane_maximum);
+            float new_maximum = max(sh_m[query], tile_maximum);
+            float lane_sum = 0.0;
+            for (uint key = subgroup_lane; key < KV_TILE; key += gl_SubgroupSize) {
+                float probability = exp(sh_scratch[query * KV_TILE + key] - new_maximum);
+                sh_probability[query * KV_TILE + key] = float16_t(probability);
+                lane_sum += probability;
+            }
+            float tile_sum_value = subgroupAdd(lane_sum);
+            if (subgroupElect()) {
+                float alpha = exp(sh_m[query] - new_maximum);
+                sh_alpha[query] = alpha;
+                sh_l[query] = sh_l[query] * alpha + tile_sum_value;
+                sh_m[query] = new_maximum;
+            }
+        }
+        barrier();
+        coopmat<float16_t, gl_ScopeWorkgroup, QUERY_TILE, KV_TILE,
+                gl_MatrixUseA> probability;
+        coopMatLoad(probability, sh_probability, 0u, KV_TILE,
+                    gl_CooperativeMatrixLayoutRowMajor);
+        coopmat<float16_t, gl_ScopeWorkgroup, KV_TILE, HEAD_DIM,
+                gl_MatrixUseB> value =
+            coopmat<float16_t, gl_ScopeWorkgroup, KV_TILE, HEAD_DIM,
+                    gl_MatrixUseB>(float16_t(0.0));
+        tensorLayoutNV<2, gl_CooperativeMatrixClampModeConstantNV> value_layout =
+            createTensorLayoutNV(2, gl_CooperativeMatrixClampModeConstantNV);
+        value_layout = setTensorLayoutDimensionNV(
+            value_layout, p.base + p.n, cache_width);
+        value_layout = sliceTensorLayoutNV(
+            value_layout, int(tile), KV_TILE, int(kvh * HEAD_DIM), HEAD_DIM);
+        coopMatLoadTensorNV(value, vc, cache_layer, value_layout);
+
+        coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                gl_MatrixUseAccumulator> rescaled_output =
+            coopmat<float, gl_ScopeWorkgroup, QUERY_TILE, HEAD_DIM,
+                    gl_MatrixUseAccumulator>(0.0);
+        // Invariant: output and (m,l) cover the same KV prefix before the next AV tile.
+        coopMatPerElementNV(rescaled_output, output_matrix, rescale_output);
+        output_matrix = coopMatMulAdd(probability, value, rescaled_output);
+    }
+
+    coopMatStore(output_matrix, sh_scratch, 0u, HEAD_DIM,
+                 gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint part = 0u; part < OUTPUTS_PER_THREAD; part++) {
+        uint index = lane + part * 256u;
+        uint query = index / HEAD_DIM;
+        uint dimension = index % HEAD_DIM;
+        uint output_index = ((first + query) * p.q_heads + h) * HEAD_DIM + dimension;
+        o[output_index] = float16_t(sh_scratch[index] / sh_l[query]);
+    }
+}

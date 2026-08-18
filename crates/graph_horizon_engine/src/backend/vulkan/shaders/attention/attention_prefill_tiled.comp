@@ -1,0 +1,200 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
+
+// Causal GQA prefill attention for eight adjacent query rows. A 512-thread
+// workgroup loads one 64-position tile in two phases: K produces shared scores,
+// then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
+// workgroup tile. History keys are distributed across two subgroups per query;
+// every invocation owns two disjoint output dimensions and FP32 accumulators.
+// Q/output are [n][q_heads][head_dim]; cache is
+// [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
+layout(local_size_x = 512) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint QUERY_TILE = 8u;
+const uint KV_TILE = 64u;
+// The sole supported model family validates power-of-two, 128-wide K/V tensors.
+const uint HEAD_DIM = 128u;
+const uint MAX_DPL = 8u;
+const uint OUTPUT_DPL = 2u;
+
+shared float16_t sh_tile[KV_TILE * 128u];
+shared float16_t sh_q[QUERY_TILE * 128u];
+shared float sh_score[QUERY_TILE * KV_TILE];
+shared float sh_m[QUERY_TILE];
+shared float sh_l[QUERY_TILE];
+shared float sh_alpha[QUERY_TILE];
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (h >= p.q_heads || first >= p.n) return;
+
+    uint S = gl_SubgroupSize;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint lane = gl_SubgroupInvocationID;
+    uint rows = min(QUERY_TILE, p.n - first);
+    uint key_parts = G / QUERY_TILE;
+    uint query = g / key_parts;
+    uint part = g % key_parts;
+    bool valid_query = query < rows;
+
+    uint group = p.q_heads / p.kv_heads;
+    uint kvh = h / group;
+    uint query_row = first + min(query, rows - 1u);
+    uint row = query_row * p.q_heads * HEAD_DIM;
+    uint pos = p.base + query_row;
+    uint last_pos = p.base + first + rows - 1u;
+
+    // Q is shared because every history-partition subgroup for the same query
+    // computes independent scores from the same vector.
+    uint query_elements = rows * HEAD_DIM;
+    for (uint index = gl_LocalInvocationIndex; index < query_elements; index += 512u) {
+        uint query_index = index >> 7u;
+        uint d = index & (HEAD_DIM - 1u);
+        uint source_row = first + query_index;
+        sh_q[index] = q[(source_row * p.q_heads + h) * HEAD_DIM + d];
+    }
+    if (gl_LocalInvocationIndex < QUERY_TILE) {
+        sh_m[gl_LocalInvocationIndex] = -1e30;
+        sh_l[gl_LocalInvocationIndex] = 0.0;
+        sh_alpha[gl_LocalInvocationIndex] = 1.0;
+    }
+    barrier();
+
+    // With two key subgroups/query on subgroup 32, each lane owns two output
+    // dimensions. This bounds private state while Q_TILE doubles from four.
+    float acc[OUTPUT_DPL];
+    for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
+
+    for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
+        uint count = min(KV_TILE, last_pos + 1u - tile);
+        uint elements = count * HEAD_DIM;
+        for (uint index = gl_LocalInvocationIndex; index < elements; index += 512u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * HEAD_DIM + d;
+            sh_tile[index] = kc[cache];
+        }
+        barrier();
+
+        // Full history tiles avoid the per-key causal comparison. Only the
+        // diagonal tile takes the partial path for each query.
+        bool full_tile = valid_query && tile + count - 1u <= pos;
+        for (uint key = part; key < count; key += key_parts) {
+            float score = -1e30;
+            if (full_tile || (valid_query && tile + key <= pos)) {
+                float product = 0.0;
+                for (uint j = 0u; j < MAX_DPL; j++) {
+                    uint d = lane + j * S;
+                    if (d < HEAD_DIM) {
+                        product += float(sh_q[query * HEAD_DIM + d])
+                                 * float(sh_tile[key * HEAD_DIM + d]);
+                    }
+                }
+                score = subgroupAdd(product) * p.scale;
+            }
+            if (subgroupElect()) sh_score[query * KV_TILE + key] = score;
+        }
+        barrier();
+
+        // The first subgroup of each query converts scores to online-softmax
+        // weights. Each lane owns strided scores, so tiles may exceed subgroup
+        // width without another workgroup reduction.
+        if (valid_query && part == 0u) {
+            float lane_m = -1e30;
+            for (uint key = lane; key < count; key += S) {
+                lane_m = max(lane_m, sh_score[query * KV_TILE + key]);
+            }
+            float tile_m = subgroupMax(lane_m);
+            float m_new = max(sh_m[query], tile_m);
+            float lane_l = 0.0;
+            for (uint key = lane; key < count; key += S) {
+                float weight = exp(sh_score[query * KV_TILE + key] - m_new);
+                sh_score[query * KV_TILE + key] = weight;
+                lane_l += weight;
+            }
+            float tile_l = subgroupAdd(lane_l);
+            float alpha = exp(sh_m[query] - m_new);
+            if (subgroupElect()) {
+                sh_alpha[query] = alpha;
+                sh_l[query] = sh_l[query] * alpha + tile_l;
+                sh_m[query] = m_new;
+            }
+        }
+
+        // All K reads finished at the preceding barrier, so V may overwrite the
+        // shared tile while the elected subgroups transform independent scores.
+        for (uint index = gl_LocalInvocationIndex; index < elements; index += 512u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * HEAD_DIM + d;
+            sh_tile[index] = vc[cache];
+        }
+        barrier();
+
+        if (valid_query) {
+            for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                uint d = part * S + lane + j * key_parts * S;
+                if (d >= HEAD_DIM) continue;
+                float sum0 = 0.0;
+                float sum1 = 0.0;
+                float sum2 = 0.0;
+                float sum3 = 0.0;
+                // Four independent FMA chains cover the scheduler latency; the
+                // balanced merge avoids replacing them with one serial tail.
+                for (uint key = 0u; key < count; key += 4u) {
+                    sum0 += sh_score[query * KV_TILE + key]
+                          * float(sh_tile[key * HEAD_DIM + d]);
+                    if (key + 1u < count) {
+                        sum1 += sh_score[query * KV_TILE + key + 1u]
+                              * float(sh_tile[(key + 1u) * HEAD_DIM + d]);
+                    }
+                    if (key + 2u < count) {
+                        sum2 += sh_score[query * KV_TILE + key + 2u]
+                              * float(sh_tile[(key + 2u) * HEAD_DIM + d]);
+                    }
+                    if (key + 3u < count) {
+                        sum3 += sh_score[query * KV_TILE + key + 3u]
+                              * float(sh_tile[(key + 3u) * HEAD_DIM + d]);
+                    }
+                }
+                acc[j] = acc[j] * sh_alpha[query] + (sum0 + sum1) + (sum2 + sum3);
+            }
+        }
+        // The V tile remains live until every output owner finishes consuming it.
+        barrier();
+    }
+
+    if (valid_query) {
+        for (uint j = 0u; j < OUTPUT_DPL; j++) {
+            uint d = part * S + lane + j * key_parts * S;
+            if (d < HEAD_DIM) {
+                o[row + h * HEAD_DIM + d] = float16_t(acc[j] / sh_l[query]);
+            }
+        }
+    }
+}

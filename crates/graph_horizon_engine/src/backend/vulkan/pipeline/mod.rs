@@ -12,6 +12,7 @@ use color_eyre::eyre::{Result, eyre};
 
 use super::device::Device;
 
+mod caps;
 mod kernel;
 mod record;
 
@@ -59,20 +60,18 @@ const KERNELS: [Kernel; 26] = [
     Kernel::MatmulQ6KBatchF16Out,
 ];
 
-const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
-const ATTENTION_1024_SHARED_BYTES: u32 = 64 * 128 * 4 + 64 * 4 * 2;
-
-fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 512 && size_x >= 512 && shared_bytes >= WIDE_ATTENTION_SHARED_BYTES
-}
-
-fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
-    invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
-}
-
 impl PipelineRegistry {
     pub(crate) fn build(dev: &Device) -> Result<PipelineRegistry> {
-        let (wide_attention, attention_1024) = Self::check_limits(dev)?;
+        let caps::PipelineCaps {
+            wide_attention,
+            tiled_attention,
+            coop_qk_attention,
+            matrix2,
+            matrix2_attention_q64,
+            attention_1024,
+            gqa_decode,
+            q4_metadata,
+        } = caps::check(dev)?;
         // SAFETY: `dev.device` is alive; the default cache-create info is valid.
         let cache = unsafe {
             dev.device
@@ -90,28 +89,75 @@ impl PipelineRegistry {
                     map.insert(k, record::build_one(dev, cache, k)?);
                 }
             }
+            if tiled_attention {
+                map.insert(
+                    Kernel::AttentionPrefillTiled,
+                    record::build_one(dev, cache, Kernel::AttentionPrefillTiled)?,
+                );
+            }
+            if coop_qk_attention {
+                map.insert(
+                    Kernel::AttentionPrefillTiledCoopQk,
+                    record::build_one(dev, cache, Kernel::AttentionPrefillTiledCoopQk)?,
+                );
+            }
+            if matrix2 {
+                // A driver may advertise NV2 but reject an exact SPIR-V shape.
+                // Pipeline absence is therefore a capability fallback, not fatal.
+                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2)
+                {
+                    map.insert(Kernel::AttentionPrefillMatrix2, pipeline);
+                }
+                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ4KMatrix2F16Out)
+                {
+                    map.insert(Kernel::MatmulQ4KMatrix2F16Out, pipeline);
+                }
+                if let Ok(pipeline) = record::build_one(dev, cache, Kernel::MatmulQ6KMatrix2F16Out)
+                {
+                    map.insert(Kernel::MatmulQ6KMatrix2F16Out, pipeline);
+                }
+            }
+            if matrix2_attention_q64
+                && let Ok(pipeline) =
+                    record::build_one(dev, cache, Kernel::AttentionPrefillMatrix2Q64)
+            {
+                map.insert(Kernel::AttentionPrefillMatrix2Q64, pipeline);
+            }
             if attention_1024 {
                 map.insert(
                     Kernel::AttentionDecode1024,
                     record::build_one(dev, cache, Kernel::AttentionDecode1024)?,
                 );
             }
-            // Capability-gated SPIR-V is built only when the device can execute it.
-            if dev.coopmat.available {
+            if gqa_decode {
                 map.insert(
-                    Kernel::MatmulQ4KCoopmatF16Out,
-                    record::build_one(dev, cache, Kernel::MatmulQ4KCoopmatF16Out)?,
+                    Kernel::AttentionDecodeGqaSplit,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
+                );
+                map.insert(
+                    Kernel::AttentionDecodeGqaReduce,
+                    record::build_one(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
                 );
             }
+            // Capability-gated SPIR-V is built only when the device can execute it.
+            if dev.coopmat.available {
+                for k in [
+                    Kernel::MatmulQ4KCoopmatF16Out,
+                    Kernel::MatmulQ6KCoopmatF16Out,
+                ] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
+                if q4_metadata {
+                    map.insert(
+                        Kernel::MatmulQ4KCoopmatMetadataF16Out,
+                        record::build_one(dev, cache, Kernel::MatmulQ4KCoopmatMetadataF16Out)?,
+                    );
+                }
+            }
             if dev.dp4a {
-                map.insert(
-                    Kernel::QuantAQ8F16,
-                    record::build_one(dev, cache, Kernel::QuantAQ8F16)?,
-                );
-                map.insert(
-                    Kernel::MatmulQ4KMmvqF16Out,
-                    record::build_one(dev, cache, Kernel::MatmulQ4KMmvqF16Out)?,
-                );
+                for k in [Kernel::QuantAQ8F16, Kernel::MatmulQ4KMmvqF16Out] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
             }
             Ok(())
         })();
@@ -133,34 +179,6 @@ impl PipelineRegistry {
         self.map.contains_key(&k)
     }
 
-    fn check_limits(dev: &Device) -> Result<(bool, bool)> {
-        // Required kernels use up to 256 invocations; optional attention variants
-        // are gated independently at 512 and 1024. Vulkan guarantees 128-byte pushes.
-        // SAFETY: `dev.instance` is live and `dev.physical` is one of its enumerated devices.
-        let l = unsafe {
-            dev.instance
-                .get_physical_device_properties(dev.physical)
-                .limits
-        };
-        if l.max_compute_work_group_invocations < 256
-            || l.max_compute_work_group_size[0] < 256
-            || l.max_push_constants_size < 36
-        {
-            return Err(eyre!(
-                "vulkan: device workgroup/push-constant limits too small"
-            ));
-        }
-        let limits = (
-            l.max_compute_work_group_invocations,
-            l.max_compute_work_group_size[0],
-            l.max_compute_shared_memory_size,
-        );
-        Ok((
-            supports_wide_attention(limits.0, limits.1, limits.2),
-            supports_attention_1024(limits.0, limits.1, limits.2),
-        ))
-    }
-
     pub(crate) fn destroy(&self, dev: &Device) {
         // SAFETY: caller ensures the device is idle and the registry is dropped once; each
         // pipeline's pipeline/layout/set-layout are destroyed before the shared cache.
@@ -172,61 +190,5 @@ impl PipelineRegistry {
             }
             dev.device.destroy_pipeline_cache(self.cache, None);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        ATTENTION_1024_SHARED_BYTES, WIDE_ATTENTION_SHARED_BYTES, supports_attention_1024,
-        supports_wide_attention,
-    };
-
-    #[test]
-    fn wide_attention_requires_every_resource_limit() {
-        assert!(supports_wide_attention(
-            512,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            511,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            512,
-            511,
-            WIDE_ATTENTION_SHARED_BYTES
-        ));
-        assert!(!supports_wide_attention(
-            512,
-            512,
-            WIDE_ATTENTION_SHARED_BYTES - 1
-        ));
-    }
-
-    #[test]
-    fn attention_1024_requires_every_resource_limit() {
-        assert!(supports_attention_1024(
-            1024,
-            1024,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1023,
-            1024,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1024,
-            1023,
-            ATTENTION_1024_SHARED_BYTES
-        ));
-        assert!(!supports_attention_1024(
-            1024,
-            1024,
-            ATTENTION_1024_SHARED_BYTES - 1
-        ));
     }
 }

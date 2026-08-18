@@ -15,7 +15,7 @@
 use super::exec::{dispatch, readback};
 
 use ash::vk;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, eyre};
 
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
@@ -232,6 +232,7 @@ impl Backend for VulkanBackend {
             head_dim,
             yarn.rope_dim as u32,
             pos,
+            1,
             yarn.freq_base,
             yarn.factor,
             yarn.beta_fast,
@@ -239,6 +240,99 @@ impl Backend for VulkanBackend {
             yarn.original_context as u32,
             yarn.post_scale(role, pos as usize),
         );
+        Ok(())
+    }
+
+    fn rope_yarn_batched(
+        &self,
+        enc: &vk::CommandBuffer,
+        q: &GpuBuffer,
+        k: &GpuBuffer,
+        q_heads: u32,
+        kv_heads: u32,
+        head_dim: u32,
+        base: u32,
+        rows: u32,
+        yarn: &crate::backend::rope::Yarn,
+    ) -> Result<()> {
+        if rows == 0 {
+            return Err(eyre!("rope: empty batch"));
+        }
+        let original = u32::try_from(yarn.original_context)
+            .ok()
+            .filter(|value| *value > 0)
+            .ok_or_else(|| eyre!("rope: invalid original context"))?;
+        let q_stride = u64::from(q_heads)
+            .checked_mul(u64::from(head_dim))
+            .and_then(|elements| elements.checked_mul(2))
+            .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+        let k_stride = u64::from(kv_heads)
+            .checked_mul(u64::from(head_dim))
+            .and_then(|elements| elements.checked_mul(2))
+            .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+
+        let mut first = 0u32;
+        while first < rows {
+            let position = base
+                .checked_add(first)
+                .ok_or_else(|| eyre!("rope: position overflow"))?;
+            // Query post-scale is constant within one original-context bucket.
+            let segment = (rows - first).min(original - position % original);
+            let q_offset = u64::from(first)
+                .checked_mul(q_stride)
+                .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+            let k_offset = u64::from(first)
+                .checked_mul(k_stride)
+                .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+            let q_bytes = u64::from(segment)
+                .checked_mul(q_stride)
+                .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+            let k_bytes = u64::from(segment)
+                .checked_mul(k_stride)
+                .ok_or_else(|| eyre!("rope: buffer size overflow"))?;
+            let q_rows = self.view(q, q_offset, q_bytes);
+            let k_rows = self.view(k, k_offset, k_bytes);
+
+            self.no_barrier();
+            super::kernels::elementwise::rope_yarn(
+                &self.dev,
+                &self.reg,
+                *enc,
+                &q_rows,
+                q_heads,
+                head_dim,
+                yarn.rope_dim as u32,
+                position,
+                segment,
+                yarn.freq_base,
+                yarn.factor,
+                yarn.beta_fast,
+                yarn.beta_slow,
+                original,
+                yarn.post_scale(crate::backend::rope::RopeRole::Query, position as usize),
+            );
+            first += segment;
+            if first < rows {
+                self.no_barrier();
+            }
+            super::kernels::elementwise::rope_yarn(
+                &self.dev,
+                &self.reg,
+                *enc,
+                &k_rows,
+                kv_heads,
+                head_dim,
+                yarn.rope_dim as u32,
+                position,
+                segment,
+                yarn.freq_base,
+                yarn.factor,
+                yarn.beta_fast,
+                yarn.beta_slow,
+                original,
+                1.0,
+            );
+        }
         Ok(())
     }
 
@@ -276,6 +370,8 @@ impl Backend for VulkanBackend {
                 q,
                 &kv.k,
                 &kv.v,
+                &self.reduce,
+                &self.mmvq_ds,
                 kv.head_dim as u32,
                 kv.kv_heads as u32,
                 q_heads,

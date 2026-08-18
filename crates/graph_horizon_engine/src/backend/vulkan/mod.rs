@@ -15,6 +15,7 @@ mod loader;
 mod mem;
 
 pub(crate) mod coopmat;
+pub(crate) mod coopmat2;
 pub(crate) mod kernels;
 pub(crate) mod pipeline;
 
@@ -51,8 +52,11 @@ impl VulkanBackend {
     }
 }
 
-// Upper activation width covered by the persistent Q8_1 MMVQ scratch.
+// Upper activation width covered by the persistent Q8 MMVQ scratch.
 pub(crate) const MMVQ_SCRATCH_IN_DIM: u64 = 32768;
+// Eight complete Matrix2 row tiles amortize command recording without padding.
+#[cfg(feature = "vulkan")]
+pub(crate) const PREFILL_ROWS: usize = 256;
 
 #[cfg(test)]
 thread_local! {
@@ -128,8 +132,10 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         let reduce = (kernels::reduce::TOPK_GROUPS as u64)
             .checked_mul(kernels::reduce::MAX_K as u64)
             .and_then(|bytes| bytes.checked_mul(8))
+            .map(|bytes| bytes.max(kernels::attention::GQA_DECODE_PARTIAL_BYTES))
             .ok_or_else(|| color_eyre::eyre::eyre!("hybrid placement arithmetic overflow"))?;
-        let mmvq = MMVQ_SCRATCH_IN_DIM + MMVQ_SCRATCH_IN_DIM / 32 * 2 * 4;
+        let mmvq = MMVQ_SCRATCH_IN_DIM
+            + (MMVQ_SCRATCH_IN_DIM / 8 * 2 * 4).max(kernels::attention::GQA_DECODE_STATE_BYTES);
         Ok(crate::backend::hybrid::weights::runtime::DeviceFixedBytes {
             host: logits,
             device: logits
@@ -516,6 +522,7 @@ mod rope {
                 8,
                 y.rope_dim as u32,
                 pos as u32,
+                1,
                 y.freq_base,
                 y.factor,
                 y.beta_fast,
@@ -540,6 +547,57 @@ mod rope {
             }
             backend.free_buffer(buf);
         }
+    }
+
+    #[test]
+    fn vulkan_batched_rope_matches_rows_across_scale_boundary() {
+        let backend = match VulkanBackend::bare() {
+            Ok(backend) => backend,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        let yarn = yarn();
+        let rounded: Vec<f32> = input()
+            .into_iter()
+            .map(|value| f16_to_f32(f32_to_f16(value)))
+            .collect();
+        let values = rounded.repeat(3);
+        let raw = f32_slice_to_f16_bytes(&values);
+        let q = backend.alloc_buffer(raw.len() as u64).expect("Q buffer");
+        let k = backend.alloc_buffer(raw.len() as u64).expect("K buffer");
+        backend.upload_bytes(&q, &raw).expect("upload Q");
+        backend.upload_bytes(&k, &raw).expect("upload K");
+
+        let enc = backend.begin().expect("begin batched rope");
+        backend
+            .rope_yarn_batched(&enc, &q, &k, 2, 2, 8, 127, 3, &yarn)
+            .expect("record batched rope");
+        backend.submit(enc).expect("submit batched rope");
+
+        for (role, buffer) in [(RopeRole::Query, &q), (RopeRole::Key, &k)] {
+            let got_raw = backend.read_bytes(buffer, raw.len()).expect("read rope");
+            let got: Vec<f32> = got_raw
+                .chunks_exact(2)
+                .map(|bytes| f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]])))
+                .collect();
+            for row in 0..3 {
+                let want = cpu_rope(&yarn, role, 127 + row, &rounded);
+                for (index, (actual, expected)) in
+                    got[row * 16..][..16].iter().zip(want).enumerate()
+                {
+                    let tolerance = 2e-3 + 2e-3 * expected.abs();
+                    assert!(
+                        (*actual - expected).abs() <= tolerance,
+                        "role={} row={row} index={index} actual={actual} expected={expected}",
+                        role as u8
+                    );
+                }
+            }
+        }
+        backend.free_buffer(q);
+        backend.free_buffer(k);
     }
 
     fn f32_slice_to_f16_bytes(values: &[f32]) -> Vec<u8> {
@@ -813,13 +871,58 @@ mod cpu_vulkan_parity {
             }
         };
         for scheme in [KvQuant::F16, KvQuant::Int8] {
-            attention_prefill_decode_for_scheme(&backend, scheme);
+            for (base, n) in [(0, 3), (0, 64), (33, 32), (65, 9)] {
+                attention_prefill_decode_for_scheme(&backend, scheme, base, n);
+            }
         }
     }
 
-    fn attention_prefill_decode_for_scheme(backend: &VulkanBackend, scheme: KvQuant) {
+    #[test]
+    #[ignore = "Matrix2 Q64 boundary qualification"]
+    fn vulkan_prefill_attention_q64_boundaries() {
+        let backend = match VulkanBackend::bare() {
+            Ok(b) => b,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        // Exact multiples exercise Q64; their neighbors prove the Q32/generic
+        // fallback without changing causal, GQA, or output semantics.
+        for n in [63, 64, 65, 127, 128, 129, 255, 256, 257] {
+            attention_prefill_decode_for_scheme(&backend, KvQuant::F16, 0, n);
+        }
+    }
+
+    #[test]
+    #[ignore = "long-context numeric qualification"]
+    fn vulkan_prefill_attention_long_context_numeric_qualification() {
+        let backend = match VulkanBackend::bare() {
+            Ok(b) => b,
+            Err(_) => {
+                eprintln!("external verification: no Vulkan device");
+                return;
+            }
+        };
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            for context in [2_048, 8_192, 28_000] {
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 64, 64);
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 32, 32);
+                // A query tail not divisible by the matrix tile must remain on
+                // the established generic path at every qualified context.
+                attention_prefill_decode_for_scheme(&backend, scheme, context - 16, 16);
+            }
+        }
+    }
+
+    fn attention_prefill_decode_for_scheme(
+        backend: &VulkanBackend,
+        scheme: KvQuant,
+        base: usize,
+        n: usize,
+    ) {
         let meta = attention_meta();
-        let n = 3usize;
+        let context = base + n;
         let q_heads = meta.head_count;
         let head_dim = meta.head_dim;
         let row_elems = q_heads * head_dim;
@@ -827,6 +930,7 @@ mod cpu_vulkan_parity {
         let q_rows: Vec<f32> = (0..n * row_elems)
             .map(|i| (i % 17) as f32 * 0.03 - 0.22)
             .collect();
+        let q_rounded: Vec<f32> = q_rows.iter().copied().map(round_f16).collect();
         let q = backend.alloc_buffer((n * row_bytes) as u64).expect("q");
         let prefill = backend
             .alloc_buffer((n * row_bytes) as u64)
@@ -843,7 +947,7 @@ mod cpu_vulkan_parity {
         let kv = kv_cache::alloc_shape(
             backend,
             meta.block_count,
-            3,
+            context,
             meta.head_count_kv,
             meta.head_dim,
             meta.head_dim,
@@ -854,13 +958,17 @@ mod cpu_vulkan_parity {
         backend
             .upload_bytes(&q, &f32_slice_to_f16_bytes(&q_rows))
             .expect("upload q");
-        for pos in 0..n {
+        let mut keys = Vec::with_capacity(context * head_dim);
+        let mut values = Vec::with_capacity(context * head_dim);
+        for pos in 0..context {
             let k: Vec<f32> = (0..head_dim)
-                .map(|i| ((pos * 7 + i) % 13) as f32 * 0.025 - 0.12)
+                .map(|i| round_f16(((pos * 7 + i) % 13) as f32 * 0.025 - 0.12))
                 .collect();
             let v: Vec<f32> = (0..head_dim)
-                .map(|i| ((pos * 11 + i) % 19) as f32 * 0.02 - 0.15)
+                .map(|i| round_f16(((pos * 11 + i) % 19) as f32 * 0.02 - 0.15))
                 .collect();
+            keys.extend_from_slice(&k);
+            values.extend_from_slice(&v);
             backend
                 .upload_bytes(&token_k, &f32_slice_to_f16_bytes(&k))
                 .expect("upload k");
@@ -873,14 +981,23 @@ mod cpu_vulkan_parity {
         }
 
         let enc = backend.begin().expect("begin prefill");
-        backend.attention_prefill(&enc, &prefill, &q, &kv, q_heads as u32, 0, n as u32, 0);
+        backend.attention_prefill(
+            &enc,
+            &prefill,
+            &q,
+            &kv,
+            q_heads as u32,
+            base as u32,
+            n as u32,
+            0,
+        );
         backend.submit(enc).expect("submit prefill");
 
-        for pos in 0..n {
-            let qi = backend.view(&q, (pos * row_bytes) as u64, row_bytes as u64);
-            let oi = backend.view(&decode, (pos * row_bytes) as u64, row_bytes as u64);
+        for i in 0..n {
+            let qi = backend.view(&q, (i * row_bytes) as u64, row_bytes as u64);
+            let oi = backend.view(&decode, (i * row_bytes) as u64, row_bytes as u64);
             let enc = backend.begin().expect("begin decode");
-            backend.attention_decode(&enc, &oi, &qi, &kv, q_heads as u32, pos as u32, 0);
+            backend.attention_decode(&enc, &oi, &qi, &kv, q_heads as u32, (base + i) as u32, 0);
             backend.submit(enc).expect("submit decode");
         }
 
@@ -894,11 +1011,75 @@ mod cpu_vulkan_parity {
                 .read_bytes(&decode, n * row_bytes)
                 .expect("read decode"),
         );
-        let (label, tol) = match scheme {
-            KvQuant::F16 => ("attention_f16", 2e-2),
-            KvQuant::Int8 => ("attention_int8", 5e-2),
+        let (scheme_label, tol) = match scheme {
+            KvQuant::F16 => ("f16", 2e-2),
+            KvQuant::Int8 => ("int8", 5e-2),
         };
-        assert_vec_close(label, &got_prefill, &got_decode, tol);
+        let label = format!("attention_{scheme_label}_base{base}_n{n}");
+        assert_vec_close(&label, &got_prefill, &got_decode, tol);
+
+        let project = |attention: &[f32]| {
+            let mut logits = Vec::with_capacity(n * 7);
+            for row in attention.chunks_exact(row_elems) {
+                for vocab in 0..7 {
+                    let logit = row
+                        .iter()
+                        .enumerate()
+                        .map(|(d, value)| {
+                            let weight = ((vocab * 13 + d * 7) % 23) as f32 * 0.002 - 0.022;
+                            value * weight
+                        })
+                        .sum();
+                    logits.push(logit);
+                }
+            }
+            logits
+        };
+        assert_vec_close(
+            &format!("logits_{scheme_label}_base{base}_n{n}"),
+            &project(&got_prefill),
+            &project(&got_decode),
+            tol,
+        );
+
+        if scheme == KvQuant::F16 {
+            let mut cpu = vec![0.0f32; n * row_elems];
+            let scale = 1.0 / (head_dim as f32).sqrt();
+            for i in 0..n {
+                for head in 0..q_heads {
+                    let query = &q_rounded
+                        [(i * q_heads + head) * head_dim..(i * q_heads + head + 1) * head_dim];
+                    let visible = base + i + 1;
+                    let mut scores = Vec::with_capacity(visible);
+                    for key in keys.chunks_exact(head_dim).take(visible) {
+                        scores.push(query.iter().zip(key).map(|(a, b)| a * b).sum::<f32>() * scale);
+                    }
+                    let max = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    let sum: f32 = scores.iter().map(|score| (score - max).exp()).sum();
+                    let out = &mut cpu
+                        [(i * q_heads + head) * head_dim..(i * q_heads + head + 1) * head_dim];
+                    for (pos, score) in scores.into_iter().enumerate() {
+                        let weight = (score - max).exp() / sum;
+                        let value = &values[pos * head_dim..(pos + 1) * head_dim];
+                        for (dst, src) in out.iter_mut().zip(value) {
+                            *dst += weight * src;
+                        }
+                    }
+                }
+            }
+            assert_vec_close(
+                &format!("attention_cpu_f16_base{base}_n{n}"),
+                &got_prefill,
+                &cpu,
+                tol,
+            );
+            assert_vec_close(
+                &format!("logits_cpu_f16_base{base}_n{n}"),
+                &project(&got_prefill),
+                &project(&cpu),
+                tol,
+            );
+        }
 
         kv_cache::free(backend, kv);
         backend.free_buffer(token_v);
@@ -935,6 +1116,7 @@ mod cpu_vulkan_parity {
             8,
             yarn.rope_dim as u32,
             512,
+            1,
             yarn.freq_base,
             yarn.factor,
             yarn.beta_fast,
@@ -975,10 +1157,10 @@ mod cpu_vulkan_parity {
     fn attention_meta() -> ModelMetadata {
         ModelMetadata {
             block_count: 1,
-            embedding_length: 128,
-            head_count: 2,
+            embedding_length: 512,
+            head_count: 4,
             head_count_kv: 1,
-            head_dim: 64,
+            head_dim: 128,
             feed_forward_length: 256,
             vocab_size: 4,
         }
@@ -1035,13 +1217,24 @@ mod cpu_vulkan_parity {
     fn assert_vec_close(label: &str, got: &[f32], want: &[f32], base_tol: f32) {
         assert_eq!(got.len(), want.len());
         let mut max_err = 0.0f32;
+        let mut max_relative = 0.0f32;
+        let mut total_err = 0.0f32;
+        let mut total_relative = 0.0f32;
         for (i, (g, w)) in got.iter().zip(want).enumerate() {
             let err = (*g - *w).abs();
             max_err = max_err.max(err);
+            max_relative = max_relative.max(err / w.abs().max(1e-6));
+            total_err += err;
+            total_relative += err / w.abs().max(1e-6);
             let tol = base_tol + base_tol * w.abs();
             assert!(err <= tol, "{label}[{i}] got={g} want={w} tol={tol}");
         }
-        println!("{label} max_err={max_err}");
+        let count = got.len().max(1) as f32;
+        println!(
+            "{label} max_abs={max_err} mean_abs={} max_relative={max_relative} mean_relative={}",
+            total_err / count,
+            total_relative / count
+        );
     }
 
     fn yarn() -> Yarn {

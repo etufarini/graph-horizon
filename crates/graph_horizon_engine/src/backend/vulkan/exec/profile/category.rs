@@ -94,8 +94,14 @@ const fn direct(kernel: Kernel) -> Category {
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
+        | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaReduce
         | Kernel::AttentionPrefill
         | Kernel::AttentionPrefillWide
+        | Kernel::AttentionPrefillTiled
+        | Kernel::AttentionPrefillTiledCoopQk
+        | Kernel::AttentionPrefillMatrix2
+        | Kernel::AttentionPrefillMatrix2Q64
         | Kernel::AttentionDecodeInt8
         | Kernel::AttentionPrefillInt8 => Category::Attention,
         Kernel::MatmulF16
@@ -105,6 +111,10 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::MatmulQ4KBatchF16Out
         | Kernel::MatmulQ6KBatchF16Out
         | Kernel::MatmulQ4KCoopmatF16Out
+        | Kernel::MatmulQ4KCoopmatMetadataF16Out
+        | Kernel::MatmulQ4KMatrix2F16Out
+        | Kernel::MatmulQ6KCoopmatF16Out
+        | Kernel::MatmulQ6KMatrix2F16Out
         | Kernel::QuantAQ8F16
         | Kernel::MatmulQ4KMmvqF16Out => Category::Matmul,
         Kernel::Logits | Kernel::LogitsQ4K | Kernel::LogitsQ5K | Kernel::LogitsQ6K => {
@@ -131,18 +141,28 @@ const fn is_projection_matmul(kernel: Kernel) -> bool {
             | Kernel::MatmulQ4KBatchF16Out
             | Kernel::MatmulQ6KBatchF16Out
             | Kernel::MatmulQ4KCoopmatF16Out
+            | Kernel::MatmulQ4KCoopmatMetadataF16Out
+            | Kernel::MatmulQ4KMatrix2F16Out
+            | Kernel::MatmulQ6KCoopmatF16Out
+            | Kernel::MatmulQ6KMatrix2F16Out
             | Kernel::MatmulQ4KMmvqF16Out
     )
 }
 
 pub(super) const fn phase(kernel: Kernel) -> Option<Phase> {
     match kernel {
-        Kernel::AttentionPrefill | Kernel::AttentionPrefillWide | Kernel::AttentionPrefillInt8 => {
-            Some(Phase::Prefill)
-        }
+        Kernel::AttentionPrefill
+        | Kernel::AttentionPrefillWide
+        | Kernel::AttentionPrefillTiled
+        | Kernel::AttentionPrefillTiledCoopQk
+        | Kernel::AttentionPrefillMatrix2
+        | Kernel::AttentionPrefillMatrix2Q64
+        | Kernel::AttentionPrefillInt8 => Some(Phase::Prefill),
         Kernel::AttentionDecode
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
+        | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaReduce
         | Kernel::AttentionDecodeInt8 => Some(Phase::Decode),
         Kernel::Argmax | Kernel::TopkPartial => Some(Phase::Sampling),
         _ => None,
@@ -207,7 +227,23 @@ mod tests {
             Some(Phase::Prefill)
         ));
         assert!(matches!(
+            phase(Kernel::AttentionPrefillTiledCoopQk),
+            Some(Phase::Prefill)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionPrefillMatrix2),
+            Some(Phase::Prefill)
+        ));
+        assert!(matches!(
             phase(Kernel::AttentionDecode1024),
+            Some(Phase::Decode)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionDecodeGqaSplit),
+            Some(Phase::Decode)
+        ));
+        assert!(matches!(
+            phase(Kernel::AttentionDecodeGqaReduce),
             Some(Phase::Decode)
         ));
         assert!(matches!(phase(Kernel::Argmax), Some(Phase::Sampling)));

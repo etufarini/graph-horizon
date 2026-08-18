@@ -21,14 +21,25 @@ pub(crate) fn matmul(
     in_dim: u32,
     out_dim: u32,
 ) {
-    let kernel = match w.quant {
-        WeightFormat::F16 => Kernel::MatmulF16,
-        WeightFormat::Q4K => Kernel::MatmulQ4KTiled,
-        WeightFormat::Q6K => Kernel::MatmulQ6K,
-        WeightFormat::Q5K => Kernel::MatmulQ5K,
+    let (kernel, output_rows) = match w.quant {
+        WeightFormat::F16 => (Kernel::MatmulF16, 64),
+        WeightFormat::Q4K => (Kernel::MatmulQ4KTiled, 16),
+        WeightFormat::Q6K => (Kernel::MatmulQ6K, 64),
+        WeightFormat::Q5K => (Kernel::MatmulQ5K, 64),
     };
     trace::log_path_once(kernel);
-    project(dev, reg, cmd, kernel, out, a, w, in_dim, out_dim);
+    project(
+        dev,
+        reg,
+        cmd,
+        kernel,
+        out,
+        a,
+        w,
+        in_dim,
+        out_dim,
+        output_rows,
+    );
 }
 // The parity test needs the CPU Q4_K oracle (`compute::matmul`, cpu-gated) and the
 // Vulkan device, so it only compiles when both backends are present (the hybrid
@@ -229,7 +240,7 @@ mod tests {
         logits.destroy(&backend.dev);
     }
 
-    // The mmvq Q4_K decode GEMV (quant A → int8 Q8_1, then the dp4a GEMV) produces
+    // The MMVQ Q4_K decode GEMV (quant A → per-8 int8 Q8, then DP4A) produces
     // FINITE logits within tolerance of the CPU Q4_K/f32 oracle. Drives the two
     // kernels directly (no forward) so it isolates the kernel from the integration.
     // Skips when no Vulkan device is present, OR when the device exposes no dp4a
@@ -251,8 +262,8 @@ mod tests {
             return;
         }
         let reg = &backend.reg;
-        let in_dim = 512usize; // 2 Q4_K super-blocks per row, 16 Q8_1 blocks
-        let out_dim = 70usize; // not a multiple of 64 → exercises the row boundary
+        let in_dim = 512usize; // 2 Q4_K super-blocks per row, 64 Q8 blocks
+        let out_dim = 70usize; // not a multiple of 32 → exercises the row boundary
 
         let nsb = in_dim / 256;
         let mut seed = 0x6d_6d_76_71u32;
@@ -287,7 +298,7 @@ mod tests {
         let ain = backend.alloc_buffer((in_dim * 2) as u64).expect("ain");
         backend.upload_bytes(&ain, &a_bytes).expect("upload a");
         let qs = backend.alloc_buffer(in_dim as u64).expect("qs"); // in_dim/4 uints = in_dim bytes
-        let nblocks = in_dim / 32;
+        let nblocks = in_dim / 8;
         let ds = backend.alloc_buffer((nblocks * 2 * 4) as u64).expect("ds");
         let mut w = GpuBuffer::alloc(&backend.dev, qbytes.len() as u64, false).expect("w");
         w.quant = WeightFormat::Q4K;
@@ -324,7 +335,7 @@ mod tests {
                 (out.buffer, out.offset, out.size),
             ],
             &mpush,
-            (out_dim as u32).div_ceil(64),
+            (out_dim as u32).div_ceil(32),
         );
         dev.submit_wait(cmd).expect("submit");
 
@@ -334,7 +345,7 @@ mod tests {
             .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
             .collect();
 
-        // int8 Q8_1 activations round each element to ~1/127, so a length-512 dot carries a
+        // int8 Q8 activations round each element to ~1/127, so a length-512 dot carries a
         // wider error than the f16 path; assert FINITE (the historical mmvq bug was inf) plus
         // a combined Q4_K+int8 tolerance (abs ≤ 1.5e-1 OR rel ≤ 3%).
         for o in 0..out_dim {

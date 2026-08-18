@@ -5,6 +5,8 @@ model-neutral behavior from the current support contract and validation evidence
 
 # Documentation
 
+- [Current optimization state](../CURRENT_OPTIMIZATION_STATE.md)
+
 These pages describe Graph Horizon surfaces and processes without assuming a
 specific model family, size, or release. Examples therefore use the
 `<model.gguf>` placeholder.

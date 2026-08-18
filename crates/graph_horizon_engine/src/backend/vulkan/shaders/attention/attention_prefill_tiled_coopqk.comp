@@ -1,0 +1,237 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill F16 tiled.
+
+// Causal GQA prefill attention for sixteen adjacent query rows. A 512-thread
+// workgroup loads one 64-position tile in two phases: K produces shared scores,
+// then V consumes shared softmax weights. K and V therefore reuse the same 16 KiB
+// workgroup tile. Four subgroups produce QK and eight subgroups produce AV with
+// FP16×FP16→FP32 cooperative MMA. Softmax stays FP32; only the transient
+// probability tile is rounded to FP16 and no score reaches global memory.
+// Q/output are [n][q_heads][head_dim]; cache is
+// [layer][context][kv_heads][head_dim]. Decode and INT8 use other kernels.
+layout(local_size_x = 512) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer O { float16_t o[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint QUERY_TILE = 16u;
+const uint KV_TILE = 64u;
+const uint MMA_TILE = 16u;
+// The sole supported model family validates power-of-two, 128-wide K/V tensors.
+const uint HEAD_DIM = 128u;
+const uint MAX_DPL = 8u;
+const uint OUTPUT_DPL = 4u;
+
+shared float16_t sh_tile[KV_TILE * 128u];
+shared float16_t sh_q[MMA_TILE * 128u];
+shared float16_t sh_prob[MMA_TILE * KV_TILE];
+shared float sh_score[MMA_TILE * KV_TILE];
+shared float sh_m[QUERY_TILE];
+shared float sh_l[QUERY_TILE];
+shared float sh_alpha[QUERY_TILE];
+
+void main() {
+    uint h = gl_WorkGroupID.x;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (h >= p.q_heads || first >= p.n) return;
+
+    uint S = gl_SubgroupSize;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint lane = gl_SubgroupInvocationID;
+    uint rows = min(QUERY_TILE, p.n - first);
+    uint key_parts = G / QUERY_TILE;
+    uint query = g / key_parts;
+    uint part = g % key_parts;
+    bool valid_query = query < rows;
+
+    uint group = p.q_heads / p.kv_heads;
+    uint kvh = h / group;
+    uint query_row = first + min(query, rows - 1u);
+    uint row = query_row * p.q_heads * HEAD_DIM;
+    uint pos = p.base + query_row;
+    uint last_pos = p.base + first + rows - 1u;
+
+    // Q is shared because every history-partition subgroup for the same query
+    // computes independent scores from the same vector.
+    uint query_elements = MMA_TILE * HEAD_DIM;
+    for (uint index = gl_LocalInvocationIndex; index < query_elements; index += 512u) {
+        uint query_index = index >> 7u;
+        uint d = index & (HEAD_DIM - 1u);
+        float16_t value = float16_t(0.0);
+        if (query_index < rows) {
+            uint source_row = first + query_index;
+            value = q[(source_row * p.q_heads + h) * HEAD_DIM + d];
+        }
+        sh_q[index] = value;
+    }
+    if (gl_LocalInvocationIndex < QUERY_TILE) {
+        sh_m[gl_LocalInvocationIndex] = -1e30;
+        sh_l[gl_LocalInvocationIndex] = 0.0;
+        sh_alpha[gl_LocalInvocationIndex] = 1.0;
+    }
+    barrier();
+
+    // One subgroup owns each query; four dimensions/lane cover head_dim 128.
+    float acc[OUTPUT_DPL];
+    for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
+
+    for (uint tile = 0u; tile <= last_pos; tile += KV_TILE) {
+        uint count = min(KV_TILE, last_pos + 1u - tile);
+        uint k_elements = KV_TILE * HEAD_DIM;
+        for (uint index = gl_LocalInvocationIndex; index < k_elements; index += 512u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            float16_t value = float16_t(0.0);
+            if (key < count) {
+                uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                           * HEAD_DIM + d;
+                value = kc[cache];
+            }
+            sh_tile[index] = value;
+        }
+        for (uint index = gl_LocalInvocationIndex;
+             index < MMA_TILE * KV_TILE;
+             index += 512u) {
+            sh_prob[index] = float16_t(0.0);
+        }
+        barrier();
+
+        // Four producer subgroups cover 64 keys in 16-column score tiles.
+        // K is already [key][dimension], i.e. column-major QK's B operand.
+        bool full_tile = valid_query && tile + count - 1u <= pos;
+        if (g < KV_TILE / MMA_TILE) {
+            uint key_base = g * MMA_TILE;
+            coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                    gl_MatrixUseAccumulator> score_tile =
+                coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                        gl_MatrixUseAccumulator>(0.0);
+            for (uint dbase = 0u; dbase < HEAD_DIM; dbase += MMA_TILE) {
+                coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                        gl_MatrixUseA> query_fragment;
+                coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                        gl_MatrixUseB> key_fragment;
+                coopMatLoad(query_fragment, sh_q, dbase, HEAD_DIM,
+                            gl_CooperativeMatrixLayoutRowMajor);
+                coopMatLoad(key_fragment, sh_tile, key_base * HEAD_DIM + dbase,
+                            HEAD_DIM, gl_CooperativeMatrixLayoutColumnMajor);
+                score_tile = coopMatMulAdd(query_fragment, key_fragment, score_tile);
+            }
+            coopMatStore(score_tile, sh_score, key_base, KV_TILE,
+                         gl_CooperativeMatrixLayoutRowMajor);
+        }
+        barrier();
+
+        // The first subgroup of each query converts scores to online-softmax
+        // weights. Each lane owns strided scores, so tiles may exceed subgroup
+        // width without another workgroup reduction.
+        if (valid_query && part == 0u) {
+            float lane_m = -1e30;
+            for (uint key = lane; key < count; key += S) {
+                float score = sh_score[query * KV_TILE + key] * p.scale;
+                if (!full_tile && tile + key > pos) score = -1e30;
+                sh_score[query * KV_TILE + key] = score;
+                lane_m = max(lane_m, score);
+            }
+            float tile_m = subgroupMax(lane_m);
+            float m_new = max(sh_m[query], tile_m);
+            float lane_l = 0.0;
+            for (uint key = lane; key < count; key += S) {
+                float weight = exp(sh_score[query * KV_TILE + key] - m_new);
+                sh_prob[query * KV_TILE + key] = float16_t(weight);
+                lane_l += weight;
+            }
+            float tile_l = subgroupAdd(lane_l);
+            float alpha = exp(sh_m[query] - m_new);
+            if (subgroupElect()) {
+                sh_alpha[query] = alpha;
+                sh_l[query] = sh_l[query] * alpha + tile_l;
+                sh_m[query] = m_new;
+            }
+        }
+
+        // All K reads finished at the preceding barrier, so V may overwrite the
+        // shared tile while the elected subgroups transform independent scores.
+        uint v_elements = count * HEAD_DIM;
+        for (uint index = gl_LocalInvocationIndex; index < v_elements; index += 512u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * HEAD_DIM + d;
+            sh_tile[index] = vc[cache];
+        }
+        barrier();
+
+        // Reuse the dead score tile for four output fragments at a time. This
+        // keeps the 2 KiB probability tile as the only shared-memory growth,
+        // preserving three resident workgroups on the target GPU.
+        for (uint output_part = 0u; output_part < 2u; output_part++) {
+            if (g < 4u) {
+                uint local_base = g * MMA_TILE;
+                uint output_base = output_part * (HEAD_DIM / 2u) + local_base;
+                coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                        gl_MatrixUseAccumulator> output_tile =
+                    coopmat<float, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseAccumulator>(0.0);
+                for (uint key_base = 0u; key_base < KV_TILE; key_base += MMA_TILE) {
+                    coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseA> probability_fragment;
+                    coopmat<float16_t, gl_ScopeSubgroup, MMA_TILE, MMA_TILE,
+                            gl_MatrixUseB> value_fragment;
+                    coopMatLoad(probability_fragment, sh_prob, key_base, KV_TILE,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    coopMatLoad(value_fragment, sh_tile,
+                                key_base * HEAD_DIM + output_base, HEAD_DIM,
+                                gl_CooperativeMatrixLayoutRowMajor);
+                    output_tile = coopMatMulAdd(
+                        probability_fragment, value_fragment, output_tile);
+                }
+                coopMatStore(output_tile, sh_score, local_base, HEAD_DIM / 2u,
+                             gl_CooperativeMatrixLayoutRowMajor);
+            }
+            barrier();
+
+            if (valid_query) {
+                for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                    uint d = part * S + lane + j * key_parts * S;
+                    uint part_base = output_part * (HEAD_DIM / 2u);
+                    if (d >= part_base && d < part_base + HEAD_DIM / 2u) {
+                        acc[j] = acc[j] * sh_alpha[query]
+                               + sh_score[query * (HEAD_DIM / 2u) + d - part_base];
+                    }
+                }
+            }
+            // The next output half overwrites the same shared score tile.
+            barrier();
+        }
+    }
+
+    if (valid_query) {
+        for (uint j = 0u; j < OUTPUT_DPL; j++) {
+            uint d = part * S + lane + j * key_parts * S;
+            if (d < HEAD_DIM) {
+                o[row + h * HEAD_DIM + d] = float16_t(acc[j] / sh_l[query]);
+            }
+        }
+    }
+}

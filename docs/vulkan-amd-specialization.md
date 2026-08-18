@@ -347,6 +347,9 @@ too costly until the attention/Q6 bottleneck is reduced.
 | AMD-003 | Q6_K batch MMQ | signed packed dot removes scalar Q6 FP32 FMAs | about 1.39x incremental if Q6 improves 3x | 258.29 → 233.35 ms, 1.107x; Q6 family 1.33x | four established Q6 prefill parity tests failed by about 0.06--0.07 | REJECTED: quality |
 | AMD-004 | Q6 eight-lane rows | halve workgroups/reduction by processing both 128-value segments per lane | at least 1.05x total | 233.35 → 241.01 ms, 3.3% regression | prototype parity passed, parent candidate later failed integration parity | REJECTED |
 | AMD-005 | Q4_K MMQ 8-row tile | reuse each packed weight across twice as many prompt rows | about 1.10x total if Q4 improves 20% | 258.19 → 223.07 ms, 1.157x; Q4 family 1.26x | full suite; 128/512/2K CV at most 0.10% | RETAINED |
+| AMD-006 | exact Q6_K 64-row tile | halve repeated dequantization with 16 KiB LDS | about 1.07--1.12x total | 223.07 → 237.76 ms, 6.6% regression | focused established Q6 parity passed | REJECTED |
+| AMD-007 | Q4_K MMQ 16-row tile | double packed-weight reuse again | about 1.05x total | 223.07 → 251.81 ms, 12.9% regression | focused Q4 parity passed | REJECTED |
+| AMD-008 | exact Q6_K packed staging | unpack eight contiguous weights per lane with shared metadata | about 1.20x total | 223.07 → 218.37 ms, 2.15% gain | all established Q6 oracles passed | REJECTED: below threshold |
 
 ## Current ranking and next action
 

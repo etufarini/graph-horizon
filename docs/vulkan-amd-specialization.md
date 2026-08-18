@@ -352,6 +352,16 @@ too costly until the attention/Q6 bottleneck is reduced.
 | AMD-008 | exact Q6_K packed staging | unpack eight contiguous weights per lane with shared metadata | about 1.20x total | 223.07 → 218.37 ms, 2.15% gain | all established Q6 oracles passed | REJECTED: below threshold |
 | AMD-009 | required wave32 for Q6 decode/logits | match RDNA native wave and llama.cpp subgroup choice | about 1.10x decode | 3B +7.2%; 8B below 5% and noisy; 14B +3.2% | Q6 parity passed; cross-model value inconsistent | REJECTED |
 | AMD-010 | required wave32 for tiled prefill attention | run the shader's intended two-subgroup/query partition | about 1.08x total at 8K | attention 10,136.55 → 9,980.77 ms; total GPU +0.85% | boundary attention parity exact | REJECTED: below threshold |
+| AMD-011 | four-head grouped GQA prefill | load each K/V tile once for all four query heads sharing it | attention about 1.5--2x; total 1.25--1.43x at 8K | attention 10,136.55 → 20,746.94 ms; total GPU 25,228.58 → 37,068.83 ms | boundary attention parity exact | REJECTED: regression |
+| AMD-012 | two-head grouped GQA prefill | recover occupancy while retaining two-way K/V reuse | attention at least 1.10x; total at least 1.05x at 8K | attention 10,136.55 → 10,804.51 ms; total GPU 25,228.58 → 26,170.25 ms | boundary attention parity exact | REJECTED: regression |
+
+The grouped-GQA experiments reduce dispatch X from 32 query heads to eight or
+16 workgroups per query tile, respectively. The four-head variant requires
+33,152 bytes of shared memory and eight FP32 accumulators per invocation; the
+two-head variant reduces those to 24,768 bytes and four accumulators. Both are
+slower, so this RDNA2/RADV path is sensitive to the added per-workgroup state
+and serial head loop despite fewer K/V reads. All grouped-GQA production code
+and routing were removed; raw profiles remain as `amd-011-*` and `amd-012-*`.
 
 ## Current ranking and next action
 
@@ -359,13 +369,14 @@ The first candidate ranking is:
 
 | Rank | Opportunity | Measured removable share / value | Maintenance | AMD-family reuse | State |
 |---:|---|---|---|---|---|
-| 1 | portable Q6_K batch arithmetic | 46.23% of current prefill GPU time; lossy Q8 route is disqualified | medium-high | high | exact-FP16 tile/reuse screen |
-| 2 | Q4_K batch MMQ tiling | 48.76% of current prefill GPU time; remaining llama TTFT gap is 64.61 ms | medium | high | 16-row tile only if predicted total gain clears 5% |
-| 3 | Q6_K down/logits decode path | 47.99% of classified baseline decode GPU time; 1.92x Amdahl ceiling if removed | medium | high | next decode candidate |
-| 4 | bounded prefill command checkpoints | still needed only if 3B/16K or 28K resets after faster kernels | medium | high where watchdogs bound long queues | await direct long-context screen |
-| 5 | required-wave32 GQA attention | 2.50% of classified decode time at KV 128; only 1.026x Amdahl ceiling | low-medium | RDNA-focused | defer |
+| 1 | long-context tiled attention | 40.18% of 3B/8K GPU time; wave32 and grouped-GQA routes failed the threshold | medium-high | high for 4:1 GQA | screen a 16-query tile without per-invocation multi-head state |
+| 2 | Q4_K batch MMQ | 31.87% of 3B/8K GPU time after the retained 8-row tile | medium | high | retain; 16-row tile regressed |
+| 3 | exact Q6_K batch arithmetic | 26.71% of 3B/8K GPU time; lossy Q8 route is disqualified | medium-high | high | retain portable path; exact staging was below threshold |
+| 4 | Q6_K down/logits decode path | 47.99% of classified baseline decode GPU time; 1.92x Amdahl ceiling if removed | medium | high | next decode candidate after prefill screen |
+| 5 | bounded prefill command checkpoints | still needed only if 3B/28K resets after faster kernels | medium | high where watchdogs bound long queues | await direct long-context screen |
 
-The next action is the retained-candidate cross-model/context sweep, including
-3B/16K and 28K. That evidence decides whether command checkpoints remain
-necessary and whether Q4/Q6 tile work or decode Q6/logits has the larger global
-value.
+The next attention experiment keeps one query head per invocation and doubles
+the query tile to 16 with a 1,024-thread workgroup. It should halve K/V tile
+loads without the grouped kernels' extra live accumulators. If it does not clear
+the 5% end-to-end threshold at 8K, attention specialization stops and the
+investigation returns to cross-model/context qualification and decode Q6.

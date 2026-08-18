@@ -360,4 +360,92 @@ mod tests {
         w.destroy(dev);
         out.destroy(dev);
     }
+
+    #[test]
+    fn mmq_batch_q4k_matches_cpu_oracle_with_tail_tiles() {
+        let backend = match VulkanBackend::bare() {
+            Ok(backend) => backend,
+            Err(_) => {
+                eprintln!("MMQ batch parity skipped: no Vulkan device");
+                return;
+            }
+        };
+        if !backend.dev.dp4a {
+            eprintln!("MMQ batch parity skipped: device has no integer dot product");
+            return;
+        }
+        let (in_dim, out_dim, rows) = (512usize, 70usize, 5usize);
+        let mut seed = 0x62_61_74_63u32;
+        let mut rng = || {
+            seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+            seed
+        };
+        let mut weights = vec![0u8; out_dim * (in_dim / 256) * 144];
+        for byte in &mut weights {
+            *byte = (rng() >> 16) as u8;
+        }
+        let f16le = |value: f32| {
+            let bytes = f32_to_f16_bytes(&value.to_le_bytes());
+            [bytes[0], bytes[1]]
+        };
+        for block in weights.chunks_exact_mut(144) {
+            block[..2].copy_from_slice(&f16le(0.03));
+            block[2..4].copy_from_slice(&f16le(0.01));
+        }
+        let activations: Vec<f32> = (0..rows * in_dim)
+            .map(|_| ((rng() >> 8) as f32 / u32::MAX as f32) - 0.5)
+            .collect();
+        let oracle_weights = CpuBuffer::from_bytes(weights.clone(), CpuFormat::Q4_K);
+        let expected: Vec<f32> = activations
+            .chunks_exact(in_dim)
+            .flat_map(|row| compute::matmul(&oracle_weights, row, in_dim, out_dim))
+            .collect();
+        let activation_bytes = f32_to_f16_bytes(
+            &activations
+                .iter()
+                .flat_map(|value| value.to_le_bytes())
+                .collect::<Vec<_>>(),
+        );
+        let input = backend
+            .alloc_buffer(activation_bytes.len() as u64)
+            .expect("input");
+        backend
+            .upload_bytes(&input, &activation_bytes)
+            .expect("upload input");
+        let mut weight =
+            GpuBuffer::alloc(&backend.dev, weights.len() as u64, false).expect("weight");
+        weight.quant = WeightFormat::Q4K;
+        backend
+            .upload_bytes(&weight, &weights)
+            .expect("upload weight");
+        let output = backend
+            .alloc_buffer((rows * out_dim * 2) as u64)
+            .expect("output");
+        let encoder = backend.begin().expect("begin");
+        backend.matmul_batched(
+            &encoder,
+            &output,
+            &input,
+            &weight,
+            in_dim as u32,
+            out_dim as u32,
+            rows as u32,
+        );
+        backend.submit(encoder).expect("submit");
+        let raw = backend
+            .read_bytes(&output, rows * out_dim * 2)
+            .expect("read output");
+        for (index, bytes) in raw.chunks_exact(2).enumerate() {
+            let got = f16_to_f32(u16::from_le_bytes([bytes[0], bytes[1]]));
+            let want = expected[index];
+            assert!(got.is_finite(), "element {index}: non-finite result");
+            assert!(
+                (got - want).abs() <= 1.5e-1 || (got - want).abs() <= 3e-2 * want.abs().max(1.0),
+                "element {index}: got={got} want={want}"
+            );
+        }
+        input.destroy(&backend.dev);
+        weight.destroy(&backend.dev);
+        output.destroy(&backend.dev);
+    }
 }

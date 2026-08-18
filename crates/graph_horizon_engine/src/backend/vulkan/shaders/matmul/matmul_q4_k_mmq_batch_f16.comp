@@ -1,0 +1,103 @@
+#version 450
+#extension GL_EXT_integer_dot_product : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// AGENTS deroga K: kernel numerico della sola operazione matmul Q4_K batch MMQ.
+
+// Batched Q4_K x Q8_1 integer matmul. Eight lanes cooperate on one output row;
+// each lane reuses its packed weights across four prompt rows. Activations and
+// metadata are row-major in the persistent Q8 scratch, while output retains the
+// graph's token-major FP16 layout.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Qs { uint qa[]; };
+layout(std430, binding = 1) readonly buffer Ds { float ds[]; };
+layout(std430, binding = 2) readonly buffer W { uint q[]; };
+layout(std430, binding = 3) writeonly buffer Y { float16_t y[]; };
+
+layout(push_constant) uniform P { uint in_dim; uint out_dim; uint n; } p;
+
+const uint TILE_COLS = 4u;
+shared float partial[256u * TILE_COLS];
+
+uint gb(uint b) { return (q[b >> 2u] >> ((b & 3u) * 8u)) & 0xFFu; }
+float hf(uint b) { return unpackHalf2x16(gb(b) | (gb(b + 1u) << 8u)).x; }
+
+void scale_min(uint sco, uint j, out uint sc, out uint mn) {
+    if (j < 4u) {
+        sc = gb(sco + j) & 63u;
+        mn = gb(sco + j + 4u) & 63u;
+    } else {
+        uint hi = gb(sco + j + 4u);
+        uint lo = gb(sco + j - 4u);
+        sc = (hi & 0xFu) | ((lo >> 6u) << 4u);
+        mn = (hi >> 4u) | ((gb(sco + j) >> 6u) << 4u);
+    }
+}
+
+void main() {
+    uint tid = gl_LocalInvocationID.x;
+    uint row_local = tid >> 3u;
+    uint lane = tid & 7u;
+    uint row = gl_WorkGroupID.x * 32u + row_local;
+    uint col_base = gl_WorkGroupID.y * TILE_COLS;
+    bool live_row = row < p.out_dim;
+    uint nsb = p.in_dim / 256u;
+    uint blocks_per_row = p.in_dim / 8u;
+    float acc[TILE_COLS];
+    for (uint col = 0u; col < TILE_COLS; col++) acc[col] = 0.0;
+
+    for (uint s = 0u; s < nsb; s++) {
+        if (live_row) {
+            uint blk = (row * nsb + s) * 144u;
+            uint sco = blk + 4u;
+            uint qso = blk + 16u;
+            uint sub = lane & 1u;
+            uint qb = (lane >> 1u) * 32u;
+            uint sc, mn;
+            scale_min(sco, lane, sc, mn);
+            float wd = hf(blk) * float(sc);
+            float wm = hf(blk + 2u) * float(mn);
+            for (uint part = 0u; part < 4u; part++) {
+                uint ab = (s * 8u + lane) * 4u + part;
+                uint packed0 = q[(qso + qb + part * 8u) >> 2u];
+                uint packed1 = q[(qso + qb + part * 8u + 4u) >> 2u];
+                uint wq0 = sub == 0u
+                    ? packed0 & 0x0F0F0F0Fu
+                    : (packed0 >> 4u) & 0x0F0F0F0Fu;
+                uint wq1 = sub == 0u
+                    ? packed1 & 0x0F0F0F0Fu
+                    : (packed1 >> 4u) & 0x0F0F0F0Fu;
+                for (uint col = 0u; col < TILE_COLS; col++) {
+                    uint token = col_base + col;
+                    if (token < p.n) {
+                        uint a_block = token * blocks_per_row + ab;
+                        int dot = dotPacked4x8AccSatEXT(
+                            int(wq0), int(qa[a_block * 2u]), 0);
+                        dot = dotPacked4x8AccSatEXT(
+                            int(wq1), int(qa[a_block * 2u + 1u]), dot);
+                        acc[col] += wd * ds[a_block * 2u] * float(dot)
+                            - wm * ds[a_block * 2u + 1u];
+                    }
+                }
+            }
+        }
+    }
+
+    for (uint col = 0u; col < TILE_COLS; col++) {
+        partial[col * 256u + tid] = acc[col];
+    }
+    barrier();
+    if (lane == 0u && live_row) {
+        for (uint col = 0u; col < TILE_COLS; col++) {
+            uint token = col_base + col;
+            if (token < p.n) {
+                float sum = partial[col * 256u + tid];
+                for (uint i = 1u; i < 8u; i++) {
+                    sum += partial[col * 256u + tid + i];
+                }
+                y[token * p.out_dim + row] = float16_t(sum);
+            }
+        }
+    }
+}

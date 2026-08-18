@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
+use super::device::AMD_VENDOR_ID;
 use super::device::Device;
 
 mod caps;
@@ -156,6 +157,10 @@ impl PipelineRegistry {
             }
             if dev.dp4a {
                 for k in [Kernel::QuantAQ8F16, Kernel::MatmulQ4KMmvqF16Out] {
+                    map.insert(k, record::build_one(dev, cache, k)?);
+                }
+                if dev.vendor_id == AMD_VENDOR_ID {
+                    let k = Kernel::MatmulQ4KMmqBatchF16Out;
                     map.insert(k, record::build_one(dev, cache, k)?);
                 }
             }

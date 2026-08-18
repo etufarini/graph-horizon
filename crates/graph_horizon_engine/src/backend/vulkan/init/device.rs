@@ -27,9 +27,14 @@ use crate::backend::vulkan::coopmat2::Coopmat2Caps;
 #[cfg(feature = "vulkan-profile")]
 use crate::backend::vulkan::exec::profile::Profile;
 
+pub(crate) const AMD_VENDOR_ID: u32 = 0x1002;
+
 pub(crate) struct Device {
     pub device: ash::Device,
     pub physical: vk::PhysicalDevice,
+    // PCI vendor identity is retained only for architecture-family capability
+    // routing; product names and model IDs never enter kernel selection.
+    pub vendor_id: u32,
     pub queue: vk::Queue,
     pub mem_props: vk::PhysicalDeviceMemoryProperties,
     // True when VK_EXT_memory_budget was advertised and enabled; gates `free_vram`
@@ -112,6 +117,7 @@ impl Device {
         Ok(Device {
             device: boot.device,
             physical,
+            vendor_id: dev_props.vendor_id,
             queue: boot.queue,
             mem_props,
             min_storage_buffer_offset_alignment,

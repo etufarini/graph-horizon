@@ -45,6 +45,7 @@ pub(crate) enum Kernel {
     MatmulQ6KMatrix2F16Out,
     QuantAQ8F16,
     MatmulQ4KMmvqF16Out,
+    MatmulQ4KMmqBatchF16Out,
 }
 
 #[cfg(feature = "vulkan-profile")]
@@ -93,6 +94,7 @@ impl Kernel {
             Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m64_n32_k128",
             Self::QuantAQ8F16 => "quant_a_q8_f16",
             Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
+            Self::MatmulQ4KMmqBatchF16Out => "matmul_q4k_mmq_batch_f16",
         }
     }
 }
@@ -149,5 +151,6 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::MatmulQ6KMatrix2F16Out => (spv!("matmul_q6_k_matrix2_f16out"), 3, 12),
         Kernel::QuantAQ8F16 => (spv!("quant_a_q8_f16"), 3, 4),
         Kernel::MatmulQ4KMmvqF16Out => (spv!("matmul_q4_k_mmvq_f16out"), 4, 8),
+        Kernel::MatmulQ4KMmqBatchF16Out => (spv!("matmul_q4_k_mmq_batch_f16"), 4, 12),
     }
 }

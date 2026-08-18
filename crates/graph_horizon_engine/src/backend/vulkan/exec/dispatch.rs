@@ -92,6 +92,12 @@ pub(in crate::backend::vulkan) fn matmul_batched(
     n: u32,
 ) {
     if n > 1 {
+        if kernels::mmvq::dispatch_mmq_batched(
+            &b.dev, &b.reg, *enc, out, a, &b.mmvq_qs, &b.mmvq_ds, w, in_dim, out_dim, n,
+        ) {
+            kernels::matmul::log_batched_path_once(Kernel::MatmulQ4KMmqBatchF16Out);
+            return;
+        }
         // These format-specific entry points may assume their weight format;
         // all other formats retain the per-token fallback below.
         match w.quant {

@@ -136,7 +136,7 @@ faster; it identifies a controlled measurement axis.
 | L1 / L2 / L3 | 16 KiB / 3 MiB / 96 MiB | queried: HSA |
 | Baseline active VRAM | 53% during 3B/8K; idle 9% | measured: `rocm-smi` |
 
-### Runtime telemetry and unavailable counters
+### Runtime telemetry and compiler counters
 
 The sustained 3B/8K Graph Horizon row measured 99% GPU use, 2,630 MHz shader
 clock, 135--140 W package power, 54--56 C edge, 86--90 C junction, and 52 C
@@ -297,7 +297,8 @@ An unqualified Q4+Q6 prototype made the original 256-row setting complete
 14B/128 in 1,291.19 ms and 8B/512 in 2,877.89 ms, but that state was discarded
 after Q6 parity failed. These values are diagnostic only. The retained Q4-only
 kernel state later completed 14B/128, 8B/512, 8B/2K, and 3B/16K, but still reset
-at 3B/28K. AMD-014's retained 128-row AMD bound completes every listed row.
+at 3B/28K. AMD-014's 128-row bound completes those rows and 3B/28K; the later
+8B/28K qualification requires AMD-022's 64-row bound.
 
 ## Retained candidate measurement
 
@@ -311,11 +312,11 @@ llama.cpp screen:
 | AMD-005 Q4 MMQ, 8-row tile | 223.07 ms | 573.82 tok/s | 73.30 tok/s | 0.03% | 2.80x | 1.41x slower |
 | llama.cpp | 158.46 ms | 807.77 tok/s | 126.07 tok/s | 0.92% | 3.94x | 1.00x |
 
-The current profile accounts for 99.12% of prefill GPU time. Across four runs,
+The AMD-005 checkpoint profile accounts for 99.12% of prefill GPU time. Across four runs,
 Q4 MMQ owns 447.11 ms, portable Q6_K V/down 423.84 ms, Q8 quantization 1.82 ms,
 attention 11.25 ms, and all other classified work 24.80 ms. Relative to baseline,
-the Q4 projection family improves 3.93x. Decode remains outside the batch route
-and is statistically unchanged in the public binary.
+the Q4 projection family improves 3.93x. At this pre-decode checkpoint, decode
+remains outside the batch route and is statistically unchanged.
 
 Routing requires AMD vendor identity plus the accelerated integer-dot feature,
 Q4_K format, a 256-aligned input width, and bounded persistent
@@ -501,8 +502,9 @@ The grouped-GQA experiments reduce dispatch X from 32 query heads to eight or
 33,152 bytes of shared memory and eight FP32 accumulators per invocation; the
 two-head variant reduces those to 24,768 bytes and four accumulators. Both are
 slower, so this RDNA2/RADV path is sensitive to the added per-workgroup state
-and serial head loop despite fewer K/V reads. All grouped-GQA production code
-and routing were removed; raw profiles remain as `amd-011-*` and `amd-012-*`.
+and serial head loop despite fewer K/V reads. All grouped-prefill-GQA production
+code and routing were removed; raw profiles remain as `amd-011-*` and
+`amd-012-*`. The separately qualified decode GQA route is unaffected.
 
 ## Final bottleneck ranking
 

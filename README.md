@@ -51,7 +51,8 @@ cd graph-horizon
 ./support/install.sh --backend cpu
 ```
 
-There is no default backend. Supported build tuples are:
+There is no default backend. The installer accepts these build tuples; build
+availability is broader than the v0.1.0 runtime qualification claim:
 
 | Platform | Backends |
 |---|---|
@@ -93,7 +94,7 @@ Examples:
 # Portable backend
 ./support/install.sh --backend cpu
 
-# More optimized qualified Metal build
+# Optimized Metal build (runtime qualification is external to v0.1.0)
 ./support/install.sh --backend metal --profile fast
 
 # Custom prefix (equivalent to --prefix "$HOME/.local")
@@ -213,43 +214,59 @@ The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status
 `#FFAF01`.
 
-## Supported models
+## v0.1.0 support contract
+
+The release-qualified runtime tuple is Linux x86_64, NVIDIA RTX 3060 12 GiB,
+driver 595.84, `vulkan-hybrid`, F16 KV, and 100% all-GPU weight placement. The
+qualified artifacts are the Q4_K_M 3B/8B/14B Instruct models and the Q4_K_M 3B
+and 14B Reasoning models whose exact byte counts and SHA-256 values appear in
+[VALIDATION.md](VALIDATION.md). The Q4_K_M 8B Reasoning artifact is explicitly
+`NOT SUPPORTED` in v0.1.0 because fixed-seed fresh-process generation did not
+satisfy its predeclared reproducibility contract.
+
+CPU, standalone Vulkan, mixed/CPU placement through Vulkan-hybrid, Metal, and
+Metal-hybrid remain usable build configurations but are experimental for this
+release because the complete v0.1.0 runtime and quality matrix was not run on
+them. Metal runtime hardware, AMD Vulkan hardware, and other NVIDIA devices
+were unavailable to this campaign. Compilation or capability-based routing is
+not a claim that those devices were physically qualified.
 
 The public model boundary accepts only Ministral 3 2512 `Q4_K_M` GGUF files.
-Both Instruct and Reasoning are supported at 3B, 8B, and 14B; Instruct remains
-dimension-generic while Reasoning requires one of the three exact approved
-release names: `ministral-3B-Reasoning-2512`,
-`ministral-8B-Reasoning-2512`, or `ministral-14B-Reasoning-2512`. A Q8 profile
-is rejected before backend allocation rather than treated as an alternate
-execution format.
+Instruct remains dimension-generic while Reasoning loading requires one of the
+three recognized release names. Recognition means technical load compatibility,
+not qualification: 8B Reasoning is recognized but excluded from the release
+support claim. A Q8 profile is rejected before backend allocation.
 
 Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text
 in the existing stream. The bundled [Web UI](docs/web.md) and
 [CLI](docs/console.md) derive separate THINK and final-answer presentation from
 that raw text; transport, model context, and transcript import/export retain
 the markers. The runtime does not parse it into a separate Reasoning channel.
-For supported Reasoning models, an explicit system prompt follows the fixed
+For qualified Reasoning models, an explicit system prompt follows the fixed
 release-owned Reasoning instruction instead of replacing it.
 Web mode ignores `--max-tokens` and sends the loaded context limit as its
 generation allowance.
 Internal numeric formats do not expand this public GGUF contract.
 Hybrid startup chooses the device-only endpoint, one contiguous device suffix
 with a CPU prefix, or all-CPU. Standalone device profiles are device-only or
-error. Metal and Metal-hybrid are qualified on a 10-core Apple M4 MacBook Air,
-24 GB unified memory, macOS 26.3; this is evidence, not a promise for every
-Apple GPU. The reviewed artifacts are not a runtime whitelist and do not imply
-MoE support.
+error. Historical Metal evidence is not v0.1.0 release qualification. The
+reviewed artifacts are not a runtime whitelist and do not imply MoE support.
 
 Technical load support and reviewed semantic qualification are separate claims.
-The current reviewed evidence is in [VALIDATION.md](VALIDATION.md): the three
-Instruct rows are preserved from the historical pass, and the three Reasoning
-rows are current Plan 07 results for the Rust API harness with `temperature=0.7`,
-`seed=0`, `max_tokens=4096`, KV `f16`, and Vulkan all-GPU. The 3B and 14B
-Reasoning rows are `qualified`; the 8B row is `not-qualified` because its S08
-generation was incomplete.
+The authoritative current evidence is in [VALIDATION.md](VALIDATION.md). The
+three Instruct semantic rows reuse the repository's preserved Plan 05 quality
+evidence under the explicit unrelated-change policy and add current-source
+teacher-forced parity. The 3B and 14B Reasoning rows passed three current-engine
+fresh-process semantic runs and two teacher-forced runs each. The 8B Reasoning
+row is `NOT SUPPORTED` after its dedicated investigation.
 The server now selects that sampling policy for a loaded Reasoning profile while
 keeping Instruct greedy. The harness remains the qualification authority because
 it additionally fixes context, KV, placement, and the semantic corpus.
+
+Serving streams one generation at a time. Sequential requests and clean
+shutdown are qualified; concurrent multi-request scheduling and a parallel
+throughput guarantee are not part of v0.1.0. Backend choice is compile-time and
+there is no runtime fallback.
 
 ## Documentation
 

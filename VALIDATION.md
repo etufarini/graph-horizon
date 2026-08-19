@@ -21,6 +21,65 @@ Il registro e una fotografia, non un diario: una nuova campagna sostituisce gli
 esiti superati. Log grezzi e output dipendenti dalla macchina restano locali;
 la storia delle decisioni rimane nei commit e nei report di fase.
 
+## Ministral 3 v0.1.0 — qualifica autoritativa
+
+Questa sezione prevale su ogni report storico. La release e l'annotated tag
+`v0.1.0`; il commit sorgente e l'unico commit puntato dal tag, verificabile con
+`git rev-list -n 1 v0.1.0`. La qualifica e stata eseguita il 19 agosto 2026. Il
+runtime di inferenza qualificato e quello di `d1bf18f034fd44df5b8e81931e7feea32edeb47f`;
+le revisioni successive fino al tag modificano soltanto acquisizione,
+packaging e documentazione, quindi la policy one-SHA autorizza il riuso
+esplicito delle prove modello e richiede nuovamente build/install/smoke.
+
+Stati backend: `SUPPORTED` significa build, runtime e qualita verificati sulla
+tupla fisica indicata; `EXPERIMENTAL` significa compilabile/usabile ma senza
+matrice v0.1.0 completa; `BUILD-ONLY` significa compilazione senza hardware
+runtime; `UNSUPPORTED` significa fuori contratto.
+
+| Backend | Piattaforma/dispositivo | Build | Runtime | Qualita | Stato release |
+|---|---|---|---|---|---|
+| Vulkan-hybrid, 100% GPU | Linux x86_64, RTX 3060 12 GiB, driver 595.84 | PASS | PASS | PASS, cinque artefatti | SUPPORTED |
+| CPU | Linux x86_64, i5-9600K | PASS | test sintetici PASS | matrice reale incompleta | EXPERIMENTAL |
+| Vulkan standalone | Linux x86_64, RTX 3060 | PASS | test backend PASS | matrice reale incompleta | EXPERIMENTAL |
+| Vulkan-hybrid mixed/CPU | Linux x86_64, RTX 3060/i5-9600K | PASS | test backend PASS | matrice reale incompleta | EXPERIMENTAL |
+| Metal / Metal-hybrid | macOS arm64 | non costruibile sull'host | UNAVAILABLE | UNAVAILABLE | BUILD-ONLY fuori host; EXPERIMENTAL |
+| Vulkan AMD o altri NVIDIA | hardware non disponibile | capability code presente | UNAVAILABLE | UNAVAILABLE | EXPERIMENTAL |
+
+| Modello | CPU | Vulkan | Vulkan-hybrid all-GPU RTX 3060 | Metal | Stato v0.1.0 |
+|---|---|---|---|---|---|
+| 3B Instruct | UNSUPPORTED | UNSUPPORTED | QUALIFIED | UNAVAILABLE | QUALIFIED |
+| 3B Reasoning | UNSUPPORTED | UNSUPPORTED | QUALIFIED | UNAVAILABLE | QUALIFIED |
+| 8B Instruct | UNSUPPORTED | UNSUPPORTED | QUALIFIED | UNAVAILABLE | QUALIFIED |
+| 8B Reasoning | UNSUPPORTED | UNSUPPORTED | FAILED | UNAVAILABLE | NOT SUPPORTED |
+| 14B Instruct | UNSUPPORTED | UNSUPPORTED | QUALIFIED | UNAVAILABLE | QUALIFIED |
+| 14B Reasoning | UNSUPPORTED | UNSUPPORTED | QUALIFIED | UNAVAILABLE | QUALIFIED |
+
+`UNSUPPORTED` nelle celle CPU/Vulkan indica assenza dal contratto di qualifica,
+non rifiuto tecnico del runtime. Le tre righe Instruct conservano la qualifica
+semantica Plan 05 per gli stessi byte, ammessa per cambiamenti estranei al
+contratto di inferenza, e aggiungono sul runtime corrente parity teacher-forced
+16/16 contro llama.cpp `13f2b28b098623391b1aacfd27995e1c8b7de9a9`.
+Le righe Reasoning 3B e 14B hanno eseguito tre processi freschi ciascuna con
+`context=4096`, `max_tokens=4096`, KV F16, 100% GPU, `temperature=0.7`,
+`seed=0`, `top_p=1`, `top_k=0`, `min_p=0`, `repeat_penalty=1`: 3B ha ottenuto
+8/9, 9/9, 9/9 e 14B 9/9, 9/9, 9/9, sempre 4/4 casi critici, 9/9 marker ed EOS.
+Due run teacher-forced per artefatto hanno dato top-1 16/16 identico all'oracolo.
+
+Per 8B Reasoning, tre processi freschi sul medesimo SHA e configurazione hanno
+ottenuto 9/9, 9/9 e 8/9 ma lunghezze S08 di 330, 883 e 3.324 token e output
+divergenti. Due run teacher-forced sono 16/16 e due diagnostiche greedy S01 sono
+identiche; piccole differenze numeriche backend attraversano quindi soglie del
+PRNG deterministico e amplificano la traiettoria campionata. La sorgente precisa
+della variazione numerica non e isolata. Il contratto fissato prima dei run
+richiedeva byte e conteggi identici: stato finale `NOT SUPPORTED`.
+
+Il servizio v0.1.0 qualifica streaming e richieste A/B/C sequenziali nello
+stesso processo, senza contaminazione visibile, piu arresto pulito. L'esecuzione
+e serializzata; scheduling concorrente, runtime backend switching, tool calling,
+canale Reasoning separato, Q8, MoE e contesti lunghi non sono supportati dalla
+release. Metal, AMD e dispositivi diversi da quello indicato restano non
+disponibili, non estrapolati.
+
 ## Artefatti autenticati
 
 Il catalogo autoritativo e [`support/models.tsv`](support/models.tsv). I modelli
@@ -39,7 +98,7 @@ Il runtime pubblico accetta questi profili Q4_K_M. I nomi Q8_0 catalogati sono
 casi negativi: devono essere rifiutati prima dell'allocazione del backend.
 L'elenco revisionato non e una whitelist letta dal runtime.
 
-## Matrice tecnica a 74 righe
+## Evidenza storica — matrice tecnica a 74 righe
 
 Il protocollo corrente e definito in
 [`support/README.md`](support/README.md) e viene eseguito da
@@ -69,7 +128,7 @@ summary: pass=40 external_verification=34 failure=0 total=74
 `external_verification` non e un pass e non autorizza sostituzioni di modello,
 backend, KV, placement od oracle.
 
-## Qualifica semantica
+## Evidenza storica — qualifica semantica
 
 I tre Instruct conservano l'evidenza revisionata del Piano 05. I tre Reasoning
 riportano la campagna corrente del 18 agosto 2026, eseguita una sola volta con

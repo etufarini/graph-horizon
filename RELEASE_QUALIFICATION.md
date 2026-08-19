@@ -1,93 +1,137 @@
 <!--
-This report is the persistent v0.1.0 qualification checkpoint and, once the RC
-is frozen, the reproducibility record. It owns release state and evidence
-summaries; VALIDATION.md remains the authoritative support registry.
+This report owns v0.1.0 release provenance, qualification results, and the final
+determination. VALIDATION.md remains the authoritative support registry.
 -->
 
 # Ministral 3 v0.1.0 release qualification
 
-## Current checkpoint
+## Release identity
 
 | Field | Value |
 |---|---|
+| Version / tag | `0.1.0` / annotated `v0.1.0` |
+| Initial main | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
+| Qualified inference RC | `d1bf18f034fd44df5b8e81931e7feea32edeb47f` |
+| Packaging RC | `c59ea4eebdd77cfe2712b64bc11245fe4dd12440` |
+| Final source | the sole commit referenced by `v0.1.0` |
 | Qualification date | 2026-08-19 |
-| Initial main SHA | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
-| Branch | `release/v0.1.0-qualification` |
-| Current RC SHA | `dd122f4bbffeb65baef21a4199160cc7a810b6ca` |
-| 8B Reasoning | `NOT SUPPORTED` |
-| Installer | tag-pinned; clean tag installation pending |
-| Current determination | qualification in progress |
-| Next action | apply the predeclared 3B/14B Reasoning repetition contract, then complete the model/backend matrix |
+| Determination | pending final tag/install gate |
 
-## Initial environment
+Final metadata commits do not change inference code. Model evidence from the
+qualified inference RC is reused under the explicit unrelated-change policy;
+build, packaging, installation, version, and smoke gates are rerun from the
+final tag. `git rev-list -n 1 v0.1.0` is the tag-to-source mapping.
 
-- Linux x86_64, kernel `7.0.0-29-generic`.
-- Intel Core i5-9600K, 6 cores.
+## Environment and inputs
+
+- Linux x86_64, kernel `7.0.0-29-generic`; Intel Core i5-9600K, 6 cores.
 - NVIDIA GeForce RTX 3060 12 GiB, driver 595.84, Vulkan 1.4.329.
-- Rust 1.95.0, Cargo 1.95.0, Node.js 24.15.0, npm 11.12.1, GCC 15.2.0.
-- Metal runtime hardware and macOS toolchain unavailable on this host.
+- Rust/Cargo 1.95.0, Node.js 24.15.0, npm 11.12.1, GCC 15.2.0.
+- Metal/macOS, AMD Vulkan, and other NVIDIA hardware were unavailable.
+- Cargo and npm lock files contain resolved versions; no release dependency is
+  taken from a mutable Git branch.
+- Exact filenames, byte counts, architecture/profile, quantization, and SHA-256
+  values for all six external model inputs are in `VALIDATION.md` and
+  `support/models.tsv`.
 
-## Authenticated model inventory
+All six local files matched the catalog before qualification. Different bytes
+are a different qualification target.
 
-All six files under `/home/emanuele/Documenti/models` matched the byte counts
-and SHA-256 values in `support/models.tsv` on 2026-08-19. The external paths are
-not part of the release; qualification identity is the filename, byte count,
-and digest recorded in `VALIDATION.md`.
+## Model qualification
 
-## Initial-SHA baseline
+| Model | Semantic generation | Teacher-forced | Repetition | Final |
+|---|---|---|---|---|
+| 3B Instruct | preserved Plan 05, 8/9 | current 16/16 top-1 | current server smoke | QUALIFIED |
+| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | 3 fresh processes | QUALIFIED |
+| 8B Instruct | preserved Plan 05, 8/9 | current 16/16 top-1 | current parity | QUALIFIED |
+| 8B Reasoning | 9/9, 9/9, 8/9 | 16/16 twice | divergent bytes/lengths | NOT SUPPORTED |
+| 14B Instruct | preserved Plan 05, 9/9 | current 16/16 top-1 | current parity | QUALIFIED |
+| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 twice | 3 fresh processes | QUALIFIED |
 
-- `cargo fmt --all -- --check`: PASS.
-- CPU workspace tests: PASS; 166 binary tests, 159 engine tests, 5 integration
-  tests, and 12 semantic-harness tests; four real-artifact tests remained
-  intentionally ignored.
-- CPU warnings-denied Clippy: PASS.
-- Vulkan and Vulkan-hybrid workspace tests and warnings-denied Clippy: PASS.
-- Frontend: 92 tests PASS; Svelte check 0 errors/0 warnings; production build
-  PASS; npm audit reported zero known vulnerabilities.
-- 8B Reasoning diagnostic run 1: 9/9 semantic, 4/4 critical, 9/9 complete
-  markers, all EOS; this is diagnostic evidence, not final qualification.
+The oracle is llama.cpp commit
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`; acceptance is exact local/oracle
+top-1 equality for 16 steps. Reasoning generation used Vulkan-hybrid all-GPU,
+F16 KV, context/max 4096, temperature 0.7, seed 0, top-p 1, top-k 0, min-p 0,
+and repeat penalty 1. There were no retries.
 
-## 8B Reasoning resolution
+### 8B Reasoning resolution
 
-The acceptance contract in `RELEASE_BLOCKERS.md` was fixed before the decisive
-runs. Three fresh processes on `e09f6fd`, using the same authenticated artifact,
-RTX 3060 Vulkan all-GPU placement, F16 KV, and seed/sampling parameters, gave:
+The predeclared gate required three fresh processes to pass critical 4/4,
+semantic at least 8/9, complete markers and EOS, teacher-forced parity, and
+identical per-case counts plus raw response bytes. Generation met the semantic
+floor but S08 lengths were 330, 883, and 3,324 tokens and most response bytes
+differed. Two greedy S01 controls were identical and teacher-forced passed.
+The sampler and prompt/KV setup are controlled; small backend numerical
+differences cross deterministic sampling thresholds and amplify the sequence.
+The precise reduction/race/state source was not isolated because this release
+excludes the model. Final status: `NOT SUPPORTED`.
 
-| Run | Critical | Semantic | Markers | S08 completion tokens | Result |
-|---|---:|---:|---:|---:|---|
-| 1 | 4/4 | 9/9 | 9/9 | 330 | semantic pass, reproducibility fail |
-| 2 | 4/4 | 9/9 | 9/9 | 883 | semantic pass, reproducibility fail |
-| 3 | 4/4 | 8/9 | 9/9 | 3,324 | semantic pass, reproducibility fail |
+## Backend and platform contract
 
-Raw response SHA-256 comparison showed only S02, S04, and S10 matching between
-runs 1 and 2; run 3 introduced further divergence. The request-owned PRNG is
-seeded identically and some prompts reproduce exactly, so this is not an
-unseeded sampler. Small backend numerical differences are being amplified by
-temperature sampling into different user-visible trajectories. The precise
-backend source (reduction ordering, race, or uninitialized state) remains
-post-release investigation because the narrow v0.1.0 contract excludes this
-artifact. Final status: `NOT SUPPORTED`.
-
-Two clean teacher-forced runs on RC2 used locally rendered Reasoning prompt IDs
-and the pinned CPU oracle at `13f2b28b0`. All 16 local top-1 IDs exactly matched
-all 16 oracle IDs in both runs. Two temporary, subsequently removed greedy S01
-diagnostics also produced identical 308-token responses with identical SHA-256.
-The observed failure is therefore confined to the temperature-sampled path in
-the tested controls, where small numerical variation changes deterministic-PRNG
-threshold crossings and amplifies the rest of the trajectory.
-
-Raw machine-local logs are retained under `target/release-qualification/` and
-are not release inputs.
-
-## Open qualification matrix
-
-No cell is qualified until it is rerun on the frozen final RC.
-
-| Model | CPU Linux x86_64 | Vulkan RTX 3060 | Vulkan-hybrid RTX 3060 | Metal | Final status |
+| Backend / placement | Platform/device | Build | Runtime | Quality | Release status |
 |---|---|---|---|---|---|
-| 3B Instruct | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-| 3B Reasoning | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-| 8B Instruct | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-| 8B Reasoning | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-| 14B Instruct | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-| 14B Reasoning | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
+| Vulkan-hybrid, 100% GPU | Linux x86_64 / RTX 3060 | PASS | PASS | five artifacts PASS | SUPPORTED |
+| CPU | Linux x86_64 / i5-9600K | PASS | synthetic PASS | real matrix incomplete | EXPERIMENTAL |
+| Vulkan standalone | Linux x86_64 / RTX 3060 | PASS | backend tests PASS | real matrix incomplete | EXPERIMENTAL |
+| Vulkan-hybrid mixed/CPU | same host | PASS | backend tests PASS | real matrix incomplete | EXPERIMENTAL |
+| Metal / Metal-hybrid | macOS arm64 | UNAVAILABLE locally | UNAVAILABLE | UNAVAILABLE | BUILD-ONLY / EXPERIMENTAL |
+| Vulkan AMD/other NVIDIA | unavailable devices | capability code only | UNAVAILABLE | UNAVAILABLE | EXPERIMENTAL |
+
+Backend selection is compile-time. Only the first row with the five qualified
+models forms the supported v0.1.0 runtime contract.
+
+## Serving and failure paths
+
+The server streams one generation at a time. Three sequential SSE requests
+(A, B, C) in one 3B Instruct process completed with `[DONE]`, with no visible
+cross-request leakage. `/props` reported context 4096 and SIGTERM ended
+promptly. Concurrent scheduling and parallel throughput are not claimed.
+
+Missing and invalid GGUF files, invalid KV/placement values, and unknown flags
+returned nonzero with bounded errors. Inspected stderr exposed no developer
+path, backtrace, or panic.
+
+## Build and test qualification
+
+Initial main passed CPU, Vulkan, and Vulkan-hybrid workspace tests and warnings-
+denied Clippy; frontend 92 tests, Svelte check, production build, and npm audit
+also passed. The final tag gate reruns formatting, shell syntax, all three Linux
+feature builds/tests/lints, frontend tests/check/build/audit, consistency,
+clean installation, version, and inference smoke. Final outcomes are recorded
+below before tagging.
+
+## Installer and artifact integrity
+
+The bootstrap downloads only `graph-horizon-0.1.0.tar.gz` from the immutable
+v0.1.0 release URL and a strict same-name `.sha256` record, verifies SHA-256
+before extraction, rejects unsafe/incomplete archives and symlinks, then
+delegates locally. Models are never downloaded. The archive and checksum are
+generated from the annotated tag; publication must upload both without moving
+the tag.
+
+## Performance smoke
+
+Short/long prefill and decode characterization uses 3B Instruct on the supported
+tuple. It is a catastrophic-regression guard, not an optimization or cross-SHA
+performance claim. Final measurements are added after the frozen-tag run.
+
+## Known limitations
+
+- 8B Reasoning is not supported.
+- Support is limited to five exact model byte sequences and one physical tuple.
+- CPU, standalone/mixed Vulkan, Metal, AMD, and other NVIDIA devices are not
+  release-qualified even where they compile or have historical evidence.
+- Serving is serialized; backend selection is compile-time; no fallback exists.
+- Text-only chat; no tools, multimodal input, or separate Reasoning channel.
+- Q8, MoE, custom Reasoning prompts, and long-context quality are outside scope.
+
+## Post-v0.1.0 work
+
+Investigate 8B variation; broaden physical qualification; treat concurrent
+scheduling, runtime backend selection, packaging, and performance as separate
+programs.
+
+## Final determination
+
+Pending the final clean-state, tag, archive, installation, version, and smoke
+gates. No support claim will be broadened at finalization.

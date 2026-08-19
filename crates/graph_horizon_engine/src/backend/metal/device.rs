@@ -74,37 +74,31 @@ impl Device {
     }
 
     fn qualified(raw: &ProtocolObject<dyn MTLDevice>) -> bool {
-        Self::meets_requirements(
+        Self::validate_requirements(
             raw.hasUnifiedMemory(),
             raw.supportsFamily(MTLGPUFamily::Apple9),
             raw.maxThreadsPerThreadgroup().width,
             raw.maxThreadgroupMemoryLength(),
         )
+        .is_ok()
     }
 
-    fn meets_requirements(
-        unified: bool,
-        family: bool,
-        threads: usize,
-        threadgroup_memory: usize,
-    ) -> bool {
-        unified
-            && family
-            && threads >= REQUIRED_THREADS
-            && threadgroup_memory >= REQUIRED_THREADGROUP_MEMORY
-    }
-
-    #[cfg(test)]
-    pub(crate) fn validate(
+    fn validate_requirements(
         unified: bool,
         family: bool,
         threads: usize,
         threadgroup_memory: usize,
     ) -> Result<()> {
-        if Self::meets_requirements(unified, family, threads, threadgroup_memory) {
+        if unified
+            && family
+            && threads >= REQUIRED_THREADS
+            && threadgroup_memory >= REQUIRED_THREADGROUP_MEMORY
+        {
             Ok(())
         } else {
-            bail!("Metal device does not satisfy the required capabilities")
+            Err(eyre!(
+                "Metal device does not satisfy the required capabilities"
+            ))
         }
     }
 }
@@ -116,7 +110,13 @@ mod tests {
     #[test]
     fn device_contract_rejects_every_missing_capability() {
         assert!(
-            Device::validate(true, true, REQUIRED_THREADS, REQUIRED_THREADGROUP_MEMORY).is_ok()
+            Device::validate_requirements(
+                true,
+                true,
+                REQUIRED_THREADS,
+                REQUIRED_THREADGROUP_MEMORY
+            )
+            .is_ok()
         );
         for row in [
             (false, true, REQUIRED_THREADS, REQUIRED_THREADGROUP_MEMORY),
@@ -135,7 +135,7 @@ mod tests {
             ),
         ] {
             assert_eq!(
-                Device::validate(row.0, row.1, row.2, row.3)
+                Device::validate_requirements(row.0, row.1, row.2, row.3)
                     .unwrap_err()
                     .to_string(),
                 "Metal device does not satisfy the required capabilities"

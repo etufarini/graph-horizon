@@ -11,6 +11,7 @@ ignored = ["shaderc"]
 # Independent public profiles; backend/mod.rs enforces that exactly one is
 # selected. Hybrid profiles gate their concrete dependencies directly.
 cpu = []
+cpu-profile = ["cpu"]
 vulkan = ["dep:ash", "dep:shaderc"]
 vulkan-profile = ["vulkan"]
 vulkan-hybrid = ["dep:ash", "dep:shaderc"]

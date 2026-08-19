@@ -32,7 +32,7 @@ pub(crate) use super::f16::{
 // logits; F16 backs activations and the KV cache; the three quant formats back
 // the matmul weights (dequantized on the fly, see `dequant`). The variant names
 // mirror ggml's canonical type names (e.g. Q4_K), hence the allow.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub(crate) enum CpuFormat {
     F16,

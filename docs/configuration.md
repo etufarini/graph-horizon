@@ -50,7 +50,6 @@ profiles are listed in the
 | `--vram-reserve-mib <n>` | engine policy | Non-negative VRAM reserve; part of the hybrid automatic plan |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |
 | `--kv-quant <f16\|int8>` | `f16` | Lowercase, case-sensitive KV scheme |
-| `--no-attn-simd` | absent | Disables the CPU attention SIMD path |
 
 `--context-tokens`, VRAM percentage, reserve, thread count, and KV are validated
 before engine loading. CLI and server modes also validate `--max-tokens`. In

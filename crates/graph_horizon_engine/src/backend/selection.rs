@@ -149,14 +149,12 @@ pub(crate) fn free_cached_state(backend: &SelectedBackend, state: CachedState) {
 
 pub(crate) fn configure(
     cpu_threads: Option<usize>,
-    no_attn_simd: bool,
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) {
     #[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     {
         super::cpu::parallel::set_threads(cpu_threads);
-        super::cpu::set_no_simd(no_attn_simd);
     }
     #[cfg(feature = "vulkan")]
     {
@@ -166,7 +164,7 @@ pub(crate) fn configure(
     #[cfg(not(feature = "vulkan"))]
     let _ = (weights_percent, reserve_mib);
     #[cfg(not(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid")))]
-    let _ = (cpu_threads, no_attn_simd);
+    let _ = cpu_threads;
 }
 
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

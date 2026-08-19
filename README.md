@@ -206,8 +206,8 @@ graph-horizon --provider local --model "/path/to/model.gguf" \
   --vram-weights-percent 0
 ```
 
-Advanced options, including `--vram-reserve-mib` and `--no-attn-simd`, are
-listed by `graph-horizon --help`.
+The advanced `--vram-reserve-mib` option is listed by
+`graph-horizon --help`.
 
 The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status

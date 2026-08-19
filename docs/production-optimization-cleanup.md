@@ -320,6 +320,23 @@ main at 1,721.22, 74.37 ms, and 73.48: every delta is at most 0.54%. Candidate
 0.70% respectively. The CPU row improved to 31.13 prompt tok/s, 4,112.17 ms
 TTFT, and 7.19 decode tok/s. The deletion is therefore retained.
 
+### Removed manual CPU SIMD override
+
+`--no-attn-simd` was an optimization A/B control, not a required production
+configuration. Unsupported CPUs already select the scalar attention fallback
+through runtime feature detection, while scalar and SIMD arithmetic remain
+covered by direct oracle tests. Removing the flag also removed one public
+`EngineConfig` field, the set-once override state and setter, and the last
+boolean-only parser representation: one enum, one parsed-state field, one
+lookup function, and the boolean parser/help branches disappeared transitively.
+
+CPU, Vulkan, and Vulkan-hybrid workspace tests retain their baseline results;
+all three Clippy profiles pass with warnings denied. The stable candidate CPU
+row measured 30.39 prompt tok/s, 4,211.44 ms TTFT, and 7.42 decode tok/s, versus
+the recorded main row at 30.10, 4,253.29 ms, and 7.00. Prompt throughput and
+TTFT are within 1%; decode improved. Automatic SIMD eligibility and the scalar
+fallback are unchanged, so the override and its parser state remain deleted.
+
 ## Final Complexity, Validation, and Performance
 
 To be completed after the final diff audit.

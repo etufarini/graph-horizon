@@ -17,7 +17,6 @@ pub struct EngineConfig {
     pub vram_weights_percent: Option<u8>,
     pub vram_reserve_mib: Option<u64>,
     pub cpu_threads: Option<usize>,
-    pub no_attn_simd: bool,
     pub kv_quant: KvQuant,
 }
 
@@ -49,7 +48,6 @@ impl Default for EngineConfig {
             vram_weights_percent: None,
             vram_reserve_mib: None,
             cpu_threads: None,
-            no_attn_simd: false,
             kv_quant: KvQuant::F16,
         }
     }
@@ -63,7 +61,6 @@ impl Engine {
     pub fn new(model_path: &Path, config: EngineConfig) -> Result<Self> {
         crate::backend::selection::configure(
             config.cpu_threads,
-            config.no_attn_simd,
             config.vram_weights_percent,
             config.vram_reserve_mib,
         );

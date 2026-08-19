@@ -47,28 +47,12 @@ fn elem(bytes: &[u8], i: usize) -> f32 {
 
 use std::sync::OnceLock;
 
-// Seeds the "disable SIMD" toggle from the CLI (`cfg.no_attn_simd`). Seeded once by
-// `Engine::new` BEFORE any attention call; set-once (the model+embed double load and
-// any later call are no-ops). When unseeded (examples/tests that never build an
-// Engine) it reads as `false`, so the SIMD path stays enabled — today's behaviour.
-static NO_SIMD: OnceLock<bool> = OnceLock::new();
-
-pub(crate) fn set_no_simd(b: bool) {
-    let _ = NO_SIMD.set(b);
-}
-
 // True when the host has the AVX2+FMA+F16C features the SIMD `attend` inner kernels
-// need (and the scalar fallback was not forced). Resolved exactly ONCE (cached) and
-// passed down per `attention_*` call, so the per-key dispatch is a branch on a local
-// bool (predictable, free) rather than a repeated CPUID-cache probe. The scalar path
-// is forced by `cfg.no_attn_simd` (benchmark A/B and a safety hatch), read here as a
-// single `OnceLock` load — no per-token overhead vs the prior env-cached form.
+// need. The result is cached and passed down per `attention_*` call, so unsupported
+// hosts use the scalar fallback without repeating feature detection per key.
 fn simd_supported() -> bool {
     static CACHE: OnceLock<bool> = OnceLock::new();
     *CACHE.get_or_init(|| {
-        if NO_SIMD.get().copied().unwrap_or(false) {
-            return false;
-        }
         #[cfg(target_arch = "x86_64")]
         {
             is_x86_feature_detected!("avx2")

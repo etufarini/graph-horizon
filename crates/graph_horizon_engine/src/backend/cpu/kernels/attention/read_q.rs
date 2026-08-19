@@ -4,8 +4,8 @@
  * the f16 `attend` in the parent module (score → stabilized softmax → V mix,
  * f32 accumulation, fixed pass order), but the K-dot and V-axpy inner loops
  * read the quantized codes and dequantize on the fly with the group's
- * per-(token, kv_head) metadata. Scalar today, so the `no_attn_simd` toggle is
- * trivially honored. Output distribution over the cores mirrors the f16 kernels
+ * per-(token, kv_head) metadata. This representation uses the portable scalar
+ * implementation. Output distribution over the cores mirrors the f16 kernels
  * ((row, head) units via `parallel::for_units`,
  * disjoint head_dim slices), so parallel output is bit-identical to serial.
 */

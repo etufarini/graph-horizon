@@ -13,11 +13,11 @@ summaries; VALIDATION.md remains the authoritative support registry.
 | Qualification date | 2026-08-19 |
 | Initial main SHA | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
 | Branch | `release/v0.1.0-qualification` |
-| Current RC SHA | not frozen |
-| 8B Reasoning | `UNQUALIFIED` pending frozen repetition contract |
-| Installer | blocked: mutable and obsolete source URL |
+| Current RC SHA | `e09f6fd09a1bb1d63fb11bce77b8e86e2896e39c` (superseded by pending harness fix) |
+| 8B Reasoning | `NOT SUPPORTED` |
+| Installer | tag-pinned; clean tag installation pending |
 | Current determination | qualification in progress |
-| Next action | close packaging/version blockers, then qualify one frozen RC from scratch |
+| Next action | verify corrected teacher-forced protocol, freeze the next RC, then qualify it from scratch |
 
 ## Initial environment
 
@@ -47,6 +47,27 @@ and digest recorded in `VALIDATION.md`.
 - 8B Reasoning diagnostic run 1: 9/9 semantic, 4/4 critical, 9/9 complete
   markers, all EOS; this is diagnostic evidence, not final qualification.
 
+## 8B Reasoning resolution
+
+The acceptance contract in `RELEASE_BLOCKERS.md` was fixed before the decisive
+runs. Three fresh processes on `e09f6fd`, using the same authenticated artifact,
+RTX 3060 Vulkan all-GPU placement, F16 KV, and seed/sampling parameters, gave:
+
+| Run | Critical | Semantic | Markers | S08 completion tokens | Result |
+|---|---:|---:|---:|---:|---|
+| 1 | 4/4 | 9/9 | 9/9 | 330 | semantic pass, reproducibility fail |
+| 2 | 4/4 | 9/9 | 9/9 | 883 | semantic pass, reproducibility fail |
+| 3 | 4/4 | 8/9 | 9/9 | 3,324 | semantic pass, reproducibility fail |
+
+Raw response SHA-256 comparison showed only S02, S04, and S10 matching between
+runs 1 and 2; run 3 introduced further divergence. The request-owned PRNG is
+seeded identically and some prompts reproduce exactly, so this is not an
+unseeded sampler. Small backend numerical differences are being amplified by
+temperature sampling into different user-visible trajectories. The precise
+backend source (reduction ordering, race, or uninitialized state) remains
+post-release investigation because the narrow v0.1.0 contract excludes this
+artifact. Final status: `NOT SUPPORTED`.
+
 Raw machine-local logs are retained under `target/release-qualification/` and
 are not release inputs.
 
@@ -62,4 +83,3 @@ No cell is qualified until it is rerun on the frozen final RC.
 | 8B Reasoning | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
 | 14B Instruct | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
 | 14B Reasoning | pending | pending | pending | UNAVAILABLE | UNQUALIFIED |
-

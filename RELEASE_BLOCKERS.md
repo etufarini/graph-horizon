@@ -19,11 +19,12 @@ Severity meanings:
 | ID | Severity | Description and evidence | Release claim affected | Status | Closure / requalification gate |
 |---|---|---|---|---|---|
 | RLS-001 | P0 | Root bootstrap downloads mutable `main` from the obsolete `gh-zero-engine-ministral3` repository URL and performs no source checksum verification. | Immutable, reproducible installation. | OPEN | Pin acquisition to `v0.1.0`, use the current repository identity, publish the source checksum procedure, and pass bootstrap tests plus a clean install from the local tag. |
-| RLS-002 | P1 | 8B Reasoning is authoritatively `not-qualified`; historical and later observations disagree. Baseline run 1 on the initial SHA passed 9/9, which is insufficient by itself. | Six-artifact support matrix. | OPEN | Apply the predeclared repetition contract below on the final RC. Otherwise mark the artifact `NOT SUPPORTED`. |
+| RLS-002 | P1 | Three fresh processes at RC `e09f6fd` passed the semantic threshold (9/9, 9/9, 8/9) but produced different bytes in six or more cases. S08 lengths were 330, 883, and 3,324 tokens. | Six-artifact support matrix. | RESOLVED — `NOT SUPPORTED` | The contract failed without retry. v0.1.0 must make no support claim for 8B Reasoning. The later parity-harness-only change is explicitly unrelated to generation and does not invalidate this exclusion evidence. |
 | RLS-003 | P1 | Current qualification evidence predates the release branch and does not cover one immutable final SHA across the complete model/backend/platform matrix. | Same-SHA model and backend claims. | OPEN | Freeze the final RC and rerun all applicable build, runtime, teacher-forced, generation, serving, and failure-path gates from a clean checkout. |
-| RLS-004 | P2 | Package metadata says `0.1.0`, but the user-facing binary rejects `--version`. | Installed-version identification. | OPEN | Add a package-derived `--version`, test it, and verify it after clean installation. |
+| RLS-004 | P2 | Package metadata said `0.1.0`, but the user-facing binary rejected `--version`. Package-derived reporting is now implemented and unit-verified. | Installed-version identification. | OPEN | Verify `graph-horizon 0.1.0` after clean tag installation. |
 | RLS-005 | P1 | No immutable local `v0.1.0` tag, tag-built artifact checksum, or clean tag installation exists. | Source/artifact provenance and final installation. | OPEN | Create the final release commit, annotated local tag, build from that tag, record checksums, and complete post-tag installation smoke qualification. |
 | RLS-006 | P1 | Sequential request reuse, clean-process repetition, real entry points, and obvious failure paths have not yet been qualified on the final RC. | Serving and user-visible runtime contract. | OPEN | Pass the documented sequential/clean-process/CLI/server test matrix with no intermittent failures. |
+| RLS-007 | P1 | The teacher-forced runner used the external GGUF chat template, which does not include Graph Horizon's release-owned Reasoning system prompt; Reasoning parity failed before logits. | Teacher-forced qualification. | OPEN | Render prompt IDs locally, pass those exact IDs to the pinned oracle, pass harness tests, and rerun real parity on the affected rows. |
 
 ## Frozen 8B Reasoning acceptance contract
 
@@ -50,4 +51,3 @@ qualification repetitions. It must not be relaxed after results are known.
 - Concurrent multi-request scheduling.
 - Qualification on unavailable AMD and Metal hardware.
 - Performance work beyond catastrophic-regression smoke checks.
-

@@ -106,8 +106,9 @@ re-tokenize another prompt or infer missing configuration.
 
 The retained `support/testing/parity-check.sh` demonstrates the current external
 runtime boundary for cataloged rows: it authenticates the artifact, pins the
-oracle revision, binds the oracle to loopback, obtains structured prompt and
-completion IDs, then runs one exact local parity test.
+oracle revision, binds the oracle to loopback, renders the release-owned prompt
+locally, obtains completion IDs from the oracle using those exact prompt IDs,
+then runs one exact local parity test.
 
 For the current Ministral qualification, the accepted llama.cpp revision is
 exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout is
@@ -117,10 +118,12 @@ use `build/bin/llama-server` from that worktree.
 
 The wrapper starts one CPU-only, offline oracle on `127.0.0.1`, with context
 4096, no GPU or KV offload, and owns both the process and temporary directory.
-It first requires exact rendered prompt IDs. It then teacher-forces exactly 16
-oracle completion tokens; every local logit must be finite and each oracle token
-must occur in the deterministic local top two. Cleanup runs on every terminal
-path.
+The external chat template is deliberately not used because Graph Horizon owns
+the Reasoning system prompt. The script passes the locally rendered token IDs to
+the oracle using the identical authenticated artifact, then teacher-forces
+exactly 16 oracle completion tokens. Every local logit must be finite and each
+oracle token must occur in the deterministic local top two. Cleanup runs on
+every terminal path.
 
 That script has a deliberately narrow catalog contract. A different family or
 oracle requires its own approved catalog and test boundary; do not broaden the

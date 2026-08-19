@@ -138,6 +138,55 @@ pub(super) unsafe fn dot_f16_x2_avx2(
     }
 }
 
+// Four-query GQA variant: the model's group-of-four queries share one key-row
+// widening. Five live vectors (key plus four accumulators) fit comfortably in
+// AVX2's register file, so this removes the second read/conversion required by
+// two x2 calls without spilling the reduction state.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn dot_f16_x4_avx2(
+    q0: &[f32],
+    q1: &[f32],
+    q2: &[f32],
+    q3: &[f32],
+    kc: &[u8],
+    kbase: usize,
+    head_dim: usize,
+) -> (f32, f32, f32, f32) {
+    use core::arch::x86_64::*;
+    unsafe {
+        let mut acc0 = _mm256_setzero_ps();
+        let mut acc1 = _mm256_setzero_ps();
+        let mut acc2 = _mm256_setzero_ps();
+        let mut acc3 = _mm256_setzero_ps();
+        let mut d = 0;
+        while d + 8 <= head_dim {
+            let kh = _mm_loadu_si128(kc.as_ptr().add((kbase + d) * 2) as *const __m128i);
+            let kf = _mm256_cvtph_ps(kh);
+            acc0 = _mm256_fmadd_ps(_mm256_loadu_ps(q0.as_ptr().add(d)), kf, acc0);
+            acc1 = _mm256_fmadd_ps(_mm256_loadu_ps(q1.as_ptr().add(d)), kf, acc1);
+            acc2 = _mm256_fmadd_ps(_mm256_loadu_ps(q2.as_ptr().add(d)), kf, acc2);
+            acc3 = _mm256_fmadd_ps(_mm256_loadu_ps(q3.as_ptr().add(d)), kf, acc3);
+            d += 8;
+        }
+        let (mut s0, mut s1, mut s2, mut s3) =
+            (hsum256(acc0), hsum256(acc1), hsum256(acc2), hsum256(acc3));
+        while d < head_dim {
+            let kf = f16_to_f32(u16::from_le_bytes([
+                kc[(kbase + d) * 2],
+                kc[(kbase + d) * 2 + 1],
+            ]));
+            s0 += q0[d] * kf;
+            s1 += q1[d] * kf;
+            s2 += q2[d] * kf;
+            s3 += q3[d] * kf;
+            d += 1;
+        }
+        (s0, s1, s2, s3)
+    }
+}
+
 // Two-output GQA-group variant of `axpy_f16_avx2`: accumulates ONE FP16 value row into
 // two outputs with per-head weights, widening the value once. Byte-for-byte two
 // separate `axpy_f16_avx2` calls. SAFETY: as `axpy_f16_avx2`.
@@ -173,6 +222,59 @@ pub(super) unsafe fn axpy_f16_x2_avx2(
             ]));
             out0[d] += w0 * vf;
             out1[d] += w1 * vf;
+            d += 1;
+        }
+    }
+}
+
+// Four-output counterpart of `dot_f16_x4_avx2`: one value-row conversion feeds
+// all four GQA outputs. Nine live vectors (value, four weights, four outputs)
+// remain below the AVX2 register limit.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn axpy_f16_x4_avx2(
+    out0: &mut [f32],
+    out1: &mut [f32],
+    out2: &mut [f32],
+    out3: &mut [f32],
+    w0: f32,
+    w1: f32,
+    w2: f32,
+    w3: f32,
+    vc: &[u8],
+    vbase: usize,
+    head_dim: usize,
+) {
+    use core::arch::x86_64::*;
+    unsafe {
+        let wv0 = _mm256_set1_ps(w0);
+        let wv1 = _mm256_set1_ps(w1);
+        let wv2 = _mm256_set1_ps(w2);
+        let wv3 = _mm256_set1_ps(w3);
+        let mut d = 0;
+        while d + 8 <= head_dim {
+            let vh = _mm_loadu_si128(vc.as_ptr().add((vbase + d) * 2) as *const __m128i);
+            let vf = _mm256_cvtph_ps(vh);
+            let o0 = _mm256_loadu_ps(out0.as_ptr().add(d));
+            let o1 = _mm256_loadu_ps(out1.as_ptr().add(d));
+            let o2 = _mm256_loadu_ps(out2.as_ptr().add(d));
+            let o3 = _mm256_loadu_ps(out3.as_ptr().add(d));
+            _mm256_storeu_ps(out0.as_mut_ptr().add(d), _mm256_fmadd_ps(wv0, vf, o0));
+            _mm256_storeu_ps(out1.as_mut_ptr().add(d), _mm256_fmadd_ps(wv1, vf, o1));
+            _mm256_storeu_ps(out2.as_mut_ptr().add(d), _mm256_fmadd_ps(wv2, vf, o2));
+            _mm256_storeu_ps(out3.as_mut_ptr().add(d), _mm256_fmadd_ps(wv3, vf, o3));
+            d += 8;
+        }
+        while d < head_dim {
+            let vf = f16_to_f32(u16::from_le_bytes([
+                vc[(vbase + d) * 2],
+                vc[(vbase + d) * 2 + 1],
+            ]));
+            out0[d] += w0 * vf;
+            out1[d] += w1 * vf;
+            out2[d] += w2 * vf;
+            out3[d] += w3 * vf;
             d += 1;
         }
     }
@@ -233,6 +335,26 @@ mod tests {
             "dot {dot_simd} vs {dot_scalar}"
         );
 
+        let q1: Vec<f32> = q.iter().map(|v| v * -0.7).collect();
+        let q2: Vec<f32> = q.iter().map(|v| v * 0.4 + 0.1).collect();
+        let q3: Vec<f32> = q.iter().map(|v| v * -0.2 - 0.3).collect();
+        let scalar_dot = |query: &[f32]| -> f32 {
+            (0..head_dim)
+                .map(|d| query[d] * f16_to_f32(u16::from_le_bytes([kv[d * 2], kv[d * 2 + 1]])))
+                .sum()
+        };
+        let expected = [
+            dot_scalar,
+            scalar_dot(&q1),
+            scalar_dot(&q2),
+            scalar_dot(&q3),
+        ];
+        let got = unsafe { dot_f16_x4_avx2(&q, &q1, &q2, &q3, &kv, 0, head_dim) };
+        for (got, expected) in [got.0, got.1, got.2, got.3].into_iter().zip(expected) {
+            let tol = 8e-2 * expected.abs().max(1e-3);
+            assert!((got - expected).abs() <= tol, "x4 dot {got} vs {expected}");
+        }
+
         let w = 0.37f32;
         let mut out_scalar = vec![1.0f32; head_dim];
         let mut out_simd = vec![1.0f32; head_dim];
@@ -243,6 +365,38 @@ mod tests {
         for d in 0..head_dim {
             let tol = 8e-2 * out_scalar[d].abs().max(1e-3);
             assert!((out_simd[d] - out_scalar[d]).abs() <= tol, "axpy[{d}]");
+        }
+
+        let weights = [0.37f32, -0.21, 0.63, -0.48];
+        let mut expected = [
+            vec![1.0f32; head_dim],
+            vec![1.0; head_dim],
+            vec![1.0; head_dim],
+            vec![1.0; head_dim],
+        ];
+        for (out, weight) in expected.iter_mut().zip(weights) {
+            for d in 0..head_dim {
+                out[d] += weight * f16_to_f32(u16::from_le_bytes([kv[d * 2], kv[d * 2 + 1]]));
+            }
+        }
+        let mut got = [
+            vec![1.0f32; head_dim],
+            vec![1.0; head_dim],
+            vec![1.0; head_dim],
+            vec![1.0; head_dim],
+        ];
+        let [got0, got1, got2, got3] = &mut got;
+        unsafe {
+            axpy_f16_x4_avx2(
+                got0, got1, got2, got3, weights[0], weights[1], weights[2], weights[3], &kv, 0,
+                head_dim,
+            )
+        };
+        for (got, expected) in got.iter().zip(expected.iter()) {
+            for (got, expected) in got.iter().zip(expected) {
+                let tol = 8e-2 * expected.abs().max(1e-3);
+                assert!((got - expected).abs() <= tol, "x4 axpy {got} vs {expected}");
+            }
         }
     }
 }

@@ -14,9 +14,9 @@
  * validated upstream, so these kernels cannot fail (they return ()).
  * Output is distributed across the cores via `parallel::for_units` over (kv_head)
  * units for decode and (row, kv_head) units for prefill (stride `group*head_dim`):
- * the `group = q_heads/kv_heads` query heads sharing a kv head are processed together
- * by `attend_pair`, so each cached K/V row is read+widened ONCE for the pair (the GQA
- * reuse). Each head's three passes (score → softmax → V mix) stay in fixed order, so
+ * the `group = q_heads/kv_heads` query heads sharing a kv head are processed in
+ * groups of four, then pair/single tails, so each cached K/V row is widened once per
+ * largest supported group. Each head's three passes stay in fixed order, so
  * the output is bit-identical to the per-head single-thread path. The `scores` scratch
  * is per-thread. KV writes are owned separately by `write`/`write_q`.
 */
@@ -119,6 +119,34 @@ fn dot_f16_x2(
     )
 }
 
+// Four-query GQA dot. AVX2 widens the shared key once; portable execution
+// delegates to the established single-head reference to preserve its exact
+// arithmetic without adding a second scalar implementation.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn dot_f16_x4(
+    simd: bool,
+    q0: &[f32],
+    q1: &[f32],
+    q2: &[f32],
+    q3: &[f32],
+    kc: &[u8],
+    kbase: usize,
+    head_dim: usize,
+) -> (f32, f32, f32, f32) {
+    #[cfg(target_arch = "x86_64")]
+    if simd {
+        // SAFETY: `simd` is true only after AVX2+FMA+F16C detection.
+        return unsafe { self::simd::dot_f16_x4_avx2(q0, q1, q2, q3, kc, kbase, head_dim) };
+    }
+    (
+        dot_f16(false, q0, kc, kbase, head_dim),
+        dot_f16(false, q1, kc, kbase, head_dim),
+        dot_f16(false, q2, kc, kbase, head_dim),
+        dot_f16(false, q3, kc, kbase, head_dim),
+    )
+}
+
 // Two-output GQA-group axpy: accumulates one value row into two outputs, reusing the
 // value's widening. Bit-identical to two `axpy_f16` calls.
 #[inline]
@@ -144,6 +172,39 @@ fn axpy_f16_x2(
         *o0 += w0 * vf;
         *o1 += w1 * vf;
     }
+}
+
+// Four-output GQA value mix, with one shared FP16 widening on AVX2 and the
+// existing scalar operation as the portable fallback.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+fn axpy_f16_x4(
+    simd: bool,
+    out0: &mut [f32],
+    out1: &mut [f32],
+    out2: &mut [f32],
+    out3: &mut [f32],
+    w0: f32,
+    w1: f32,
+    w2: f32,
+    w3: f32,
+    vc: &[u8],
+    vbase: usize,
+    head_dim: usize,
+) {
+    #[cfg(target_arch = "x86_64")]
+    if simd {
+        // SAFETY: `simd` is true only after AVX2+FMA+F16C detection.
+        return unsafe {
+            self::simd::axpy_f16_x4_avx2(
+                out0, out1, out2, out3, w0, w1, w2, w3, vc, vbase, head_dim,
+            )
+        };
+    }
+    axpy_f16(false, out0, w0, vc, vbase, head_dim);
+    axpy_f16(false, out1, w1, vc, vbase, head_dim);
+    axpy_f16(false, out2, w2, vc, vbase, head_dim);
+    axpy_f16(false, out3, w3, vc, vbase, head_dim);
 }
 
 // Scaled accumulate of the FP16 value row at element offset `vbase` into `out`:
@@ -271,6 +332,83 @@ fn attend_pair(
     }
 }
 
+// Four-head GQA variant for the Ministral group size: each cached K/V row is
+// loaded and widened once for all four queries instead of once per pair. Score
+// buffers and denominators remain independent, preserving causal softmax state.
+#[allow(clippy::too_many_arguments)]
+fn attend_quad(
+    q0: &[f32],
+    q1: &[f32],
+    q2: &[f32],
+    q3: &[f32],
+    kc: &[u8],
+    vc: &[u8],
+    key_dim: usize,
+    value_dim: usize,
+    kv_heads: usize,
+    kvh: usize,
+    layer: usize,
+    context: usize,
+    scale: f32,
+    out0: &mut [f32],
+    out1: &mut [f32],
+    out2: &mut [f32],
+    out3: &mut [f32],
+    scores0: &mut [f32],
+    scores1: &mut [f32],
+    scores2: &mut [f32],
+    scores3: &mut [f32],
+    simd: bool,
+) {
+    let (mut m0, mut m1, mut m2, mut m3) = (
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+        f32::NEG_INFINITY,
+    );
+    for t in 0..scores0.len() {
+        let kbase = ((layer * context + t) * kv_heads + kvh) * key_dim;
+        let (s0, s1, s2, s3) = dot_f16_x4(simd, q0, q1, q2, q3, kc, kbase, key_dim);
+        let (s0, s1, s2, s3) = (s0 * scale, s1 * scale, s2 * scale, s3 * scale);
+        scores0[t] = s0;
+        scores1[t] = s1;
+        scores2[t] = s2;
+        scores3[t] = s3;
+        m0 = m0.max(s0);
+        m1 = m1.max(s1);
+        m2 = m2.max(s2);
+        m3 = m3.max(s3);
+    }
+    let (mut d0, mut d1, mut d2, mut d3) = (0f32, 0f32, 0f32, 0f32);
+    for t in 0..scores0.len() {
+        scores0[t] = (scores0[t] - m0).exp();
+        scores1[t] = (scores1[t] - m1).exp();
+        scores2[t] = (scores2[t] - m2).exp();
+        scores3[t] = (scores3[t] - m3).exp();
+        d0 += scores0[t];
+        d1 += scores1[t];
+        d2 += scores2[t];
+        d3 += scores3[t];
+    }
+    for t in 0..scores0.len() {
+        let vbase = ((layer * context + t) * kv_heads + kvh) * value_dim;
+        axpy_f16_x4(
+            simd,
+            out0,
+            out1,
+            out2,
+            out3,
+            scores0[t] / d0,
+            scores1[t] / d1,
+            scores2[t] / d2,
+            scores3[t] / d3,
+            vc,
+            vbase,
+            value_dim,
+        );
+    }
+}
+
 // Scheme dispatch for the decode attention: one match per call (I2), the f16
 // arm is the historic kernel below, the quantized arms live in `read_q`.
 pub(crate) fn attention_decode(
@@ -356,19 +494,52 @@ fn attention_decode_f16(
     let group = q_heads / kv_heads; // GQA ratio (1 when q_heads == kv_heads)
 
     let simd = simd_supported(); // resolved once, not in the per-position inner loop
-    // Parallelize over kv heads (stride `group*head_dim`), pairing the group's query
-    // heads so each cached K/V row is read+widened once for the pair (the GQA reuse,
-    // same as `attention_prefill`). At a long decode context the cache read dominates,
-    // so the halved read matters; group==1 and an odd trailing head use single `attend`.
+    // Parallelize over kv heads. Groups of four share one K/V widening; smaller
+    // tails retain the pair/single paths, so every valid GQA ratio is covered.
     let unit = group * value_dim;
     let mut o = vec![0f32; q_heads * value_dim];
     parallel::for_units(&mut o, unit, |k0, chunk| {
         let mut scores0 = vec![0f32; pos + 1]; // per-thread scratch, never shared
         let mut scores1 = vec![0f32; pos + 1];
+        let mut scores2 = vec![0f32; pos + 1];
+        let mut scores3 = vec![0f32; pos + 1];
         for j in 0..chunk.len() / unit {
             let kvh = k0 + j; // absolute kv head
             let group_out = &mut chunk[j * unit..(j + 1) * unit];
             let mut gh = 0;
+            while gh + 3 < group {
+                let h0 = kvh * group + gh;
+                let qbase = h0 * key_dim;
+                let outputs = &mut group_out[gh * value_dim..(gh + 4) * value_dim];
+                let (out0, tail) = outputs.split_at_mut(value_dim);
+                let (out1, tail) = tail.split_at_mut(value_dim);
+                let (out2, out3) = tail.split_at_mut(value_dim);
+                attend_quad(
+                    &q[qbase..qbase + key_dim],
+                    &q[qbase + key_dim..qbase + 2 * key_dim],
+                    &q[qbase + 2 * key_dim..qbase + 3 * key_dim],
+                    &q[qbase + 3 * key_dim..qbase + 4 * key_dim],
+                    kc,
+                    vc,
+                    key_dim,
+                    value_dim,
+                    kv_heads,
+                    kvh,
+                    layer,
+                    context,
+                    scale,
+                    out0,
+                    out1,
+                    out2,
+                    out3,
+                    &mut scores0,
+                    &mut scores1,
+                    &mut scores2,
+                    &mut scores3,
+                    simd,
+                );
+                gh += 4;
+            }
             while gh + 1 < group {
                 let h0 = kvh * group + gh;
                 let (qb0, qb1) = (h0 * key_dim, (h0 + 1) * key_dim);
@@ -445,12 +616,8 @@ fn attention_prefill_f16(
     let group = q_heads / kv_heads; // GQA ratio (1 when q_heads == kv_heads)
 
     let simd = simd_supported(); // resolved once, not in the O(n²) inner loop
-    // Parallelize over (row, kv_head) units (stride `group*head_dim`) instead of
-    // (row, head): the `group` query heads sharing a kv head are processed together
-    // by `attend_pair`, so each cached K/V row is read+widened ONCE for the pair (the
-    // GQA reuse, the analog of the matmul two-row blocking). Their output slices are
-    // contiguous (`group*head_dim`). When `group == 1` (no GQA) or an odd trailing
-    // head remains, the single-head `attend` runs — bit-identical either way.
+    // Parallelize over (row, kv_head) units. Four-query groups share one K/V
+    // widening; pair/single tails preserve every smaller GQA shape.
     let unit = group * value_dim;
     let mut o = vec![0f32; n * q_heads * value_dim];
     parallel::for_units(&mut o, unit, |u0, chunk| {
@@ -459,20 +626,55 @@ fn attention_prefill_f16(
             return;
         }
         // Rows grow monotonically with the (row, kvh) unit index; the chunk's last
-        // unit gives its max pos. One scratch per head of the pair, sliced to `pos+1`
+        // unit gives its max pos. One scratch per query head, sliced to `pos+1`
         // (Pass 1 overwrites every entry it touches). Contiguous (row, kvh) order keeps
         // the KV warm — same locality argument as the old (row, head) split.
         let max_pos = base + (u0 + units - 1) / kv_heads;
         let mut scores0 = vec![0f32; max_pos + 1];
         let mut scores1 = vec![0f32; max_pos + 1];
+        let mut scores2 = vec![0f32; max_pos + 1];
+        let mut scores3 = vec![0f32; max_pos + 1];
         for j in 0..units {
             let ui = u0 + j; // absolute (row, kvh) unit index
             let i = ui / kv_heads; // query row in the batch
             let kvh = ui % kv_heads; // kv head
             let pos = base + i; // absolute position of this row
             let group_out = &mut chunk[j * unit..(j + 1) * unit];
-            // The kv head's `group` query heads in pairs (each reuses the K/V read).
+            // Consume the largest shared group before pair/single tails.
             let mut gh = 0;
+            while gh + 3 < group {
+                let h0 = kvh * group + gh;
+                let qbase = (i * q_heads + h0) * key_dim;
+                let outputs = &mut group_out[gh * value_dim..(gh + 4) * value_dim];
+                let (out0, tail) = outputs.split_at_mut(value_dim);
+                let (out1, tail) = tail.split_at_mut(value_dim);
+                let (out2, out3) = tail.split_at_mut(value_dim);
+                attend_quad(
+                    &q[qbase..qbase + key_dim],
+                    &q[qbase + key_dim..qbase + 2 * key_dim],
+                    &q[qbase + 2 * key_dim..qbase + 3 * key_dim],
+                    &q[qbase + 3 * key_dim..qbase + 4 * key_dim],
+                    kc,
+                    vc,
+                    key_dim,
+                    value_dim,
+                    kv_heads,
+                    kvh,
+                    layer,
+                    context,
+                    scale,
+                    out0,
+                    out1,
+                    out2,
+                    out3,
+                    &mut scores0[..pos + 1],
+                    &mut scores1[..pos + 1],
+                    &mut scores2[..pos + 1],
+                    &mut scores3[..pos + 1],
+                    simd,
+                );
+                gh += 4;
+            }
             while gh + 1 < group {
                 let h0 = kvh * group + gh;
                 let qb0 = (i * q_heads + h0) * key_dim;
@@ -567,12 +769,12 @@ mod tests {
 
     // Bit-identical parity across heads: with q_heads larger than a typical core
     // count, the per-head chunked output must equal a plain serial loop over the
-    // heads, byte for byte. Uses GQA (group = 2) to exercise the kvh mapping.
+    // heads, byte for byte. Uses GQA group 4 to exercise the widest reuse path.
     #[test]
     fn attention_parallel_matches_serial_reference() {
         let head_dim = 4;
         let kv_heads = 3;
-        let q_heads = 6; // group = 2
+        let q_heads = 12; // group = 4
         let pos = 5;
         let layer = 0;
         let context = pos + 1;
@@ -636,12 +838,12 @@ mod tests {
     // Bridge between the two kernels (invariant I1): a single-query prefill
     // (n = 1, base = pos) must produce exactly the decode output for that pos.
     // Both go through `attend` with the same f32 ops, so equality is bit-for-bit.
-    // Uses GQA (group = 2) and layer = 1 to exercise the kvh and layer offsets.
+    // Uses GQA group 4 and layer 1 to exercise the widest path and layer offset.
     #[test]
     fn prefill_n1_matches_decode() {
         let head_dim = 4;
         let kv_heads = 2;
-        let q_heads = 4; // group = 2
+        let q_heads = 8; // group = 4
         let pos = 3;
         let layer = 1;
         let context = 8;
@@ -673,12 +875,12 @@ mod tests {
     // Bit-identical parity across (row, head) units (invariant I2): with more units
     // than a typical core count, the parallel prefill output must equal a plain
     // serial loop over rows and heads, byte for byte. Causal: each row i attends
-    // only 0..=i. Uses GQA (group = 2) to exercise the kvh mapping.
+    // only 0..=i. Uses GQA group 4 to exercise the widest reuse path.
     #[test]
     fn prefill_parallel_matches_serial_reference() {
         let head_dim = 4;
         let kv_heads = 3;
-        let q_heads = 6; // group = 2
+        let q_heads = 12; // group = 4
         let base = 0;
         let n = 5;
         let layer = 0;

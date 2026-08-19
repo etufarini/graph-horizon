@@ -17,6 +17,8 @@ mod f16;
 mod kernels;
 pub(crate) mod parallel;
 mod pool;
+#[cfg(feature = "cpu-profile")]
+mod profile;
 mod readback;
 mod weights;
 
@@ -35,6 +37,13 @@ pub(crate) struct CpuEncoder;
 // Persistent CPU weights and scratch buffers; algorithms live in sibling modules.
 pub(crate) struct CpuBackend {
     buffers: Buffers<CpuBuffer>,
+}
+
+#[cfg(feature = "cpu-profile")]
+impl Drop for CpuBackend {
+    fn drop(&mut self) {
+        profile::report();
+    }
 }
 
 impl CpuBackend {

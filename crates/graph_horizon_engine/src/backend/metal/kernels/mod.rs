@@ -613,9 +613,6 @@ mod tests {
             head_dim: DIM,
             value_dim: DIM,
         };
-        let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
-        let tiled = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
-        let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
         let encoder = MetalEncoder::begin(&device)?;
         kv_write::encode(
             &encoder,
@@ -629,41 +626,48 @@ mod tests {
             kv.meta_base_for(KvRole::Value),
             CONTEXT as u32,
         )?;
-        attention::encode(
-            &encoder,
-            &pipelines,
-            &tiled,
-            &query,
-            &kv,
-            QUERY_HEADS as u32,
-            BASE as u32,
-            ROWS as u32,
-            0,
-            false,
-        )?;
-        attention::encode(
-            &encoder,
-            &pipelines,
-            &serial,
-            &query,
-            &kv,
-            QUERY_HEADS as u32,
-            BASE as u32,
-            ROWS as u32,
-            0,
-            true,
-        )?;
         encoder.submit()?;
-        for (index, (got, want)) in halfs(&tiled, ROWS * QUERY_HEADS * DIM)?
-            .into_iter()
-            .zip(halfs(&serial, ROWS * QUERY_HEADS * DIM)?)
-            .enumerate()
-        {
-            assert!(got.is_finite());
-            assert!(
-                (got - want).abs() <= 0.02,
-                "tiled value {index}: got {got}, want {want}"
-            );
+        let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
+        for base in [0, BASE] {
+            let tiled = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+            let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+            let encoder = MetalEncoder::begin(&device)?;
+            attention::encode(
+                &encoder,
+                &pipelines,
+                &tiled,
+                &query,
+                &kv,
+                QUERY_HEADS as u32,
+                base as u32,
+                ROWS as u32,
+                0,
+                false,
+            )?;
+            attention::encode(
+                &encoder,
+                &pipelines,
+                &serial,
+                &query,
+                &kv,
+                QUERY_HEADS as u32,
+                base as u32,
+                ROWS as u32,
+                0,
+                true,
+            )?;
+            encoder.submit()?;
+            for (index, (got, want)) in halfs(&tiled, ROWS * QUERY_HEADS * DIM)?
+                .into_iter()
+                .zip(halfs(&serial, ROWS * QUERY_HEADS * DIM)?)
+                .enumerate()
+            {
+                assert!(got.is_finite());
+                assert!(
+                    (got - want).abs() <= 0.02,
+                    "tiled base {base} value {index}: got {got}, want {want}"
+                );
+            }
         }
         Ok(())
     }

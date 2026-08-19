@@ -75,6 +75,7 @@ pub(crate) fn encode(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn geometry(
     mixed_placement: bool,
     rows: u32,
@@ -92,12 +93,7 @@ fn geometry(
         Ok((0, heads, 0))
     } else {
         let qualified = dim == 128 && width == 32;
-        if f16
-            && qualified
-            && rows == 32
-            && kvh.checked_mul(4) == Some(qh)
-            && base >= SEGMENTED_CONTEXT
-        {
+        if f16 && qualified && rows == 32 && kvh.checked_mul(4) == Some(qh) {
             let grid = 8usize
                 .checked_mul(kvh as usize)
                 .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
@@ -141,7 +137,7 @@ mod tests {
             (3, 8, 64)
         );
         assert_eq!(
-            geometry(false, 32, 4, 1, 128, 512, 32, true).unwrap(),
+            geometry(false, 32, 4, 1, 128, 0, 32, true).unwrap(),
             (4, 8, 128)
         );
         assert_eq!(

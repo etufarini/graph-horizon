@@ -3,11 +3,11 @@
 Usa gli esempi pubblici mantenuti, non timer ad hoc.
 
 ```sh
-support/profiling/profile.sh --model "$GH_ZERO_MODEL" \
+support/profiling/profile.sh --model "$GRAPH_HORIZON_MODEL" \
   --backend <backend> --context 4096 --kv f16
 
 cargo run --release --no-default-features --features <backend> \
-  --example bench -- "$GH_ZERO_MODEL" --context 4096 --kv f16 \
+  --example bench -- "$GRAPH_HORIZON_MODEL" --context 4096 --kv f16 \
   --prompt "Ciao" --max-tokens 32 --warmup 1 --reps 5
 ```
 

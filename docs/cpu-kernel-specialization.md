@@ -187,8 +187,49 @@ bookend measured 30.18 prompt tok/s, 4,240.61 ms TTFT, and 5.70 decode tok/s.
 Both records were stable; `fast` regresses TTFT by 14.0% while leaving decode
 effectively unchanged. State: REJECT for this CPU; retain the release profile.
 
+### CPU-04 — inline F16C quant-scale widening
+
+- Target: Q4_K/Q5_K/Q6_K x86 SIMD kernels, which account for about 78.5% of the
+  post-CPU-01 profiled interval.
+- Hypothesis: replace each branchy out-of-line software FP16 scale conversion
+  with a guarded, inlined F16C widening. Release disassembly confirmed that the
+  hot kernels changed from `call f16_at` plus `vzeroupper` boundaries to inline
+  `vcvtph2ps`; focused Q4_K/Q5_K/Q6_K parity passed (13 tests).
+- Retained bookends: 32.35/31.32 prompt tok/s, 3,957.26/4,086.76 ms TTFT, and
+  5.88/5.74 decode tok/s. Their means are 31.84 prompt tok/s, 4,022.01 ms TTFT,
+  and 5.81 decode tok/s.
+- Candidate: 24.54 prompt tok/s, 5,215.62 ms TTFT, and 6.27 decode tok/s; CVs
+  were 1.03%, 1.04%, and 0.83% respectively.
+- Delta against mean bookends: -22.91% prompt throughput, +29.68% TTFT, and
+  +7.92% decode throughput. Inline expansion increases pressure in the large
+  batched kernels enough to dominate the removed software calls; the decode
+  gain does not compensate for a decisive regression in the first global target.
+- State: REJECT after one attempt under the >2% regression rule. All candidate
+  source changes were removed.
+
+### CPU-05 — fixed-size scale blocks
+
+- Target: the checked six-bit scale/min decoder inside the remaining Q4_K/Q5_K
+  SIMD loops.
+- Hypothesis: pass `scale_min` a fixed `[u8; 12]` block so one safe slice proof
+  replaces repeated dynamic tensor bounds checks. Release codegen changed as
+  intended: the two-row Q4_K function fell from 380 to 357 assembly lines, and
+  the repeated scale-index checks collapsed to two block-level checks.
+- Candidate: 27.40 prompt tok/s, 4,672.30 ms TTFT, and 5.52 decode tok/s; CVs
+  were 0.37%, 0.37%, and 0.56%. The immediately preceding retained bookend was
+  31.32 prompt tok/s, 4,086.76 ms TTFT, and 5.74 decode tok/s.
+- Delta: -12.52% prompt throughput, +14.33% TTFT, and -3.83% decode throughput.
+  The smaller branch graph did not improve execution; fixed-slice proof and
+  resulting loop layout cost more than the checks removed.
+- Correctness: all 13 focused Q4_K/Q5_K/Q6_K matmul tests passed.
+- State: REJECT after one attempt under the >2% regression rule. The safe
+  candidate was removed; an unchecked transcription and parameter sweep are not
+  justified.
+
 ## Next candidate
 
-Audit compiler output and the existing Q4_K float kernel's practical compute
-floor before deciding whether an execution-native packed representation clears
-the economic gate. Q6_K and RoPE remain globally ranked behind Q4_K.
+Re-measure post-CPU-01 core-count scaling before changing another kernel. Wider
+token batching changes cache pressure and may move the best production point
+below all six cores. A four-output-row register block is closed without
+implementation: two rows already consume nearly all YMM registers, so four rows
+would spill weights and accumulators.

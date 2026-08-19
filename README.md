@@ -243,8 +243,10 @@ MoE support.
 Technical load support and reviewed semantic qualification are separate claims.
 The current reviewed evidence is in [VALIDATION.md](VALIDATION.md): the three
 Instruct rows are preserved from the historical pass, and the three Reasoning
-rows are current Plan 07 `qualified` results for the Rust API harness with
-`temperature=0.7`, `seed=0`, `max_tokens=4096`, KV `f16`, and Vulkan all-GPU.
+rows are current Plan 07 results for the Rust API harness with `temperature=0.7`,
+`seed=0`, `max_tokens=4096`, KV `f16`, and Vulkan all-GPU. The 3B and 14B
+Reasoning rows are `qualified`; the 8B row is `not-qualified` because its S08
+generation was incomplete.
 The server now selects that sampling policy for a loaded Reasoning profile while
 keeping Instruct greedy. The harness remains the qualification authority because
 it additionally fixes context, KV, placement, and the semantic corpus.

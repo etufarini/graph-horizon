@@ -139,7 +139,7 @@ checkout directly. After the repository is public, the public acquisition form
 follows mutable `main` and delegates to that same local installer:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/main/install.sh | bash -s -- --backend cpu
 ```
 
 See the [product installation guide](../README.md) and

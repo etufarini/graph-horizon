@@ -6,8 +6,8 @@
 
 set -euo pipefail
 
-archive_url="https://github.com/etufarini/gh-zero-engine-ministral3/archive/refs/heads/main.tar.gz"
-expected_root="gh-zero-engine-ministral3-main"
+archive_url="https://github.com/etufarini/graph-horizon/archive/refs/heads/main.tar.gz"
+expected_root="graph-horizon-main"
 temp_dir=""
 
 fail() {

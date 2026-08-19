@@ -33,7 +33,7 @@ The installer builds from source and does not download models.
 After the repository becomes public, install the current `main` source with:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/main/install.sh | bash -s -- --backend cpu
 ```
 
 The URL does not work anonymously while the repository is private. The command
@@ -46,8 +46,8 @@ downloaded automatically.
 The equivalent local-checkout path is:
 
 ```sh
-git clone https://github.com/etufarini/gh-zero-engine-ministral3.git
-cd gh-zero-engine-ministral3
+git clone https://github.com/etufarini/graph-horizon.git
+cd graph-horizon
 ./support/install.sh --backend cpu
 ```
 

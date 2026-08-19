@@ -23,7 +23,7 @@ use std::sync::{Arc, RwLock};
 
 // The f16<->f32 conversion lives in `f16`; re-exported so the impl methods below and
 // the kernels (`cpu::buffer::{f16_to_f32, f32_to_f16, f32_to_f16_bytes, …}`) reach it
-// at the historic path.
+// through the CPU buffer boundary.
 pub(crate) use super::f16::{
     f16_slice_to_f32, f16_to_f32, f32_to_f16, f32_to_f16_bytes, narrow_f32_to_f16,
 };

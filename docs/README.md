@@ -44,6 +44,7 @@ belong in the [validation register](../VALIDATION.md).
 | [kv-quant-mistral-validation.md](kv-quant-mistral-validation.md) | Ministral f16/int8 KV comparison contract |
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
+| [production-optimization-cleanup.md](production-optimization-cleanup.md) | Post-optimization ablations, retained invariants, and qualification evidence |
 | [metal-long-context-investigation.md](metal-long-context-investigation.md) | Vulkan-to-Metal long-context kernel investigation |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 

@@ -82,7 +82,7 @@ pub(crate) fn vram_for_auto(dev: &Device) -> u64 {
 
 // Checked preflight for the pure Vulkan backend. It deliberately separates
 // non-context storage (weights + fixed buffers) from context storage (KV + scratch):
-// if the former does not fit, the model itself is too large (E15); if only adding
+// if non-context storage does not fit, the model itself is too large (E15); if only adding
 // context storage overflows, the requested context is rejected without reduction
 // (E17). Staging is the peak transient upload buffer. `percent` is a hard ceiling,
 // so pure Vulkan with 0% weights cannot load.
@@ -154,8 +154,8 @@ mod tests {
 
     #[test]
     #[cfg(feature = "vulkan")]
-    fn budget_at_full_percent_is_historical_min() {
-        // Inv-2: pct = 100 reproduces today's weight budget, min(total, vram).
+    fn full_percentage_caps_only_at_available_vram() {
+        // A full percentage permits all model bytes up to the VRAM ceiling.
         assert_eq!(weight_vram_budget(800, 1000, 100), 800); // model fits in VRAM
         assert_eq!(weight_vram_budget(1500, 1000, 100), 1000); // capped by VRAM
     }

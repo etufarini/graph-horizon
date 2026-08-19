@@ -80,7 +80,7 @@ pub(crate) fn load_selected(
         pipelines,
         buffers,
         reduce,
-        staging,
+        _staging: staging,
     })
 }
 

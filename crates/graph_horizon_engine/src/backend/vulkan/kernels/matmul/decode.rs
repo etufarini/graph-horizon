@@ -345,7 +345,7 @@ mod tests {
             .collect();
 
         // int8 Q8 activations round each element to ~1/127, so a length-512 dot carries a
-        // wider error than the f16 path; assert FINITE (the historical mmvq bug was inf) plus
+        // wider error than the f16 path; require a finite result plus
         // a combined Q4_K+int8 tolerance (abs ≤ 1.5e-1 OR rel ≤ 3%).
         for o in 0..out_dim {
             let (g, w) = (got[o], want[o]);

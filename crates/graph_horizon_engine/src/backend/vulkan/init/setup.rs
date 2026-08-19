@@ -3,7 +3,7 @@
  * Builds a `VulkanBackend` from a weight source and placement: the shared
  * `load_inner` bootstrap (budget/plan → buffer creation → pipeline build → scratch
  * allocation), the MMVQ per-8 Q8 scratch, and the test-only `bare` device/pipeline
- * entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
+ * entry.
 */
 
 use color_eyre::eyre::Result;

@@ -393,8 +393,8 @@ fn attend_quad(
     }
 }
 
-// Scheme dispatch for the decode attention: one match per call (I2), the f16
-// arm is the historic kernel below, the quantized arms live in `read_q`.
+// Scheme dispatch for decode attention: one match per call. The f16 arm stays
+// local while the quantized arms use the `read_q` variants.
 pub(crate) fn attention_decode(
     out: &CpuBuffer,
     q: &CpuBuffer,

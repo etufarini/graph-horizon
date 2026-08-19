@@ -3,8 +3,7 @@
  * Picks the next token from raw logits and owns the small deterministic PRNG
  * used by stochastic sampling. Filters are applied in a fixed, documented order:
  *   repeat penalty → temperature → top-k → top-p (nucleus) → min-p → sample.
- * With temperature 0 the function short-circuits to a deterministic argmax (the
- * greedy path the milestone validates against the reference implementation); with a temperature set
+ * With temperature 0 the function short-circuits to a deterministic argmax; with a temperature set
  * the choice is deterministic for a given seed (small in-house xorshift RNG, no
  * external dependency).
 */
@@ -171,14 +170,13 @@ pub(crate) enum SamplePath {
     // top-k + the shared tail == `sample` on the full logits.
     TopK(usize),
     // Everything else (repeat penalty active, no/over-cap top-k, nucleus-only):
-    // full readback + `sample`, identical to today.
+    // full readback + `sample`.
     Fallback,
 }
 
 // Classifies the sampling path. The device paths require `repeat_penalty == 1.0`:
 // with no penalty `sample` skips the `recent` loop entirely, so the device path
-// (which never reads `recent`) is bit-identical. See the milestone's equivalence
-// proof.
+// (which never reads `recent`) is bit-identical.
 pub(crate) fn plan(p: &SamplingParams) -> SamplePath {
     if p.repeat_penalty != 1.0 {
         return SamplePath::Fallback;
@@ -245,7 +243,7 @@ mod tests {
         assert_eq!(sample(&mut l, &p, &[], &mut Rng::new(7)), 1);
     }
 
-    // The refactor invariant: `sample` equals building the candidate list and
+    // `sample` must equal building the candidate list and
     // calling the shared tail `sample_from_candidates` on it, for the same seed.
     #[test]
     fn sample_equals_shared_tail_on_same_candidates() {
@@ -277,7 +275,7 @@ mod tests {
     }
 
     // `plan` routes greedy / in-range top-k to the device, everything else to the
-    // full readback (matching the milestone's equivalence proof).
+    // full readback.
     #[test]
     fn plan_routes_paths() {
         assert!(matches!(plan(&greedy()), SamplePath::Greedy));

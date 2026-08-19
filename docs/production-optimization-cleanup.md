@@ -356,6 +356,35 @@ and 73.27 decode tok/s. Against the same-session detached-main row at 1,721.22,
 74.37 ms, and 73.48, every delta is at most 0.29%; the consolidation is
 retained.
 
+### Retained production specializations
+
+A second producer/consumer audit found no removable numeric representation or
+kernel. Every canonical weight format reaches a format-specific consumer, the
+Q8 decode activation is transient scratch consumed by MMVQ, and every one of
+the 45 Vulkan pipeline variants has both a construction path and an active
+route or required fallback. Metal and CPU optional kernels likewise remain
+behind current capability checks with scalar or generic fallbacks. Removing any
+of these would reduce hardware coverage or qualified performance rather than
+remove an experiment.
+
+The family-neutral end-to-end profiler in `examples/profile.rs` and
+`support/profiling/profile.sh` is also retained: it is the public benchmark
+driver and is consumed by the KV validation workflow. The deleted profilers
+were backend-internal timestamp instrumentation, so retaining this benchmark
+does not recreate their production state.
+
+The remaining `dead_code` allowances are deliberate cross-profile facts in
+hybrid placement and runtime sizing: one supported Cargo profile consumes only
+a subset of variants or fields, while the combined five-profile source set
+consumes all of them. Metal's staging allocation is not dead state; it is an
+RAII owner whose lifetime bounds transfers. Its private `_staging` field now
+states that ownership directly without a dead-code suppression.
+
+Finally, optimization-era chronology and obsolete profiler references were
+removed from affected production comments. The surviving comments describe
+current ownership, numeric, dispatch, and fallback invariants only. No runtime
+logic changed in this pass.
+
 ## Final Complexity, Validation, and Performance
 
 To be completed after the final diff audit.

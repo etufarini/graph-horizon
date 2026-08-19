@@ -2,7 +2,7 @@
  * graph_horizon_engine — Vulkan device runtime helpers
  * Operations on an already-created `Device`: live-VRAM query (VK_EXT_memory_budget),
  * memory-type selection, one-shot command-buffer begin/submit-wait, and the
- * compute→compute barrier. Bodies moved 1:1 from the former monolithic file.
+ * compute→compute barrier.
 */
 
 use ash::vk;

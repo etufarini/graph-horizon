@@ -74,8 +74,8 @@ impl Backend for VulkanBackend {
     ) -> Result<()> {
         // One branch per call on the load-time scheme (I2).
         match kv.scheme {
-            // f16: the byte offset maps back to the historic element offset
-            // (2 bytes/element); same pure-copy kernel as before the refactor.
+            // The f16 copy kernel addresses elements, so convert its byte offset
+            // at this scheme boundary (2 bytes per element).
             crate::kv_cache::scheme::KvQuant::F16 => kv_write(
                 &self.dev,
                 &self.reg,

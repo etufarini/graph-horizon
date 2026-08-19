@@ -18,8 +18,9 @@ text messages only, without tool calling or a separate reasoning channel.
 
 ## Requirements
 
-- Bash, `curl`, `tar`, `mktemp`, `find`, `uname`, and `install` for the public
-  bootstrap; Git is needed only for a local checkout;
+- Bash, `curl`, `tar`, `mktemp`, `find`, `awk`, `uname`, `install`, and either
+  `sha256sum` or `shasum` for the public bootstrap; Git is needed only for a
+  local checkout;
 - Rust/Cargo and Node.js/npm 22.12 or newer;
 - platform build dependencies;
 - a Vulkan loader and driver for `vulkan` and `vulkan-hybrid`;
@@ -37,11 +38,10 @@ curl --fail --location --silent --show-error https://raw.githubusercontent.com/e
 ```
 
 The URL does not work anonymously while the repository is private. The command
-downloads the `v0.1.0` tag archive rather than a mutable branch, validates its
-shape, and delegates the build to `support/install.sh`. The release source
-archive checksum is published in the v0.1.0 qualification report so it can be
-verified before a local installation. Prerequisites and GGUF models are never
-installed or downloaded automatically.
+downloads the immutable `graph-horizon-0.1.0.tar.gz` release artifact and its
+published checksum, verifies SHA-256 before extraction, validates archive shape,
+and delegates the build to `support/install.sh`. Prerequisites and GGUF models
+are never installed or downloaded automatically.
 
 The equivalent local-checkout path is:
 

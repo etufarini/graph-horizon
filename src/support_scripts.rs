@@ -207,8 +207,19 @@ fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
 [[ -z "${GRAPH_HORIZON_CURL_FAIL:-}" ]] || exit 22
 [[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
 [[ "$4" == --show-error && "$5" == --output ]]
-[[ "$7" == https://github.com/etufarini/graph-horizon/archive/refs/tags/v0.1.0.tar.gz ]]
-cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
+case "$7" in
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz)
+    cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
+    ;;
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz.sha256)
+    if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then
+      printf '%064d  graph-horizon-0.1.0.tar.gz\n' 0 > "$6"
+    else
+      printf '%s  graph-horizon-0.1.0.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
+    fi
+    ;;
+  *) exit 2 ;;
+esac
 "#,
     );
     write_executable(
@@ -680,6 +691,24 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
         assert!(!argument_log.exists());
         assert!(!temp.exists());
     }
+    let checksum = Command::new("/bin/bash")
+        .arg(fixture.join("install.sh"))
+        .args(["--backend", "cpu"])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GRAPH_HORIZON_TEST_ARCHIVE", &safe)
+        .env("GRAPH_HORIZON_TEST_TEMP", &temp)
+        .env("GRAPH_HORIZON_ARGUMENT_LOG", &argument_log)
+        .env("GRAPH_HORIZON_BAD_CHECKSUM", "1")
+        .output()
+        .unwrap();
+    assert_eq!(checksum.status.code(), Some(1));
+    assert!(
+        String::from_utf8(checksum.stderr)
+            .unwrap()
+            .contains("source checksum mismatch")
+    );
+    assert!(!argument_log.exists());
+    assert!(!temp.exists());
     fs::remove_dir_all(fixture).unwrap();
 }
 

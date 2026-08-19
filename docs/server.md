@@ -60,7 +60,8 @@ The body reads only:
 and non-string content receive `400`. Unknown fields such as `model`,
 `temperature`, and `stream` are ignored to tolerate existing OpenAI clients and
 do not change execution. Sampling is selected from the loaded model profile:
-Instruct is greedy, while Reasoning uses the qualified temperature `0.7` policy.
+Instruct is greedy, while Reasoning uses the sampling policy recorded in the
+current semantic campaign, with `temperature=0.7`.
 
 When `max_tokens` is absent, the server uses `--max-tokens`, whose server default
 is `1024`. A positive value in the request is retained even when it exceeds that

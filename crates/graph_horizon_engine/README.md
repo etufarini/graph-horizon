@@ -59,11 +59,12 @@ gate. The runtime continues to emit raw text and does not own this assessment
 policy.
 
 The current reviewed matrix is in the [validation log](../../VALIDATION.md):
-the three Reasoning profiles are `qualified` in the Plan 07 run, while the three
-Instruct profiles are retained evidence. This qualifies the configurable Rust
-API path used by the harness. The server selects the same sampling parameters
-for a Reasoning profile, but the complete gate remains owned by the harness
-because it also fixes the context, KV, placement, and semantic corpus.
+the 3B and 14B Reasoning profiles are `qualified` in the Plan 07 run, while the
+8B profile is `not-qualified` because its S08 generation was incomplete. The
+three Instruct profiles are retained evidence. This qualifies the configurable
+Rust API path used by the harness. The server selects the same sampling
+parameters for a Reasoning profile, but the complete gate remains owned by the
+harness because it also fixes the context, KV, placement, and semantic corpus.
 
 `Engine::placement()` provides the final placement and its planned memory
 breakdown; it does not expose the raw available VRAM. An error after final

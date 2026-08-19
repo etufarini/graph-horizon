@@ -126,8 +126,9 @@ than implicitly supported.
 
 Sampling supports greedy/argmax and the public parameters defined by
 `SamplingParams`. Application surfaces may expose only a subset. The server and
-Web wrapper keep Instruct greedy and select the qualified temperature `0.7`
-policy for a loaded Reasoning profile; request sampling fields remain ignored.
+Web wrapper keep Instruct greedy and select the Reasoning sampling policy
+recorded in the current semantic campaign, with `temperature=0.7`; request
+sampling fields remain ignored.
 
 Internal kernel numeric formats do not automatically expand the accepted GGUF
 contract. Technical support and numeric qualification must be recorded

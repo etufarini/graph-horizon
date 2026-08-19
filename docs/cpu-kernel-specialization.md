@@ -352,3 +352,53 @@ llama.cpp AVX2 comparator selects an 8-row interleaved Q4_K × Q8_K GEMM/GEMV.
 A four-output-row float register block is closed without implementation: two
 rows already consume nearly all YMM registers, so four rows would spill weights
 and accumulators.
+
+### CPU-11 proposed structure (recorded before implementation)
+
+- `backend/cpu/repack.rs` (~80 productive lines): Q4_K to one 8-row execution
+  layout; category K, no I/O or ownership.
+- `backend/cpu/buffer.rs` (+~15 productive lines): optional immutable native
+  bytes beside canonical bytes during reversible qualification.
+- `backend/cpu/weights.rs` (+~15 productive lines): request native bytes only
+  for Q4 matrix weights; embeddings remain canonical.
+- `backend/cpu/kernels/matmul/q4k.rs` (+~70 productive lines): canonical Q8_K
+  activation blocks and native-path routing.
+- `backend/cpu/kernels/matmul/q4k_simd.rs` (+~120 productive lines): one AVX2
+  8-output-row by up-to-4-token integer kernel; category K.
+
+No new directory is warranted: repacking is one CPU domain file and matmul is
+already a multi-file domain. Qualification retains canonical weights for an
+immediate fallback; peak-RSS cost is therefore an explicit keep criterion.
+
+### CPU-11 — 8-row execution-native Q4_K × Q8_K
+
+- Target: the final representation frontier identified by CPU-10 and the local
+  llama.cpp AVX2 comparator: interleave eight Q4_K output rows, decode scales at
+  load, quantize activations to canonical Q8_K, and compute up to four tokens by
+  eight output rows per tile.
+- Eligibility: x86 AVX2+FMA+F16C, Q4_K matrix with output rows divisible by
+  eight, and `n >= 8`; every other path retained canonical execution.
+- Correctness: the native `n=8` test passed against canonical float Q4_K across
+  two super-blocks and two output groups within the unchanged tolerance.
+- Candidate: 22.05 prompt tok/s, 5,803.96 ms TTFT, and 6.67 decode tok/s; CVs
+  were 0.79%, 0.79%, and 0.94%. The restored bookend was 26.65 prompt tok/s,
+  4,802.86 ms TTFT, and 6.89 decode tok/s.
+- Delta: -17.26% prompt throughput, +20.84% TTFT, and -3.19% decode. Peak RSS
+  rose 4,267,960 -> 5,746,252 KiB (+1.41 GiB, +34.64%) while canonical and
+  native weights coexisted for qualification.
+- Diagnosis: row interleaving alone is insufficient. Pair-wise Q8 broadcasts
+  and dot setup dominate this compact kernel; llama.cpp's gain depends on its
+  substantially larger 4x8 microkernel and deeper activation/weight packing.
+- State: REJECT after one attempt under the >2% regression rule. The new repack
+  file and every storage/kernel modification were removed; no native bytes
+  remain in the final process image.
+
+## Remaining frontier
+
+Portable batching, float SIMD, cache tiling, row blocking, thread policy,
+compiler profiles, F16C specialization, canonical Q8_K, and 8-row native Q4_K
+have now been exercised. The remaining comparator gap requires importing the
+economics of a much larger 4x8 packed GEMM subsystem (including durable format
+replacement and multi-row activation packing), not another bounded kernel
+specialization. Its compact predecessor regressed 17.3% and added 1.41 GiB, so
+that subsystem does not clear this repository's maintainability/economic gate.

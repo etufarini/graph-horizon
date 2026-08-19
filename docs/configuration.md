@@ -129,6 +129,10 @@ is absent from `PATH`, it reports the directory without editing shell files.
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
 | Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
 
+Build acceptance does not assign production, qualified, or reference status.
+Those labels and their hardware/software scopes belong to the
+[backend contract](backend.md#support-status).
+
 Every other platform/backend tuple is rejected before `npm` or Cargo starts;
 there is no backend or profile fallback. The local form above builds the
 checkout directly. After the repository is public, the public acquisition form

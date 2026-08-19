@@ -203,6 +203,29 @@ context, KV, prompt, generation length, warmup, and repetitions fixed. Record
 hardware and driver/runtime versions with TTFT, prompt throughput, decode
 throughput, and capacity failures. Performance does not override correctness.
 
+## Phase 9: Assign Support Status
+
+Use the definitions in the [backend contract](backend.md#support-status). Build
+or installer availability alone never assigns a status.
+
+- Assign **reference** only when the backend is intentionally the canonical
+  numeric oracle. Keep its arithmetic directly inspectable and do not attach a
+  performance promise to the label.
+- Assign **qualified** only after synthetic gates and real-model correctness
+  pass for a named hardware/software/model/KV/placement tuple. Publish that
+  tuple beside the label; untested neighboring devices remain outside scope.
+- Promote to **production** only when every public row in the declared scope has
+  current terminal evidence, the supported lifecycle and fallback paths are
+  regression-gated, representative performance is measured, and no missing
+  prerequisite is represented as a pass.
+
+A combined profile is promoted independently from its component backends. Its
+all-device and all-host endpoints may inherit their numeric paths, but true
+mixed placement must complete its own real-model campaign before the profile
+becomes production. A status change updates the normative backend table and its
+public summaries in the same change; `VALIDATION.md` remains the evidence
+register rather than the status authority.
+
 ## Documentation And Evidence
 
 Before claiming support, update:

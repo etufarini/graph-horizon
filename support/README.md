@@ -50,7 +50,7 @@ repository sarà pubblico. Segue il branch mutabile `main`, senza tag, checksum
 o binari precompilati:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/main/install.sh | bash -s -- --backend cpu
 ```
 
 `../install.sh` possiede soltanto download HTTPS, validazione dell'archivio e

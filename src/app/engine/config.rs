@@ -139,7 +139,6 @@ pub(crate) fn engine_config(context_tokens: Option<usize>) -> EngineConfig {
             args::value("--vram-reserve-mib").as_deref(),
         )),
         cpu_threads: or_exit(parse_threads(args::value("--cpu-threads").as_deref())),
-        no_attn_simd: args::is_present("--no-attn-simd"),
         kv_quant: or_exit(parse_kv_quant(args::value("--kv-quant").as_deref())),
     }
 }

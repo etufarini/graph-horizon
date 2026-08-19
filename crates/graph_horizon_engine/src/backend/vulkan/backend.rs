@@ -19,17 +19,9 @@ use color_eyre::eyre::{Result, eyre};
 
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(feature = "vulkan")]
-use crate::backend::source::WeightSource;
-#[cfg(feature = "vulkan")]
-use crate::gguf::loader::GgufFile;
-#[cfg(feature = "vulkan")]
-use crate::gguf::metadata::ModelMetadata;
 
 use super::VulkanBackend;
 use super::buffers::GpuBuffer;
-#[cfg(feature = "vulkan")]
-use super::device::Device;
 use super::kernels::attention::{
     attention_decode, attention_decode_int8, attention_prefill, attention_prefill_int8, kv_write,
     kv_write_int8,
@@ -43,17 +35,6 @@ use super::kernels::reduce;
 impl Backend for VulkanBackend {
     type Buffer = GpuBuffer;
     type Encoder = vk::CommandBuffer;
-
-    #[cfg(feature = "vulkan")]
-    fn load(
-        meta: &ModelMetadata,
-        ws: &dyn WeightSource,
-        gguf: &GgufFile,
-        context: usize,
-    ) -> Result<Self> {
-        let dev = Device::init().map_err(super::init::pure_loader_unavailable)?;
-        Self::load_inner(dev, meta, ws, gguf, context)
-    }
 
     fn buffers(&self) -> &Buffers<GpuBuffer> {
         &self.buf
@@ -93,8 +74,8 @@ impl Backend for VulkanBackend {
     ) -> Result<()> {
         // One branch per call on the load-time scheme (I2).
         match kv.scheme {
-            // f16: the byte offset maps back to the historic element offset
-            // (2 bytes/element); same pure-copy kernel as before the refactor.
+            // The f16 copy kernel addresses elements, so convert its byte offset
+            // at this scheme boundary (2 bytes per element).
             crate::kv_cache::scheme::KvQuant::F16 => kv_write(
                 &self.dev,
                 &self.reg,

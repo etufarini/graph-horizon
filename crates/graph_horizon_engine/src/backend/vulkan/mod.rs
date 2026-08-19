@@ -129,12 +129,12 @@ pub(crate) use init::device;
 pub(crate) use init::device::Device;
 #[cfg(feature = "vulkan-hybrid")]
 pub(crate) use init::hybrid_device;
+#[cfg(feature = "vulkan")]
+pub(crate) use init::load;
 #[cfg(all(test, feature = "vulkan-hybrid"))]
 pub(crate) use init::{probe_count, reset_probe_count};
 #[cfg(feature = "vulkan-hybrid")]
 pub(crate) use mem::budget::vram_for_auto;
-#[cfg(not(feature = "vulkan-hybrid"))]
-pub(crate) use mem::budget::{set_reserve_mib, set_weights_percent};
 pub(crate) use mem::{buffers, weights};
 
 #[cfg(feature = "vulkan-hybrid")]

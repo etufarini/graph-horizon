@@ -50,7 +50,6 @@ profiles are listed in the
 | `--vram-reserve-mib <n>` | engine policy | Non-negative VRAM reserve; part of the hybrid automatic plan |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |
 | `--kv-quant <f16\|int8>` | `f16` | Lowercase, case-sensitive KV scheme |
-| `--no-attn-simd` | absent | Disables the CPU attention SIMD path |
 
 `--context-tokens`, VRAM percentage, reserve, thread count, and KV are validated
 before engine loading. CLI and server modes also validate `--max-tokens`. In
@@ -130,13 +129,17 @@ is absent from `PATH`, it reports the directory without editing shell files.
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
 | Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
 
+Build acceptance does not assign production, qualified, or reference status.
+Those labels and their hardware/software scopes belong to the
+[backend contract](backend.md#support-status).
+
 Every other platform/backend tuple is rejected before `npm` or Cargo starts;
 there is no backend or profile fallback. The local form above builds the
 checkout directly. After the repository is public, the public acquisition form
 follows mutable `main` and delegates to that same local installer:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/main/install.sh | bash -s -- --backend cpu
 ```
 
 See the [product installation guide](../README.md) and

@@ -2,8 +2,7 @@
  * graph_horizon_engine — Vulkan device selection & capability validation
  * Pre-device queries on the instance/physical device that `Device::init` runs before
  * creating the logical device: deterministic physical-device choice, the host-visible
- * and FP16 requirement checks. No device
- * is created here — only queried and validated. Bodies moved 1:1 from `device.rs`.
+ * and FP16 requirement checks. No device is created here — only queried and validated.
 */
 
 use ash::vk;

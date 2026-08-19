@@ -23,13 +23,22 @@ cargo check -p graph_horizon_engine --no-default-features --features metal
 cargo check -p graph_horizon_engine --no-default-features --features metal-hybrid
 ```
 
-- `cpu`: complete path and portable numerical reference.
-- `vulkan`: entirely GPU-based model; insufficient memory or an unavailable
-  device are errors with no fallback.
-- `vulkan-hybrid`: CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan.
-- `metal`: entirely Metal-based model on macOS arm64, with no CPU fallback.
-- `metal-hybrid`: CPU plus Metal with unified capacity and all-Metal, mixed, or
-  CPU-only modes.
+Build availability does not assign support status. The primary labels are:
+
+| Profile | Status | Execution |
+|---|---|---|
+| `cpu` | **reference** | Complete portable numeric path |
+| `vulkan` | **production** | Entire model on a Linux x86_64 Vulkan GPU or an error |
+| `vulkan-hybrid` | **qualified** | CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan |
+| `metal` | **qualified** | Entire model on Metal or an error |
+| `metal-hybrid` | **qualified** | CPU plus Metal with all-Metal, mixed, or CPU-only modes |
+
+Production Vulkan covers compatible NVIDIA and AMD devices. Metal and
+Metal-hybrid are qualified on the documented Apple M4 10-core/macOS 26.3 tuple.
+Vulkan-hybrid requires a fresh complete real-model mixed-placement campaign for
+production promotion. `reference` is a numeric role rather than a lower
+maturity tier and carries no performance promise. The normative definitions
+and exact scope are in the [backend contract](../../docs/backend.md#support-status).
 
 The hybrid plan is immutable after loading. Only the mixed plan copies the
 residual from CPU to GPU, once per pass; each layer's KV remains on its backend.

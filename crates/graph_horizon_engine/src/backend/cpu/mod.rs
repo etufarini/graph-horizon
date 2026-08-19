@@ -17,8 +17,6 @@ mod f16;
 mod kernels;
 pub(crate) mod parallel;
 mod pool;
-#[cfg(feature = "cpu-profile")]
-mod profile;
 mod readback;
 mod weights;
 
@@ -26,7 +24,6 @@ pub(crate) use buffer::CpuBuffer;
 #[cfg(test)]
 pub(crate) use buffer::CpuFormat;
 
-pub(crate) use kernels::attention::set_no_simd;
 #[cfg(all(test, any(feature = "vulkan", feature = "vulkan-hybrid")))]
 pub(crate) use kernels::matmul::q4k::row_dot_q4k;
 mod backend;
@@ -39,11 +36,16 @@ pub(crate) struct CpuBackend {
     buffers: Buffers<CpuBuffer>,
 }
 
-#[cfg(feature = "cpu-profile")]
-impl Drop for CpuBackend {
-    fn drop(&mut self) {
-        profile::report();
-    }
+#[cfg(feature = "cpu")]
+pub(crate) fn load(
+    meta: &crate::gguf::metadata::ModelMetadata,
+    source: &dyn crate::backend::source::WeightSource,
+    file: &crate::gguf::loader::GgufFile,
+    context: usize,
+) -> color_eyre::eyre::Result<CpuBackend> {
+    Ok(CpuBackend {
+        buffers: weights::load(meta, source, file, context)?,
+    })
 }
 
 impl CpuBackend {

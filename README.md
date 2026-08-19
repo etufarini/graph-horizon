@@ -56,7 +56,7 @@ The installer builds from source and does not download models.
 After the repository becomes public, install the current `main` source with:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/main/install.sh | bash -s -- --backend cpu
 ```
 
 The URL does not work anonymously while the repository is private. The command
@@ -69,17 +69,33 @@ downloaded automatically.
 The equivalent local-checkout path is:
 
 ```sh
-git clone https://github.com/etufarini/gh-zero-engine-ministral3.git
-cd gh-zero-engine-ministral3
+git clone https://github.com/etufarini/graph-horizon.git
+cd graph-horizon
 ./support/install.sh --backend cpu
 ```
 
-There is no default backend. Supported build tuples are:
+There is no default backend. Accepted build tuples are:
 
 | Platform | Backends |
 |---|---|
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
 | Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+
+Build acceptance is not a support claim. The current profile labels are:
+
+| Profile | Status |
+|---|---|
+| `cpu` | **reference** |
+| `vulkan` | **production** |
+| `vulkan-hybrid` | **qualified** |
+| `metal` | **qualified** |
+| `metal-hybrid` | **qualified** |
+
+Production Vulkan is scoped to Linux x86_64 on compatible NVIDIA or AMD
+devices. Metal qualification is scoped to the documented Apple M4/macOS 26.3
+tuple; Vulkan-hybrid still requires a fresh complete real-model mixed-placement
+campaign for production promotion. Exact definitions and limits are in the
+[backend contract](docs/backend.md#support-status).
 
 The default profile is `release`, and the default prefix is `$HOME/.local`, so
 the command is installed as `$HOME/.local/bin/graph-horizon` with
@@ -229,8 +245,8 @@ graph-horizon --provider local --model "/path/to/model.gguf" \
   --vram-weights-percent 0
 ```
 
-Advanced options, including `--vram-reserve-mib` and `--no-attn-simd`, are
-listed by `graph-horizon --help`.
+The advanced `--vram-reserve-mib` option is listed by
+`graph-horizon --help`.
 
 The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status

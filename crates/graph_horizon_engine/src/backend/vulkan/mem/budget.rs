@@ -3,11 +3,6 @@
  * Owns VRAM discovery, reserve/weight caps, hybrid fallback and pure preflight.
 */
 
-// Only the standalone profile owns these dials; hybrid placement receives its
-// validated percentage and reserve directly through the hybrid planner.
-#[cfg(feature = "vulkan")]
-use std::sync::OnceLock;
-
 use ash::vk;
 
 use super::memory::Budget;
@@ -52,39 +47,6 @@ pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
         .unwrap_or_else(|| (256 * 1024 * 1024).max(total_vram / 20))
 }
 
-// Weight-percent dial, seeded once by `Engine::new` in single-backend builds.
-#[cfg(feature = "vulkan")]
-static WEIGHTS_PERCENT: OnceLock<Option<u8>> = OnceLock::new();
-#[cfg(feature = "vulkan")]
-static RESERVE_MIB: OnceLock<Option<u64>> = OnceLock::new();
-
-// Seeds the dial from the CLI value. See `WEIGHTS_PERCENT`.
-#[cfg(feature = "vulkan")]
-pub(crate) fn set_weights_percent(percent: Option<u8>) {
-    let _ = WEIGHTS_PERCENT.set(percent);
-}
-
-#[cfg(feature = "vulkan")]
-pub(crate) fn set_reserve_mib(reserve_mib: Option<u64>) {
-    let _ = RESERVE_MIB.set(reserve_mib);
-}
-
-// Resolves the dial: the seeded value (CLI-validated), else the default 100.
-#[cfg(feature = "vulkan")]
-pub(super) fn weight_vram_percent() -> u8 {
-    WEIGHTS_PERCENT
-        .get()
-        .copied()
-        .flatten()
-        .unwrap_or(100)
-        .min(100)
-}
-
-#[cfg(feature = "vulkan")]
-pub(super) fn configured_reserve_mib() -> Option<u64> {
-    RESERVE_MIB.get().copied().flatten()
-}
-
 // Byte-exact cap on weights kept resident in VRAM. The product is computed in
 // u128 so no plausible model overflows.
 #[cfg(feature = "vulkan")]
@@ -120,7 +82,7 @@ pub(crate) fn vram_for_auto(dev: &Device) -> u64 {
 
 // Checked preflight for the pure Vulkan backend. It deliberately separates
 // non-context storage (weights + fixed buffers) from context storage (KV + scratch):
-// if the former does not fit, the model itself is too large (E15); if only adding
+// if non-context storage does not fit, the model itself is too large (E15); if only adding
 // context storage overflows, the requested context is rejected without reduction
 // (E17). Staging is the peak transient upload buffer. `percent` is a hard ceiling,
 // so pure Vulkan with 0% weights cannot load.
@@ -192,8 +154,8 @@ mod tests {
 
     #[test]
     #[cfg(feature = "vulkan")]
-    fn budget_at_full_percent_is_historical_min() {
-        // Inv-2: pct = 100 reproduces today's weight budget, min(total, vram).
+    fn full_percentage_caps_only_at_available_vram() {
+        // A full percentage permits all model bytes up to the VRAM ceiling.
         assert_eq!(weight_vram_budget(800, 1000, 100), 800); // model fits in VRAM
         assert_eq!(weight_vram_budget(1500, 1000, 100), 1000); // capped by VRAM
     }

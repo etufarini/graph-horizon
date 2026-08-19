@@ -1,9 +1,7 @@
 /*
  * graph_horizon_engine — persistent fork-join worker pool
- * Decode issues ~150 matmuls per token; the previous design spawned a fresh set
- * of OS threads (`std::thread::scope`) on every one, paying spawn+join latency
- * each call. This pool spawns the workers once (lazily, on first parallel call)
- * and reuses them: each `dispatch` publishes one job, wakes the workers via a
+ * Decode issues ~150 matmuls per token, so this pool spawns workers once (lazily,
+ * on the first parallel call) and reuses them. Each `dispatch` publishes one job, wakes the workers via a
  * condvar (no busy-spin — workers block when idle, so an idle process burns no
  * CPU), runs slot 0 on the caller, then blocks until every worker slot reports
  * done. Workers live for the process lifetime as daemon threads.
@@ -15,7 +13,7 @@
  * erased to `'static`; this is sound only because the caller blocks on
  * `remaining == 0` before returning, so the borrow strictly outlives every
  * worker's use of it. A worker closure panic is caught and re-raised on the
- * caller after the join, mirroring the old scope-join panic propagation (no
+ * caller after the join (no
  * partial result is consumed: the kernel's final write happens after dispatch
  * returns). Numerics are untouched — this only changes *which* thread runs a
  * slot, not the per-row accumulation order, so output stays bit-identical.

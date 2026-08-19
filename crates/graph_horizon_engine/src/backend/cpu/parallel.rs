@@ -26,7 +26,7 @@ static THREADS: OnceLock<usize> = OnceLock::new();
 
 // Seeds the worker count from the CLI (`cfg.cpu_threads`). A `Some(n)` with `n > 0`
 // fixes the count; `None` (no flag) or a degenerate value leaves it unseeded so
-// `threads()` resolves to the system parallelism — today's behaviour. Set-once:
+// `threads()` resolves to the system parallelism. Set-once:
 // `Engine::new` runs twice (model + embed), so the second call is a no-op and never
 // panics. Must be called BEFORE the first `threads()`/`pool::global()` use, which
 // `Engine::new` guarantees (it seeds before the load).
@@ -38,11 +38,7 @@ pub(crate) fn set_threads(n: Option<usize>) {
     }
 }
 
-// Logical cores, not physical: with the per-call thread spawn removed (the
-// persistent `pool`), the SMT siblings are worth using — on an 8c/16t host decode
-// tg keeps climbing past 8 workers (8→10.3, 14→13.0, 16→12.7 tok/s), so the old
-// physical-core cap (which made sense only while spawn overhead dominated) now
-// leaves ~18% on the table. Bit-exact: the worker count only changes how the
+// Logical cores are safe to use because the worker count only changes how
 // disjoint output rows are chunked, never the per-row accumulation order.
 pub(crate) fn threads() -> usize {
     *THREADS.get_or_init(|| {
@@ -58,8 +54,8 @@ pub(crate) fn threads() -> usize {
 // first unit and `sub` is its output slice. The chunks come from `chunks_mut`, so
 // they are pairwise disjoint — each worker writes only its own slice, no data
 // race, no lock. If at most one chunk is needed (single unit, empty output, or
-// one worker) the closure runs inline with no thread spawned, identical to the
-// old single-thread path. `f` is `Sync` because several threads call it at once.
+// one worker) the closure runs inline with no thread spawned. `f` is `Sync`
+// because several threads call it at once.
 pub(crate) fn for_units<T, F>(out: &mut [T], stride: usize, f: F)
 where
     T: Send,
@@ -68,7 +64,7 @@ where
     let units = out.len() / stride;
     let n = threads().min(units);
     if n <= 1 {
-        // Inline degradation: no scope, no spawn — bit-for-bit the prior behavior.
+        // Inline degradation: no scope and no spawn.
         f(0, out);
         return;
     }
@@ -85,7 +81,7 @@ where
     // decode issues ~150 matmuls/token. Bit-exact: same disjoint chunks, same
     // per-row order; only which thread runs a chunk changes. Each slot rebuilds
     // its own non-overlapping `&mut` sub-slice from the base pointer, so no two
-    // workers ever alias (identical disjointness to the old `chunks_mut`).
+    // workers ever alias.
     // The base pointer is shared (read-only as a value) across the worker slots;
     // each slot derives a disjoint sub-slice, so sharing it is sound. Raw pointers
     // are `!Sync`, so wrap it to cross the dispatch boundary.

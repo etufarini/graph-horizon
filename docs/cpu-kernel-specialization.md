@@ -294,9 +294,61 @@ by logits and the split attention projections.
   1 ignored; 12 semantic tests, 1 ignored).
 - State: KEEP; final decode reprofile remains.
 
+### Reprofile after CPU-08
+
+The Q6_K `n=1` down bucket fell from 660.92 to 535.79 ms across 31 tokens:
+1.233x local speedup and 125.13 ms (4.04 ms/token) removed. The final ranked
+decode groups are existing-latency-kernel Q4_K work at about 44%, attention
+projections at about 22%, Q6_K logits at about 11%, Q6_K down at about 11%,
+RoPE near 3%, and decode attention near 2%.
+
+### Post-specialization thread Pareto
+
+Five cores measured 24.87 prompt tok/s, 5,147.14 ms TTFT, and 7.64 decode
+tok/s. Against CPU-08's six-core 29.98/4,270.21/6.90 record, five cores gain
+10.72% decode but lose 17.04% prompt throughput. State: retain the six-core
+mixed-workload production policy; five cores are a documented decode-only
+configuration, not a global default.
+
+### CPU-09 — F16C only in single-token kernels
+
+- Target: decode-only Q4_K/Q5_K/Q6_K scale widening, isolating CPU-04's decode
+  gain from its batched-kernel expansion.
+- Candidate: 24.12 prompt tok/s, 5,307.32 ms TTFT, and 7.50 decode tok/s. The
+  restored bookend was 26.65, 4,802.86, and 6.89.
+- Delta: -9.49% prompt throughput, +10.50% TTFT, and +8.85% decode throughput.
+  Even decode-only inline expansion perturbs the release code layout enough to
+  reproduce CPU-04's prefill regression.
+- Correctness: all 13 focused quantized matmul tests passed.
+- State: REJECT under the >2% regression rule. All source changes were removed;
+  F16C scale-conversion variants are closed without an implementation sweep.
+
+### CPU-10 — canonical Q4_K × Q8_K integer dot
+
+- Target: Q4_K prefill. This replaced CPU-02's per-eight activation scales and
+  four reductions per sub-block with canonical 256-value Q8_K blocks, sixteen
+  precomputed sums, AVX2 `maddubs/madd`, one block conversion, and one final
+  horizontal reduction.
+- Amdahl prediction: 64.8% Q4_K fraction and a conservative 2x local gain would
+  yield 1.48x total, well above the complex-change gate.
+- End-to-end candidate: 30.20 prompt tok/s, 4,238.90 ms TTFT, and 6.66 decode
+  tok/s (CVs 0.33%, 0.33%, 0.58%). The immediate restored bookend was 26.65,
+  4,802.86, and 6.89, but cross-session prompt records reached about 30 tok/s.
+- Direct attribution: against the stable CPU-07 profile, Q4_K `n=32` fell only
+  3,007.33 -> 2,690.56 ms (1.118x local), predicting about 6.9% whole-prefill
+  gain. The 3072x1024 shape regressed. This does not clear the 10% complex-path
+  gate, and decode regressed 3.34% despite an unchanged decode route.
+- Correctness: an `n=8`, two-super-block batched test passed against the float
+  kernel within the unchanged quantized tolerance.
+- State: REJECT. All Q8_K code and tests were removed. Evidence agrees with
+  llama.cpp's architecture: integer arithmetic needs execution-native multi-row
+  Q4_K repacking to earn its cost.
+
 ## Next candidate
 
-Qualify and reprofile CPU-08, then Amdahl-rank logits, attention projections,
-RoPE, and attention from the new decode interval. A four-output-row register
-block is closed without implementation: two rows already consume nearly all YMM
-registers, so four rows would spill weights and accumulators.
+Evaluate execution-native Q4_K row interleaving as the last high-headroom CPU
+representation frontier. Canonical Q8_K alone is below the gate, while the local
+llama.cpp AVX2 comparator selects an 8-row interleaved Q4_K × Q8_K GEMM/GEMV.
+A four-output-row float register block is closed without implementation: two
+rows already consume nearly all YMM registers, so four rows would spill weights
+and accumulators.

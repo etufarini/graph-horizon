@@ -13,9 +13,10 @@ determination. VALIDATION.md remains the authoritative support registry.
 | Initial main | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
 | Qualified inference RC | `d1bf18f034fd44df5b8e81931e7feea32edeb47f` |
 | Packaging RC | `c59ea4eebdd77cfe2712b64bc11245fe4dd12440` |
+| Final pre-tag candidate | `fe7a46aec1e1b5904413082d95946a45ce70d8d2` |
 | Final source | the sole commit referenced by `v0.1.0` |
 | Qualification date | 2026-08-19 |
-| Determination | pending final tag/install gate |
+| Determination | `RELEASE READY` for local immutable tagging/publication |
 
 Final metadata commits do not change inference code. Model evidence from the
 qualified inference RC is reused under the explicit unrelated-change policy;
@@ -93,12 +94,15 @@ path, backtrace, or panic.
 
 ## Build and test qualification
 
-Initial main passed CPU, Vulkan, and Vulkan-hybrid workspace tests and warnings-
-denied Clippy; frontend 92 tests, Svelte check, production build, and npm audit
-also passed. The final tag gate reruns formatting, shell syntax, all three Linux
-feature builds/tests/lints, frontend tests/check/build/audit, consistency,
-clean installation, version, and inference smoke. Final outcomes are recorded
-below before tagging.
+The clean final candidate passed formatting and all shell syntax checks. CPU,
+Vulkan, and Vulkan-hybrid each passed locked workspace tests, warnings-denied
+Clippy over all targets, and optimized release builds in isolated target trees.
+Representative counts were 166 application tests and 159 CPU engine tests;
+Vulkan-hybrid ran 229 engine tests. Real-artifact tests not selected by the
+explicit qualification harness remained intentionally ignored. The frontend
+passed 92/92 tests, Svelte check with zero errors/warnings, production build,
+and npm audit with zero known vulnerabilities. The documentation contract and
+bootstrap rejection/forwarding tests passed.
 
 ## Installer and artifact integrity
 
@@ -111,9 +115,31 @@ the tag.
 
 ## Performance smoke
 
-Short/long prefill and decode characterization uses 3B Instruct on the supported
-tuple. It is a catastrophic-regression guard, not an optimization or cross-SHA
-performance claim. Final measurements are added after the frozen-tag run.
+3B Instruct on the supported tuple, F16 KV/context 4096, one repetition and no
+warmup produced:
+
+| Prompt / decode | Prompt tok/s | TTFT | Decode tok/s | Result |
+|---|---:|---:|---:|---|
+| 5 / 15 tokens | 16.45 | 303.90 ms | 66.98 | PASS |
+| 5 / 62 tokens | 34.51 | 144.87 ms | 70.90 | PASS |
+| 83 / 16 tokens | 201.11 | 412.70 ms | 73.71 | PASS |
+| 83 / 64 tokens | 201.66 | 411.59 ms | 73.33 | PASS |
+
+This is a catastrophic-regression characterization, not an optimization or
+cross-SHA performance claim. All values are finite and no major regression was
+observed.
+
+## Clean installation gate
+
+An archive made with `git archive`, the release root prefix, and deterministic
+gzip was extracted into a new temporary directory with no build tree. The local
+installer rebuilt frontend and Vulkan-hybrid release artifacts, installed into
+a new prefix, and reported `graph-horizon 0.1.0`. The installed binary loaded
+the authenticated 3B Instruct artifact, served `/props` with context 4096,
+streamed `OK`, usage, stop, and `[DONE]`, then shut down cleanly. The root
+bootstrap's immutable URLs, checksum mismatch rejection, archive validation,
+argument forwarding, and cleanup are covered by focused tests; anonymous
+network retrieval can only be repeated after the two release assets exist.
 
 ## Known limitations
 
@@ -133,5 +159,8 @@ programs.
 
 ## Final determination
 
-Pending the final clean-state, tag, archive, installation, version, and smoke
-gates. No support claim will be broadened at finalization.
+`RELEASE READY`. All P0/P1 blockers are resolved for the narrow 5/6 contract.
+Create the annotated local `v0.1.0` tag at the final release commit, generate
+the source archive and `.sha256` from that tag, verify the mapping and installed
+version, and publish only with explicit authorization. The tag must never move;
+any later defect requires v0.1.1.

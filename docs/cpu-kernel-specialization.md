@@ -160,6 +160,33 @@ whole-workload upper bound is below the 5% moderate-change gate.
 - State: REJECT. All Q8 candidate code and tests were removed; only this result
   remains. No corrective parameter sweep is justified by a 2.3x regression.
 
+### CPU-03 — reuse RoPE coefficients across heads
+
+- Target: 3B/128 prefill; decode is a control.
+- Hypothesis: pair/position coefficients are head-independent, so a pair-major
+  loop reduces validation, YaRN correction, pow, sin, and cos calculations from
+  2,560 to 128 per token/layer without changing element arithmetic.
+- Amdahl prediction: RoPE fraction 12.09%, conservative 5x local gain, 1.11x
+  total speedup, and about 465 ms removable.
+- Baseline bookend: 30.18 prompt tok/s, 4,240.61 ms TTFT, 5.70 decode tok/s;
+  CV 0.35% TTFT and 0.67% decode.
+- Candidate: 31.03 prompt tok/s, 4,125.17 ms TTFT, 5.92 decode tok/s; CV 0.50%
+  TTFT and 0.61% decode.
+- Delta: +2.82% prompt, -2.72% TTFT, +3.86% decode. The result shows only about
+  115 ms of the profiled RoPE bucket was redundant coefficient calculation;
+  F16 conversion/copy and rotation work dominate the remainder.
+- Correctness: all seven focused CPU/shared RoPE tests pass.
+- State: REJECT because the declared prefill objective is below 3%. The loop
+  change was removed; no coefficient-cache or loop-order sweep is justified.
+
+### Compiler profile audit
+
+The existing Cargo `fast` profile (fat LTO, one codegen unit) measured 26.47
+prompt tok/s, 4,835.45 ms TTFT, and 5.78 decode tok/s. A same-session release
+bookend measured 30.18 prompt tok/s, 4,240.61 ms TTFT, and 5.70 decode tok/s.
+Both records were stable; `fast` regresses TTFT by 14.0% while leaving decode
+effectively unchanged. State: REJECT for this CPU; retain the release profile.
+
 ## Next candidate
 
 Audit compiler output and the existing Q4_K float kernel's practical compute

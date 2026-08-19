@@ -24,7 +24,7 @@ Severity meanings:
 | RLS-004 | P2 | Package metadata said `0.1.0`, but the user-facing binary rejected `--version`. Package-derived reporting is now implemented and unit-verified. | Installed-version identification. | OPEN | Verify `graph-horizon 0.1.0` after clean tag installation. |
 | RLS-005 | P1 | No immutable local `v0.1.0` tag, tag-built artifact checksum, or clean tag installation exists. | Source/artifact provenance and final installation. | OPEN | Create the final release commit, annotated local tag, build from that tag, record checksums, and complete post-tag installation smoke qualification. |
 | RLS-006 | P1 | Sequential request reuse, clean-process repetition, real entry points, and obvious failure paths have not yet been qualified on the final RC. | Serving and user-visible runtime contract. | OPEN | Pass the documented sequential/clean-process/CLI/server test matrix with no intermittent failures. |
-| RLS-007 | P1 | The teacher-forced runner used the external GGUF chat template, which does not include Graph Horizon's release-owned Reasoning system prompt; Reasoning parity failed before logits. | Teacher-forced qualification. | OPEN | Render prompt IDs locally, pass those exact IDs to the pinned oracle, pass harness tests, and rerun real parity on the affected rows. |
+| RLS-007 | P1 | The teacher-forced runner used the external GGUF chat template, which does not include Graph Horizon's release-owned Reasoning system prompt; Reasoning parity failed before logits. | Teacher-forced qualification. | RESOLVED | RC2 renders prompt IDs locally. Harness tests pass, and two fresh 8B runs matched the pinned oracle at all 16 top-1 steps. |
 
 ## Frozen 8B Reasoning acceptance contract
 
@@ -51,3 +51,21 @@ qualification repetitions. It must not be relaxed after results are known.
 - Concurrent multi-request scheduling.
 - Qualification on unavailable AMD and Metal hardware.
 - Performance work beyond catastrophic-regression smoke checks.
+
+## Frozen 3B/14B Reasoning quality contract
+
+This statistical rule was recorded before the final 3B and 14B repetitions.
+Unlike the stricter 8B investigation gate, it does not claim fixed-seed byte
+determinism.
+
+- Run three independent fresh processes per artifact on the final unchanged
+  engine/runtime code, using the same Vulkan all-GPU, F16 KV, context, seed, and
+  sampling tuple as the 8B investigation.
+- Every run must satisfy `critical=4/4`, `semantic>=8/9`, nine complete marker
+  pairs, successful execution, and EOS for every case. No retry is allowed.
+- Record per-case completion lengths and response hashes. Variation is allowed
+  only if all three complete runs remain inside the declared semantic contract.
+- Two independent teacher-forced runs per artifact must pass the 16-step pinned
+  oracle top-two gate; a teacher-forced failure cannot be hidden by generation.
+- Any incomplete generation, execution/marker failure, critical miss, or run
+  below 8/9 yields `NOT SUPPORTED` for that artifact in v0.1.0.

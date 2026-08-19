@@ -13,11 +13,11 @@ summaries; VALIDATION.md remains the authoritative support registry.
 | Qualification date | 2026-08-19 |
 | Initial main SHA | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
 | Branch | `release/v0.1.0-qualification` |
-| Current RC SHA | `e09f6fd09a1bb1d63fb11bce77b8e86e2896e39c` (superseded by pending harness fix) |
+| Current RC SHA | `dd122f4bbffeb65baef21a4199160cc7a810b6ca` |
 | 8B Reasoning | `NOT SUPPORTED` |
 | Installer | tag-pinned; clean tag installation pending |
 | Current determination | qualification in progress |
-| Next action | verify corrected teacher-forced protocol, freeze the next RC, then qualify it from scratch |
+| Next action | apply the predeclared 3B/14B Reasoning repetition contract, then complete the model/backend matrix |
 
 ## Initial environment
 
@@ -67,6 +67,14 @@ temperature sampling into different user-visible trajectories. The precise
 backend source (reduction ordering, race, or uninitialized state) remains
 post-release investigation because the narrow v0.1.0 contract excludes this
 artifact. Final status: `NOT SUPPORTED`.
+
+Two clean teacher-forced runs on RC2 used locally rendered Reasoning prompt IDs
+and the pinned CPU oracle at `13f2b28b0`. All 16 local top-1 IDs exactly matched
+all 16 oracle IDs in both runs. Two temporary, subsequently removed greedy S01
+diagnostics also produced identical 308-token responses with identical SHA-256.
+The observed failure is therefore confined to the temperature-sampled path in
+the tested controls, where small numerical variation changes deterministic-PRNG
+threshold crossings and amplifies the rest of the trajectory.
 
 Raw machine-local logs are retained under `target/release-qualification/` and
 are not release inputs.

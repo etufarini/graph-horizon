@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 #
-# Remote acquisition boundary: downloads one disposable main-branch snapshot,
-# validates its shape, and delegates every build/install decision unchanged to
-# support/install.sh. It owns no backend, profile, prefix, or build policy.
+# Remote acquisition boundary: downloads and authenticates the v0.1.0 source
+# release, validates its shape, and delegates every build/install decision
+# unchanged to support/install.sh. It owns no backend/profile/prefix policy.
 
 set -euo pipefail
 
-archive_url="https://github.com/etufarini/graph-horizon/archive/refs/heads/main.tar.gz"
-expected_root="graph-horizon-main"
+release_url="https://github.com/etufarini/graph-horizon/releases/download/v0.1.0"
+archive_name="graph-horizon-0.1.0.tar.gz"
+archive_url="${release_url}/${archive_name}"
+checksum_url="${release_url}/${archive_name}.sha256"
+expected_root="graph-horizon-0.1.0"
 temp_dir=""
 
 fail() {
@@ -35,12 +38,23 @@ validate_archive() {
     done < "${temp_dir}/members"
 }
 
-for prerequisite in bash curl tar mktemp find; do
+sha256_file() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$1" | awk '{print $1}'
+    else
+        shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+for prerequisite in bash curl tar mktemp find awk; do
     command -v "${prerequisite}" >/dev/null 2>&1 || {
         printf 'bootstrap: %s is required\n' "${prerequisite}" >&2
         exit 2
     }
 done
+if ! command -v sha256sum >/dev/null 2>&1 && ! command -v shasum >/dev/null 2>&1; then
+    fail "sha256sum or shasum is required"
+fi
 
 temp_dir="$(mktemp -d)" || fail "cannot create temporary directory"
 trap cleanup EXIT
@@ -49,7 +63,15 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 archive="${temp_dir}/source.tar.gz"
+checksum_file="${temp_dir}/source.sha256"
 curl --fail --location --silent --show-error --output "${archive}" "${archive_url}"
+curl --fail --location --silent --show-error --output "${checksum_file}" "${checksum_url}"
+read -r expected_hash expected_name extra < "${checksum_file}" \
+    || fail "source checksum record is invalid"
+[[ "${expected_hash}" =~ ^[0-9a-f]{64}$ && "${expected_name}" == "${archive_name}" && -z "${extra:-}" ]] \
+    || fail "source checksum record is invalid"
+[[ "$(sha256_file "${archive}")" == "${expected_hash}" ]] \
+    || fail "source checksum mismatch"
 tar -tzf "${archive}" > "${temp_dir}/members"
 validate_archive
 mkdir "${temp_dir}/source"

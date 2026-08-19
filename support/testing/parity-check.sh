@@ -121,14 +121,18 @@ post_json() {
     curl --fail --silent --show-error -H 'Content-Type: application/json' --data-binary "$body" \
         "http://127.0.0.1:$reference_port/$endpoint" >"$output" || real_failure "oracle HTTP request failed"
 }
-body="$(jq -cn --arg content 'Quanto fa 17 × 19?' '{messages:[{role:"system",content:""},{role:"user",content:$content}],add_generation_prompt:true}')"
-post_json apply-template "$body" "$temporary_dir/template.json"
-oracle_prompt="$(jq -er '.prompt | select(type == "string")' "$temporary_dir/template.json")" \
-    || real_failure "malformed apply-template response"
-body="$(jq -cn --arg content "$oracle_prompt" '{content:$content,add_special:true,parse_special:true}')"
-post_json tokenize "$body" "$temporary_dir/tokenize.json"
-prompt_ids="$(jq -er '.tokens | select(type == "array" and length > 0) | select(all(.[]; type == "number" and . >= 0 and floor == .)) | map(tostring) | join(",")' "$temporary_dir/tokenize.json")" \
-    || real_failure "malformed tokenize response"
+# The release owns the Reasoning system prompt, so an external chat template is
+# not an authority for prompt construction. Render locally without allocating a
+# backend, then pass those exact IDs to the oracle using the same model bytes.
+prompt_line="$(
+    cd "$project_dir"
+    cargo run --locked --quiet -p graph-horizon --no-default-features --features cpu \
+        --example tokenize -- "$model" 'Quanto fa 17 × 19?' '' 2>"$temporary_dir/tokenize.log"
+)" || real_failure "local prompt rendering failed"
+prompt_line="${prompt_line%%$'\n'*}"
+[[ "$prompt_line" =~ ^prompt_ids:\ \[([0-9]+(,\ [0-9]+)*)\]$ ]] \
+    || real_failure "malformed local prompt response"
+prompt_ids="${BASH_REMATCH[1]//, /,}"
 body="$(jq -cn --argjson prompt "[$prompt_ids]" '{prompt:$prompt,n_predict:16,temperature:0,top_k:1,top_p:1,min_p:0,repeat_penalty:1,stream:false,return_tokens:true}')"
 post_json completion "$body" "$temporary_dir/completion.json"
 completion_ids="$(jq -er '.tokens | select(type == "array" and length == 16) | select(all(.[]; type == "number" and . >= 0 and floor == .)) | map(tostring) | join(",")' "$temporary_dir/completion.json")" \

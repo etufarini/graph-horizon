@@ -2,11 +2,15 @@
  * graph_horizon_engine — test-only Reasoning qualification harness
  * Qualifies one authenticated Ministral Reasoning Q4_K_M artifact through the
  * configurable Rust API on Vulkan all-GPU. This file owns no production policy,
- * server behavior, retry path, or model whitelist; it emits only bounded
- * protocol records for the external qualification runner.
+ * server behavior, retry path, or model whitelist; it emits bounded protocol
+ * records and optional raw response evidence for the qualification runner.
  */
 
-use std::{path::Path, time::Instant};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    time::Instant,
+};
 
 use graph_horizon_engine::{
     BackendMemory, Engine, EngineConfig, Event, GenerationStats, KvQuant, Message, PlacementReport,
@@ -505,6 +509,10 @@ fn real_semantic_acceptance() {
     let model = std::env::var("GRAPH_HORIZON_MODEL").expect("GRAPH_HORIZON_MODEL required");
     approved_reasoning_id(&model_id).unwrap_or_else(|reason| panic!("{reason}"));
     println!("{}", config_line(&model_id));
+    let evidence_dir = std::env::var_os("GRAPH_HORIZON_EVIDENCE_DIR").map(PathBuf::from);
+    if let Some(directory) = &evidence_dir {
+        fs::create_dir_all(directory).expect("create semantic evidence directory");
+    }
 
     let started = Instant::now();
     let engine = match Engine::new(
@@ -555,33 +563,44 @@ fn real_semantic_acceptance() {
         );
         let (marker, result, stop_label, prompt_tokens, completion_tokens, stats) =
             match event_response(&events) {
-                Ok((raw, stats)) => match stop(stats) {
-                    Ok(stop) => {
-                        let (marker, result) = assessment(case, &raw, stop);
-                        (
-                            marker,
-                            result,
-                            stop.label(),
-                            stats.prompt_tokens,
-                            stats.completion_tokens,
-                            Some(stats),
+                Ok((raw, stats)) => {
+                    if let Some(directory) = &evidence_dir {
+                        // Model IDs and case IDs are fixed by this harness, so the
+                        // operator-selected directory cannot influence filenames.
+                        fs::write(
+                            directory.join(format!("{model_id}-{}.txt", case.id)),
+                            raw.as_bytes(),
                         )
+                        .expect("write semantic response evidence");
                     }
-                    Err(_) => {
-                        execution_ok = false;
-                        (
-                            MarkerStatus::Invalid,
-                            Err(format!(
-                                "reason=engine-error excerpt={}",
-                                "[invalid reasoning response omitted]".escape_debug()
-                            )),
-                            "error",
-                            stats.prompt_tokens,
-                            stats.completion_tokens,
-                            Some(stats),
-                        )
+                    match stop(stats) {
+                        Ok(stop) => {
+                            let (marker, result) = assessment(case, &raw, stop);
+                            (
+                                marker,
+                                result,
+                                stop.label(),
+                                stats.prompt_tokens,
+                                stats.completion_tokens,
+                                Some(stats),
+                            )
+                        }
+                        Err(_) => {
+                            execution_ok = false;
+                            (
+                                MarkerStatus::Invalid,
+                                Err(format!(
+                                    "reason=engine-error excerpt={}",
+                                    "[invalid reasoning response omitted]".escape_debug()
+                                )),
+                                "error",
+                                stats.prompt_tokens,
+                                stats.completion_tokens,
+                                Some(stats),
+                            )
+                        }
                     }
-                },
+                }
                 Err(_) => {
                     execution_ok = false;
                     (

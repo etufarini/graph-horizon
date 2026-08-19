@@ -207,8 +207,19 @@ fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
 [[ -z "${GRAPH_HORIZON_CURL_FAIL:-}" ]] || exit 22
 [[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
 [[ "$4" == --show-error && "$5" == --output ]]
-[[ "$7" == https://github.com/etufarini/graph-horizon/archive/refs/heads/main.tar.gz ]]
-cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
+case "$7" in
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz)
+    cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
+    ;;
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz.sha256)
+    if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then
+      printf '%064d  graph-horizon-0.1.0.tar.gz\n' 0 > "$6"
+    else
+      printf '%s  graph-horizon-0.1.0.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
+    fi
+    ;;
+  *) exit 2 ;;
+esac
 "#,
     );
     write_executable(
@@ -237,7 +248,7 @@ exec /usr/bin/tar "$@"
 
 fn source_archive(fixture: &Path, name: &str, complete: bool, with_symlink: bool) -> PathBuf {
     let tree = fixture.join(format!("{name} tree"));
-    let root = tree.join("graph-horizon-main");
+    let root = tree.join("graph-horizon-0.1.0");
     fs::create_dir_all(root.join("support")).unwrap();
     fs::create_dir_all(root.join("web/frontend")).unwrap();
     write_executable(
@@ -262,7 +273,7 @@ exit "${GRAPH_HORIZON_DELEGATE_STATUS:-0}"
             archive.to_str().unwrap(),
             "-C",
             tree.to_str().unwrap(),
-            "graph-horizon-main",
+            "graph-horizon-0.1.0",
         ])
         .output()
         .unwrap();
@@ -652,8 +663,8 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
     let safe = source_archive(&fixture, "listed source", true, false);
     for (index, members) in [
         "/absolute/member\n",
-        "graph-horizon-main/../escape\n",
-        "graph-horizon-main/./member\n",
+        "graph-horizon-0.1.0/../escape\n",
+        "graph-horizon-0.1.0/./member\n",
         "another-root/member\n",
         "",
     ]
@@ -680,6 +691,24 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
         assert!(!argument_log.exists());
         assert!(!temp.exists());
     }
+    let checksum = Command::new("/bin/bash")
+        .arg(fixture.join("install.sh"))
+        .args(["--backend", "cpu"])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("GRAPH_HORIZON_TEST_ARCHIVE", &safe)
+        .env("GRAPH_HORIZON_TEST_TEMP", &temp)
+        .env("GRAPH_HORIZON_ARGUMENT_LOG", &argument_log)
+        .env("GRAPH_HORIZON_BAD_CHECKSUM", "1")
+        .output()
+        .unwrap();
+    assert_eq!(checksum.status.code(), Some(1));
+    assert!(
+        String::from_utf8(checksum.stderr)
+            .unwrap()
+            .contains("source checksum mismatch")
+    );
+    assert!(!argument_log.exists());
+    assert!(!temp.exists());
     fs::remove_dir_all(fixture).unwrap();
 }
 
@@ -1239,7 +1268,6 @@ fn parity_script_contract() {
     let temp = fixture.join("owned temp");
     let cargo_log = fixture.join("cargo calls");
     let server_log = fixture.join("server lifecycle");
-    let template_log = fixture.join("apply template request");
     fs::create_dir(&models).unwrap();
     fs::create_dir(&bin).unwrap();
     let model = models.join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf");
@@ -1276,15 +1304,6 @@ case "$url" in
         if [[ "${GRAPH_HORIZON_HEALTH_WAIT:-}" == 1 ]]; then /bin/sleep 0.2; exit 1; fi
         exit 0
         ;;
-    */apply-template)
-        if [[ -n "${GRAPH_HORIZON_APPLY_TEMPLATE_LOG:-}" ]]; then
-            printf '%s\n' "$body" > "$GRAPH_HORIZON_APPLY_TEMPLATE_LOG"
-        fi
-        printf '{"prompt":"oracle prompt"}\n'
-        ;;
-    */tokenize)
-        if [[ "${GRAPH_HORIZON_BAD_HTTP:-}" == tokenize ]]; then printf '{bad json\n'; else printf '{"tokens":[1,2,3]}\n'; fi
-        ;;
     */completion) printf '{"tokens":[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]}\n' ;;
 esac
 "#,
@@ -1294,6 +1313,11 @@ esac
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
+if [[ " $* " == *" --example tokenize "* ]]; then
+    printf 'tokenize-args=%s\n' "$*" >> "$GRAPH_HORIZON_CARGO_LOG"
+    if [[ "${GRAPH_HORIZON_BAD_PROMPT:-}" == 1 ]]; then printf 'invalid prompt output\n'; else printf 'prompt_ids: [1, 2, 3]\n'; fi
+    exit 0
+fi
 printf 'args=%s\nmodel=%s\ncontext=%s\nkv=%s\npercent=%s\nmode=%s\nprompt=%s\ncompletion=%s\n' \
     "$*" "$GRAPH_HORIZON_MODEL" "$GRAPH_HORIZON_CONTEXT" "$GRAPH_HORIZON_KV" \
     "${GRAPH_HORIZON_VRAM_WEIGHTS_PERCENT:-}" "${GRAPH_HORIZON_EXPECTED_MODE:-}" "$GRAPH_HORIZON_REFERENCE_PROMPT_IDS" \
@@ -1368,7 +1392,6 @@ while :; do /bin/sleep 0.05; done
         .env("GRAPH_HORIZON_TEMP_DIR", &temp)
         .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
         .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
-        .env("GRAPH_HORIZON_APPLY_TEMPLATE_LOG", &template_log)
         .output()
         .unwrap();
     assert!(
@@ -1394,12 +1417,9 @@ while :; do /bin/sleep 0.05; done
     assert!(cargo_call.contains(
         "--features vulkan-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
     ));
+    assert!(cargo_call.contains("--features cpu --example tokenize"));
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
-    assert_eq!(
-        fs::read_to_string(&template_log).unwrap().trim_end(),
-        r#"{"messages":[{"role":"system","content":""},{"role":"user","content":"Quanto fa 17 × 19?"}],"add_generation_prompt":true}"#
-    );
 
     let endpoint_port = free_port();
     let endpoint = Command::new("bash")
@@ -1449,15 +1469,14 @@ while :; do /bin/sleep 0.05; done
         .env("GRAPH_HORIZON_TEMP_DIR", &temp)
         .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
         .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
-        .env("GRAPH_HORIZON_APPLY_TEMPLATE_LOG", &template_log)
-        .env("GRAPH_HORIZON_BAD_HTTP", "tokenize")
+        .env("GRAPH_HORIZON_BAD_PROMPT", "1")
         .output()
         .unwrap();
     assert_eq!(malformed.status.code(), Some(1));
     assert!(
         String::from_utf8(malformed.stderr)
             .unwrap()
-            .contains("malformed tokenize response")
+            .contains("malformed local prompt response")
     );
     assert!(!temp.exists());
 

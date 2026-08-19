@@ -340,7 +340,8 @@ fn docs_contract() {
 
     for required in [
         "only Ministral 3 2512 `Q4_K_M` GGUF files",
-        "Both Instruct and Reasoning are supported at 3B, 8B, and 14B",
+        "qualified artifacts are the Q4_K_M 3B/8B/14B Instruct models",
+        "Q4_K_M 8B Reasoning artifact is explicitly `NOT SUPPORTED`",
         "A Q8 profile is rejected before backend allocation",
         "maximum possible contiguous GPU suffix",
         "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",

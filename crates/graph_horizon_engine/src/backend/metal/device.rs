@@ -11,12 +11,6 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLGPUFamily};
 
-#[cfg(feature = "metal-profile")]
-use std::sync::Arc;
-
-#[cfg(feature = "metal-profile")]
-use super::exec::profile::Profile;
-
 const REQUIRED_THREADS: usize = 128;
 const REQUIRED_THREADGROUP_MEMORY: usize = 16 * 1024;
 
@@ -25,8 +19,6 @@ pub(crate) struct Device {
     pub(crate) queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pub(crate) recommended_max: u64,
     pub(crate) current_allocated: u64,
-    #[cfg(feature = "metal-profile")]
-    pub(crate) profile: Arc<Profile>,
 }
 
 // SAFETY: Metal devices and command queues are thread-safe resource factories;
@@ -49,15 +41,11 @@ impl Device {
         let queue = raw
             .newCommandQueue()
             .ok_or_else(|| eyre!("Metal backend is unavailable"))?;
-        #[cfg(feature = "metal-profile")]
-        let profile = Profile::new(&raw)?;
         Ok(Self {
             raw,
             queue,
             recommended_max,
             current_allocated,
-            #[cfg(feature = "metal-profile")]
-            profile,
         })
     }
 
@@ -77,24 +65,33 @@ impl Device {
         let queue = raw
             .newCommandQueue()
             .ok_or_else(|| eyre!("metal: command queue creation failed"))?;
-        #[cfg(feature = "metal-profile")]
-        let profile = Profile::new(&raw)?;
         Ok(Some(Self {
             raw,
             queue,
             recommended_max,
             current_allocated,
-            #[cfg(feature = "metal-profile")]
-            profile,
         }))
     }
 
     fn qualified(raw: &ProtocolObject<dyn MTLDevice>) -> bool {
-        let maximum = raw.maxThreadsPerThreadgroup();
-        raw.hasUnifiedMemory()
-            && raw.supportsFamily(MTLGPUFamily::Apple9)
-            && maximum.width >= REQUIRED_THREADS
-            && raw.maxThreadgroupMemoryLength() >= REQUIRED_THREADGROUP_MEMORY
+        Self::meets_requirements(
+            raw.hasUnifiedMemory(),
+            raw.supportsFamily(MTLGPUFamily::Apple9),
+            raw.maxThreadsPerThreadgroup().width,
+            raw.maxThreadgroupMemoryLength(),
+        )
+    }
+
+    fn meets_requirements(
+        unified: bool,
+        family: bool,
+        threads: usize,
+        threadgroup_memory: usize,
+    ) -> bool {
+        unified
+            && family
+            && threads >= REQUIRED_THREADS
+            && threadgroup_memory >= REQUIRED_THREADGROUP_MEMORY
     }
 
     #[cfg(test)]
@@ -104,22 +101,11 @@ impl Device {
         threads: usize,
         threadgroup_memory: usize,
     ) -> Result<()> {
-        if unified
-            && family
-            && threads >= REQUIRED_THREADS
-            && threadgroup_memory >= REQUIRED_THREADGROUP_MEMORY
-        {
+        if Self::meets_requirements(unified, family, threads, threadgroup_memory) {
             Ok(())
         } else {
             bail!("Metal device does not satisfy the required capabilities")
         }
-    }
-}
-
-#[cfg(feature = "metal-profile")]
-impl Drop for Device {
-    fn drop(&mut self) {
-        self.profile.finish();
     }
 }
 
@@ -129,12 +115,24 @@ mod tests {
 
     #[test]
     fn device_contract_rejects_every_missing_capability() {
-        assert!(Device::validate(true, true, 128, 16 * 1024).is_ok());
+        assert!(
+            Device::validate(true, true, REQUIRED_THREADS, REQUIRED_THREADGROUP_MEMORY).is_ok()
+        );
         for row in [
-            (false, true, 128, 16 * 1024),
-            (true, false, 128, 16 * 1024),
-            (true, true, 127, 16 * 1024),
-            (true, true, 128, 16 * 1024 - 1),
+            (false, true, REQUIRED_THREADS, REQUIRED_THREADGROUP_MEMORY),
+            (true, false, REQUIRED_THREADS, REQUIRED_THREADGROUP_MEMORY),
+            (
+                true,
+                true,
+                REQUIRED_THREADS - 1,
+                REQUIRED_THREADGROUP_MEMORY,
+            ),
+            (
+                true,
+                true,
+                REQUIRED_THREADS,
+                REQUIRED_THREADGROUP_MEMORY - 1,
+            ),
         ] {
             assert_eq!(
                 Device::validate(row.0, row.1, row.2, row.3)

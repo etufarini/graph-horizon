@@ -627,8 +627,8 @@ mod tests {
             CONTEXT as u32,
         )?;
         encoder.submit()?;
+        let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
         for base in [0, BASE] {
-            let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
             let tiled = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
             let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
             let encoder = MetalEncoder::begin(&device)?;

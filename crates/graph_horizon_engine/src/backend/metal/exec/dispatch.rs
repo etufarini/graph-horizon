@@ -79,7 +79,9 @@ fn encode_geometry(
                 && threads.is_multiple_of(pipeline.width) => {}
         _ => return Err(arithmetic()),
     }
-    for buffer in buffers {
+    let compute = encoder.compute()?;
+    compute.setComputePipelineState(&pipeline.raw);
+    for (index, buffer) in buffers.iter().enumerate() {
         let end = buffer
             .offset()
             .checked_add(buffer.len())
@@ -87,40 +89,33 @@ fn encode_geometry(
         if end > buffer.raw().length() {
             return Err(arithmetic());
         }
+        // SAFETY: the checked logical window fits the retained MTLBuffer and
+        // index derives from the bounded caller-owned binding slice.
+        unsafe {
+            compute.setBuffer_offset_atIndex(Some(buffer.raw()), buffer.offset(), index);
+        }
     }
-    encoder.encode(kernel, constants, |compute| {
-        compute.setComputePipelineState(&pipeline.raw);
-        for (index, buffer) in buffers.iter().enumerate() {
-            // SAFETY: the checked logical window fits the retained MTLBuffer and
-            // index derives from the bounded caller-owned binding slice.
-            unsafe {
-                compute.setBuffer_offset_atIndex(Some(buffer.raw()), buffer.offset(), index);
-            }
+    if !constants.is_empty() {
+        let pointer =
+            NonNull::new(constants.as_ptr().cast_mut().cast::<c_void>()).ok_or_else(arithmetic)?;
+        // SAFETY: `constants` remains alive for this synchronous encoding call;
+        // Metal copies setBytes data and the buffer length is exact.
+        unsafe {
+            compute.setBytes_length_atIndex(pointer, constants.len(), buffers.len());
         }
-        if !constants.is_empty() {
-            let pointer = NonNull::new(constants.as_ptr().cast_mut().cast::<c_void>())
-                .expect("non-empty constants pointer");
-            // SAFETY: `constants` remains alive for this synchronous encoding call;
-            // Metal copies setBytes data and the buffer length is exact.
-            unsafe {
-                compute.setBytes_length_atIndex(pointer, constants.len(), buffers.len());
-            }
+    }
+    match geometry {
+        Geometry::Threads(grid) => {
+            compute.dispatchThreads_threadsPerThreadgroup(
+                size(grid),
+                size([pipeline.width.min(pipeline.max_threads), 1, 1]),
+            );
         }
-        match geometry {
-            Geometry::Threads(grid) => {
-                compute.dispatchThreads_threadsPerThreadgroup(
-                    size(grid),
-                    size([pipeline.width.min(pipeline.max_threads), 1, 1]),
-                );
-            }
-            Geometry::Threadgroups { groups, threads } => {
-                compute.dispatchThreadgroups_threadsPerThreadgroup(
-                    size(groups),
-                    size([threads, 1, 1]),
-                );
-            }
+        Geometry::Threadgroups { groups, threads } => {
+            compute.dispatchThreadgroups_threadsPerThreadgroup(size(groups), size([threads, 1, 1]));
         }
-    })
+    }
+    Ok(())
 }
 
 fn size(value: [usize; 3]) -> MTLSize {

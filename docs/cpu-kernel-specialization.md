@@ -150,9 +150,18 @@ whole-workload upper bound is below the 5% moderate-change gate.
   every other ISA, format, and shape retains the existing float kernel.
 - Correctness gate: synthetic Q8-vs-float bounded parity including block/tail
   boundaries, focused batched graph tests, and pinned-oracle teacher parity.
-- State: pending.
+- Prototype result: 12.98 prompt tok/s, 9,860.26 ms TTFT, and 5.64 decode
+  tok/s; prompt CV 0.54%, decode CV 0.40%. Against CPU-01 this is -56.63%
+  prompt throughput, +130.54% TTFT, and -2.25% decode throughput.
+- Diagnosis: canonical weights plus per-call activation quantization and four
+  scalar horizontal reductions per 32-value sub-block cost more than the saved
+  FP32 FMAs. llama.cpp's integer path relies on a deeper multi-row/repacked GEMM
+  architecture; an arithmetic substitution alone does not transfer that gain.
+- State: REJECT. All Q8 candidate code and tests were removed; only this result
+  remains. No corrective parameter sweep is justified by a 2.3x regression.
 
 ## Next candidate
 
-Prototype CPU-02 once, benchmark immediately, and keep only if it clears the
-whole-workload and quality gates. Q6_K and RoPE remain globally ranked behind it.
+Audit compiler output and the existing Q4_K float kernel's practical compute
+floor before deciding whether an execution-native packed representation clears
+the economic gate. Q6_K and RoPE remain globally ranked behind Q4_K.

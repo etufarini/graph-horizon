@@ -11,6 +11,10 @@ specialization reports and is not repeated here.
 
 - Main commit: `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f`.
 - Cleanup branch: `cleanup/backend-optimization-artifacts`.
+- Final production-code checkpoint: `2a78d4da23ffefdc71ac3c8d639e47f6c8d315d8`;
+  later commits on the branch contain only this qualification report. The
+  handoff records the final branch-tip SHA because a committed file cannot
+  contain the hash of the commit that contains it.
 - Branch point: exactly the main commit above, after `git fetch --prune origin`;
   local `main` and `origin/main` were identical and the worktree was clean.
 - Host: Linux x86_64, NVIDIA RTX 3060 12 GiB, driver 595.84, Vulkan 1.4.329;
@@ -385,6 +389,37 @@ removed from affected production comments. The surviving comments describe
 current ownership, numeric, dispatch, and fallback invariants only. No runtime
 logic changed in this pass.
 
+## Final Ablation Registry
+
+| ID | Component and suspicion | Production consumers | Ablation and evidence | Decision |
+|---|---|---|---|---|
+| A01 | CPU operation profiler and `cpu-profile`; completed investigation output | none outside profiling | Removed feature, timing map, labels, wrappers and report; CPU tests/Clippy and same-tuple CPU/Vulkan performance passed | **REMOVE**: no production behavior |
+| A02 | Vulkan timestamp profiler and `vulkan-profile`; query/counter state in normal backend modules | none outside profiling | Removed query pool, phase/category/layer aggregation, allocation/barrier hooks and report; Vulkan and hybrid tests/Clippy passed; active SPIR-V stayed byte-identical | **REMOVE**: diagnostics only |
+| A03 | Vulkan load trace; one-shot environment-controlled stderr | none | Removed environment predicate, route reporters and profiler-only kernel names; route tests and performance guard passed | **REMOVE**: investigation artifact |
+| A04 | `--no-attn-simd`; manual A/B override | CLI and `EngineConfig`, but no supported product requirement | Removed parser kind/state, config field and global override; scalar oracle remains reachable by capability fallback; CPU/Vulkan/hybrid gates passed | **REMOVE**: tuning control, not product behavior |
+| A05 | Backend construction in the numeric trait plus Vulkan global policy caches | standalone CPU/Vulkan loading | Replaced trait/global indirection with explicit concrete load calls and immutable arguments; all local matrices passed and Vulkan delta stayed within 0.29% | **CONSOLIDATE**: preserve behavior with narrower ownership |
+| A06 | Hybrid `dead_code` allowances and runtime-size fields | complementary Vulkan-hybrid, Metal and Metal-hybrid profiles | Built every locally available profile, inspected field readers, and retained only three source annotations with the cross-profile reason beside them | **KEEP**: source union serves supported profiles |
+| A07 | Optional CPU, Vulkan and Metal kernel families | capability/format/shape routes and generic fallbacks | Traced each route and fallback; all 41 Vulkan sources plus four build variants map to 45 registered pipelines; numeric and route-boundary tests passed | **KEEP**: required hardware coverage or qualified performance |
+| A08 | Canonical quant formats and transient Q8 activation | Q4/Q5/Q6 embedding, projection and logits; DP4A Q4 decode | Traced producer, lifetime and consumer; no persistent alternate weight representation or orphan conversion exists | **KEEP**: required representation, not archaeology |
+| A09 | Family-neutral public profiler and benchmark | KV validation workflow and end-to-end regression guard | Distinguished it from deleted backend-internal instrumentation and verified its model-free tests | **KEEP**: current supported tooling |
+
+The registry is terminal: removed items have no surviving production half, and
+kept items have a named consumer, fallback relationship, and test or measured
+reason. No candidate is left in an unknown state.
+
+## Removed Artifact Inventory
+
+| Kind | Removed |
+|---|---|
+| Files | CPU profiler; four Vulkan profiler modules; Vulkan matmul load trace |
+| Features and configuration | `cpu-profile`, `vulkan-profile`, `--no-attn-simd`, its `EngineConfig` field, and boolean-only parser machinery |
+| Types and state | profiler phase/category/mark/totals types, CPU timing entries, Vulkan query/allocation/layer state, two Vulkan `OnceLock` policy caches, and fake shape-backend construction support |
+| Functions and interfaces | measurement/report hooks, query lifecycle and command counters, one-shot route loggers, trait-level backend construction, global policy setters/getters; 37 Rust functions disappear overall |
+| Representations and conversions | none removed in this branch; earlier alternate native/packed weight representations were already absent on `main` |
+| Kernels and shaders | none removed: every current kernel is reachable or a required fallback, and shader binaries are unchanged |
+| Tests | profiler-only tests disappeared with their subsystem; numeric, capability, boundary, lifecycle, placement and fallback coverage remains |
+| Dependencies | none removed or added; every direct dependency retains a source or build-script consumer |
+
 ## Final Complexity, Validation, and Performance
 
 ### Complexity delta
@@ -491,14 +526,120 @@ original profiler vocabulary as evidence. Every direct dependency has a
 current source or build-script consumer; no dependency change was warranted.
 The final worktree is clean after the report commit.
 
-## PR Summary
+## Remaining Production Architecture
+
+The shared layer now owns model validation, canonical weights, graph semantics,
+KV layout and backend-neutral operations once. Compile-time selection chooses
+one of five product profiles. Each concrete backend owns its capabilities,
+resources and operation routing; hybrid profiles add one immutable placement
+plan and at most one residual crossing. CPU uses mapped canonical weights,
+Vulkan and Metal upload canonical weights, and the only execution-native
+conversion is the transient Q8 activation consumed immediately by qualified
+Vulkan Q4 decode.
+
+| Specialization | Eligibility | Why it remains | Fallback |
+|---|---|---|---|
+| CPU AVX2/F16C attention and Q4/Q5/Q6 matmul | runtime ISA plus validated block shape | qualified CPU throughput | scalar kernels |
+| CPU four-query GQA reuse | exact 4:1 GQA relation | avoids rereading identical KV rows | ordinary per-query attention |
+| NVIDIA Matrix2 Q4/Q6 prefill and attention | advertised/built Matrix2 pipeline plus exact format, shape and resource gates | dominant qualified prefill improvement, including 14B | cooperative, tiled or portable kernels |
+| Portable cooperative/tiled Vulkan paths | cooperative/subgroup/shared-memory capability and legal shape | optimized generic Vulkan coverage below Matrix2 | portable scalar-style Vulkan kernels |
+| AMD Q4 MMQ and bounded prefill submissions | AMD vendor family, DP4A and exact workload/resource bounds | qualified AMD prefill and memory stability | portable Q4 batch and 256-row policy |
+| Vulkan Q8/DP4A Q4 decode | DP4A, Q4_K, aligned shape and bounded persistent scratch | qualified decode throughput | exact Q4 projection |
+| Vulkan wave32/wave64 GQA decode | exact 4:1 F16 GQA plus subgroup and resource contract | qualified long-context decode | wide or generic attention decode |
+| Metal tiled GQA attention | SIMD width, threadgroup memory, dimensions and batch shape | qualified Metal prefill | generic Metal attention |
+| Hybrid contiguous CPU/device placement | checked separate or unified memory budget | supported partial placement without duplicated weights | all-device or all-CPU terminal plans |
+
+## Remaining Intentional Complexity
+
+| Component | Consumer and necessity |
+|---|---|
+| Five backend profiles | Distinct supported CPU, discrete Vulkan, unified Metal and two placement products; selection is compile-time and exclusive |
+| Canonical F32/F16/Q4_K/Q5_K/Q6_K formats | Authenticated model tensors reach format-specific embedding, projection or logits consumers |
+| F16 and INT8 KV schemes | Public configuration with one shared checked layout and backend implementations |
+| 45 Vulkan pipelines | Each has construction plus an active route or required capability fallback; four are deliberate compile variants of shared sources |
+| Capability and shape predicates | Prevent unsupported hardware or tensor shapes from entering specialized arithmetic and dominate internal invariants |
+| Persistent Q8/GQA scratch and request KV cache | Removes qualified hot-path allocation while explicit lifecycle tests protect ownership and failure cleanup |
+| Three cross-profile `dead_code` annotations | Fields or variants are consumed by another supported Cargo profile; the reason is local to each annotation |
+
+## Final Minimality Assessment
+
+If the current production system were implemented fresh, every remaining
+optimization-related concept above would still be intentional: it has a
+reachable capability, a concrete consumer, an explicit fallback relationship,
+and a correctness or measured-performance reason. The audit found no remaining
+unknown representation, route, state object, feature, kernel, shader,
+configuration switch or dependency. Removing another retained numeric path
+would reduce supported hardware coverage, remove a required fallback, or undo a
+qualified performance result; merging the remaining backend-local paths would
+hide rather than remove those hardware distinctions.
+
+## PR Description
+
+### Summary
 
 Remove completed CPU/Vulkan profiling and load-trace infrastructure, delete the
-manual CPU SIMD experiment switch, and move pure-backend construction policy
-out of the numeric backend trait. Preserve every qualified kernel,
-representation, capability route, fallback, public execution mode, model
-contract, and shader. The result removes 1,098 net production lines, six Rust
-source files, two Cargo features, seven types, and 37 functions while passing
-all locally executable correctness, lint, artifact, frontend, quality, and
-performance guards. Metal, AMD execution, and pinned external llama.cpp parity
-remain explicitly external to this Linux/NVIDIA host.
+manual CPU SIMD experiment switch, and move standalone backend construction
+policy out of the numeric backend trait.
+
+### Motivation
+
+Optimization work left investigation-only features, global diagnostic state and
+an accidental construction interface in production modules. None described a
+supported runtime capability.
+
+### Architecture before
+
+CPU and Vulkan profiling features wrapped normal execution, Vulkan carried a
+load-trace environment route and global placement-policy caches, the numeric
+backend trait also constructed models, and the CLI retained a manual SIMD A/B
+switch.
+
+### Architecture after
+
+The five supported profiles contain only production execution. Concrete CPU or
+Vulkan loaders receive immutable construction inputs directly; backend-local
+capability routing and every qualified fallback remain unchanged.
+
+### Dead or obsolete code removed
+
+Six Rust files, two Cargo features, seven types, 37 functions, profiler state
+and hooks, trace logging, manual SIMD configuration, two global policy caches
+and fake construction support are gone.
+
+### Representations removed
+
+None: `main` already had no orphan persistent weight representation. Canonical
+formats and the transient decode Q8 activation all have active consumers.
+
+### Routing and backend simplification
+
+Numeric routing is unchanged. Construction now crosses one explicit concrete
+boundary, and scalar CPU eligibility once again depends only on runtime
+capability rather than a historical override.
+
+### Validation
+
+Formatting, diff checks, CPU/Vulkan/Vulkan-hybrid workspace tests and
+warnings-denied all-target Clippy pass. Six artifacts authenticate, the
+frontend passes check/92 tests/build, shell contracts pass, and the final
+quality evidence is recorded without hiding stochastic reruns. Metal, AMD
+execution and the required pinned external oracle are identified as external.
+
+### Performance neutrality
+
+All retained short and long Vulkan rows are within the 1% regression guard;
+the largest observed retained regression is 0.95%. The CPU control improves in
+the stable comparison. No hot arithmetic or active shader changed.
+
+### Risk
+
+The main risk is loss of a diagnostic workflow or accidental loader-policy
+drift. Documentation no longer advertises the deleted profilers, negative CLI
+tests pin the removed switch, explicit loader arguments are covered by full
+profile tests, and same-tuple measurements bound runtime drift.
+
+### Follow-ups intentionally excluded
+
+No new kernels, tuning, numeric policy, model adaptation, dependency, public
+API expansion, Metal-on-Linux substitute, AMD substitute, or unpinned oracle
+claim is included. Those are separate qualification or optimization programs.

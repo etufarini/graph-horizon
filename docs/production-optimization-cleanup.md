@@ -387,8 +387,118 @@ logic changed in this pass.
 
 ## Final Complexity, Validation, and Performance
 
-To be completed after the final diff audit.
+### Complexity delta
+
+The final production diff is 183 additions and 1,281 deletions across 46
+source/manifest files, a net reduction of 1,098 lines. Most additions are the
+direct CPU calls that replaced profiling wrappers and the explicit concrete
+load boundary; no new production file, feature, dependency, representation,
+kernel, or runtime state was added.
+
+| Metric | Main | Final | Delta |
+|---|---:|---:|---:|
+| Engine Rust files | 172 | 166 | -6 |
+| Engine Rust physical lines | 30,860 | 29,796 | -1,064 |
+| Vulkan/Metal shader files | 51 | 51 | 0 |
+| Vulkan/Metal shader physical lines | 4,193 | 4,193 | 0 |
+| Rust functions, including tests | 1,289 | 1,252 | -37 |
+| Rust structs/enums/traits, including tests | 149 | 142 | -7 |
+| Engine Cargo features | 7 | 5 | -2 |
+| Vulkan pipeline variants | 45 | 45 | 0 |
+
+The reduction removes completed-investigation infrastructure and accidental
+construction surface; it does not obtain a smaller count by deleting hardware
+coverage. The largest intentional complexity that remains is the capability
+and shape routing for 45 Vulkan variants, each of which has a current consumer
+and required fallback. The remaining hybrid `dead_code` allowances describe
+facts split across supported Cargo profiles and are not dormant alternatives.
+
+### Final validation
+
+| Gate | Final result |
+|---|---|
+| Formatting and `git diff --check` | pass |
+| CPU workspace tests | pass: 166 root, 159 engine, 5 integration, 12 semantic assertions; only declared real-resource rows ignored |
+| Vulkan workspace tests | pass: 166 root, 156 engine, 5 integration, 12 semantic assertions; only declared long/real-resource rows ignored |
+| Vulkan-hybrid workspace tests | pass: 166 root, 229 engine, 6 integration, 12 semantic assertions; only declared long/real-resource rows ignored |
+| CPU, Vulkan, Vulkan-hybrid all-target Clippy with warnings denied | pass |
+| Six authenticated Q4_K_M artifacts | pass: exact byte counts and SHA-256 |
+| Frontend | pass: zero type warnings/errors, 92 tests, production build |
+| Shell support | pass: syntax checks and repository contract tests |
+| Metal and Metal-hybrid | external: Linux host reaches the expected Apple-only `objc2` and macOS arm64 guards |
+| AMD-specific execution | external: no AMD device on this host; route/capability tests pass |
+| Pinned llama.cpp parity | external: installed `9bebfcb4b`, required `13f2b28b0` |
+
+All 45 active candidate and main SPIR-V modules compare byte-for-byte. Ten
+additional `.spv` files found in one local Cargo `OUT_DIR` were stale build
+artifacts not named by the registry, not repository files or executable
+pipeline variants.
+
+### Model-quality evidence
+
+The fresh full semantic run qualified the preserved three Instruct rows and
+the current 8B and 14B Reasoning rows; both current rows scored 9/9 with 4/4
+critical cases and complete reasoning markers. Its first 3B Reasoning sample
+scored 7/9 and stopped one case at context, so the script correctly reported
+that sample as not qualified rather than weakening the gate.
+
+The required attribution check exposed run-sensitive stochastic Vulkan output
+despite the fixed seed. A second final-HEAD sample scored 8/9 but missed a
+different critical case; two exact-main samples scored 9/9 and 8/9 and both
+qualified. The isolated first production commit then qualified 9/9, and a
+third final-HEAD sample also qualified 9/9. Completion lengths diverged within
+the same binary as well as across revisions, while execution stayed healthy,
+placement stayed all-GPU, greedy numeric parity tests passed, active SPIR-V was
+identical, and no retained change touched sampling arithmetic. The evidence
+therefore does not identify a stable cleanup regression, but it does identify
+the seeded stochastic semantic gate's run sensitivity as a remaining
+qualification limitation. The final current-HEAD evidence is qualified for all
+six catalogued artifacts; the earlier misses remain recorded here.
+
+### Final performance
+
+All final rows repeat the exact release/F16/greedy tuples declared in the
+baseline section. Positive prompt/decode deltas and negative TTFT deltas are
+improvements. The recorded 3B short result initially exceeded the 1% guard, so
+that row uses the required same-session exact-main control. The CPU candidate's
+first cold sample was 26.63 prompt tok/s; a main control at 30.23 and immediate
+candidate repeat at 30.47 showed that sample was an ambient outlier. It remains
+recorded here rather than being silently omitted, while the controlled repeat
+provides the comparison row below.
+
+| Model | Backend | Prompt | Control prompt tok/s | Final prompt tok/s | Control TTFT | Final TTFT | Control decode tok/s | Final decode tok/s | Delta prompt / TTFT / decode |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|
+| 3B Instruct | Vulkan | 128 | 1,729.51 | 1,713.35 | 74.01 ms | 74.71 ms | 73.45 | 73.48 | -0.93% / +0.95% / +0.04% |
+| 8B Instruct | Vulkan | 128 | 855.05 | 848.13 | 149.71 ms | 150.93 ms | 34.84 | 34.56 | -0.81% / +0.81% / -0.80% |
+| 14B Instruct | Vulkan | 128 | 509.87 | 512.29 | 251.05 ms | 249.86 ms | 23.50 | 23.58 | +0.47% / -0.47% / +0.34% |
+| 3B Instruct | Vulkan | 28,000 | 960.77 | 969.22 | 29,143.33 ms | 28,889.29 ms | 42.80 | 42.82 | +0.88% / -0.87% / +0.05% |
+| 8B Instruct | Vulkan | 28,000 | 537.59 | 538.26 | 52,084.32 ms | 52,019.46 ms | 23.49 | 23.98 | +0.12% / -0.12% / +2.09% |
+| 3B Instruct | CPU | 128 | 30.10 | 30.47 | 4,253.29 ms | 4,201.68 ms | 7.00 | 7.31 | +1.23% / -1.21% / +4.43% |
+
+No retained row regresses by more than 1% against its applicable control. The
+same-session 3B control was required because the older recorded row was faster
+than both binaries in the final session; candidate versus same-session main is
+within 0.95% on every metric.
+
+### Final diff audit
+
+The line-by-line branch audit found no remaining runtime reference to the
+deleted profiler features or load-trace environment switch, no TODO/FIXME/HACK
+marker, no unconsumed weight or buffer representation, and no consumerless
+shader or kernel. The removed SIMD flag remains only in negative parser tests
+that guarantee its rejection. Historical investigation reports retain their
+original profiler vocabulary as evidence. Every direct dependency has a
+current source or build-script consumer; no dependency change was warranted.
+The final worktree is clean after the report commit.
 
 ## PR Summary
 
-To be completed after qualification.
+Remove completed CPU/Vulkan profiling and load-trace infrastructure, delete the
+manual CPU SIMD experiment switch, and move pure-backend construction policy
+out of the numeric backend trait. Preserve every qualified kernel,
+representation, capability route, fallback, public execution mode, model
+contract, and shader. The result removes 1,098 net production lines, six Rust
+source files, two Cargo features, seven types, and 37 functions while passing
+all locally executable correctness, lint, artifact, frontend, quality, and
+performance guards. Metal, AMD execution, and pinned external llama.cpp parity
+remain explicitly external to this Linux/NVIDIA host.

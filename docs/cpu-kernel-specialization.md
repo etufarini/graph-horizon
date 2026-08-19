@@ -269,10 +269,34 @@ the interval after subtracting their previously measured prefill contribution.
   1 ignored; 12 semantic tests, 1 ignored).
 - State: KEEP; post-change decode reprofile remains.
 
+### Reprofile after CPU-07
+
+Public decode was 6.40 tok/s in the one-repetition diagnostic. The affected
+Q4_K `n=1` matmuls fell from 2,671.41 to 2,047.46 ms across 31 tokens: 1.305x
+local speedup and 623.94 ms, or 20.13 ms/token, removed. Q6_K down became the
+largest remaining single candidate at 660.92 ms (about 13.6% of decode), followed
+by logits and the split attention projections.
+
+### CPU-08 — single-token Q6_K latency dispatch
+
+- Target: Q6_K `matmul_batched(n=1)` down projections, about 13.6% of decode
+  after CPU-07.
+- Hypothesis: use the existing four-quant-stream accumulator latency kernel at
+  one token, mirroring CPU-07. Normalized projection timings predicted little
+  gain, but transfer of CPU-07's measured local factor left a 3.2% whole-decode
+  ceiling, so one isolated attempt remained economically plausible.
+- Candidate: 29.98 prompt tok/s, 4,270.21 ms TTFT, and 6.90 decode tok/s; CVs
+  were 0.50%, 0.50%, and 0.55%. CPU-07 measured 29.93, 4,276.64, and 6.63.
+- Delta: +0.17% prompt throughput, -0.15% TTFT, and +4.07% decode throughput;
+  decode latency falls another 5.90 ms/token.
+- Correctness: all three focused Q6_K fused/batched tests pass; the full engine
+  CPU suite again passes (159 unit tests, 2 ignored; 5 family-agnostic tests,
+  1 ignored; 12 semantic tests, 1 ignored).
+- State: KEEP; final decode reprofile remains.
+
 ## Next candidate
 
-Qualify and reprofile CPU-07. Then evaluate the analogous Q6_K `n=1` dispatch
-from fresh timings rather than assuming the Q4_K result transfers. A
-four-output-row register block is closed without implementation: two rows already
-consume nearly all YMM registers, so four rows would spill weights and
-accumulators.
+Qualify and reprofile CPU-08, then Amdahl-rank logits, attention projections,
+RoPE, and attention from the new decode interval. A four-output-row register
+block is closed without implementation: two rows already consume nearly all YMM
+registers, so four rows would spill weights and accumulators.

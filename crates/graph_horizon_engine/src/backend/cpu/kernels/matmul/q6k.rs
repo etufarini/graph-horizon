@@ -157,6 +157,12 @@ pub(crate) fn matmul_batched(
     out_dim: usize,
     n: usize,
 ) {
+    // At n=1, prefer the latency kernel's four independent quant-stream
+    // accumulators over the batched kernel's one accumulator per token.
+    if n == 1 {
+        matmul(out, a, w, in_dim, out_dim);
+        return;
+    }
     let a = a.read_f16_as_f32();
     let w_bytes = w.bytes();
     let w_bytes: &[u8] = &w_bytes[w.window()];

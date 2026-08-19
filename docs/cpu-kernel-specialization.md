@@ -226,10 +226,53 @@ effectively unchanged. State: REJECT for this CPU; retain the release profile.
   candidate was removed; an unchecked transcription and parameter sweep are not
   justified.
 
+### CPU-06 — post-batch core-count policy
+
+- Target: determine whether wider prefill batches move the best production
+  point below all six physical cores.
+- Diagnostic (128 prompt tokens, two generated tokens, one warm-up, three
+  repetitions): four cores measured 26.36 prompt tok/s and 4,856.41 ms TTFT;
+  five measured 24.20 and 5,289.16 ms; six measured 26.00 and 4,923.81 ms.
+  The three-core row was both slower and noisy (19.53 tok/s, 9.68% CV).
+- State: KEEP the six-core production policy. Four cores' 1.38% diagnostic lead
+  is below the 3% gate and less representative than the full 32-token six-core
+  record; no code or default changed.
+
+### Decode attribution after CPU-01
+
+The dedicated row used the 128-token prompt followed by 31 measured decode
+tokens. Public decode was 5.63 tok/s; timers accounted for 10,020.03 ms across
+prefill and decode. Call cardinalities separate `n=32` prefill from `n=1` decode.
+Against the approximately 5.51-second public decode interval, Q4_K gate/up
+consumed 2,180.71 ms (39.6%), Q4_K/Q6_K down projections 1,155.77 ms (21.0%),
+attention projections 1,071.24 ms (19.5%), logits 508.23 ms (9.2%), and decode
+attention 80.78 ms (1.5%). RoPE and elementwise work complete more than 95% of
+the interval after subtracting their previously measured prefill contribution.
+
+### CPU-07 — single-token Q4_K latency dispatch
+
+- Target: Q4_K `matmul_batched(n=1)`, about 48.5% of decode from gate/up plus
+  Q4_K down projections.
+- Hypothesis: route one token through the existing single-token kernel, whose
+  four independent accumulators hide FMA latency. The throughput-oriented
+  batched kernel deliberately carries only one accumulator per token.
+- Amdahl input: 48.5% affected, with a conservative 1.15x local gain inferred
+  from normalized single-token projection timings. Prediction: 1.07x decode,
+  about 11.3 ms/token removable.
+- Candidate: 29.93 prompt tok/s, 4,276.64 ms TTFT, and 6.63 decode tok/s; CVs
+  were 1.23%, 1.24%, and 1.43%. Retained decode bookends averaged 5.81 tok/s.
+- Delta: +14.11% decode throughput (21.36 ms/token removed). Prompt matches the
+  original CPU-01 retained record (29.93 tok/s, 4,277.03 ms) within 0.01%, which
+  is the relevant unchanged-path control across the observed session variance.
+- Correctness: all four focused Q4_K scalar/SIMD/batched tests pass; the full
+  engine CPU suite passes (159 unit tests, 2 ignored; 5 family-agnostic tests,
+  1 ignored; 12 semantic tests, 1 ignored).
+- State: KEEP; post-change decode reprofile remains.
+
 ## Next candidate
 
-Re-measure post-CPU-01 core-count scaling before changing another kernel. Wider
-token batching changes cache pressure and may move the best production point
-below all six cores. A four-output-row register block is closed without
-implementation: two rows already consume nearly all YMM registers, so four rows
-would spill weights and accumulators.
+Qualify and reprofile CPU-07. Then evaluate the analogous Q6_K `n=1` dispatch
+from fresh timings rather than assuming the Q4_K result transfers. A
+four-output-row register block is closed without implementation: two rows already
+consume nearly all YMM registers, so four rows would spill weights and
+accumulators.

@@ -238,6 +238,13 @@ pub(crate) fn matmul_batched(
     out_dim: usize,
     n: usize,
 ) {
+    // The single-token kernel has four independent accumulators to hide FMA
+    // latency. The batched kernel deliberately uses one accumulator per token
+    // for throughput, so its n=1 case is the wrong execution shape for decode.
+    if n == 1 {
+        matmul(out, a, w, in_dim, out_dim);
+        return;
+    }
     let a = a.read_f16_as_f32();
     let w_bytes = w.bytes();
     let w_bytes: &[u8] = &w_bytes[w.window()];

@@ -6,7 +6,7 @@
 
 use ash::vk;
 
-use super::{project, trace};
+use super::project;
 use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry};
@@ -27,7 +27,6 @@ pub(crate) fn matmul(
         WeightFormat::Q6K => (Kernel::MatmulQ6K, 64),
         WeightFormat::Q5K => (Kernel::MatmulQ5K, 64),
     };
-    trace::log_path_once(kernel);
     project(
         dev,
         reg,

@@ -43,8 +43,10 @@ The short prompt is 31 repetitions of `alpha beta gamma delta `, which renders
 to exactly 128 tokens; it uses one warm-up and three measured repetitions. The
 long prompt is 27,996 repetitions of `a `, which renders to exactly 28,000
 tokens; it uses one measured repetition because each run performs the complete
-prefill. These exact generators will be reused for the final same-session
-comparison.
+prefill. Short 3B/8B rows use context 32,768; short 14B and CPU rows use 2,048
+because a 14B context allocation at 32,768 exceeds this GPU's available memory.
+Long rows use context 32,768. These exact tuples will be reused for the final
+same-session comparison.
 
 | Model | Backend | Prompt | TTFT mean | Prompt tok/s | Decode tok/s | CV note |
 |---|---|---:|---:|---:|---:|---|
@@ -289,7 +291,34 @@ runtime tests and same-tuple benchmarks will check that boundary.
 
 ## Cleanup Decisions
 
-To be completed as each candidate is retained or rejected.
+### Removed investigation diagnostics
+
+The first controlled ablation removed only facilities whose output served a
+completed investigation:
+
+- the `cpu-profile` and `vulkan-profile` Cargo features;
+- the CPU global timing map, dynamic operation labels, wrappers, and drop-time
+  report;
+- the Vulkan timestamp query pool, phase/category aggregation, allocation and
+  barrier counters, and command/pipeline hooks;
+- the `GRAPH_HORIZON_LOAD_TRACE` environment branch, one-shot route reporters,
+  and profiler-only `Kernel::name` table.
+
+This deletes 1,007 lines while adding 39 lines of direct calls produced by
+unwrapping the CPU operations: a net deletion of 968 lines across 22 files.
+There is no replacement abstraction, dependency, runtime state, shader, public
+API, numeric route, or fallback change. The performance-process page no longer
+advertises the deleted Vulkan facility; historical specialization reports keep
+their original profiler evidence as history.
+
+CPU, Vulkan, and Vulkan-hybrid workspace tests pass with their baseline counts;
+all three all-target Clippy profiles pass with warnings denied, as do formatting
+and whitespace checks. A detached-main 3B run in the same session measured the
+candidate at 1,730.49 prompt tok/s, 73.97 ms TTFT, and 73.48 decode tok/s versus
+main at 1,721.22, 74.37 ms, and 73.48: every delta is at most 0.54%. Candidate
+8B and 14B rows differ from the recorded main baseline by at most 0.89% and
+0.70% respectively. The CPU row improved to 31.13 prompt tok/s, 4,112.17 ms
+TTFT, and 7.19 decode tok/s. The deletion is therefore retained.
 
 ## Final Complexity, Validation, and Performance
 

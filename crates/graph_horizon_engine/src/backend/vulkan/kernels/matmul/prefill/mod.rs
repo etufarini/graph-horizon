@@ -7,7 +7,6 @@
 
 use ash::vk;
 
-use super::trace;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch_2d};
@@ -31,7 +30,6 @@ pub(crate) fn matmul_batched_q4k(
     // The format-specific caller validates Q4_K; registered pipelines are the
     // capability boundary, so no second device-feature check is needed here.
     if matrix2_shape(in_dim, out_dim) && reg.contains(Kernel::MatmulQ4KMatrix2F16Out) {
-        trace::log_batched_path_once(Kernel::MatmulQ4KMatrix2F16Out);
         super::super::coopmat::dispatch_matrix2(
             dev,
             reg,
@@ -59,13 +57,11 @@ pub(crate) fn matmul_batched_q4k(
             } else {
                 Kernel::MatmulQ4KCoopmatF16Out
             };
-        trace::log_batched_path_once(kernel);
         super::super::coopmat::dispatch_coopmat(
             dev, reg, cmd, out, a, w, in_dim, out_dim, n, caps, kernel,
         );
         return;
     }
-    trace::log_batched_path_once(Kernel::MatmulQ4KBatchF16Out);
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());

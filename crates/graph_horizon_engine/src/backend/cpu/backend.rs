@@ -22,19 +22,6 @@ use super::buffer::{CpuBuffer, CpuFormat};
 use super::weights;
 use super::{CpuBackend, CpuEncoder, dispatch, kernels, readback};
 
-macro_rules! cpu_profile {
-    ($label:expr, $operation:expr) => {{
-        #[cfg(feature = "cpu-profile")]
-        {
-            super::profile::measure($label, || $operation)
-        }
-        #[cfg(not(feature = "cpu-profile"))]
-        {
-            $operation
-        }
-    }};
-}
-
 // AGENTS deroga I: singolo `impl Backend for CpuBackend` di delegatori sottili.
 impl Backend for CpuBackend {
     type Buffer = CpuBuffer;
@@ -110,18 +97,15 @@ impl Backend for CpuBackend {
         v_meta_offset: u64,
         vectors: u32,
     ) -> Result<()> {
-        cpu_profile!(
-            "kv_write",
-            kernels::attention::kv_write(
-                kv,
-                k,
-                v,
-                k_payload_offset,
-                v_payload_offset,
-                k_meta_offset,
-                v_meta_offset,
-                vectors as usize,
-            )
+        kernels::attention::kv_write(
+            kv,
+            k,
+            v,
+            k_payload_offset,
+            v_payload_offset,
+            k_meta_offset,
+            v_meta_offset,
+            vectors as usize,
         );
         Ok(())
     }
@@ -134,10 +118,7 @@ impl Backend for CpuBackend {
         token: u32,
         embd: u32,
     ) -> Result<()> {
-        cpu_profile!(
-            "embedding",
-            kernels::elementwise::embed(x, token_embd, token as usize, embd as usize)
-        );
+        kernels::elementwise::embed(x, token_embd, token as usize, embd as usize);
         Ok(())
     }
 
@@ -151,10 +132,7 @@ impl Backend for CpuBackend {
         in_dim: u32,
         out_dim: u32,
     ) {
-        cpu_profile!(
-            format!("matmul {:?} {in_dim}x{out_dim}", w.format),
-            dispatch::matmul(out, a, w, in_dim, out_dim)
-        );
+        dispatch::matmul(out, a, w, in_dim, out_dim);
     }
 
     // Batched prefill matmul: dequant each weight row once, reuse across the N
@@ -170,10 +148,7 @@ impl Backend for CpuBackend {
         out_dim: u32,
         n: u32,
     ) {
-        cpu_profile!(
-            format!("matmul_batched {:?} {in_dim}x{out_dim} n={n}", w.format),
-            dispatch::matmul_batched(out, a, w, in_dim, out_dim, n)
-        );
+        dispatch::matmul_batched(out, a, w, in_dim, out_dim, n);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -186,10 +161,7 @@ impl Backend for CpuBackend {
         in_dim: u32,
         out_dim: u32,
     ) {
-        cpu_profile!(
-            format!("logits {:?} {in_dim}x{out_dim}", w.format),
-            dispatch::logits(out, x, w, in_dim, out_dim)
-        );
+        dispatch::logits(out, x, w, in_dim, out_dim);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -203,10 +175,7 @@ impl Backend for CpuBackend {
         eps: f32,
         rows: u32,
     ) {
-        cpu_profile!(
-            "rmsnorm",
-            kernels::elementwise::rmsnorm_x(out, x, w, dim as usize, eps, rows as usize)
-        );
+        kernels::elementwise::rmsnorm_x(out, x, w, dim as usize, eps, rows as usize);
     }
 
     fn rope_yarn(
@@ -219,16 +188,13 @@ impl Backend for CpuBackend {
         yarn: &crate::backend::rope::Yarn,
         role: crate::backend::rope::RopeRole,
     ) -> Result<()> {
-        cpu_profile!(
-            "rope",
-            kernels::elementwise::rope_yarn(
-                x,
-                heads as usize,
-                head_dim as usize,
-                pos as usize,
-                yarn,
-                role,
-            )
+        kernels::elementwise::rope_yarn(
+            x,
+            heads as usize,
+            head_dim as usize,
+            pos as usize,
+            yarn,
+            role,
         )
     }
 
@@ -240,17 +206,11 @@ impl Backend for CpuBackend {
         up: &CpuBuffer,
         n: u32,
     ) {
-        cpu_profile!(
-            "silu_mul",
-            kernels::elementwise::silu_mul(out, gate, up, n as usize)
-        );
+        kernels::elementwise::silu_mul(out, gate, up, n as usize);
     }
 
     fn residual_add(&self, _enc: &CpuEncoder, x: &CpuBuffer, y: &CpuBuffer, n: u32) {
-        cpu_profile!(
-            "residual_add",
-            kernels::elementwise::residual_add(x, y, n as usize)
-        );
+        kernels::elementwise::residual_add(x, y, n as usize);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -264,16 +224,13 @@ impl Backend for CpuBackend {
         pos: u32,
         layer: u32,
     ) {
-        cpu_profile!(
-            "attention_decode",
-            kernels::attention::attention_decode(
-                out,
-                q,
-                kv,
-                q_heads as usize,
-                pos as usize,
-                layer as usize,
-            )
+        kernels::attention::attention_decode(
+            out,
+            q,
+            kv,
+            q_heads as usize,
+            pos as usize,
+            layer as usize,
         );
     }
 
@@ -289,17 +246,14 @@ impl Backend for CpuBackend {
         n: u32,
         layer: u32,
     ) {
-        cpu_profile!(
-            "attention_prefill",
-            kernels::attention::attention_prefill(
-                out,
-                q,
-                kv,
-                q_heads as usize,
-                base as usize,
-                n as usize,
-                layer as usize,
-            )
+        kernels::attention::attention_prefill(
+            out,
+            q,
+            kv,
+            q_heads as usize,
+            base as usize,
+            n as usize,
+            layer as usize,
         );
     }
 }

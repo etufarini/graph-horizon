@@ -9,6 +9,12 @@ The `graph_horizon_engine` crate loads a supported GGUF read-only and exposes a
 synchronous facade for text generation. The local console, server, and web UI
 share the same entry point; no surface imports a concrete backend directly.
 
+It is designed for one active chat generation at a time. This narrow execution
+model keeps KV state, cancellation, allocation lifetime, and error handling
+local to one request. Multi-request batching and serving throughput are outside
+the runtime contract; the HTTP surface exists to carry the same chat flow used
+by the console and Web UI.
+
 ## Model Boundary
 
 The `Engine` facade hides the family from application surfaces, but the current
@@ -61,6 +67,12 @@ support/install.sh --backend vulkan-hybrid
 support/install.sh --backend metal
 support/install.sh --backend metal-hybrid
 ```
+
+Compile-time selection is deliberate: a binary contains only the dependencies,
+initialization, and memory policy of its chosen backend. This keeps platform
+builds small and predictable without preventing deployment on different
+machines, which use separately built profiles. Within a profile, kernel routing
+remains capability- and shape-based and preserves the generic fallback.
 
 For reproducible Cargo builds:
 
@@ -133,3 +145,15 @@ sampling fields remain ignored.
 Internal kernel numeric formats do not automatically expand the accepted GGUF
 contract. Technical support and numeric qualification must be recorded
 separately in [VALIDATION.md](../VALIDATION.md).
+
+## Qualification And Performance References
+
+The reviewed matrix contains only hardware available to the project's sole
+maintainer. A qualified row is concrete evidence for that tuple; a missing row
+is not silently promoted to support or failure. This deliberately narrow claim
+keeps validation reproducible as the backend evolves.
+
+`llama.cpp` measurements are external performance references used to identify
+and rank bottlenecks under comparable model, quantization, context, and hardware
+settings. They do not define Graph Horizon's feature scope: this runtime remains
+focused on a simple Ministral chat experience through its console and Web UI.

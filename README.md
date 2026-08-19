@@ -11,10 +11,33 @@ support, and validation documents.
 
 # Graph Horizon - Ministral 3 Version
 
-A local text-to-text runtime for Ministral 3 Instruct and Reasoning 2512 in the
-3B, 8B, and 14B sizes. It provides an interactive console, an
-HTTP server compatible with the OpenAI chat subset, and a Web UI. It supports
-text messages only, without tool calling or a separate reasoning channel.
+A focused local text-to-text runtime for Ministral 3 Instruct and Reasoning
+2512 in the 3B, 8B, and 14B sizes. It provides an interactive console and Web
+UI as its primary user interfaces, plus an HTTP server compatible with the
+OpenAI chat subset used by the included clients. It supports text messages
+only, without tool calling or a separate reasoning channel.
+
+## Project Scope
+
+Graph Horizon is intentionally a single-user chat runtime, not a general model
+framework or a high-throughput inference server. One generation runs at a time,
+which keeps request lifetime, cancellation, KV-cache ownership, and prefix
+reuse explicit and predictable. The HTTP API is a transport for the Web UI,
+the remote console, and simple external clients; broad API compatibility is not
+the product goal.
+
+Each build contains one backend profile selected at compile time. Separate CPU,
+Vulkan, Metal, and hybrid builds keep platform dependencies and runtime policy
+narrow while allowing the same source to run on different supported machines.
+Operation-level specialization is still selected from device capabilities and
+retains its documented fallback.
+
+The project is developed and validated by one maintainer. The reviewed hardware
+matrix therefore records the machines physically available for qualification;
+it is an evidence boundary, not a claim that every other compatible device was
+tested or failed. Performance comparisons with `llama.cpp` provide a stable
+reference for optimization work, not a statement that Graph Horizon aims to
+replace its broader runtime and ecosystem.
 
 ## Requirements
 

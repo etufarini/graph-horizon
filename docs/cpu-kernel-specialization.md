@@ -107,9 +107,52 @@ that subset without weight-identity instrumentation; it is not hidden in
   removable time 3,420.24 ms. Recoverable competitive gap is 3,420.24 ms.
 - Correctness gate: existing batched-versus-sequential CPU tests plus real
   pinned-oracle parity if the A/B result clears the retention threshold.
+- Measured candidate: 29.93 prompt tok/s, 4,277.03 ms TTFT, 5.77 decode
+  tok/s; CV 0.67% prompt, 0.68% TTFT, and 1.26% decode; wall 39.01 s,
+  user 160.68 s, peak RSS 4,267,976 KiB.
+- Delta: +64.36% prompt throughput, -39.17% TTFT, +1.05% decode throughput,
+  and no peak-RSS increase at the process maximum.
+- Correctness: both focused batched-final-logits tests pass for F16 and INT8
+  KV. The local comparator is `9bebfcb4b`, while the repository parity runner
+  requires `13f2b28b0`; current status is
+  `external verification: unsupported llama.cpp revision` until that pinned
+  oracle is built locally.
+- State: provisional KEEP; the performance and focused-correctness gates pass.
+
+### Reprofile after CPU-01
+
+The two-token diagnostic measured 4,639.60 ms TTFT and accounted 4,809.20 ms
+including the second decode step. The remaining `n=32` Q4_K matmuls consume
+3,116.48 ms (64.80%); `n=32` Q6_K matmuls consume 659.61 ms (13.72%); RoPE is
+581.50 ms (12.09%); prefill attention is 58.92 ms (1.23%). The wider batch
+reduced the targeted matmul total 6,180.07 -> 3,776.09 ms (1.64x local).
+
+The next batching step is closed: at `n=32` the observed call cost already
+exceeds the linear dequant-plus-token model, and `n=64` would move the largest
+per-worker output tile from about 192 KiB beyond the 256 KiB L2. Its credible
+whole-workload upper bound is below the 5% moderate-change gate.
+
+### CPU-02 — AVX2 Q4_K x Q8 activation integer dot
+
+- Target: the remaining `n=32` Q4_K prefill matmuls; decode remains on the
+  existing float path initially.
+- Hypothesis: quantize each FP16 activation row into the already qualified
+  per-eight Q8 representation, then replace four 8-wide FP32 weight-dequant
+  FMAs with AVX2 unsigned-by-signed integer dot reduction while reusing each
+  unpacked Q4 sub-block across the token batch.
+- Traffic: canonical Q4_K remains 144 bytes per 256 weights. Q8 activations use
+  eight int8 values plus `d`/`s` metadata per eight, versus widened FP32 input;
+  no weight repack or persistent RAM increase is required.
+- Amdahl input: Q4_K batched fraction 64.80%. A conservative 2x local kernel
+  gain predicts 1.48x total, 1,559 ms removable from the profiled interval, far
+  above the complex-change gate and below the remaining competitive gap.
+- Eligibility: x86 AVX2, Q4_K, `n >= 8`, and validated block-aligned shapes;
+  every other ISA, format, and shape retains the existing float kernel.
+- Correctness gate: synthetic Q8-vs-float bounded parity including block/tail
+  boundaries, focused batched graph tests, and pinned-oracle teacher parity.
 - State: pending.
 
 ## Next candidate
 
-Measure CPU-01 immediately. If retained, reprofile before considering the
-Q4_K/Q6_K activation-quantized integer-dot architecture.
+Prototype CPU-02 once, benchmark immediately, and keep only if it clears the
+whole-workload and quality gates. Q6_K and RoPE remain globally ranked behind it.

@@ -184,14 +184,14 @@ metal/exec/profile/
 ```
 
 Feature-manifest wiring and focused changes to `device.rs`, `encoder.rs`,
-`dispatch.rs`, and `pipeline.rs` remain below 200 productive lines per
-orchestration file. The diagnostic feature uses stage-sampled compute passes
+`dispatch.rs`, and `pipeline.rs` remained below 200 productive lines per
+orchestration file. The diagnostic feature used stage-sampled compute passes
 inside the original command buffer because this Apple9 device does not expose
-dispatch-boundary sampling. Ordinary `metal` builds retain the single-encoder
+dispatch-boundary sampling. Ordinary `metal` builds retained the single-encoder
 path at compile time.
 
 The first 32-row request proved that an 8,192-sample buffer is rejected by the
-device while 4,096 is accepted. The retained diagnostic design therefore uses
+device while 4,096 is accepted. The investigation diagnostic therefore used
 one sampled pass for each contiguous run of the same category and records the
 dispatch count inside the run. This preserves operation attribution without
 sampling thousands of row-wise embedding/RoPE dispatches separately.
@@ -319,7 +319,7 @@ Apple9-family, 128-thread, and 16-KiB threadgroup-resource capabilities.
 | ID | Target | Hypothesis / architecture | Predicted | Measured | Decision |
 |---|---|---|---:|---:|---|
 | M00 | baseline | pinned same-device competitive map | n/a | rows above | KEEP evidence |
-| M01 | attribution | stage-sampled contiguous operation passes | >=95% at prioritized prefill | 97.7% at 512; 97.6% at 2K | KEEP diagnostic feature |
+| M01 | attribution | stage-sampled contiguous operation passes | >=95% at prioritized prefill | 97.7% at 512; 97.6% at 2K | KEEP for investigation; REMOVE after attribution |
 | M02 | early tiled GQA prefill | use the existing exact F16 tile from base zero | about 2.0x request; 63.6% gap recovery | 2.40x request; 74.7% gap recovery | KEEP production route |
 | M03a | batched quantized matrix occupancy | eight SIMD groups, four accumulators/group, unchanged K32/output tile | 1.1--1.4x matrix family | 1.8% request at 128; 3.5% at 512 | REJECT modest |
 | M03b | batched quantized matrix occupancy | sixteen SIMD groups, two accumulators/group, unchanged K32/output tile | exceed M03a | 15.9% regression at 128; 16.7% at 512 | REJECT regression |
@@ -349,9 +349,11 @@ claim. Production code is restored to M02.
 
 ## Qualification status
 
-M02 passes the complete ordinary Metal suite (136 passed, 2 ignored), the
-complete Metal-hybrid suite (202 passed, 2 ignored), diagnostics-free and
-profile-feature clippy with warnings denied, and formatting. Its focused
+At the specialization checkpoint, M02 passed the complete ordinary Metal suite
+(136 passed, 2 ignored), the complete Metal-hybrid suite (202 passed, 2
+ignored), diagnostics-free and profile-feature clippy with warnings denied,
+and formatting. The production cleanup below subsequently removes the
+investigation-only profile feature. M02's focused
 numeric oracle compares tiled and serial attention at both base zero and base
 512. Authenticated 3B teacher-forced lifecycle parity matches the pinned
 llama.cpp oracle for both F16 and INT8 KV, including all 16 completion token
@@ -371,3 +373,160 @@ Final F16 prefill is inside 2x at 512, 2K, and both 8B/14B 2K rows; it remains
 long-context attention, followed by quantized matrices at shorter contexts;
 INT8 long prefill is a separate non-tiled route gap. No further candidate is
 retained because the explicit consecutive-hypothesis stop rule has fired.
+
+## Production cleanup qualification
+
+### Baseline and scope
+
+| Field | Value |
+|---|---|
+| Cleanup branch | `perf/metal-hardware-specialization` |
+| Pre-cleanup HEAD | `fb39596ef33948d8c7670f9f6d4f2e3a5e9c6483` |
+| Code-cleanup checkpoint | `91df4f5` |
+| Capability-cleanup checkpoint | `d991225` |
+| Local `main` and merge-base | `910a11689c3804b58f5216f2dbc40c60eabfa90c` |
+| Initial worktree | clean |
+| Push state | nothing pushed |
+
+The complete pre-cleanup delta contained 13 changed source/manifest files and
+this report. Eleven Rust files and two manifests contained production,
+diagnostic, or embedded-test changes; four Rust files contained changed tests;
+no shader, benchmark, fixture, dependency, or public API changed. The files
+were classified before editing as device admission, command recording,
+attention routing, embedded numeric/capability tests, investigation-only
+profiling, and historical evidence.
+
+### Removed
+
+- Two experiment-only feature flags and four profiling modules were deleted.
+- Seven profiling types, 18 classification variants, 24 state fields, and 13
+  profiler-module functions were removed together with their host integration
+  hooks.
+- The counter sample buffer, aggregate mutex, per-command mark vector, active
+  sampled encoder, phase/matmul classification state, CPU timers, timestamp
+  readback, and stderr report disappeared from production.
+- The profiling-only command-encoder wrapper, conditional encoder ownership,
+  `Device` drop report, and `Kernel` comparison/debug derives disappeared. The
+  ordinary single-encoder implementation now matches `main` exactly.
+- No rejected occupancy, result-staging, or alternate-attention shader survived
+  into the pre-cleanup production tree; those candidates remain historical
+  evidence only.
+
+No live production function, shader, buffer binding, push constant, descriptor,
+quantization path, fallback, or public API was removed.
+
+### Simplified
+
+- Device admission remains capability-based and now has one shared predicate
+  for runtime probing and boundary tests. It requires unified memory, Apple9,
+  at least 128 one-dimensional threads per threadgroup, and at least 16 KiB of
+  threadgroup memory. The latter limits cover the live 128-thread attention
+  dispatch and 16-KiB attention threadgroup state.
+- The retained exact F16, 32-row, head-dimension-128, width-32, 4:1-GQA tile is
+  eligible from base zero. INT8, mixed placement, partial rows, other head
+  dimensions, other SIMD widths, and other GQA ratios retain their prior
+  routes.
+- The tiled/serial oracle retains both base-zero and base-512 cases while
+  calculating its invariant buffer size once.
+- Weight execution, decode routing, resource lifetimes, backend interfaces,
+  and shader ABI required no cleanup change.
+
+### Retained feature map
+
+| Retained feature | Files / route | Protection and reason |
+|---|---|---|
+| Capability-based Metal admission | `metal/device.rs` -> `Device::qualified` | Boundary test rejects each missing capability; removes exact product-name routing while preserving the shader resource contract |
+| Early tiled GQA prefill | `metal/kernels/attention.rs` -> mode 4 | Geometry boundary test plus serial/tiled numeric oracle at base zero and 512; retained M02 performance result |
+| Base-zero numeric coverage | `metal/kernels/mod.rs` | Proves the newly admitted tile against the established serial path without changing tolerances |
+
+### Same-source preservation
+
+The untouched candidate and cleanup checkpoint used the same M4, release mode,
+authenticated 3B Instruct Q4_K_M artifact, 32,768-token context allocation,
+F16 KV, 128 prompt tokens, 32 requested tokens, one warm-up, and three measured
+repetitions.
+
+| Metric | Before (CV) | After (CV) | Delta |
+|---|---:|---:|---:|
+| TTFT | 671.97 ms (.0021) | 672.99 ms (.0053) | +0.15% |
+| Decode public deltas | 29.67/s (.0028) | 29.75/s (.0038) | +0.27% |
+
+Both changes are below the 1% neutrality threshold and favor neither a new
+route nor an algorithm change. **SAME-SOURCE PERFORMANCE PRESERVATION: PASS.**
+
+The pinned `13f2b28b0` CPU llama.cpp protocol was run before and after cleanup
+on the authenticated 3B Metal/F16 row. Both runs produced identical 16-token
+oracle and local-greedy sequences, and every teacher token passed the local
+top-two gate. **SAME-SOURCE QUALITY PRESERVATION: PASS.** No tolerance, input,
+artifact, sampling parameter, or generation protocol changed.
+
+Final local validation passes formatting, diff whitespace, and warning-denied
+CPU, Metal, and Metal-hybrid Clippy. The workspace root passes 166 tests under
+each profile. Engine results are CPU 156 passed / 2 ignored, Metal 136 passed /
+2 ignored, and Metal-hybrid 202 passed / 2 ignored. Each integration target
+passes 5 / ignores 1; each semantic target passes 12 / ignores 1. Documentation
+and source contracts, shader pipeline loading, the base-zero attention oracle,
+and the authenticated teacher row pass. The removed profile feature is not a
+production qualification target.
+
+### Historical unavailable fixture
+
+The older six-artifact, 128-step teacher gate remains **HISTORICAL FIXTURE
+UNAVAILABLE**. As already exhaustively recorded in the merged AMD cleanup,
+repository history retains its generating protocol and artifact identities but
+not the six exact teacher sequences or fixture hashes. That audit covered
+tracked fixtures, tests, documentation, all refs and tags, available artifacts,
+and local worktrees. Reconstructing the teacher would be non-authoritative, so
+this cleanup does not repeat the search or alter production code for it.
+
+A future deterministic fixture should persist the model hash, exact input and
+teacher tokens, expected top-two data, step count, protocol version, tolerances,
+reference configuration, and fixture hash.
+
+### Production delta
+
+Source/manifests including embedded tests changed from 13 files with 683
+insertions and 97 deletions against `main` (net +586) before cleanup to three
+Rust files with 100 insertions and 66 deletions (net +34). The cleanup checkpoints
+remove 552 net lines. These counts are diagnostic; deletion was retained
+only where it reduced production complexity.
+
+### Remaining differences from `main`
+
+| Component | Required justification |
+|---|---|
+| Metal device admission and boundary test | Capability-based supported-device contract and exact resource minima |
+| Attention geometry and route test | Retained M02 base-zero tiled-GQA eligibility with unchanged fallbacks |
+| Tiled/serial numeric oracle | Correctness coverage for both newly admitted and prior context bases |
+| This report | Durable device, experiment, qualification, cleanup, and missing-fixture evidence |
+
+### Rejected cleanup candidates
+
+| Candidate | Reason retained |
+|---|---|
+| Remove Apple9/resource admission | Current shaders require the family and measured thread/threadgroup resources; unsupported devices must fail before pipeline use |
+| Restore the base-512 tile restriction | Would delete the retained M02 optimization and its measured 2.40x 512-token result |
+| Remove `base` from attention geometry | Live serial, segmented, and wide-decode fallbacks still select by context |
+| Delete the eight-argument geometry lint boundary | Bundling independent routing inputs into a temporary struct adds a non-production abstraction; the narrow private function remains clearer |
+| Remove base-512 numeric coverage | It protects the previously qualified context route while base-zero covers the new eligibility |
+
+### External qualification status
+
+| Qualification | Status | Reason |
+|---|---|---|
+| Hardware-independent build/test gates | PASS | Formatting, source contracts, and warning-denied local checks pass |
+| Local Metal static, numeric, and runtime gates | PASS | Pure/hybrid builds and suites, shader pipeline loading, focused numeric tests, and teacher parity pass on the qualified M4 |
+| Local Metal cleanup performance | PASS | Same-session TTFT and decode deltas are within 0.3% |
+| Six-artifact historical 128-step teacher | HISTORICAL FIXTURE UNAVAILABLE | Exact teachers and fixture hashes were never persisted |
+| NVIDIA/AMD cleanup performance | NOT APPLICABLE | This delta modifies only Metal-specific source and embedded tests; no shared runtime path changed |
+
+### Final assessment
+
+Every remaining production difference from `main` is required by the retained
+capability admission, M02 attention route, or its boundary/numeric coverage.
+All changed production files were audited; investigation scaffolding, temporary
+state, profiling resources, and experiment-only configuration are absent.
+Locally reproducible behavior, quality, and performance are preserved, while
+the unavailable historical fixture remains a provenance issue rather than a
+cleanup blocker. The branch is integration-ready with no temporary probes and
+nothing pushed.

@@ -1,11 +1,7 @@
 /*
  * graph_horizon_engine — SIMD variant of the fused Q4_K CPU kernel
- * Carved out of `matmul_q4k` so that file stays one-thing (the portable scalar
- * kernel) and within its line budget. This module holds the architecture-specific
- * fused dequant+MAC: on x86_64 an AVX2+FMA per-row dot product. The roofline
- * (examples/profile.rs --q4k) showed the scalar kernel sustains ~7% of RAM
- * bandwidth at a compute ceiling well under DRAM — i.e. it is COMPUTE-bound — so
- * vectorizing the 4-bit unpack + MAC is the proven win.
+ * Holds the architecture-specific fused dequant+MAC implementation: on x86_64,
+ * an AVX2+FMA per-row dot product; other targets retain the scalar kernel.
  *
  * Dispatch is in matmul_q4k::row_dot_q4k: it runtime-detects AVX2+FMA, so a binary
  * built here stays correct on a CPU without them (it falls back to scalar). Other

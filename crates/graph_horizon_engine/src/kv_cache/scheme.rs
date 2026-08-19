@@ -3,8 +3,7 @@
  * One `KvQuant` value chosen at load from the CLI, fixed BEFORE any alloc and
  * never changed for the engine's lifetime (I1). Branching on it is allowed only
  * at op-dispatch level — once per `kv_write`/`attention_*` call — never per
- * token/element inside kernels (I2). Replaces the former compile-time
- * `KvElem`/role-alias mechanism of `elem.rs`.
+ * token/element inside kernels.
  *
  * The unit of quantization is the VECTOR: the `head_dim` values of one
  * (token, kv_head), for K or for V. Each scheme fixes the payload bytes per
@@ -27,8 +26,8 @@ pub enum KvQuant {
     Int8,
 }
 
-// The two cache roles. Today f16 and int8 size K and V identically, but keeping
-// the role in the layout API makes the buffer contract explicit.
+// The two cache roles. Current schemes size K and V identically, but keeping the
+// role in the layout API makes the buffer contract explicit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KvRole {
     Key,
@@ -68,7 +67,7 @@ impl KvQuant {
     }
 
     // Metadata bytes of ONE vector, per role. f16: none; int8: min + scale as
-    // f16 (2+2). K and V are identical today, so the role is explicit but unused.
+    // f16 (2+2). K and V share this layout, so the role remains explicit.
     pub fn meta_bytes_per_vector(self, _role: KvRole) -> usize {
         match self {
             KvQuant::F16 => 0,

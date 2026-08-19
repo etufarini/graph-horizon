@@ -365,6 +365,25 @@ fn docs_contract() {
         backend_flat.contains("exactly three numeric backend families: CPU, Vulkan, and Metal")
     );
     assert!(backend_flat.contains("public composition profiles, not numeric backend families"));
+    for status in [
+        "| `cpu` | **reference** |",
+        "| `vulkan` | **production** |",
+        "| `vulkan-hybrid` | **qualified** |",
+        "| `metal` | **qualified** |",
+        "| `metal-hybrid` | **qualified** |",
+    ] {
+        assert!(readme.contains(status), "root README missing {status}");
+        assert!(engine.contains(status), "engine README missing {status}");
+        assert!(
+            backend.contains(status),
+            "backend contract missing {status}"
+        );
+    }
+    assert!(
+        config.contains(
+            "Build acceptance does not assign production, qualified, or reference status"
+        )
+    );
     assert!(
         backend_flat.contains(
             "Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split"

@@ -11,10 +11,33 @@ support, and validation documents.
 
 # Graph Horizon - Ministral 3 Version
 
-A local text-to-text runtime for Ministral 3 Instruct and Reasoning 2512 in the
-3B, 8B, and 14B sizes. It provides an interactive console, an
-HTTP server compatible with the OpenAI chat subset, and a Web UI. It supports
-text messages only, without tool calling or a separate reasoning channel.
+A focused local text-to-text runtime for Ministral 3 Instruct and Reasoning
+2512 in the 3B, 8B, and 14B sizes. It provides an interactive console and Web
+UI as its primary user interfaces, plus an HTTP server compatible with the
+OpenAI chat subset used by the included clients. It supports text messages
+only, without tool calling or a separate reasoning channel.
+
+## Project Scope
+
+Graph Horizon is intentionally a single-user chat runtime, not a general model
+framework or a high-throughput inference server. One generation runs at a time,
+which keeps request lifetime, cancellation, KV-cache ownership, and prefix
+reuse explicit and predictable. The HTTP API is a transport for the Web UI,
+the remote console, and simple external clients; broad API compatibility is not
+the product goal.
+
+Each build contains one backend profile selected at compile time. Separate CPU,
+Vulkan, Metal, and hybrid builds keep platform dependencies and runtime policy
+narrow while allowing the same source to run on different supported machines.
+Operation-level specialization is still selected from device capabilities and
+retains its documented fallback.
+
+The project is developed and validated by one maintainer. The reviewed hardware
+matrix therefore records the machines physically available for qualification;
+it is an evidence boundary, not a claim that every other compatible device was
+tested or failed. Performance comparisons with `llama.cpp` provide a stable
+reference for optimization work, not a statement that Graph Horizon aims to
+replace its broader runtime and ecosystem.
 
 ## Requirements
 
@@ -58,6 +81,22 @@ availability is broader than the v0.1.0 runtime qualification claim:
 |---|---|
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
 | Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+
+Build acceptance is not a support claim. The current profile labels are:
+
+| Profile | Status |
+|---|---|
+| `cpu` | **reference** |
+| `vulkan` | **production** |
+| `vulkan-hybrid` | **qualified** |
+| `metal` | **qualified** |
+| `metal-hybrid` | **qualified** |
+
+Production Vulkan is scoped to Linux x86_64 on compatible NVIDIA or AMD
+devices. Metal qualification is scoped to the documented Apple M4/macOS 26.3
+tuple; Vulkan-hybrid still requires a fresh complete real-model mixed-placement
+campaign for production promotion. Exact definitions and limits are in the
+[backend contract](docs/backend.md#support-status).
 
 The default profile is `release`, and the default prefix is `$HOME/.local`, so
 the command is installed as `$HOME/.local/bin/graph-horizon` with
@@ -207,8 +246,8 @@ graph-horizon --provider local --model "/path/to/model.gguf" \
   --vram-weights-percent 0
 ```
 
-Advanced options, including `--vram-reserve-mib` and `--no-attn-simd`, are
-listed by `graph-horizon --help`.
+The advanced `--vram-reserve-mib` option is listed by
+`graph-horizon --help`.
 
 The CLI uses the bright Mistral palette already represented by the Web UI:
 Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status

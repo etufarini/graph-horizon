@@ -11,9 +11,7 @@ edition = "2024"
 # Forward exactly one explicit backend profile to graph_horizon_engine. There is no
 # default or target-based selection.
 cpu = ["graph_horizon_engine/cpu"]
-cpu-profile = ["cpu", "graph_horizon_engine/cpu-profile"]
 vulkan = ["graph_horizon_engine/vulkan"]
-vulkan-profile = ["vulkan", "graph_horizon_engine/vulkan-profile"]
 vulkan-hybrid = ["graph_horizon_engine/vulkan-hybrid"]
 metal = ["graph_horizon_engine/metal"]
 metal-hybrid = ["graph_horizon_engine/metal-hybrid"]

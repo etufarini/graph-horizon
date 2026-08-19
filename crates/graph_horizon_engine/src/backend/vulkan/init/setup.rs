@@ -3,7 +3,7 @@
  * Builds a `VulkanBackend` from a weight source and placement: the shared
  * `load_inner` bootstrap (budget/plan → buffer creation → pipeline build → scratch
  * allocation), the MMVQ per-8 Q8 scratch, and the test-only `bare` device/pipeline
- * entry. Bodies moved 1:1 from the former monolithic `mod.rs`.
+ * entry.
 */
 
 use color_eyre::eyre::Result;
@@ -22,6 +22,27 @@ use crate::backend::vulkan::{MMVQ_SCRATCH_ELEMENTS, VulkanBackend};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
 
+#[cfg(feature = "vulkan")]
+pub(crate) fn load(
+    meta: &ModelMetadata,
+    source: &dyn WeightSource,
+    file: &GgufFile,
+    context: usize,
+    weights_percent: Option<u8>,
+    reserve_mib: Option<u64>,
+) -> Result<VulkanBackend> {
+    let device = Device::init().map_err(super::pure_loader_unavailable)?;
+    VulkanBackend::load_inner(
+        device,
+        meta,
+        source,
+        file,
+        context,
+        weights_percent,
+        reserve_mib,
+    )
+}
+
 // Shared full-backend bootstrap. Partial hybrid loads use `load_selected`,
 // which bypasses this all-weight memory plan after immutable placement.
 impl VulkanBackend {
@@ -32,9 +53,11 @@ impl VulkanBackend {
         ws: &dyn WeightSource,
         gguf: &GgufFile,
         context: usize,
+        weights_percent: Option<u8>,
+        reserve_mib: Option<u64>,
     ) -> Result<Self> {
         let budget = placement_budget(&dev);
-        let plan = plan(meta, ws, context, &budget)?;
+        let plan = plan(meta, ws, context, &budget, weights_percent, reserve_mib)?;
         let (buf, logits_host) = loader::create_buffers(&dev, &plan, gguf, ws, meta)?;
         let reg = match PipelineRegistry::build(&dev) {
             Ok(reg) => reg,

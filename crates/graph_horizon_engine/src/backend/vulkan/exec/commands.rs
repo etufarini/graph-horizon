@@ -2,13 +2,11 @@
  * graph_horizon_engine — Vulkan device runtime helpers
  * Operations on an already-created `Device`: live-VRAM query (VK_EXT_memory_budget),
  * memory-type selection, one-shot command-buffer begin/submit-wait, and the
- * compute→compute barrier. Bodies moved 1:1 from the former monolithic file.
+ * compute→compute barrier.
 */
 
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
-#[cfg(feature = "vulkan-profile")]
-use std::time::Instant;
 
 use crate::backend::vulkan::device::Device;
 
@@ -79,12 +77,6 @@ impl Device {
             unsafe { self.device.free_command_buffers(self.cmd_pool, &[cmd]) };
             return Err(eyre!("vulkan: cannot begin command buffer"));
         }
-        #[cfg(feature = "vulkan-profile")]
-        if let Err(error) = self.profile.begin(&self.device, cmd) {
-            // SAFETY: profiling failed before submission; this command is local.
-            unsafe { self.device.free_command_buffers(self.cmd_pool, &[cmd]) };
-            return Err(error);
-        }
         #[cfg(test)]
         {
             let _tracked =
@@ -103,8 +95,6 @@ impl Device {
     // Ends, submits and waits on `cmd`, then frees it. Synchronous by design
     // (batch 1, correctness first): one submit per forward step.
     pub(crate) fn submit_wait(&self, cmd: vk::CommandBuffer) -> Result<()> {
-        #[cfg(feature = "vulkan-profile")]
-        self.profile.end(&self.device, cmd);
         // SAFETY: `cmd` is in the recording state opened by `begin_commands`; ending
         // it is the required transition before submission.
         if unsafe { self.device.end_command_buffer(cmd) }.is_err() {
@@ -149,12 +139,7 @@ impl Device {
         // was just created unsignaled. The fence wait blocks until the GPU is idle, so
         // destroying the fence and freeing `cmd` afterwards races nothing in flight.
         unsafe {
-            #[cfg(feature = "vulkan-profile")]
-            let started = Instant::now();
             let submitted = self.device.queue_submit(self.queue, &[submit], fence);
-            #[cfg(feature = "vulkan-profile")]
-            self.profile
-                .cpu(1, started.elapsed().as_secs_f64() * 1000.0);
             let submit_result = submitted
                 .map_err(|e| {
                     if e == vk::Result::ERROR_DEVICE_LOST {
@@ -164,12 +149,7 @@ impl Device {
                     }
                 })
                 .and_then(|_| {
-                    #[cfg(feature = "vulkan-profile")]
-                    let started = Instant::now();
                     let waited = self.device.wait_for_fences(&[fence], true, u64::MAX);
-                    #[cfg(feature = "vulkan-profile")]
-                    self.profile
-                        .cpu(2, started.elapsed().as_secs_f64() * 1000.0);
                     waited.map_err(|e| {
                         if e == vk::Result::ERROR_DEVICE_LOST {
                             eyre!("vulkan: fence wait failed (E_DEVICE_LOST)")
@@ -178,8 +158,6 @@ impl Device {
                         }
                     })
                 });
-            #[cfg(feature = "vulkan-profile")]
-            let submit_result = submit_result.and_then(|_| self.profile.resolve(&self.device));
             // The wait completed or the device was lost; either way these local
             // synchronization/command objects must not escape this boundary.
             self.device.destroy_fence(fence, None);
@@ -190,8 +168,6 @@ impl Device {
 
     // Global shader-write → shader-read barrier between dependent dispatches.
     pub(crate) fn compute_barrier(&self, cmd: vk::CommandBuffer) {
-        #[cfg(feature = "vulkan-profile")]
-        self.profile.barrier();
         let barrier = vk::MemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::SHADER_WRITE)
             .dst_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE);

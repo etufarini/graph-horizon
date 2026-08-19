@@ -5,7 +5,7 @@
  * coopmat, dp4a), build the compute queue, enable FP16 features, and create the
  * command pool. Every
  * opt-in is conditional (INV-6 / P1). `create_device` returns a `DeviceBoot` the
- * caller spreads into `Device`. Bodies moved 1:1 from the former monolithic `device.rs`.
+ * caller spreads into `Device`.
 */
 
 use ash::vk;

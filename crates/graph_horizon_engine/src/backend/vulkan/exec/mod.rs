@@ -3,6 +3,4 @@
 // in `vulkan/mod.rs` li invocano; `commands` (impl su `Device`) resta privato.
 mod commands;
 pub(super) mod dispatch;
-#[cfg(feature = "vulkan-profile")]
-pub(crate) mod profile;
 pub(super) mod readback;

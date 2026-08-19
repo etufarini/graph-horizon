@@ -10,6 +10,12 @@ Graph Horizon separates the inference engine from the three surfaces that use
 it: the interactive console, HTTP server, and web UI. The `graph_horizon_engine` crate
 does not depend on the terminal, Hyper, or Svelte; surfaces only use its public API.
 
+The product model is one local chat generation at a time. The console and Web
+UI are the primary user-facing surfaces; the HTTP subset connects those
+surfaces and simple external clients to the same engine. The architecture does
+not target continuous batching, multi-tenant scheduling, or broad API
+compatibility, so their absence does not imply an unfinished serving layer.
+
 ## Workspace Layout
 
 ```text
@@ -80,6 +86,11 @@ The server loads one `Engine`, serves its immutable resolved context through
 generation at a time. A semaphore limits admitted chat requests, including
 waiting requests, to eight; property reads do not acquire it.
 
+Serialization is an intentional runtime invariant for the single-user chat
+scope. It gives each request exclusive ownership of generation state and bounds
+the waiting queue without introducing a scheduler whose throughput would not
+serve the primary interfaces.
+
 Web mode adds static assets and a browser UI to the same chat and properties
 boundaries. The browser loads context before enabling send, assembles the exact
 wire messages, admits them locally, and only then starts chat transport and its
@@ -135,6 +146,11 @@ session or one immutable partitioned session. A partitioned pass runs a CPU
 prefix, crosses once, then runs the device suffix. Loading is transactional;
 generation emits one terminal event, cancellation emits none, and normalized
 public errors expose no device paths or driver internals.
+
+Static backend selection is the deployment boundary: one build carries one
+dependency and resource policy, while capability checks inside that backend
+still choose safe operation variants. Supporting another machine therefore
+means building the appropriate profile, not adding a runtime backend registry.
 
 The actual set of accepted families and profiles is a versioned library
 contract, not part of the application architecture. See the

@@ -5,7 +5,7 @@
  * delegate here, and these forward to `kernels::matmul`, which selects the per-CpuFormat
  * kernel (Q4_K/Q5_K/Q6_K fused, else the generic F16 path). Every CpuFormat
  * is covered there, so no weight ever reaches a kernel for the wrong format. Only the
- * u32→usize narrowing lives here; no numeric work. Moved 1:1 from the former `mod.rs`.
+ * u32→usize narrowing lives here; no numeric work.
 */
 
 use super::buffer::CpuBuffer;

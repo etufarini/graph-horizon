@@ -9,6 +9,12 @@ The `graph_horizon_engine` crate loads a supported GGUF read-only and exposes a
 synchronous facade for text generation. The local console, server, and web UI
 share the same entry point; no surface imports a concrete backend directly.
 
+It is designed for one active chat generation at a time. This narrow execution
+model keeps KV state, cancellation, allocation lifetime, and error handling
+local to one request. Multi-request batching and serving throughput are outside
+the runtime contract; the HTTP surface exists to carry the same chat flow used
+by the console and Web UI.
+
 ## Model Boundary
 
 The `Engine` facade hides the family from application surfaces, but the current
@@ -62,6 +68,12 @@ support/install.sh --backend metal
 support/install.sh --backend metal-hybrid
 ```
 
+Compile-time selection is deliberate: a binary contains only the dependencies,
+initialization, and memory policy of its chosen backend. This keeps platform
+builds small and predictable without preventing deployment on different
+machines, which use separately built profiles. Within a profile, kernel routing
+remains capability- and shape-based and preserves the generic fallback.
+
 For reproducible Cargo builds:
 
 ```sh
@@ -71,6 +83,45 @@ cargo check --workspace --no-default-features --features vulkan-hybrid
 cargo check --workspace --no-default-features --features metal
 cargo check --workspace --no-default-features --features metal-hybrid
 ```
+
+## Support Status
+
+Build availability and support status are separate claims. An accepted build
+tuple means that the installer and feature guards admit it; it does not make
+the resulting profile production or qualified.
+
+- **production** is the recommended accelerated profile inside its declared
+  scope. Its public model, format, lifecycle, fallback, correctness, and
+  performance gates are maintained as release regressions.
+- **qualified** is supported only inside an explicit hardware and software
+  tuple. Its evidence is either hardware-specific or does not yet cover the
+  complete production promotion matrix.
+- **reference** identifies the canonical numeric path used as an oracle. It is
+  a role rather than a lower maturity tier and carries no performance promise.
+
+The current primary labels are:
+
+| Profile | Status | Declared scope |
+|---|---|---|
+| `cpu` | **reference** | Public portable numeric path on accepted build platforms; Q4_K_M and f16/int8 KV |
+| `vulkan` | **production** | Linux x86_64, compatible NVIDIA or AMD Vulkan device, Q4_K_M, f16/int8 KV, all-GPU |
+| `vulkan-hybrid` | **qualified** | Linux x86_64; all-GPU, mixed, or CPU-only placement |
+| `metal` | **qualified** | Apple M4 10-core GPU, macOS 26.3, Q4_K_M, f16/int8 KV, all-Metal |
+| `metal-hybrid` | **qualified** | The same Apple M4/macOS tuple; all-Metal, mixed, or CPU-only placement |
+
+The CPU profile remains a public supported path even though its primary role is
+reference. Vulkan support outside Linux x86_64 is not implied by build
+availability. `vulkan-hybrid` remains qualified because its placement and
+implementation gates pass, but a fresh complete real-model `Mixed` campaign is
+still required before production promotion. The homogeneous endpoints retain
+their underlying numeric status: all-GPU uses production Vulkan, while CPU-only
+uses the CPU reference path.
+
+Metal and Metal-hybrid qualification is evidence for the stated M4/macOS tuple,
+not a promise for every Apple GPU, Apple silicon generation, or operating-system
+version. Current terminal evidence remains in
+[VALIDATION.md](../VALIDATION.md); that register records results and does not
+assign product status.
 
 ## Hybrid Placement
 
@@ -113,10 +164,6 @@ staging, crossing, and reserve against unified memory. Both support Q4_K_M
 weights and f16/int8 KV. Standalone backends perform no implicit fallback;
 device, allocation, pipeline, command, and readback failures remain errors.
 
-Metal support is currently qualified on Apple M4 with macOS 26.3. Other Apple
-silicon generations and operating-system versions remain unqualified rather
-than implicitly supported.
-
 ## KV Cache And Sampling
 
 `EngineConfig` selects the KV cache once during loading:
@@ -133,3 +180,15 @@ sampling fields remain ignored.
 Internal kernel numeric formats do not automatically expand the accepted GGUF
 contract. Technical support and numeric qualification must be recorded
 separately in [VALIDATION.md](../VALIDATION.md).
+
+## Qualification And Performance References
+
+The reviewed matrix contains only hardware available to the project's sole
+maintainer. A qualified row is concrete evidence for that tuple; a missing row
+is not silently promoted to support or failure. This deliberately narrow claim
+keeps validation reproducible as the backend evolves.
+
+`llama.cpp` measurements are external performance references used to identify
+and rank bottlenecks under comparable model, quantization, context, and hardware
+settings. They do not define Graph Horizon's feature scope: this runtime remains
+focused on a simple Ministral chat experience through its console and Web UI.

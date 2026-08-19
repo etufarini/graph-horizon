@@ -5,9 +5,9 @@
 La base obbligatoria non richiede modelli:
 
 ```sh
-cargo test -p gh_zero_engine --no-default-features --features cpu
-cargo test -p gh_zero_engine --no-default-features --features vulkan error_matrix
-cargo test -p gh_zero_engine --no-default-features --features hybrid error_matrix
+cargo test --workspace --no-default-features --features cpu
+cargo test -p graph_horizon_engine --no-default-features --features vulkan error_matrix
+cargo test -p graph_horizon_engine --no-default-features --features vulkan-hybrid error_matrix
 ```
 
 I test sintetici coprono dimensioni 3B/8B/14B, profili Q8_0/Q4_K_M, KV
@@ -29,10 +29,11 @@ corrispondente resta `compatible/unverified`.
 Esempio:
 
 ```sh
-support/testing/parity-check.sh --model "$GH_ZERO_MODEL" \
-  --backend cpu --context 4096 \
-  --reference-cli "$GH_ZERO_REFERENCE_CLI" \
-  --reference-tokenize "$GH_ZERO_REFERENCE_TOKENIZE"
+support/testing/parity-check.sh \
+  --models-dir "$GRAPH_HORIZON_MODELS_DIR" \
+  --model-id "$GRAPH_HORIZON_MODEL_ID" \
+  --backend cpu --kv f16 \
+  --reference-server "$GRAPH_HORIZON_REFERENCE_SERVER"
 ```
 
 Ripeti per f16/int8 quando il candidato tocca la KV. Ripeti per entrambi i

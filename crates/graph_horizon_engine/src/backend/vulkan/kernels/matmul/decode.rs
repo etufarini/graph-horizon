@@ -6,7 +6,7 @@
 
 use ash::vk;
 
-use super::{project, trace};
+use super::project;
 use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry};
@@ -27,7 +27,6 @@ pub(crate) fn matmul(
         WeightFormat::Q6K => (Kernel::MatmulQ6K, 64),
         WeightFormat::Q5K => (Kernel::MatmulQ5K, 64),
     };
-    trace::log_path_once(kernel);
     project(
         dev,
         reg,
@@ -346,7 +345,7 @@ mod tests {
             .collect();
 
         // int8 Q8 activations round each element to ~1/127, so a length-512 dot carries a
-        // wider error than the f16 path; assert FINITE (the historical mmvq bug was inf) plus
+        // wider error than the f16 path; require a finite result plus
         // a combined Q4_K+int8 tolerance (abs ≤ 1.5e-1 OR rel ≤ 3%).
         for o in 0..out_dim {
             let (g, w) = (got[o], want[o]);

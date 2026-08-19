@@ -39,8 +39,8 @@ Verifica il tree e la feature target:
 
 ```sh
 git status --short
-cargo test -p gh_zero_engine --no-default-features --features cpu
-cargo check -p gh_zero_engine --no-default-features --features <cpu|vulkan|hybrid>
+cargo test --workspace --no-default-features --features cpu
+cargo check --workspace --no-default-features --features <cpu|vulkan|vulkan-hybrid|metal|metal-hybrid>
 ```
 
 Usa uno dei due artefatti 3B fissati dalla specifica. Q8_0 e Q4_K_M sono casi
@@ -57,7 +57,7 @@ per la misura.
 Misura l'API pubblica:
 
 ```sh
-support/profiling/profile.sh --model "$GH_ZERO_MODEL" \
+support/profiling/profile.sh --model "$GRAPH_HORIZON_MODEL" \
   --backend <backend> --context 4096 --kv f16
 ```
 
@@ -87,15 +87,16 @@ Esegui prima la correttezza:
 
 ```sh
 cargo fmt --check
-cargo test -p gh_zero_engine --no-default-features --features cpu
-support/testing/parity-check.sh --model "$GH_ZERO_MODEL" \
-  --backend <backend> --context 4096 \
-  --reference-cli "$GH_ZERO_REFERENCE_CLI" \
-  --reference-tokenize "$GH_ZERO_REFERENCE_TOKENIZE"
+cargo test --workspace --no-default-features --features cpu
+support/testing/parity-check.sh \
+  --models-dir "$GRAPH_HORIZON_MODELS_DIR" \
+  --model-id "$GRAPH_HORIZON_MODEL_ID" \
+  --backend <backend> --kv f16 \
+  --reference-server "$GRAPH_HORIZON_REFERENCE_SERVER"
 ```
 
-Per hybrid Q8_0 mixed aggiungi `--vram-weights-percent 25` e richiedi layer CPU
-e GPU positivi. Non trasformare E15 Vulkan in fallback CPU.
+Per un backend ibrido mixed aggiungi `--weights-percent 25 --expect-mode mixed`
+e richiedi layer CPU e GPU positivi. Non trasformare E15 Vulkan in fallback CPU.
 
 Solo dopo un gate verde rimisura con lo stesso comando baseline. Un guadagno
 deve superare la varianza osservata e non peggiorare metriche o memoria fuori

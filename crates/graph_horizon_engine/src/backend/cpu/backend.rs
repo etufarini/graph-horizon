@@ -10,33 +10,14 @@ use color_eyre::eyre::Result;
 
 use crate::backend::Backend;
 use crate::backend::buffers::Buffers;
-#[cfg(feature = "cpu")]
-use crate::backend::source::WeightSource;
-#[cfg(feature = "cpu")]
-use crate::gguf::loader::GgufFile;
-#[cfg(feature = "cpu")]
-use crate::gguf::metadata::ModelMetadata;
 
 use super::buffer::{CpuBuffer, CpuFormat};
-#[cfg(feature = "cpu")]
-use super::weights;
 use super::{CpuBackend, CpuEncoder, dispatch, kernels, readback};
 
 // AGENTS deroga I: singolo `impl Backend for CpuBackend` di delegatori sottili.
 impl Backend for CpuBackend {
     type Buffer = CpuBuffer;
     type Encoder = CpuEncoder;
-
-    #[cfg(feature = "cpu")]
-    fn load(
-        meta: &ModelMetadata,
-        ws: &dyn WeightSource,
-        gguf: &GgufFile,
-        context: usize,
-    ) -> Result<Self> {
-        let buffers = weights::load(meta, ws, gguf, context)?;
-        Ok(CpuBackend { buffers })
-    }
 
     fn buffers(&self) -> &Buffers<CpuBuffer> {
         &self.buffers

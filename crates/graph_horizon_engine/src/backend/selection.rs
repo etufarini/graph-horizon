@@ -6,7 +6,7 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "cpu", feature = "vulkan"))]
+#[cfg(feature = "vulkan")]
 use super::Backend;
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use super::hybrid::HybridPlan;
@@ -57,10 +57,22 @@ pub(crate) fn load(
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) -> Result<SelectedBackend> {
-    #[cfg(any(feature = "cpu", feature = "vulkan"))]
+    #[cfg(feature = "cpu")]
     {
         let _ = (shape, scheme, weights_percent, reserve_mib);
-        SelectedBackend::load(metadata, source, file, context)
+        super::cpu::load(metadata, source, file, context)
+    }
+    #[cfg(feature = "vulkan")]
+    {
+        let _ = (shape, scheme);
+        super::vulkan::load(
+            metadata,
+            source,
+            file,
+            context,
+            weights_percent,
+            reserve_mib,
+        )
     }
     #[cfg(feature = "metal")]
     {
@@ -147,22 +159,11 @@ pub(crate) fn free_cached_state(backend: &SelectedBackend, state: CachedState) {
     crate::kv_cache::free(backend, state);
 }
 
-pub(crate) fn configure(
-    cpu_threads: Option<usize>,
-    weights_percent: Option<u8>,
-    reserve_mib: Option<u64>,
-) {
+pub(crate) fn configure(cpu_threads: Option<usize>) {
     #[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     {
         super::cpu::parallel::set_threads(cpu_threads);
     }
-    #[cfg(feature = "vulkan")]
-    {
-        super::vulkan::set_weights_percent(weights_percent);
-        super::vulkan::set_reserve_mib(reserve_mib);
-    }
-    #[cfg(not(feature = "vulkan"))]
-    let _ = (weights_percent, reserve_mib);
     #[cfg(not(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid")))]
     let _ = cpu_threads;
 }

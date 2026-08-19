@@ -36,6 +36,18 @@ pub(crate) struct CpuBackend {
     buffers: Buffers<CpuBuffer>,
 }
 
+#[cfg(feature = "cpu")]
+pub(crate) fn load(
+    meta: &crate::gguf::metadata::ModelMetadata,
+    source: &dyn crate::backend::source::WeightSource,
+    file: &crate::gguf::loader::GgufFile,
+    context: usize,
+) -> color_eyre::eyre::Result<CpuBackend> {
+    Ok(CpuBackend {
+        buffers: weights::load(meta, source, file, context)?,
+    })
+}
+
 impl CpuBackend {
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) fn load_selected(

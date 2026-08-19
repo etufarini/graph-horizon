@@ -10,14 +10,7 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "cpu", feature = "vulkan"))]
-use crate::gguf::loader::GgufFile;
-#[cfg(any(feature = "cpu", feature = "vulkan"))]
-use crate::gguf::metadata::ModelMetadata;
-
 use super::buffers;
-#[cfg(any(feature = "cpu", feature = "vulkan"))]
-use super::source::WeightSource;
 
 // The backend boundary for the forward path. `Buffer` is an opaque handle that
 // carries its own format; `Encoder` is a per-position recording session. The
@@ -27,18 +20,6 @@ use super::source::WeightSource;
 pub(crate) trait Backend: Sized {
     type Buffer;
     type Encoder;
-
-    // Initialize backend state + pipelines, upload model weights, alloc scratch + logits.
-    // Weights arrive through `WeightSource` (the family's concrete weight set) as
-    // a `&dyn` since `load` is not perf-critical and must not monomorphize the
-    // upload chain per family.
-    #[cfg(any(feature = "cpu", feature = "vulkan"))]
-    fn load(
-        meta: &ModelMetadata,
-        ws: &dyn WeightSource,
-        gguf: &GgufFile,
-        context: usize,
-    ) -> Result<Self>;
 
     // Access to weights/scratch/logits.
     fn buffers(&self) -> &buffers::Buffers<Self::Buffer>;

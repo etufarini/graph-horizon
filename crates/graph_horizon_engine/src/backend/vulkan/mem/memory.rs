@@ -16,10 +16,9 @@
  * The KV-cache byte size comes from `kv_cache::layout::cache_bytes`, the single
  * source of truth for that arithmetic — it is no longer computed here.
  *
- * Knobs: the placement dials (`--vram-weights-percent`, `--vram-reserve-mib`) and
- * the byte-exact budget arithmetic live in `budget`; `plan` consumes them via
- * `budget::weight_vram_percent`/`weight_vram_budget`. `scratch_bytes` is
- * `pub(crate)` for the hybrid auto cap (it charges scratch against free VRAM).
+ * Knobs: the placement dials (`--vram-weights-percent`, `--vram-reserve-mib`)
+ * enter this plan explicitly; byte-exact cap and reserve arithmetic live in
+ * `budget`.
  *
  * Partial hybrid ownership is handled by the separate immutable placement and
  * selected-loader path; this full-backend planner always counts every weight.
@@ -52,6 +51,8 @@ pub(crate) fn plan(
     ws: &dyn WeightSource,
     context_len: usize,
     budget: &Budget,
+    weights_percent: Option<u8>,
+    reserve_mib: Option<u64>,
 ) -> Result<MemoryPlan> {
     let kv_bytes = checked_product(&[
         4,
@@ -98,8 +99,8 @@ pub(crate) fn plan(
     let peak_staging_bytes = weight_bytes.iter().copied().max().unwrap_or(0);
     super::budget::pure_preflight(
         budget.vram,
-        super::budget::reserve_bytes(budget.vram, super::budget::configured_reserve_mib()),
-        super::budget::weight_vram_percent(),
+        super::budget::reserve_bytes(budget.vram, reserve_mib),
+        weights_percent.unwrap_or(100).min(100),
         weights_total,
         logits_bytes,
         peak_staging_bytes,
@@ -179,7 +180,7 @@ mod tests {
         let ws = Vecs(vec![ti("token_embd", u64::MAX / 2), ti("output_norm", 2)]);
         let meta = tiny_meta();
         let budget = Budget { vram: u64::MAX };
-        let err = match plan(&meta, &ws, 8, &budget) {
+        let err = match plan(&meta, &ws, 8, &budget, None, None) {
             Ok(_) => panic!("overflowing weight total must fail"),
             Err(err) => err.to_string(),
         };

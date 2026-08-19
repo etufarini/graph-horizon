@@ -337,6 +337,25 @@ the recorded main row at 30.10, 4,253.29 ms, and 7.00. Prompt throughput and
 TTFT are within 1%; decode improved. Automatic SIMD eligibility and the scalar
 fallback are unchanged, so the override and its parser state remain deleted.
 
+### Consolidated backend construction policy
+
+Model construction was an accidental member of the numeric `Backend` trait,
+even though Metal and hybrid construction already lived at concrete resource
+boundaries. Pure Vulkan consequently copied weight-percentage and reserve
+configuration into two process-global `OnceLock`s before loading. Construction
+now dispatches explicitly to the CPU or Vulkan module, while the trait contains
+only graph execution and buffer operations. Vulkan receives the two policy
+values directly in its immutable load transaction; the global caches, setters,
+getters, and fake shape-backend constructor disappeared.
+
+This removes 75 net lines and two pieces of global state without adding a type,
+field, feature, dependency, or execution branch. CPU, Vulkan, and
+Vulkan-hybrid workspace tests and all-target Clippy pass. A real Vulkan load
+with an explicit 100% weight cap measured 1,719.55 prompt tok/s, 74.44 ms TTFT,
+and 73.27 decode tok/s. Against the same-session detached-main row at 1,721.22,
+74.37 ms, and 73.48, every delta is at most 0.29%; the consolidation is
+retained.
+
 ## Final Complexity, Validation, and Performance
 
 To be completed after the final diff audit.

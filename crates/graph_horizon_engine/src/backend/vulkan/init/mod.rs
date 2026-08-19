@@ -13,6 +13,9 @@ mod caps;
 pub(crate) mod device;
 mod setup;
 
+#[cfg(feature = "vulkan")]
+pub(crate) use setup::load;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::backend::vulkan) enum Unavailable {
     Loader,

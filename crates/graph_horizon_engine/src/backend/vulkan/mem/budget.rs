@@ -3,11 +3,6 @@
  * Owns VRAM discovery, reserve/weight caps, hybrid fallback and pure preflight.
 */
 
-// Only the standalone profile owns these dials; hybrid placement receives its
-// validated percentage and reserve directly through the hybrid planner.
-#[cfg(feature = "vulkan")]
-use std::sync::OnceLock;
-
 use ash::vk;
 
 use super::memory::Budget;
@@ -50,39 +45,6 @@ pub(crate) fn reserve_bytes(total_vram: u64, override_mib: Option<u64>) -> u64 {
     override_mib
         .map(|m| m.saturating_mul(1024 * 1024))
         .unwrap_or_else(|| (256 * 1024 * 1024).max(total_vram / 20))
-}
-
-// Weight-percent dial, seeded once by `Engine::new` in single-backend builds.
-#[cfg(feature = "vulkan")]
-static WEIGHTS_PERCENT: OnceLock<Option<u8>> = OnceLock::new();
-#[cfg(feature = "vulkan")]
-static RESERVE_MIB: OnceLock<Option<u64>> = OnceLock::new();
-
-// Seeds the dial from the CLI value. See `WEIGHTS_PERCENT`.
-#[cfg(feature = "vulkan")]
-pub(crate) fn set_weights_percent(percent: Option<u8>) {
-    let _ = WEIGHTS_PERCENT.set(percent);
-}
-
-#[cfg(feature = "vulkan")]
-pub(crate) fn set_reserve_mib(reserve_mib: Option<u64>) {
-    let _ = RESERVE_MIB.set(reserve_mib);
-}
-
-// Resolves the dial: the seeded value (CLI-validated), else the default 100.
-#[cfg(feature = "vulkan")]
-pub(super) fn weight_vram_percent() -> u8 {
-    WEIGHTS_PERCENT
-        .get()
-        .copied()
-        .flatten()
-        .unwrap_or(100)
-        .min(100)
-}
-
-#[cfg(feature = "vulkan")]
-pub(super) fn configured_reserve_mib() -> Option<u64> {
-    RESERVE_MIB.get().copied().flatten()
 }
 
 // Byte-exact cap on weights kept resident in VRAM. The product is computed in

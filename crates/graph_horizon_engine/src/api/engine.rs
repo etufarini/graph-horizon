@@ -59,11 +59,7 @@ pub struct Engine {
 
 impl Engine {
     pub fn new(model_path: &Path, config: EngineConfig) -> Result<Self> {
-        crate::backend::selection::configure(
-            config.cpu_threads,
-            config.vram_weights_percent,
-            config.vram_reserve_mib,
-        );
+        crate::backend::selection::configure(config.cpu_threads);
         Ok(Self {
             model: family::load(model_path, &config)?,
         })

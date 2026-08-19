@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Remote acquisition boundary: downloads one disposable main-branch snapshot,
+# Remote acquisition boundary: downloads one disposable v0.1.0 tag snapshot,
 # validates its shape, and delegates every build/install decision unchanged to
 # support/install.sh. It owns no backend, profile, prefix, or build policy.
 
 set -euo pipefail
 
-archive_url="https://github.com/etufarini/gh-zero-engine-ministral3/archive/refs/heads/main.tar.gz"
-expected_root="gh-zero-engine-ministral3-main"
+archive_url="https://github.com/etufarini/graph-horizon/archive/refs/tags/v0.1.0.tar.gz"
+expected_root="graph-horizon-0.1.0"
 temp_dir=""
 
 fail() {

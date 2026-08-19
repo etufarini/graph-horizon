@@ -30,24 +30,24 @@ The installer builds from source and does not download models.
 
 ## Installation
 
-After the repository becomes public, install the current `main` source with:
+After the repository becomes public, install the immutable v0.1.0 source with:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend cpu
 ```
 
 The URL does not work anonymously while the repository is private. The command
-follows mutable `main` and verifies neither a release tag nor a checksum; review
-the script and repository state when reproducibility is required. It downloads
-a temporary source archive, validates it, and delegates the build to
-`support/install.sh`. Prerequisites and GGUF models are never installed or
-downloaded automatically.
+downloads the `v0.1.0` tag archive rather than a mutable branch, validates its
+shape, and delegates the build to `support/install.sh`. The release source
+archive checksum is published in the v0.1.0 qualification report so it can be
+verified before a local installation. Prerequisites and GGUF models are never
+installed or downloaded automatically.
 
 The equivalent local-checkout path is:
 
 ```sh
-git clone https://github.com/etufarini/gh-zero-engine-ministral3.git
-cd gh-zero-engine-ministral3
+git clone --branch v0.1.0 --depth 1 https://github.com/etufarini/graph-horizon.git
+cd graph-horizon
 ./support/install.sh --backend cpu
 ```
 
@@ -101,8 +101,8 @@ GRAPH_HORIZON_INSTALL_PREFIX="$HOME/.local" ./support/install.sh --backend cpu
 ```
 
 Run either installer again to rebuild and replace both command names. The
-public form rebuilds the then-current `main`; the local form rebuilds the
-current checkout.
+public form always rebuilds v0.1.0; the local form rebuilds the current
+checkout.
 
 ## Usage
 

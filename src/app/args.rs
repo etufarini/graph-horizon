@@ -47,7 +47,7 @@ static PARSED: OnceLock<Parsed> = OnceLock::new();
 
 // Parses `std::env::args()` once and records the recognized flags. Call it as the very
 // first thing in `main`, before the terminal is initialized, so a bad argument fails
-// cleanly. `--help`/`-h` prints the usage and exits 0; an unknown flag or a value flag
+// cleanly. Help and version requests print and exit 0; an unknown flag or a value flag
 // missing its value prints the usage and exits non-zero. A boolean flag never consumes
 // the following token. A second call is a no-op (the OnceLock is already set).
 pub(crate) fn init() {
@@ -63,6 +63,10 @@ pub(crate) fn init() {
         let arg = args[i].as_str();
         if arg == "--help" || arg == "-h" {
             println!("{}", usage());
+            std::process::exit(0);
+        }
+        if arg == "--version" || arg == "-V" {
+            println!("graph-horizon {}", env!("CARGO_PKG_VERSION"));
             std::process::exit(0);
         }
         // The static flag name (not the user's slice) so the parsed entries carry a
@@ -136,7 +140,7 @@ pub(crate) fn usage() -> String {
         };
         out.push_str(&format!("  {shown}\n"));
     }
-    out.push_str("  --help, -h\n");
+    out.push_str("  --version, -V\n  --help, -h\n");
     out
 }
 
@@ -190,6 +194,7 @@ mod tests {
         assert!(u.contains("--cpu-threads <valore>"));
         assert!(u.contains("--kv-quant <f16|int8>"));
         assert!(u.contains("--no-attn-simd\n"));
+        assert!(u.contains("--version, -V"));
         // No environment variable is mentioned anywhere.
         assert!(!u.to_lowercase().contains("env"));
         assert!(!u.contains("GRAPH_HORIZON_"));

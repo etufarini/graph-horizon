@@ -133,10 +133,10 @@ is absent from `PATH`, it reports the directory without editing shell files.
 Every other platform/backend tuple is rejected before `npm` or Cargo starts;
 there is no backend or profile fallback. The local form above builds the
 checkout directly. After the repository is public, the public acquisition form
-follows mutable `main` and delegates to that same local installer:
+downloads immutable `v0.1.0` and delegates to that same local installer:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/gh-zero-engine-ministral3/main/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend cpu
 ```
 
 See the [product installation guide](../README.md) and

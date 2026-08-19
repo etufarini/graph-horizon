@@ -145,16 +145,15 @@ latency ratio is equivalently llama tok/s divided by Graph Horizon tok/s.
 | 3B | prefill 128 | 914.88 ms | 323.55 ms | 2.83x | 591.33 ms |
 | 3B | prefill 512 | 6,188.66 ms | 1,326.42 ms | 4.67x | 4,862.24 ms |
 | 3B | prefill 2K | 15,037.83 ms | 5,767.88 ms | 2.61x | 9,269.95 ms |
-| 3B | M02 prefill 8K | 71,100.02 ms | 35,175.63 ms | 2.02x | 35,924.39 ms |
 | 3B | decode KV128 | 26.30 tok/s | 35.72 tok/s | 1.36x | 10.05 ms/token |
 | 3B | decode KV512 | 22.91 tok/s | 30.45 tok/s | 1.33x | 10.81 ms/token |
 | 3B | decode KV2K | 25.31 tok/s | 27.56 tok/s | 1.09x | 3.22 ms/token |
-| 3B | M02 decode KV8K | 12.15 tok/s | 19.89 tok/s | 1.64x | 32.02 ms/token |
 
 Measured CVs are 0.16--0.29% for the retained Graph Horizon prefill points,
 apart from 5.36% decode CV at KV512. llama prompt samples are similarly stable.
 The non-monotonic 512-token valley is too large to explain with variance and is
-the first attribution target. 8K/16K/28K and 8B/14B rows remain pending.
+the first attribution target. This table remains the pre-change evidence; the
+final retained matrix is reported separately below.
 
 ## Attribution and ranking checkpoint
 
@@ -247,6 +246,74 @@ the bracket. An earlier bracket was rejected because its detached target had
 accidentally been compiled from the candidate source tree; identical timings
 exposed the error, and none of those mislabeled results are retained.
 
+## Final retained competitive matrix
+
+Measurements continued across midnight on 2026-08-18/19 in the same
+AC-powered session. Every row uses a diagnostics-free release binary, one
+warm-up, and three measured repetitions. llama prompt caching is disabled and
+every response reports the full requested `prompt_n`.
+
+| Model | F16 prefill | Ours TTFT | Ours CV | llama prompt | llama CV | Ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| 3B | 128 | 677.26 ms | 0.42% | 323.55 ms | stable | 2.09x |
+| 3B | 512 | 2,554.70 ms | 0.28% | 1,326.42 ms | stable | 1.93x |
+| 3B | 2,048 | 11,449.03 ms | 0.12% | 5,767.88 ms | stable | 1.99x |
+| 3B | 8,192 | 71,100.02 ms | 3.71% | 35,175.63 ms | 4.72% | 2.02x |
+| 3B | 16,384 | 229,641.64 ms | 0.45% | 101,427.38 ms | 0.65% | 2.26x |
+| 3B | 28,000 | 562,828.73 ms | 2.07% | 238,239.39 ms | 0.56% | 2.36x |
+| 8B | 128 | 1,655.63 ms | 0.55% | 766.44 ms | 0.71% | 2.16x |
+| 8B | 2,048 | 26,684.81 ms | 0.40% | 15,426.68 ms | 2.65% | 1.73x |
+| 14B | 128 | 2,523.51 ms | 0.15% | 1,221.35 ms | 0.88% | 2.07x |
+| 14B | 2,048 | 45,328.53 ms | 3.93% | 24,350.93 ms | 3.31% | 1.86x |
+
+| Model | F16 decode history | Ours | llama | Latency ratio |
+|---|---:|---:|---:|---:|
+| 3B | 128 | 29.28 tok/s | 35.72 tok/s | 1.22x |
+| 3B | 2,048 | 25.40 tok/s | 27.56 tok/s | 1.09x |
+| 3B | 8,192 | 12.15 tok/s | 19.89 tok/s | 1.64x |
+| 3B | 16,384 | 6.90 tok/s | 12.27 tok/s | 1.78x |
+| 3B | 28,000 | 4.40 tok/s | 8.11 tok/s | 1.84x |
+| 8B | 128 | 15.53 tok/s | 17.94 tok/s | 1.16x |
+| 8B | 2,048 | 13.76 tok/s | 15.68 tok/s | 1.14x |
+| 14B | 128 | 10.43 tok/s | 12.38 tok/s | 1.19x |
+| 14B | 2,048 | 9.01 tok/s | 10.81 tok/s | 1.20x |
+
+The long 3B points validate the expected crossover. At 8K the profiler accounts
+for 98.1% of GPU command time: attention is 31.98 s (45.8% of kernel time),
+quantized Q/K/V/O and MLP matrices are 36.65 s (52.5%), and command residual is
+1.34 s. Attention grows quadratically while matrix work grows linearly, so it
+is the largest remaining 16K/28K bottleneck. The decode ratios remain inside
+2x through KV28K even though absolute interactive throughput is low.
+
+### INT8 KV matrix
+
+| 3B prompt/history | TTFT | TTFT CV | Decode | F16 TTFT ratio |
+|---:|---:|---:|---:|---:|
+| 128 | 832.53 ms | 0.26% | 30.29 tok/s | 1.23x |
+| 2,048 | 30,181.98 ms | 0.06% | 19.83 tok/s | 2.64x |
+| 28,000 | 2,701,790.70 ms | 0.34% | 2.83 tok/s | 4.80x |
+
+INT8 remains correct but intentionally does not enter M02's exact F16 tile.
+The stable 45-minute/request 28K result makes the route gap algorithmic rather
+than noisy. An equivalent llama row is unavailable under the fixed comparison
+contract: this pinned llama.cpp rejects quantized V cache unless flash attention
+is enabled. Enabling it would change the attention algorithm, so no mismatched
+ratio is published.
+
+## Final unified-memory conclusion
+
+No hidden host/device copy appears in the hot path. Weights are uploaded once;
+scratch, KV, and outputs remain shared; CPU reads occur only after the existing
+command completion. At 8K, CPU record time is 0.33 s, submit is 0.002 s, and the
+sampled command residual is 1.34 s against 71.14 s GPU time. Matrix and
+attention kernels account for the competitive gap, not transfer plumbing.
+
+A private-weight experiment was therefore not run: it would add a model-load
+blit and a second storage policy without a measured removable transfer term.
+The retained shared allocation is the simplest evidence-supported choice. The
+only durable routing cleanup replaces the product-name gate with unified-memory,
+Apple9-family, 128-thread, and 16-KiB threadgroup-resource capabilities.
+
 ## Experiment registry
 
 | ID | Target | Hypothesis / architecture | Predicted | Measured | Decision |
@@ -256,6 +323,8 @@ exposed the error, and none of those mislabeled results are retained.
 | M02 | early tiled GQA prefill | use the existing exact F16 tile from base zero | about 2.0x request; 63.6% gap recovery | 2.40x request; 74.7% gap recovery | KEEP production route |
 | M03a | batched quantized matrix occupancy | eight SIMD groups, four accumulators/group, unchanged K32/output tile | 1.1--1.4x matrix family | 1.8% request at 128; 3.5% at 512 | REJECT modest |
 | M03b | batched quantized matrix occupancy | sixteen SIMD groups, two accumulators/group, unchanged K32/output tile | exceed M03a | 15.9% regression at 128; 16.7% at 512 | REJECT regression |
+| M04 | batched result staging | narrow SIMD FP32 matrices into F16 threadgroup storage, reducing the tile from 14 to 10 KiB | 1.2--1.5x matrix family if three groups reside | Metal requires matching matrix/store types; explicit storage conversion crashes compiler | REJECT infeasible |
+| M05 | tiled prefill attention reuse | eight query rows per shared K/V tile instead of four; identical per-head online softmax | 1.15--1.35x attention; >0.75 s at 8K | 1.09x attention; 2.15% bracketed request gain | REJECT modest |
 
 M03 isolated accumulator pressure from tile shape and dequantization. Doubling
 from four to eight SIMD groups produced only a 1.8--3.5% request improvement;
@@ -264,16 +333,12 @@ it is below the specialization threshold and sits next to a sharp resource
 cliff. Production code is restored to M02; the next matrix experiment must
 change data movement or useful work rather than threadgroup size alone.
 
-| M04 | batched result staging | narrow SIMD FP32 matrices into F16 threadgroup storage, reducing the tile from 14 to 10 KiB | 1.2--1.5x matrix family if three groups reside | Metal requires matching matrix/store types; explicit storage conversion crashes compiler | REJECT infeasible |
-
 M04 failed before runtime and made no production change. Metal's SIMD-group
 store requires identical accumulator and destination element types. An explicit
 FP32-to-F16 matrix-storage conversion then terminated the Apple Metal compiler
 itself. Retaining FP32 accumulation therefore requires the current FP32 staging
 tile unless the graph's output representation changes, which is outside this
 candidate's narrow scope.
-
-| M05 | tiled prefill attention reuse | eight query rows per shared K/V tile instead of four; identical per-head online softmax | 1.15--1.35x attention; >0.75 s at 8K | 1.09x attention; 2.15% bracketed request gain | REJECT modest |
 
 M05 passed the serial-attention numeric oracle and was neutral within 1.3% at
 128/512. Its first 8K screen was 66.09 s, but profiling measured only an 8.5%
@@ -293,7 +358,16 @@ llama.cpp oracle for both F16 and INT8 KV, including all 16 completion token
 IDs. INT8, mixed placement, partial rows, and non-exact GQA remain on their
 previous routes.
 
-The global stop conditions are not met. At short prefill the remaining 128-token
-ratio is 2.09x, and the long-context/model-size matrix remains incomplete. The
-post-M02 top measured family is quantized projection and MLP matrix work; the
-ranking will be rebuilt across longer contexts before selecting M03.
+The performance stop condition is met by evidence, not by claiming universal
+parity. M03 occupancy variants were modest or regressive, M04 could not retain
+FP32 accumulation with smaller staging under Metal's type rules, and M05's
+bracketed long-context gain was only 2.15%. These are three consecutive major
+hypotheses without a meaningful retainable result. Production is restored to
+M02 plus the capability gate.
+
+Final F16 prefill is inside 2x at 512, 2K, and both 8B/14B 2K rows; it remains
+2.02--2.36x at 3B 8K--28K and 2.07--2.16x at 8B/14B 128. Decode remains inside
+1.85x everywhere measured. The largest remaining bottleneck is tiled F16
+long-context attention, followed by quantized matrices at shorter contexts;
+INT8 long prefill is a separate non-tiled route gap. No further candidate is
+retained because the explicit consecutive-hypothesis stop rule has fired.

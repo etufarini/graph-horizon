@@ -47,6 +47,25 @@ pub(crate) fn encode(
         c.extend(n.to_ne_bytes());
     }
     c.extend((1.0f32 / (kv.head_dim as f32).sqrt()).to_ne_bytes());
+    #[cfg(feature = "metal")]
+    if !mixed_placement
+        && rows == 1
+        && base >= PARALLEL_CONTEXT - 1
+        && kv.scheme == KvQuant::F16
+        && kv.head_dim == 128
+        && kv.kv_heads.checked_mul(4) == Some(qh as usize)
+    {
+        c.extend(0_u32.to_ne_bytes());
+        return dispatch::encode_threadgroups(
+            e,
+            p,
+            Kernel::AttentionGqaDecode,
+            &[q, &kv.k, &kv.v, out],
+            &c,
+            [kv.kv_heads, 1, 1],
+            256,
+        );
+    }
     let width = p.get(Kernel::Attention).width;
     let (mode, grid, group_threads) = geometry(
         mixed_placement,

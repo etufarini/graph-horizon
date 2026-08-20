@@ -18,6 +18,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Device;
 
+#[cfg(feature = "metal")]
+const GQA_DECODE_THREADGROUP_MEMORY: usize = 20_544;
+
 #[derive(Clone, Copy)]
 #[repr(usize)]
 pub(crate) enum Kernel {
@@ -33,9 +36,11 @@ pub(crate) enum Kernel {
     Attention,
     Argmax,
     Topk,
+    #[cfg(feature = "metal")]
+    AttentionGqaDecode,
 }
 
-const KERNELS: [Kernel; 12] = [
+const KERNELS: &[Kernel] = &[
     Kernel::Embedding,
     Kernel::Matmul,
     Kernel::MatmulBatched,
@@ -48,6 +53,8 @@ const KERNELS: [Kernel; 12] = [
     Kernel::Attention,
     Kernel::Argmax,
     Kernel::Topk,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaDecode,
 ];
 
 impl Kernel {
@@ -65,6 +72,8 @@ impl Kernel {
             Self::Attention => "metal_attention",
             Self::Argmax => "metal_argmax",
             Self::Topk => "metal_topk",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaDecode => "metal_attention_gqa_decode",
         }
     }
 }
@@ -117,7 +126,7 @@ impl PipelineRegistry {
             .newLibraryWithData_error(&data)
             .map_err(|_| eyre!("metal: pipeline library load failed"))?;
         let mut values = Vec::with_capacity(KERNELS.len());
-        for kernel in KERNELS {
+        for &kernel in KERNELS {
             #[cfg(test)]
             if fail_at == Some(values.len()) {
                 return Err(eyre!("metal: pipeline creation failed"));
@@ -135,6 +144,15 @@ impl PipelineRegistry {
                 && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 256)
             {
                 return Err(eyre!("metal: wide prefill pipeline is unavailable"));
+            }
+            #[cfg(feature = "metal")]
+            if matches!(kernel, Kernel::AttentionGqaDecode)
+                && (raw.threadExecutionWidth() != 32
+                    || raw.maxTotalThreadsPerThreadgroup() < 256
+                    || raw.staticThreadgroupMemoryLength() != GQA_DECODE_THREADGROUP_MEMORY
+                    || GQA_DECODE_THREADGROUP_MEMORY > device.raw.maxThreadgroupMemoryLength())
+            {
+                return Err(eyre!("metal: grouped decode pipeline is unavailable"));
             }
             values.push(Pipeline {
                 width: raw.threadExecutionWidth(),
@@ -164,7 +182,7 @@ mod tests {
     fn loads_every_embedded_pipeline_on_the_qualified_device() -> Result<()> {
         let device = Device::acquire()?;
         let registry = PipelineRegistry::load(&device)?;
-        for kernel in KERNELS {
+        for &kernel in KERNELS {
             let pipeline = registry.get(kernel);
             assert!(pipeline.width > 0);
             assert!(pipeline.max_threads >= pipeline.width);

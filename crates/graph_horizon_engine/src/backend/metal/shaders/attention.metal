@@ -8,6 +8,20 @@ using namespace metal;
 struct P{uint dim;uint kvh;uint qh;uint base;uint rows;uint layer;uint context;uint scheme;ulong kmeta;ulong vmeta;float scale;uint mode;};
 inline float hv(device const uchar*c,ulong i){return float(((device const half*)c)[i]);}
 inline float qv(device const uchar*c,ulong i,ulong meta,uint vec){ulong m=meta+ulong(vec)*4;ushort mb=ushort(uint(c[m])|(uint(c[m+1])<<8)),sb=ushort(uint(c[m+2])|(uint(c[m+3])<<8));return float(as_type<half>(mb))+float(c[i])*float(as_type<half>(sb));}
+kernel void metal_attention_gqa_decode(device const half*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
+ threadgroup half tk[32*128],tv[32*128];threadgroup float pm[8],pl[8],pa[8*128];uint local=group*32+lane,kh=id,pair=group>>1,side=group&1,h=kh*4+pair,segment=side*4+(lane>>3),sub=lane&7,qb=h*128;float m=-INFINITY,l=0.0f,acc[16];
+ for(uint part=0;part<16;part++)acc[part]=0.0f;
+ for(uint tile=0;tile<=p.base;tile+=32){
+  for(uint index=local;index<32*128;index+=256){uint t=tile+index/128,d=index%128;if(t<p.context){ulong b=(ulong(p.layer)*p.context*p.kvh+ulong(t)*p.kvh+kh)*128+d;tk[index]=k[b];tv[index]=v[b];}else{tk[index]=half(0.0h);tv[index]=half(0.0h);}}
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  for(uint offset=segment;offset<32&&tile+offset<=p.base;offset+=8){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=float(q[qb+d])*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+ }
+ float m0=simd_shuffle(m,0),m1=simd_shuffle(m,8),m2=simd_shuffle(m,16),m3=simd_shuffle(m,24),gm=max(max(m0,m1),max(m2,m3));float r0=exp(m0-gm),r1=exp(m1-gm),r2=exp(m2-gm),r3=exp(m3-gm),gl=simd_shuffle(l,0)*r0+simd_shuffle(l,8)*r1+simd_shuffle(l,16)*r2+simd_shuffle(l,24)*r3;
+ if(lane==0){pm[group]=gm;pl[group]=gl;}for(uint part=0;part<16;part++){float merged=simd_shuffle(acc[part],sub)*r0+simd_shuffle(acc[part],8+sub)*r1+simd_shuffle(acc[part],16+sub)*r2+simd_shuffle(acc[part],24+sub)*r3;if((lane>>3)==0)pa[group*128+sub+part*8]=merged;}
+ threadgroup_barrier(mem_flags::mem_threadgroup);
+ if(side==0&&(lane>>3)==0){float top=max(pm[group],pm[group+1]),s0=exp(pm[group]-top),s1=exp(pm[group+1]-top),den=pl[group]*s0+pl[group+1]*s1;for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half((pa[group*128+d]*s0+pa[(group+1)*128+d]*s1)/den);}}
+}
 kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*k[[buffer(1)]],device const uchar*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint tid[[thread_position_in_grid]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint lanes[[threads_per_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
  uint total=p.rows*p.qh;
  if(p.mode==0){

@@ -238,5 +238,53 @@ Short decode is third: its largest measured gap is 23.46 ms/token, but the
 matrix experiment also changes the shared quantized decode source only if
 explicitly routed, which this first candidate will not do.
 
-Retained and rejected experiments, qualification, final matrices, and
-reproduction commands will be appended as the investigation proceeds.
+## Experiment registry
+
+### M01 — swizzled wide-projection staging: KEEP
+
+M01 changes only `metal_matmul_batched_wide` in the existing category-K
+projection file. It preserves the 64-output by 64-row work ownership, canonical
+Q4_K/Q6_K bytes, FP32 accumulators, F16 output, and production route. Weight
+and activation K8 tiles are swizzled so each SIMD matrix load reads contiguous
+threadgroup addresses. There is no new buffer, dependency, API, or dispatch.
+
+The first local form incorrectly used a four-block activation stride even
+though 64 rows require eight blocks. The focused Q4/Q6 64-row oracle rejected
+it before any benchmark. Correcting the stride to eight made the same oracle
+pass; no result from the rejected form was measured or retained.
+
+| Diagnostics-free A/B/A tuple | Baseline A | M01 | Baseline bookend | M01 change | M01 CV |
+|---|---:|---:|---:|---:|---:|
+| 3B/128 TTFT | 482.73 ms | 451.58 ms | 483.35 ms | -6.52% | 0.06% |
+| 3B/512 TTFT | 1,971.90 ms | 1,845.45 ms | 1,972.05 ms | -6.42% | 0.31% |
+| 3B/2K TTFT | 8,737.15 ms | 8,225.25 ms | 8,736.24 ms | -5.86% | 0.08% |
+| 8B/128 TTFT | 1,187.96 ms | 1,108.35 ms | 1,186.63 ms | -6.64% | 0.09% |
+| 8B/512 TTFT | 4,809.49 ms | 4,490.01 ms | 4,804.85 ms | -6.60% | 0.14% |
+
+Decode throughput is unchanged within noise on all five tuples. An earlier
+8B/2K sequence had 10.8% drift between baseline bookends and was classified
+inconclusive rather than used for selection; the cooled 8B/512 row above is
+the bounded larger-model replacement.
+
+Required reprofiling confirms the intended component rather than an endpoint
+artifact:
+
+| Profile tuple | Baseline seven matrices | M01 seven matrices | Local change | Baseline GPU | M01 GPU | GPU change |
+|---|---:|---:|---:|---:|---:|---:|
+| 3B/512 | 1,857.97 ms | 1,725.80 ms | -7.11% | 2,077.27 ms | 1,946.79 ms | -6.28% |
+| 3B/2K | 7,358.11 ms | 6,828.50 ms | -7.20% | 8,951.06 ms | 8,416.51 ms | -5.97% |
+
+Attention was 82.31 ms at 512 and 1,176.05 ms at 2K after M01, effectively
+unchanged from 82.17 ms and 1,176.78 ms. The temporary profiler was reverted
+again after measurement. M01 is retained at `2cd6043` because it clears the 5%
+whole-workload threshold at every thermally valid point, generalizes across 3B
+and 8B, and reduces rather than expands the kernel's data-movement model.
+
+The focused Q4/Q6 oracle, complete pure-Metal tests, complete Metal-hybrid
+tests, `git diff --check`, and pure-Metal clippy with warnings denied pass.
+Metal-hybrid clippy with warnings denied is blocked by two pre-existing unused
+`simd` arguments in the CPU attention module; M01 does not touch that module
+and Metal-hybrid's complete tests pass.
+
+Final matrices and reproduction commands will be appended as the investigation
+proceeds.

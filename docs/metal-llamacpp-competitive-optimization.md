@@ -326,5 +326,36 @@ as useful compiler scheduling hints: removing them produces no gain and a
 small repeatable regression. Exact candidate `2a3a55f` was removed by
 `f124a37`.
 
+### M04 — cooperative C64 query-head attention: KEEP
+
+M04 keeps the query-head workgroup granularity tested by M02 but removes its
+history split and final state merge. Four SIMD groups cooperatively form one
+64-column score tile; each group owns two query rows for online softmax and 32
+output dimensions for PV. The kernel retains matrix QK/PV, FP32 accumulation,
+FP16 KV/probabilities/output, the exact causal predicate, and one final
+normalization. Static threadgroup state is about 9.3 KiB and replaces the
+production kernel's 1,024-thread/large-register ownership without a new buffer,
+pipeline, dependency, or API.
+
+The unchanged serial attention oracle passes at base 0 and base 512. At 2K,
+temporary component profiling measured attention at 910.64 ms versus M01's
+1,176.05 ms, a 22.57% local reduction. Projections remained effectively
+unchanged and total profiled GPU time fell from 8,416.51 to 8,148.40 ms
+(3.19%), matching the medium-context Amdahl limit. Diagnostics were reverted
+afterward.
+
+| Diagnostics-free tuple | M01 A | M04 | M01 bookend | M04 vs control mean | M04 CV |
+|---|---:|---:|---:|---:|---:|
+| 3B/4K TTFT | 18,708.68 ms | 17,681.80 ms | 18,689.79 ms | -5.44% | 0.06% |
+
+The two controls differ by 0.10%. Decode is unchanged within noise because M04
+is prefill-only. The already-recorded stable screens were 1,824.79 ms at 512
+and 7,961.28 ms at 2K (CV below 0.1%); their roughly 3--4% gains are expected
+below the attention crossover. M04 is retained as exact production commit
+`01a0c45`. It passes 139 unit tests (2 ignored), 5 family-agnostic tests (1
+ignored), and 12 semantic tests (1 ignored) under pure Metal; Metal-hybrid has
+203 unit tests with the same integration counts and ignores. Pure-Metal clippy
+with warnings denied and `git diff --check` also pass.
+
 Final matrices and reproduction commands will be appended as the investigation
 proceeds.

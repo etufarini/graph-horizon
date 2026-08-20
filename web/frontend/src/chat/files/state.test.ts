@@ -69,6 +69,20 @@ test('rejects a candidate whose full text exceeds the active prompt budget', asy
   assert.match(get(state).error ?? '', /Contesto insufficiente/);
 });
 
+test('rejects duplicate names inside one multi-file selection', async () => {
+  const storage = new MemoryStorage();
+  const state = createMarkdownFileState(storage);
+  await state.select(CHAT_ID);
+  await state.add(
+    [selected('same.md', 'uno'), selected('same.md', 'due')],
+    CHAT_ID,
+    [],
+    CONTEXT
+  );
+  assert.equal(get(state).files.length, 0);
+  assert.match(get(state).error ?? '', /stesso nome/);
+});
+
 test('failed durable writes retain usable in-memory files with a warning', async () => {
   const storage = new MemoryStorage();
   storage.failWrites = true;

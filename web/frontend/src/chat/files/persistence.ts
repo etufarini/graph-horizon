@@ -3,7 +3,12 @@
  * asynchronous list/write/delete/prune operations. In-memory fallback, prompt
  * projection, lifecycle policy, and presentation remain outside.
  */
-import { parseMarkdownFileRecord, type MarkdownFileRecord } from './record.ts';
+import {
+  MAX_CHAT_FILE_BYTES,
+  MAX_FILES_PER_CHAT,
+  parseMarkdownFileRecord,
+  type MarkdownFileRecord
+} from './record.ts';
 
 const DATABASE = 'graph-horizon';
 const VERSION = 1;
@@ -33,13 +38,19 @@ export const browserMarkdownFileStorage: MarkdownFileStorage = {
       const transaction = database.transaction(STORE, 'readwrite');
       const cursor = transaction.objectStore(STORE).index(CHAT_INDEX).openCursor(IDBKeyRange.only(chatId));
       const files: MarkdownFileRecord[] = [];
+      const names = new Set<string>();
+      let bytes = 0;
       let invalid = false;
       cursor.onsuccess = () => {
         const row = cursor.result;
         if (!row) return;
         const parsed = parseMarkdownFileRecord(row.value);
-        if (parsed) files.push(parsed);
-        else {
+        if (parsed && !names.has(parsed.name) && files.length < MAX_FILES_PER_CHAT &&
+            bytes + parsed.utf8Bytes <= MAX_CHAT_FILE_BYTES) {
+          files.push(parsed);
+          names.add(parsed.name);
+          bytes += parsed.utf8Bytes;
+        } else {
           invalid = true;
           row.delete();
         }

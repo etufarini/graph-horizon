@@ -77,6 +77,10 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
       }
       prepared.push(result.record);
     }
+    if (new Set(prepared.map(file => file.name)).size !== prepared.length) {
+      fail('Selezione non valida: più file hanno lo stesso nome');
+      return;
+    }
 
     const replacements = new Set(prepared.map(file => file.name));
     const retained = current.files.filter(file => !replacements.has(file.name));

@@ -11,12 +11,6 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLGPUFamily};
 
-#[cfg(feature = "metal-profile")]
-use std::sync::Arc;
-
-#[cfg(feature = "metal-profile")]
-use super::exec::profile::Profile;
-
 const REQUIRED_THREADS: usize = 128;
 const REQUIRED_THREADGROUP_MEMORY: usize = 16 * 1024;
 #[cfg(any(test, feature = "metal"))]
@@ -29,8 +23,6 @@ pub(crate) struct Device {
     pub(crate) queue: Retained<ProtocolObject<dyn MTLCommandQueue>>,
     pub(crate) recommended_max: u64,
     pub(crate) current_allocated: u64,
-    #[cfg(feature = "metal-profile")]
-    pub(crate) profile: Arc<Profile>,
 }
 
 // SAFETY: Metal devices and command queues are thread-safe resource factories;
@@ -59,15 +51,11 @@ impl Device {
         let queue = raw
             .newCommandQueue()
             .ok_or_else(|| eyre!("Metal backend is unavailable"))?;
-        #[cfg(feature = "metal-profile")]
-        let profile = Profile::new(&raw)?;
         Ok(Self {
             raw,
             queue,
             recommended_max,
             current_allocated,
-            #[cfg(feature = "metal-profile")]
-            profile,
         })
     }
 
@@ -87,15 +75,11 @@ impl Device {
         let queue = raw
             .newCommandQueue()
             .ok_or_else(|| eyre!("metal: command queue creation failed"))?;
-        #[cfg(feature = "metal-profile")]
-        let profile = Profile::new(&raw)?;
         Ok(Some(Self {
             raw,
             queue,
             recommended_max,
             current_allocated,
-            #[cfg(feature = "metal-profile")]
-            profile,
         }))
     }
 
@@ -139,13 +123,6 @@ impl Device {
                 "Metal device does not satisfy the required capabilities"
             ))
         }
-    }
-}
-
-#[cfg(feature = "metal-profile")]
-impl Drop for Device {
-    fn drop(&mut self) {
-        self.profile.finish();
     }
 }
 

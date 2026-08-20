@@ -77,21 +77,21 @@ kernel void metal_matmul_batched(device const half*a[[buffer(0)]],device const u
  for(uint index=tid;index<32*64;index+=128){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
 }
 kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
- threadgroup half weights[64*64],acts[64*64];threadgroup float result[64*64];
+ threadgroup half weights[64*32],acts[64*32];threadgroup float result[64*64];
  simdgroup_float8x8 acc[8];for(uint i=0;i<8;i++)acc[i]=make_filled_simdgroup_matrix<float,8>(0.0f);
  uint ns=p.input/256,group_out=group*64;
- for(uint base=0;base<p.input;base+=64){
-  {
-   uint local_out=tid/4,chunk=tid&3,column=group_out+local_out;half4x4 values;
+ for(uint base=0;base<p.input;base+=32){
+  if(tid<128){
+   uint local_out=tid/2,chunk=tid&1,column=group_out+local_out;half4x4 values;
    if(column<p.output){uint block=(column*ns+base/256)*(p.format==1?144:210);if(p.format==1)q4x16(w,block,(base&255)+chunk*16,values);else q6x16(w,block,(base&255)+chunk*16,values);}
    else for(uint i=0;i<16;i++)values[i/4][i%4]=half(0.0h);
    for(uint i=0;i<16;i++){uint sx=2*chunk+i/8,sy=local_out/8,lx=local_out&7,ly=i&7;weights[64*(8*sx+sy)+8*ly+lx]=values[i/4][i%4];}
   }
-  for(uint index=tid;index<64*64;index+=256){uint token=index/64,k=index%64,sx=k/8,sy=token/8;acts[64*(8*sx+sy)+8*(token&7)+(k&7)]=token<p.rows?a[token*p.input+base+k]:half(0.0h);}
+  for(uint index=tid;index<64*32;index+=256){uint token=index/32,k=index%32,sx=k/8,sy=token/8;acts[64*(8*sx+sy)+8*(token&7)+(k&7)]=token<p.rows?a[token*p.input+base+k]:half(0.0h);}
   // The swizzle keeps each SIMD matrix load contiguous across one K8 tile.
   threadgroup_barrier(mem_flags::mem_threadgroup);
   threadgroup const half*wm_base=weights+4*64*(sg&1);threadgroup const half*am_base=acts+2*64*(sg>>1);
-  for(uint k=0;k<8;k++){
+  for(uint k=0;k<4;k++){
    simdgroup_half8x8 wm[4],am[2];simdgroup_barrier(mem_flags::mem_none);
    for(uint i=0;i<4;i++)simdgroup_load(wm[i],wm_base+64*i,8,0,false);
    simdgroup_barrier(mem_flags::mem_none);

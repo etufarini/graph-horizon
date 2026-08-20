@@ -93,8 +93,8 @@ fn geometry(
         Ok((0, heads, 0))
     } else {
         let qualified = dim == 128 && width == 32;
-        if f16 && qualified && rows == 32 && kvh.checked_mul(4) == Some(qh) {
-            let grid = 8usize
+        if f16 && qualified && matches!(rows, 32 | 64) && kvh.checked_mul(4) == Some(qh) {
+            let grid = (rows as usize / 4)
                 .checked_mul(kvh as usize)
                 .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
             return Ok((4, grid, width * 4));
@@ -139,6 +139,10 @@ mod tests {
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 0, 32, true).unwrap(),
             (4, 8, 128)
+        );
+        assert_eq!(
+            geometry(false, 64, 4, 1, 128, 0, 32, true).unwrap(),
+            (4, 16, 128)
         );
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 512, 32, false).unwrap(),

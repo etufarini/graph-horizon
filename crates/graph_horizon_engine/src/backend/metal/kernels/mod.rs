@@ -308,7 +308,7 @@ mod tests {
         const OUTPUT: usize = 96;
         let device = Device::acquire()?;
         let pipelines = PipelineRegistry::load(&device)?;
-        for rows in [3usize, 32] {
+        for rows in [3usize, 32, 64] {
             let source: Vec<f32> = (0..rows * INPUT)
                 .map(|index| ((index * 7) % 41) as f32 / 16. - 20. / 16.)
                 .collect();
@@ -576,9 +576,9 @@ mod tests {
 
     #[test]
     fn tiled_prefill_attention_matches_serial() -> Result<()> {
-        const CONTEXT: usize = 544;
+        const CONTEXT: usize = 576;
         const BASE: usize = 512;
-        const ROWS: usize = 32;
+        const ROWS: usize = 64;
         const QUERY_HEADS: usize = 4;
         const DIM: usize = 128;
         let device = Device::acquire()?;

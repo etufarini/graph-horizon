@@ -76,3 +76,21 @@ kernel void metal_matmul_batched(device const half*a[[buffer(0)]],device const u
  threadgroup_barrier(mem_flags::mem_threadgroup);
  for(uint index=tid;index<32*64;index+=128){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
 }
+kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
+ threadgroup half weights[64*32],acts[64*32];threadgroup float result[64*64];
+ simdgroup_float8x8 acc[8];for(uint i=0;i<8;i++)acc[i]=make_filled_simdgroup_matrix<float,8>(0.0f);
+ uint ns=p.input/256,group_out=group*64;
+ for(uint base=0;base<p.input;base+=32){
+  if(tid<128){uint local_out=tid/2,chunk=tid&1,column=group_out+local_out;if(column<p.output){uint block=(column*ns+base/256)*(p.format==1?144:210);half4x4 values;if(p.format==1)q4x16(w,block,(base&255)+chunk*16,values);else q6x16(w,block,(base&255)+chunk*16,values);for(uint i=0;i<16;i++)weights[local_out*32+chunk*16+i]=values[i/4][i%4];}else for(uint i=0;i<16;i++)weights[local_out*32+chunk*16+i]=half(0.0h);}
+  for(uint index=tid;index<64*32;index+=256){uint token=index/32,k=index%32;acts[index]=token<p.rows?a[token*p.input+base+k]:half(0.0h);}
+  // Eight SIMD groups consume the complete shared tiles before either is reused.
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  uint out_tile=(sg&1)*32,token_tile=(sg>>1)*16;
+  for(uint k=0;k<32;k+=8){simdgroup_half8x8 wm[4],am[2];for(uint i=0;i<4;i++)simdgroup_load(wm[i],weights+(out_tile+i*8)*32+k,32,0,true);for(uint i=0;i<2;i++)simdgroup_load(am[i],acts+(token_tile+i*8)*32+k,32,0,false);for(uint token=0;token<2;token++)for(uint column=0;column<4;column++){uint i=token*4+column;simdgroup_multiply_accumulate(acc[i],am[token],wm[column],acc[i]);}}
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+ }
+ uint out_tile=(sg&1)*32,token_tile=(sg>>1)*16;
+ for(uint token=0;token<2;token++)for(uint column=0;column<4;column++)simdgroup_store(acc[token*4+column],result+(token_tile+token*8)*64+out_tile+column*8,64,0,false);
+ threadgroup_barrier(mem_flags::mem_threadgroup);
+ for(uint index=tid;index<64*64;index+=256){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
+}

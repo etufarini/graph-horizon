@@ -80,9 +80,10 @@ for model lifetime. All current buffers use shared storage on unified memory.
 |---|---|---|---|---|
 | Q4/Q6 decode GEMV | projection, `M=1`, aligned K | packed SIMD decode | two 32-lane groups, four output rows/group, pure Metal | mixed placement uses one-group route |
 | Q4/Q6 prefill GEMM | projection/MLP, `M=2..32`, K % 256, N % 32 | packed SIMD-matrix | four SIMD groups, K32, 32 prompt rows x 64 outputs | row 1, mixed, F16/Q5, or unaligned shape |
-| Q4/Q6 prefill above 32 rows | same tensor roles | repeated qualified tiles in one request | unavailable: request capacity and kernel are fixed at 32 | missing row-tile dispatch/routing |
+| Q4/Q6 wide prefill GEMM | projection/MLP, `M=33..64`, K % 256, N % 32 | packed SIMD-matrix with doubled weight reuse | P03 uses eight SIMD groups, K32, 64 prompt rows x 64 outputs | mixed, F16/Q5, or unaligned shape |
+| Q4/Q6 prefill above 64 rows | same tensor roles | repeated qualified tiles in one request | unavailable: pure-Metal request capacity is 64 | larger tile exceeds current 32 KiB resource design |
 | F16/Q5 prefill | projection/MLP | portable correct path | per-row scalar projection | no cooperative implementation |
-| 4:1 GQA F16 prefill | head 128, 32 rows | tiled K/V reuse | mode 4, base zero onward, pure Metal | partial rows, INT8, mixed, other GQA/dim |
+| 4:1 GQA F16 prefill | head 128, 32 or 64 rows | tiled K/V reuse | mode 4, base zero onward, pure Metal | partial rows, INT8, mixed, other GQA/dim |
 | other long prefill | base >=512, head 128 | segmented online softmax | mode 3, two SIMD groups/head | unqualified dimension or shorter context |
 | short prefill attention | non-mode-4 tuple | one SIMD group/head | mode 1 | shape/format not qualified |
 | F16 long decode | row 1, base >=1023, head 128 | wide segmented | mode 5, four SIMD groups/head | shorter context / mixed / other dim |
@@ -99,10 +100,10 @@ similarly named source exists.
 
 | Capability | Vulkan implementation / eligibility | Metal implementation / eligibility | Representation | Workloads | Metal status | Impact / priority |
 |---|---|---|---|---|---|---|
-| Quantized Q4 prefill | direct packed Matrix2 on capability + measured shapes; portable/AMD fallbacks | direct packed SIMD-matrix for pure Metal, rows 2..32, K % 256, N % 32 | canonical Q4_K | all prefill projections | PARITY principle; UNDERPERFORMS | 92.4% of sampled 512 kernels after M02; high |
+| Quantized Q4 prefill | direct packed Matrix2 on capability + measured shapes; portable/AMD fallbacks | direct packed SIMD-matrix for pure Metal, rows 2..64, K % 256, N % 32 | canonical Q4_K | all prefill projections | PARITY principle; UNDERPERFORMS | P03 improves request TTFT 18.17% at 512 |
 | Quantized Q6 prefill | packed Matrix2/coop/portable by capability and shape | same packed SIMD-matrix route as Q4 | canonical Q6_K | V/down mixed rows | PARITY principle; UNDERPERFORMS | included in dominant matrix family; high |
-| Short/long prefill ownership | 256 rows portable, 512 when Q4 Matrix2 + Q64 attention, AMD 128/64 | fixed 32 rows | FP16 intermediates | medium/long prompts | MISSING METAL ROUTING/IMPLEMENTATION | submissions and fast-path launch occupancy; high |
-| Weight-tile reuse | Matrix paths decode once and reuse across 128/256 prompt rows | K32 tile decoded once for 32 prompt rows | packed canonical blocks | Q/K/V/O/MLP | METAL UNDERPERFORMS | lower reuse factor; high after routing screens |
+| Short/long prefill ownership | 256 rows portable, 512 when Q4 Matrix2 + Q64 attention, AMD 128/64 | P03 qualifies 64 rows for pure Metal | FP16 intermediates | medium/long prompts | PARTIAL PARITY | 16.07% at 2K and 9.46% at 8K; larger rows remain resource-bound |
+| Weight-tile reuse | Matrix paths decode once and reuse across 128/256 prompt rows | P03 decodes each K32 tile once for 64 prompt rows | packed canonical blocks | Q/K/V/O/MLP | METAL UNDERPERFORMS | doubled from 32; further doubling does not fit current result tile |
 | Decode GEMV | Q4 DP4A where qualified; exact per-format fallbacks | direct packed Q4/Q6 SIMD decode | canonical Q4_K/Q6_K | all decode projections/logits | METAL HAS BETTER ALTERNATIVE | short decode within 1.22x comparator on 3B; closed pending reprofile |
 | GQA decode | dedicated 4:1 split/reduce reuses K/V across query heads | per-query-head mode 1/2/3/5; no cross-head K/V reuse | F16/INT8 KV | especially long decode | MISSING METAL IMPLEMENTATION | 28K comparator ratio 1.84x; medium-high |
 | Attention prefill | exact fused online softmax; Q32/Q64 Matrix2 and portable tiles | fused online softmax; mode 4 reuses a K/V tile across 4 query rows and four GQA heads | F16/INT8 KV | all prefill | PARITY principle; UNDERPERFORMS long | 45.8% at 8K, grows quadratically; high but prior local tiles closed |
@@ -119,8 +120,8 @@ similarly named source exists.
 | Direct canonical Q6 | packed routes; staged alternatives rejected where inferior | direct `q6`/`q6x16`; no expansion | canonical Q6_K | prefill/decode | PARITY | audit independently in measurements |
 | Packed loads/dequant | packed scalar/vector loads and tile decode | packed byte/ushort loads, per-tile decode into half matrices | canonical blocks | quantized matmul | PARITY principle | local maturity still measured by matrix time |
 | Intermediate tensors | fused attention and fused SiLU/mul; no N x N scores | same; FP16 scratch retained per request chunk | FP16 scratch | all | PARITY | no material missing conversion found |
-| Command orchestration | one synchronous submit per chunk; larger qualified chunks | one synchronous submit per fixed 32 rows | backend-native commands | prefill/decode | METAL UNDERPERFORMS prefill | coupled to row-ownership gap |
-| Capability routing | features/vendor/shape/format with fallbacks | Apple9/unified memory/resource gate, pipeline width, shape/format/placement | n/a | all | PARTIAL PARITY | operation gates exist; row ownership and RoPE absent |
+| Command orchestration | one synchronous submit per chunk; larger qualified chunks | one synchronous submit per 64 pure-Metal rows | backend-native commands | prefill/decode | PARTIAL PARITY | P03 halves prefill submissions; Vulkan remains wider |
+| Capability routing | features/vendor/shape/format with fallbacks | Apple9/unified memory/resource gate, pipeline width, shape/format/placement | n/a | all | PARTIAL PARITY | 64-row eligibility active; RoPE batching economically closed |
 
 ## Scorecard
 
@@ -128,10 +129,10 @@ similarly named source exists.
 |---|---:|---:|---|
 | Q4 packed execution | yes | yes | parity principle active |
 | Q6 packed execution | yes | yes | parity principle active |
-| weight-tile reuse | yes | yes, 32 rows | Metal underperforms |
+| weight-tile reuse | yes | yes, 64 rows | partial parity after P03 |
 | direct canonical Q4 | yes | yes | parity |
-| short-prefill specialization | yes | 32-row tile only | partial |
-| long-prefill specialization | yes | attention only | missing larger ownership |
+| short-prefill specialization | yes | 64-row tile | partial |
+| long-prefill specialization | yes | 64-row graph and attention tile | partial after P03 |
 | attention traffic optimization | yes | yes | Metal underperforms long |
 | persistent attention state | yes | yes | parity |
 | GQA/KV reuse prefill | yes | yes | parity |
@@ -140,7 +141,7 @@ similarly named source exists.
 | batched RoPE | yes | no | P02 economically closed |
 | final-only logits | yes | yes | parity |
 | resource retention | yes | model and request KV | parity after P01 |
-| shape/capability routing | yes | partial | missing row/batch eligibility |
+| shape/capability routing | yes | partial | 64-row eligibility active |
 
 ## Fresh Metal baseline
 
@@ -190,7 +191,7 @@ the allocation bound; RoPE timing remains to be measured.
 |---:|---|---|---:|---:|---|
 | 1 | retain Metal request KV and exact keyed prefix | 15.54% at 128; 4.05% at 512 | allocation-only elimination | 104--110 ms/request | RETAINED as P01 |
 | 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | measured 47 ms at 512 | 1.88% at 512; about 1.5% stable 2K signal | REJECTED as P02 |
-| 3 | larger Metal prefill request ownership | 32-row qualified tiles; Vulkan gained 5--7% from larger ownership | 1.05--1.10x request estimate | about 0.12--0.26 s at 512 if estimate holds | requires >=5% and stable controls |
+| 3 | 64-row Metal tile reuse and request ownership | 92.4% matrix share at 512 plus half as many weight reads/submits | measured 1.22x at 512 | 0.45 s at 512; 7.62 s at 8K | RETAINED as P03 |
 | 4 | vectorized 4:1 GQA Metal decode | missing K/V reuse; long ratio reaches 1.84x | attribution pending | pending | implement only after decode attribution |
 | 5 | new long-prefill attention architecture | 45.8% at 8K and grows quadratically | prior local reuse only 1.09x attention | prior request result 2.15% | closed until distinct mechanism clears 10% request gate |
 
@@ -201,6 +202,7 @@ the allocation bound; RoPE timing remains to be measured.
 | P00 | baseline | current production source | existing Metal suites | full 128--28K matrix above; every TTFT CV below 5% | evidence |
 | P01 | request KV lifetime | existing homogeneous cache enabled for pure Metal | 138 unit + 17 integration tests; repeated real generation | 128 -15.54%; 512 -4.05%; no decode regression | RETAINED |
 | P02 | RoPE dispatch batching | rows per Q/K dispatch | byte-exact old Metal route + CPU oracle; 139 unit + 17 integration tests | 128 -0.74%; 512 -1.88%; stable 2K signal about -1.5% | REJECTED below gate |
+| P03 | 64-row projection/graph tile | weight reuse and pure-Metal row ownership | Q4/Q6 3/32/64-row oracles; 64-row attention oracle; full Metal suite | 128 -18.39%; 512 -18.17%; 2K -16.07%; 8K -9.46% | RETAINED |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -343,7 +345,32 @@ oracles, allocation-policy tests, the full Metal suite, and real A/B/A timing
 guard those boundaries. Retention requires at least 3% at 512/2K, no short or
 decode control worse than 5%, and at least 5% before claiming a long-context win.
 
+P03 adds a separate 256-thread wide pipeline; the retained 128-thread pipeline
+and mixed-placement route are unchanged. The wide Q4/Q6 projection matches the
+sequential Metal oracle at 64 rows, including a partial output tile. Both 32-
+and 64-row mode-4 attention routing tests pass, the 64-row GPU result matches
+serial attention at base zero and 512, and the full pure-Metal suite passes (138
+unit plus 17 non-ignored integration tests). Real-model A/B/A used retained P01
+as both bookends:
+
+| Prompt | P01 A1 | P03 B | P01 A2 | B vs A mean | Candidate CV | Decode control |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 595.82 ms | 486.11 ms | 595.48 ms | -18.39% | 0.53% | -0.34% |
+| 512 | 2,467.24 ms | 2,015.26 ms | 2,458.40 ms | -18.17% | 0.12% | +0.16% |
+| 2,048 | 11,300.68 ms | 9,527.98 ms | 11,403.43 ms | -16.07% | 0.18% | -0.23% |
+| 8,192 | 78,705.77 ms | 72,874.32 ms | 82,278.13 ms | -9.46% | 0.99% | +1.21% |
+
+The 512-to-2K removable time grows from 447.56 to 1,824.08 ms, confirming the
+intended linear projection/weight-read term. At 8K it reaches 7,617.63 ms while
+quadratic attention dilutes the endpoint fraction, yet the whole-request gain
+still clears the 5% long-context gate. Every decode control remains within
+1.21%, as expected because P03 changes no decode route. Relative to the fresh
+P00 endpoints, retained P01+P03 reduce 128/512/2K/8K TTFT by
+30.56%/21.57%/15.98%/5.42%; same-session P03 bookends are the authoritative
+candidate effect where thermal drift is material.
+
 ## Current next action
 
-Implement and screen P03 against retained P01. Recalculate Amdahl ranking from
-the new endpoint and reprofile after every retained whole-request gain.
+Commit retained P03 and reprofile the new endpoint. Use the resulting decode
+and long-prefill attribution to rank grouped GQA decode against any distinct
+long-attention candidate before the next production experiment.

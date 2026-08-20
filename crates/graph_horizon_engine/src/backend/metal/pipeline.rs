@@ -24,6 +24,7 @@ pub(crate) enum Kernel {
     Embedding,
     Matmul,
     MatmulBatched,
+    MatmulBatchedWide,
     Rmsnorm,
     Rope,
     SiluMul,
@@ -34,10 +35,11 @@ pub(crate) enum Kernel {
     Topk,
 }
 
-const KERNELS: [Kernel; 11] = [
+const KERNELS: [Kernel; 12] = [
     Kernel::Embedding,
     Kernel::Matmul,
     Kernel::MatmulBatched,
+    Kernel::MatmulBatchedWide,
     Kernel::Rmsnorm,
     Kernel::Rope,
     Kernel::SiluMul,
@@ -54,6 +56,7 @@ impl Kernel {
             Self::Embedding => "metal_embedding",
             Self::Matmul => "metal_matmul",
             Self::MatmulBatched => "metal_matmul_batched",
+            Self::MatmulBatchedWide => "metal_matmul_batched_wide",
             Self::Rmsnorm => "metal_rmsnorm",
             Self::Rope => "metal_rope",
             Self::SiluMul => "metal_silu_mul",

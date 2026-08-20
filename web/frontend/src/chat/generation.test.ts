@@ -24,14 +24,13 @@ function snapshot(messages = [
   { role: 'user' as const, content: 'prima domanda' },
   { role: 'assistant' as const, content: 'prima risposta' }
 ]): ChatSnapshot {
-  let collection = createCollection(1, () => id);
+  let collection = createCollection(1, () => id, ' sistema ');
   collection = replaceActiveTranscript(collection, hydrateTranscript(messages), 2);
   return {
     collection,
     status: 'idle',
     error: null,
     persistenceWarning: null,
-    systemPrompt: ' sistema ',
     generationStartedAt: null,
     generationMs: 99
   };

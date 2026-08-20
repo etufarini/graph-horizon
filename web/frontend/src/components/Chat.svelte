@@ -1,7 +1,7 @@
 <!--
-Chat.svelte is the sole Web UI composition boundary for active-chat derivation,
-responsive history, context loading, transfer, status, and gated submission.
-Collection rules, transport internals, and storage schemas remain outside.
+Chat.svelte is the sole Web UI composition boundary for active-chat prompt and
+transcript derivation, responsive history, context, transfer, status, and gated
+submission. Collection rules, transport, and storage schemas remain outside.
 -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
@@ -51,10 +51,10 @@ Collection rules, transport internals, and storage schemas remain outside.
   $: messages = currentChat.messages;
   $: chats = orderedChats($chat.collection);
   $: usage = runtimeContext
-    ? contextUsage(wireMessages(messages, $chat.systemPrompt, streaming ? '' : draft), runtimeContext)
+    ? contextUsage(wireMessages(messages, currentChat.systemPrompt, streaming ? '' : draft), runtimeContext)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
-    ? 'Archivio chat non valido: avvio con una chat vuota'
+    ? 'Archivio chat non valido: avvio con una nuova chat'
     : $chat.persistenceWarning === 'unavailable'
       ? 'Persistenza non disponibile: le chat resteranno solo in memoria'
       : null;
@@ -110,8 +110,8 @@ Collection rules, transport internals, and storage schemas remain outside.
       </h1>
     </header>
 
-    <SystemPrompt value={$chat.systemPrompt} on:change={event => chat.setSystemPrompt(event.detail)} />
-    <SessionActions importDisabled={streaming} on:export={() => downloadChatFile(serializeChat(messages, $chat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
+    <SystemPrompt value={currentChat.systemPrompt} disabled={streaming} on:change={event => chat.setSystemPrompt(event.detail)} />
+    <SessionActions importDisabled={streaming} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
     <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editLastPrompt(event.detail)} on:delete={() => chat.deleteLastTurn()} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error} {usage} generationStartedAt={$chat.generationStartedAt} generationMs={$chat.generationMs} />

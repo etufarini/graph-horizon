@@ -1,7 +1,7 @@
 /*
- * Browser chat types: define runtime transport, plain transcripts, canonical
- * chat collections, private archives, prompt capacity, timing, and bounded
- * persistence results. Storage and lifecycle behavior remain outside.
+ * Browser chat types: define runtime transport, per-chat prompts and transcripts,
+ * private archives, prompt capacity, timing, and bounded persistence results.
+ * Storage and lifecycle behavior remain outside.
  */
 export type Role = 'system' | 'user' | 'assistant';
 
@@ -17,6 +17,7 @@ export interface ChatMessage extends TranscriptMessage {
 export interface ChatRecord {
   id: string;
   title: string;
+  systemPrompt: string;
   messages: ChatMessage[];
   updatedAt: number;
 }
@@ -27,11 +28,12 @@ export interface ChatCollection {
 }
 
 export interface ChatArchiveRecord {
-  version: 2;
+  version: 3;
   activeChatId: string;
   chats: Array<{
     id: string;
     title: string;
+    systemPrompt: string;
     messages: TranscriptMessage[];
     updatedAt: number;
   }>;
@@ -82,7 +84,6 @@ export interface ChatSnapshot {
   status: ChatStatus;
   error: string | null;
   persistenceWarning: PersistenceWarning | null;
-  systemPrompt: string;
   generationStartedAt: number | null;
   generationMs: number | null;
 }

@@ -1,7 +1,7 @@
 /*
- * Application chat lifecycle coordinator: owns the canonical collection store
- * and public actions while generation.ts, sessions.ts, persistence.ts, transfer,
- * and system-prompt modules retain their separate boundaries.
+ * Application chat lifecycle coordinator: owns the canonical per-chat collection
+ * store and public actions while generation, sessions, persistence, and transfer
+ * modules retain their separate boundaries.
  */
 import { get, writable } from 'svelte/store';
 import { createGeneration } from './generation.ts';
@@ -12,10 +12,10 @@ import {
   deleteChat as deleteSession,
   newChat as createSession,
   renameChat as renameSession,
+  replaceActiveSystemPrompt,
   replaceActiveTranscript,
   selectChat as selectSession
 } from './sessions.ts';
-import { loadSystemPrompt, saveSystemPrompt } from './systemPrompt.ts';
 import { finalPair, hydrateTranscript, removeTrailingTurn } from './transcript.ts';
 import { parseChatFile } from './transfer.ts';
 import type { ChatCollection, ChatSnapshot, RuntimeContext } from './types.ts';
@@ -29,7 +29,6 @@ function initialSnapshot(): ChatSnapshot {
     status: 'idle',
     error: null,
     persistenceWarning: restored.warning,
-    systemPrompt: loadSystemPrompt(),
     generationStartedAt: null,
     generationMs: null
   };
@@ -101,23 +100,30 @@ function createChatState() {
       store.set({ ...current, status: 'error', error });
       return;
     }
-    const collection = appendChat(current.collection, hydrateTranscript(result.payload.messages));
+    const collection = appendChat(
+      current.collection,
+      hydrateTranscript(result.payload.messages),
+      result.payload.systemPrompt
+    );
     store.set({
       ...current,
       collection,
       status: 'idle',
       error: null,
-      systemPrompt: result.payload.systemPrompt,
       generationStartedAt: null,
       generationMs: null
     });
-    saveSystemPrompt(result.payload.systemPrompt);
     persist(collection);
   }
 
   function setSystemPrompt(text: string): void {
-    store.update(snapshot => ({ ...snapshot, systemPrompt: text }));
-    saveSystemPrompt(text);
+    const current = get(store);
+    // Persisting during streaming would checkpoint a partial assistant response.
+    if (current.status === 'streaming') return;
+    const collection = replaceActiveSystemPrompt(current.collection, text);
+    if (collection === current.collection) return;
+    store.set({ ...current, collection });
+    persist(collection);
   }
 
   function mutate(change: (collection: ChatCollection) => ChatCollection): void {

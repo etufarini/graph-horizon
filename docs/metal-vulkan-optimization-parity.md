@@ -625,8 +625,34 @@ are incorrect tile coverage, reduction indexing, and extra-dispatch overhead at
 short contexts. The serial oracle and 2K screen gate longer runs; if 2K loses
 but 8K is plausible, routing must use an evidence-based longer threshold.
 
+### P05e structure amendment: Vulkan-parity split count
+
+Target: the last explicit split-count gap with Vulkan grouped decode.
+Intentional variable: extend P05d from four to eight disjoint history splits
+per KV head, retaining 256 threads, two SIMD groups per query head, the same
+32-token shared KV tile, and the same reduction pipeline. The reduction
+combines sixteen partials per query head, providing sixty-four aggregate
+history streams without rereading global KV. P05d and earlier routes remain
+available as exact comparison binaries; production keeps only the measured
+winner.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── kernels/attention.rs         (~200 productive lines)
+└── shaders/attention.metal      (category K, no line limit)
+```
+
+No new file or pipeline is warranted. Tile number `n` belongs only to split
+`n % 8`; every causal token appears in exactly one partial; part index
+`head*16 + split*2 + band` is collision-free; and all 256 threads reach both
+barriers. At 32 query heads the checked scratch alias grows to 266,240 bytes
+and is still consumed before logits overwrite the buffer. The main risks are
+reduction cost, dispatch saturation, and a context-dependent crossover. The
+same serial oracle gates performance measurement, followed by P05d A/B/A at
+2K and only the longer contexts justified by that screen.
+
 ## Current next action
 
-Implement and numerically qualify P05d, then repeat the 2K screen against
-retained P05c. Continue only if it improves or establishes a justified longer
-threshold without regressing shorter decode.
+Finish the active P05d 28K screen, qualify P05e against the serial oracle, and
+use measured split-count scaling to select the final long-decode route. Then
+repeat stage attribution and apply the global stop rule.

@@ -94,6 +94,7 @@ pub(crate) struct Pipeline {
     pub(crate) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(crate) width: usize,
     pub(crate) max_threads: usize,
+    #[cfg(feature = "metal")]
     pub(crate) threadgroup_memory: usize,
     #[cfg(test)]
     drops: Arc<AtomicUsize>,
@@ -170,6 +171,7 @@ impl PipelineRegistry {
             values.push(Pipeline {
                 width: raw.threadExecutionWidth(),
                 max_threads: raw.maxTotalThreadsPerThreadgroup(),
+                #[cfg(feature = "metal")]
                 threadgroup_memory: raw.staticThreadgroupMemoryLength(),
                 raw,
                 #[cfg(test)]

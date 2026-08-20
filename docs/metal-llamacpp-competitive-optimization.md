@@ -11,7 +11,7 @@ defines no runtime API or backend support contract.
 
 | Field | Value |
 |---|---|
-| Date | 2026-08-20 Europe/Rome |
+| Date | 2026-08-20/21 Europe/Rome |
 | Metal competitive baseline | `8deb73464d34d6da0bea9dce7a0c3fb6dcfaeaa3` |
 | Starting branch | `perf/metal-vulkan-parity` |
 | Experiment branch | `perf/metal-llamacpp-competitive` |
@@ -30,7 +30,7 @@ query-reuse, and wider-split variants are not repeated without new evidence.
 - Apple M4 with 10 GPU cores, 24 GB unified memory, Metal 4, macOS 26.3.
 - Both diagnostics-free release binaries were rebuilt from the SHAs above.
 - llama.cpp was built with `GGML_METAL=ON`, its embedded Metal library, full
-  GPU offload, F16 K/V, flash attention disabled, batch 64, and microbatch 64.
+  GPU offload, F16 K/V, flash attention enabled, batch 64, and microbatch 64.
 - Graph Horizon used pure Metal, F16 K/V, context allocation 32,768, its
   qualified 64-row request ownership, greedy sampling, and 32 requested tokens.
 - Inputs contain the exact same token IDs: `[1, 3, 1097]`, token `1261`
@@ -48,6 +48,13 @@ query-reuse, and wider-split variants are not repeated without new evidence.
   curve plus 128/2K size checks for 8B and 14B. Reasoning variants have the
   same performance-relevant tensor shapes and remain correctness artifacts.
 
+An initial control forced llama.cpp flash attention off to match the historical
+Metal study. Source inspection showed this disabled a current production fast
+path, so those measurements are not the primary competitive reference. They
+are retained below only to isolate the structural value of llama.cpp's fused
+attention route. No Graph Horizon endpoint was rerun between the controls; its
+diagnostics-free binary and source revision are unchanged.
+
 All six catalogued GGUF files were opened read-only and their SHA-256 values
 matched `support/models.tsv` before measurement.
 
@@ -59,57 +66,57 @@ performance contract, so the competitive gap is measured against parity.
 
 | Model | Workload | Ours | llama.cpp | Ratio | Absolute gap |
 |---|---|---:|---:|---:|---:|
-| 3B | prefill 128 | 486.77 ms | 304.84 ms | 1.60x | 181.93 ms |
-| 3B | prefill 512 | 1,980.78 ms | 1,200.23 ms | 1.65x | 780.55 ms |
-| 3B | prefill 2K | 8,777.22 ms | 5,275.39 ms | 1.66x | 3,501.83 ms |
-| 3B | prefill 8K | 48,851.51 ms | 33,367.07 ms | 1.46x | 15,484.44 ms |
-| 3B | prefill 28K | 335,020.18 ms | 228,558.03 ms | 1.47x | 106,462.15 ms |
-| 8B | prefill 128 | 1,215.15 ms | 853.80 ms | 1.42x | 361.35 ms |
-| 8B | prefill 2K | 20,896.70 ms | 13,972.92 ms | 1.50x | 6,923.78 ms |
-| 14B | prefill 128 | 1,973.43 ms | 1,558.32 ms | 1.27x | 415.11 ms |
-| 14B | prefill 2K | 35,542.08 ms | 24,141.65 ms | 1.47x | 11,400.44 ms |
-| 3B | decode KV128 | 33.64 ms/token | 23.63 ms/token | 1.42x | 10.01 ms/token |
-| 3B | decode KV512 | 40.00 ms/token | 24.85 ms/token | 1.61x | 15.15 ms/token |
-| 3B | decode KV2K | 28.07 ms/token | 29.87 ms/token | 0.94x | -1.79 ms/token |
-| 3B | decode KV8K | 39.35 ms/token | 47.77 ms/token | 0.82x | -8.41 ms/token |
-| 3B | decode KV28K | 77.04 ms/token | 118.86 ms/token | 0.65x | -41.81 ms/token |
-| 8B | decode KV128 | 63.90 ms/token | 52.52 ms/token | 1.22x | 11.38 ms/token |
-| 8B | decode KV2K | 58.17 ms/token | 59.98 ms/token | 0.97x | -1.81 ms/token |
-| 14B | decode KV128 | 96.06 ms/token | 81.90 ms/token | 1.17x | 14.16 ms/token |
-| 14B | decode KV2K | 92.17 ms/token | 94.98 ms/token | 0.97x | -2.81 ms/token |
+| 3B | prefill 128 | 486.77 ms | 290.42 ms | 1.68x | 196.35 ms |
+| 3B | prefill 512 | 1,980.78 ms | 1,196.05 ms | 1.66x | 784.73 ms |
+| 3B | prefill 2K | 8,777.22 ms | 5,190.83 ms | 1.69x | 3,586.39 ms |
+| 3B | prefill 8K | 48,851.51 ms | 28,862.63 ms | 1.69x | 19,988.88 ms |
+| 3B | prefill 28K | 335,020.18 ms | 173,509.39 ms | 1.93x | 161,510.79 ms |
+| 8B | prefill 128 | 1,215.15 ms | 684.07 ms | 1.78x | 531.08 ms |
+| 8B | prefill 2K | 20,896.70 ms | 12,144.89 ms | 1.72x | 8,751.81 ms |
+| 14B | prefill 128 | 1,973.43 ms | 1,234.37 ms | 1.60x | 739.07 ms |
+| 14B | prefill 2K | 35,542.08 ms | 22,634.22 ms | 1.57x | 12,907.86 ms |
+| 3B | decode KV128 | 33.64 ms/token | 23.67 ms/token | 1.42x | 9.97 ms/token |
+| 3B | decode KV512 | 40.00 ms/token | 25.34 ms/token | 1.58x | 14.66 ms/token |
+| 3B | decode KV2K | 28.07 ms/token | 26.44 ms/token | 1.06x | 1.63 ms/token |
+| 3B | decode KV8K | 39.35 ms/token | 31.51 ms/token | 1.25x | 7.85 ms/token |
+| 3B | decode KV28K | 77.04 ms/token | 53.58 ms/token | 1.44x | 23.46 ms/token |
+| 8B | decode KV128 | 63.90 ms/token | 48.76 ms/token | 1.31x | 15.14 ms/token |
+| 8B | decode KV2K | 58.17 ms/token | 51.67 ms/token | 1.13x | 6.51 ms/token |
+| 14B | decode KV128 | 96.06 ms/token | 76.66 ms/token | 1.25x | 19.40 ms/token |
+| 14B | decode KV2K | 92.17 ms/token | 81.24 ms/token | 1.13x | 10.93 ms/token |
 
-The largest relative prefill gap is 3B/2K at 1.66x. The largest absolute gap
-is 3B/28K at 106.46 seconds/request. Short decode remains behind, but decode at
-2K and longer is `AHEAD` and is closed to competitive tuning unless later work
-regresses it.
+The largest relative and absolute prefill gap is 3B/28K at 1.93x and 161.51
+seconds/request. No decode row is ahead against llama.cpp's production route.
+The 3B/2K decode row is close at 1.06x and remains a regression guard; the
+largest decode gap is 23.46 ms/token at 3B/28K.
 
 ## Prefill statistics
 
 | Model/workload | Ours mean / median / SD / CV (ms) | llama.cpp mean / median / SD / CV (ms) |
 |---|---:|---:|
-| 3B/128 | 486.77 / 487.73 / 1.90 / 0.39% | 304.84 / 298.09 / 13.50 / 4.43% |
-| 3B/512 | 1,980.78 / 1,980.65 / 3.90 / 0.20% | 1,200.23 / 1,200.78 / 4.37 / 0.36% |
-| 3B/2K | 8,777.22 / 8,779.93 / 6.20 / 0.07% | 5,275.39 / 5,292.11 / 48.94 / 0.93% |
-| 3B/8K | 48,851.51 / 48,866.60 / 73.17 / 0.15% | 33,367.07 / 33,580.69 / 809.13 / 2.42% |
-| 3B/28K | 335,020.18 / 336,649.63 / 2,862.23 / 0.85% | 228,558.03 / 227,309.95 / 2,558.77 / 1.12% |
-| 8B/128 | 1,215.15 / 1,214.62 / 1.19 / 0.10% | 853.80 / 845.89 / 30.32 / 3.55% |
-| 8B/2K | 20,896.70 / 20,787.49 / 195.85 / 0.94% | 13,972.92 / 13,938.54 / 496.67 / 3.55% |
-| 14B/128 | 1,973.43 / 1,969.48 / 21.72 / 1.10% | 1,558.32 / 1,554.99 / 10.02 / 0.64% |
-| 14B/2K | 35,542.08 / 36,417.68 / 1,724.47 / 4.85% | 24,141.65 / 24,312.08 / 888.05 / 3.68% |
+| 3B/128 | 486.77 / 487.73 / 1.90 / 0.39% | 290.42 / 290.12 / 1.06 / 0.36% |
+| 3B/512 | 1,980.78 / 1,980.65 / 3.90 / 0.20% | 1,196.05 / 1,201.31 / 12.58 / 1.05% |
+| 3B/2K | 8,777.22 / 8,779.93 / 6.20 / 0.07% | 5,190.83 / 5,179.71 / 22.48 / 0.43% |
+| 3B/8K | 48,851.51 / 48,866.60 / 73.17 / 0.15% | 28,862.63 / 29,184.77 / 2,338.59 / 8.10% |
+| 3B/28K | 335,020.18 / 336,649.63 / 2,862.23 / 0.85% | 173,509.39 / 173,937.72 / 918.57 / 0.53% |
+| 8B/128 | 1,215.15 / 1,214.62 / 1.19 / 0.10% | 684.07 / 686.22 / 7.81 / 1.14% |
+| 8B/2K | 20,896.70 / 20,787.49 / 195.85 / 0.94% | 12,144.89 / 12,191.52 / 164.89 / 1.36% |
+| 14B/128 | 1,973.43 / 1,969.48 / 21.72 / 1.10% | 1,234.37 / 1,227.33 / 29.84 / 2.42% |
+| 14B/2K | 35,542.08 / 36,417.68 / 1,724.47 / 4.85% | 22,634.22 / 22,762.58 / 1,518.30 / 6.71% |
 
 ## Decode statistics and closure
 
 | Model/history | Ours tok/s (mean / median / SD / CV) | llama ms/token (mean / median / SD / CV) | Status |
 |---|---:|---:|---|
-| 3B/128 | 29.73 / 29.81 / 0.15 / 0.51% | 23.63 / 23.62 / 0.14 / 0.59% | GAP |
-| 3B/512 | 25.00 / 25.00 / 0.03 / 0.10% | 24.85 / 24.85 / 0.07 / 0.29% | GAP |
-| 3B/2K | 35.62 / 35.62 / 0.15 / 0.42% | 29.87 / 28.99 / 1.66 / 5.57% | AHEAD |
-| 3B/8K | 25.41 / 25.50 / 0.21 / 0.82% | 47.77 / 47.41 / 0.70 / 1.47% | AHEAD |
-| 3B/28K | 12.98 / 13.08 / 0.28 / 2.19% | 118.86 / 116.78 / 3.75 / 3.15% | AHEAD |
-| 8B/128 | 15.65 / 15.65 / 0.00 / 0.01% | 52.52 / 52.43 / 0.18 / 0.34% | GAP |
-| 8B/2K | 17.19 / 17.23 / 0.09 / 0.51% | 59.98 / 59.83 / 0.40 / 0.66% | AHEAD |
-| 14B/128 | 10.41 / 10.41 / 0.01 / 0.12% | 81.90 / 81.77 / 0.36 / 0.44% | GAP |
-| 14B/2K | 10.85 / 10.83 / 0.15 / 1.35% | 94.98 / 94.97 / 0.76 / 0.80% | AHEAD |
+| 3B/128 | 29.73 / 29.81 / 0.15 / 0.51% | 23.67 / 23.66 / 0.06 / 0.26% | GAP |
+| 3B/512 | 25.00 / 25.00 / 0.03 / 0.10% | 25.34 / 24.25 / 1.98 / 7.82% | GAP |
+| 3B/2K | 35.62 / 35.62 / 0.15 / 0.42% | 26.44 / 27.24 / 1.43 / 5.39% | NEAR |
+| 3B/8K | 25.41 / 25.50 / 0.21 / 0.82% | 31.51 / 31.45 / 0.14 / 0.46% | GAP |
+| 3B/28K | 12.98 / 13.08 / 0.28 / 2.19% | 53.58 / 54.34 / 1.40 / 2.60% | GAP |
+| 8B/128 | 15.65 / 15.65 / 0.00 / 0.01% | 48.76 / 48.73 / 0.14 / 0.28% | GAP |
+| 8B/2K | 17.19 / 17.23 / 0.09 / 0.51% | 51.67 / 51.69 / 0.21 / 0.40% | GAP |
+| 14B/128 | 10.41 / 10.41 / 0.01 / 0.12% | 76.66 / 76.66 / 0.01 / 0.02% | GAP |
+| 14B/2K | 10.85 / 10.83 / 0.15 / 1.35% | 81.24 / 80.50 / 2.17 / 2.67% | GAP |
 
 ## Memory checkpoint
 
@@ -120,18 +127,116 @@ RSS values were 13,493,846,016 bytes for Graph Horizon and 13,362,096 KiB for
 llama.cpp. These are process-level unified-memory observations, not isolated
 GPU allocation counters.
 
-## Current ranking and next evidence
+## Fresh Graph Horizon attribution
 
-1. Long prefill has the largest absolute competitive gap: 106.46 seconds at
-   3B/28K. Fresh operation attribution and a structural comparison with the
-   current llama.cpp Metal attention path are required before any redesign.
-2. Quantized projection/MLP work is expected to dominate shorter prefill and
-   must be freshly attributed at 128/512/2K before selecting a matrix candidate.
-3. Short decode has 10--15 ms/token gaps, but its absolute recoverable time per
-   request is below the prefill candidates. Existing routing is checked before
-   any new decode kernel.
-4. Decode at 2K and longer is a regression guard, not an optimization target.
+The isolated `metal-profile` feature samples adjacent operation categories at
+Metal encoder boundaries. Ordinary `metal` builds do not contain this path.
+The diagnostic endpoint uses one request and four generated tokens; its timing
+is never used as diagnostics-free throughput evidence.
 
-Fresh GPU/CPU attribution, practical floors, Amdahl calculations, retained and
-rejected experiments, qualification, and final reproduction commands will be
-appended as the investigation proceeds.
+| 3B prefill | GPU command | Accounted | Attention | Seven matrices | Other kernels | Residual |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 573.78 ms | 90.08% | 7.50 ms | 490.23 ms | 19.11 ms | 56.94 ms |
+| 512 | 2,077.27 ms | 96.22% | 82.17 ms | 1,857.97 ms | 58.59 ms | 78.54 ms |
+| 2K | 8,951.06 ms | 97.99% | 1,176.78 ms | 7,358.11 ms | 235.92 ms | 180.25 ms |
+| 28K | 319,691.04 ms | 99.44% | 213,416.25 ms | 101,105.91 ms | 3,366.52 ms | 1,802.37 ms |
+
+The matrix column is Q, K, V, O, gate, up, and down. At 2K it is 83.9% of
+diagnostics-free TTFT; at 28K attention crosses over to 63.7% of TTFT. The 28K
+CPU record and submit totals are 646.05 ms and 4.07 ms against 320,016.57 ms of
+wait time. CPU orchestration is not on the critical-path floor.
+
+The 128 point accounts for only 90.1%; it retains the explicit 56.94 ms
+residual and is not used for a redesign bound. The prioritized 512/2K/28K
+points exceed the 95% attribution gate.
+
+## Comparator component inference and structural audit
+
+The production llama.cpp endpoints fit a fixed + linear + quadratic model:
+
+```text
+T_llama(N) = -0.129946 + 0.00242700 N + 1.34806e-7 N^2 seconds
+```
+
+This is an inference from five end-to-end points, not direct llama.cpp GPU
+counter attribution. It predicts every 2K--28K point within 0.22 seconds and
+assigns about 67.96 seconds of the 28K endpoint to linear work and 105.69
+seconds to quadratic work. The flash-off control has a similar linear term but
+a 161.80-second quadratic term at 28K. Flash attention therefore removes about
+56.1 seconds from llama.cpp's long-context path while leaving short prefill
+nearly unchanged.
+
+Routing was checked before selecting a new kernel:
+
+| Operation | Representative shape | Expected path | Actual path / reason |
+|---|---|---|---|
+| Q projection | M=64, N=4096, K=3072, Q4_K | wide cooperative matrix | `metal_matmul_batched_wide`; pure Metal, aligned shape |
+| K/V projection | M=64, N=1024, K=3072, Q4_K | wide cooperative matrix | `metal_matmul_batched_wide`; pure Metal, aligned shape |
+| O projection | M=64, N=3072, K=4096, Q4_K | wide cooperative matrix | `metal_matmul_batched_wide`; pure Metal, aligned shape |
+| gate/up | M=64, N=9216, K=3072, Q4_K | wide cooperative matrix | `metal_matmul_batched_wide`; pure Metal, aligned shape |
+| down | M=64, N=3072, K=9216, Q6_K | wide cooperative matrix | `metal_matmul_batched_wide`; pure Metal, aligned shape |
+| GQA prefill attention | rows=64, heads=32/8, dim=128, F16 KV | SIMD-matrix tile | `metal_attention_prefill_matrix`; exact qualified route |
+| GQA decode | row=1, heads=32/8, dim=128, F16 KV | split or native GQA | qualified native/split routes by history |
+
+No dominant operation is falling through a generic route. Graph Horizon's
+matrix tile is 64 outputs by 64 prompt rows with eight SIMD groups; it stages
+simple row-major K32 weights/activations and a 16 KiB FP32 result tile. Current
+llama.cpp on pre-M5 Apple hardware uses a 64-output by 32-row tile with four
+SIMD groups, 6 KiB of swizzled weight/activation threadgroup storage, and
+direct FP32 result stores. Graph Horizon's previously rejected occupancy-only
+variants did not test this swizzled data mapping.
+
+Graph Horizon attention assigns one 1,024-thread workgroup to each KV head and
+loops serially over K/V in eight-token tiles. For this 64-row, 32-head shape,
+llama.cpp flash attention dispatches one workgroup per eight query rows and
+query head, uses 64-column cache tiles and four or eight SIMD groups per
+workgroup, and prepares causal-mask blocks separately. That exposes 256
+workgroups per layer instead of Graph Horizon's eight, at the cost of less GQA
+cross-head K/V sharing. The structural gap is work ownership, history
+parallelism, and tile width, not an unused Graph Horizon route.
+
+## Amdahl bounds and global ranking
+
+For the first matrix candidate at 3B/2K:
+
+```text
+T = 8.777 s
+component = 7.358 s
+f = 0.838
+practical floor ~= 4.970 s (llama linear fit)
+S_local ~= 1.48x
+realistically removable = 2.388 s
+predicted final = 6.389 s
+predicted whole-workload improvement = 27.2%
+```
+
+At 512 the same comparator-local speedup removes about 0.615 seconds and
+predicts a 31.0% whole-request improvement. At 28K it removes about 33.15
+seconds, just under 10% of that attention-dominated endpoint, before counting
+reuse across 8B and 14B.
+
+For a multi-workgroup attention redesign at 3B/28K:
+
+```text
+T = 335.020 s
+component = 213.416 s
+f = 0.637
+practical floor ~= 105.688 s (llama quadratic fit)
+S_local ~= 2.02x
+realistically removable = 107.728 s
+predicted final = 227.292 s
+predicted whole-workload improvement = 32.2%
+```
+
+The attention bound clears the complex-redesign gate, but has higher numeric,
+state-reduction, and maintenance risk. The first candidate is the matrix
+threadgroup mapping because it affects every prompt and model, has a 27--31%
+predicted gain at stable prioritized points, preserves representation and
+arithmetic, and is a bounded category-K experiment. The attention redesign is
+ranked second and remains mandatory if the matrix direction closes or is kept.
+Short decode is third: its largest measured gap is 23.46 ms/token, but the
+matrix experiment also changes the shared quantized decode source only if
+explicitly routed, which this first candidate will not do.
+
+Retained and rejected experiments, qualification, final matrices, and
+reproduction commands will be appended as the investigation proceeds.

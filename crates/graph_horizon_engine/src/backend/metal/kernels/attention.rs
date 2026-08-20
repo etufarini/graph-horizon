@@ -102,6 +102,30 @@ pub(crate) fn encode(
     let mut c = constants(kv, qh, base, rows, layer);
     #[cfg(feature = "metal")]
     if !mixed_placement
+        && rows == 64
+        && kv.scheme == KvQuant::F16
+        && kv.head_dim == 128
+        && kv.kv_heads.checked_mul(4) == Some(qh as usize)
+    {
+        let matrix = p.get(Kernel::AttentionPrefillMatrix);
+        if matrix.width == 32
+            && matrix.max_threads >= 1024
+            && matrix.threadgroup_memory == 28 * 1024
+        {
+            c.extend(0_u32.to_ne_bytes());
+            return dispatch::encode_threadgroups(
+                e,
+                p,
+                Kernel::AttentionPrefillMatrix,
+                &[q, &kv.k, &kv.v, out],
+                &c,
+                [kv.kv_heads, 1, 1],
+                1024,
+            );
+        }
+    }
+    #[cfg(feature = "metal")]
+    if !mixed_placement
         && rows == 1
         && base >= PARALLEL_CONTEXT - 1
         && kv.scheme == KvQuant::F16

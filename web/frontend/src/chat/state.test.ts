@@ -1,8 +1,7 @@
 /*
- * Deterministic state-coordination acceptance tests cover public multi-chat
- * actions, import, global prompt ownership, warnings, streaming guards, and the
- * prompt-only runtime-context fixture. Generation transport details, Svelte
- * rendering, and real storage are excluded.
+ * Deterministic state-coordination acceptance tests cover per-chat prompt
+ * ownership, import, warnings, streaming guards, and the prompt-only runtime
+ * fixture. Generation transport, Svelte rendering, and real storage are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -93,9 +92,10 @@ function imported(systemPrompt: string, messages = [
 test('startup migrates into one canonical active collection', () => {
   assert.equal(snapshot.collection.chats.length, 1);
   assert.deepEqual(plain(), restored);
-  assert.equal(snapshot.systemPrompt, 'restored system');
+  assert.equal(active().systemPrompt, 'restored system');
   assert.equal(snapshot.persistenceWarning, null);
-  assert.equal(JSON.parse(storage.values.get(CONVERSATION_KEY)!).version, 2);
+  assert.equal(JSON.parse(storage.values.get(CONVERSATION_KEY)!).version, 3);
+  assert.equal(storage.values.has(SYSTEM_KEY), false);
 });
 
 test('new chat no-ops when empty and persists creation otherwise', () => {
@@ -103,6 +103,7 @@ test('new chat no-ops when empty and persists creation otherwise', () => {
   chat.newChat();
   assert.equal(snapshot.collection.chats.length, 2);
   assert.deepEqual(active().messages, []);
+  assert.equal(active().systemPrompt, '');
   assert.equal(conversationSets().length, 1);
   const collection = snapshot.collection;
   storage.resetCalls();
@@ -155,8 +156,8 @@ test('valid import creates a new active chat and invalid import changes no durab
     { role: 'assistant', content: 'imported assistant' }
   ]);
   assert.equal(active().title, 'imported user');
-  assert.equal(snapshot.systemPrompt, 'imported system');
-  assert.equal(storage.values.get(SYSTEM_KEY), 'imported system');
+  assert.equal(active().systemPrompt, 'imported system');
+  assert.equal(storage.values.has(SYSTEM_KEY), false);
   assert.equal(conversationSets().length, 1);
 
   const collection = snapshot.collection;
@@ -164,7 +165,7 @@ test('valid import creates a new active chat and invalid import changes no durab
   storage.resetCalls();
   chat.importChat(JSON.stringify({ version: 1, systemPrompt: 'must not apply', messages: [{}] }));
   assert.equal(snapshot.collection, collection);
-  assert.equal(snapshot.systemPrompt, 'imported system');
+  assert.equal(active().systemPrompt, 'imported system');
   assert.equal(storage.values.get(CONVERSATION_KEY), archive);
   assert.equal(conversationSets().length, 0);
 
@@ -175,17 +176,17 @@ test('valid import creates a new active chat and invalid import changes no durab
 
 test('invalid JSON preserves prompt and archive while export stays public version 1', () => {
   const collection = snapshot.collection;
-  const systemPrompt = snapshot.systemPrompt;
+  const systemPrompt = active().systemPrompt;
   const archive = storage.values.get(CONVERSATION_KEY);
   storage.resetCalls();
   chat.importChat('{');
   assert.equal(snapshot.collection, collection);
-  assert.equal(snapshot.systemPrompt, systemPrompt);
+  assert.equal(active().systemPrompt, systemPrompt);
   assert.equal(storage.values.get(CONVERSATION_KEY), archive);
-  assert.equal(storage.values.get(SYSTEM_KEY), systemPrompt);
+  assert.equal(storage.values.has(SYSTEM_KEY), false);
   assert.equal(conversationSets().length, 0);
 
-  const exported = JSON.parse(serializeChat(active().messages, snapshot.systemPrompt));
+  const exported = JSON.parse(serializeChat(active().messages, active().systemPrompt));
   assert.deepEqual(exported, {
     version: 1,
     systemPrompt,
@@ -210,6 +211,7 @@ test('streaming guards every collection and last-turn mutation', async () => {
   chat.deleteChat(target);
   chat.deleteLastTurn();
   chat.importChat(imported('blocked'));
+  chat.setSystemPrompt('blocked');
   await chat.regenerate(context);
   await chat.editLastPrompt('blocked', context);
   assert.equal(snapshot.collection, collection);
@@ -246,10 +248,20 @@ test('failed save keeps memory warning and a later stable action clears it', () 
   assert.equal(snapshot.persistenceWarning, null);
 });
 
-test('system prompt remains in its separate storage boundary', () => {
+test('system prompts remain isolated in the canonical collection', () => {
+  const first = snapshot.collection.chats[0];
+  const second = snapshot.collection.chats.find(item => item.id !== first.id)!;
   storage.resetCalls();
-  chat.setSystemPrompt('global prompt');
-  assert.equal(snapshot.systemPrompt, 'global prompt');
-  assert.equal(storage.values.get(SYSTEM_KEY), 'global prompt');
-  assert.equal(conversationSets().length, 0);
+  chat.selectChat(first.id);
+  chat.setSystemPrompt('primo prompt');
+  assert.equal(active().systemPrompt, 'primo prompt');
+  chat.selectChat(second.id);
+  chat.setSystemPrompt('secondo prompt');
+  assert.equal(active().systemPrompt, 'secondo prompt');
+  chat.selectChat(first.id);
+  assert.equal(active().systemPrompt, 'primo prompt');
+  assert.equal(snapshot.collection.chats.find(item => item.id === second.id)!.systemPrompt,
+    'secondo prompt');
+  assert.equal(storage.values.has(SYSTEM_KEY), false);
+  assert.equal(conversationSets().length, 4);
 });

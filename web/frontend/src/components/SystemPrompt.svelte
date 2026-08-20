@@ -1,13 +1,13 @@
 <script lang="ts">
   /*
-   * SystemPrompt.svelte — presentational collapsible panel for editing the
-   * system prompt. Owns only its local open/closed state; the value flows in via
-   * the `value` prop and out via the `change` event on every edit. No store
-   * access, no localStorage access.
+   * Presentational collapsible editor for the active chat's system prompt.
+   * Owns only open state; value and streaming availability flow through props,
+   * and edits leave through one typed event. Store and persistence stay outside.
    */
   import { createEventDispatcher } from 'svelte';
 
   export let value = '';
+  export let disabled = false;
 
   const dispatch = createEventDispatcher<{ change: string }>();
 
@@ -28,6 +28,7 @@
     <div class="panel-body">
       <textarea
         bind:value
+        {disabled}
         on:input={() => dispatch('change', value)}
         rows="3"
         aria-label="System prompt"

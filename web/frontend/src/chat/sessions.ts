@@ -1,7 +1,7 @@
 /*
- * Pure chat-collection transformations: owns creation, active selection,
- * deterministic ordering, title normalization, rename, deletion, and stable
- * transcript replacement. Persistence, stores, transport, and UI are excluded.
+ * Pure chat-collection transformations: owns per-chat prompt and transcript
+ * creation, active selection, deterministic ordering, rename, deletion, and
+ * stable replacement. Persistence, stores, transport, and UI are excluded.
  */
 import { validateTranscript } from './transcript.ts';
 import type { ChatCollection, ChatMessage, ChatRecord } from './types.ts';
@@ -13,12 +13,13 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export function createCollection(
   updatedAt = Date.now(),
-  idSource: () => string = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID(),
+  systemPrompt = ''
 ): ChatCollection {
   const id = nextId([], idSource);
   return {
     activeChatId: id,
-    chats: [{ id, title: NEW_CHAT_TITLE, messages: [], updatedAt }]
+    chats: [{ id, title: NEW_CHAT_TITLE, systemPrompt, messages: [], updatedAt }]
   };
 }
 
@@ -36,6 +37,7 @@ export function orderedChats(collection: ChatCollection): ChatRecord[] {
 export function appendChat(
   collection: ChatCollection,
   messages: ChatMessage[],
+  systemPrompt = '',
   updatedAt = Date.now(),
   idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
@@ -46,6 +48,7 @@ export function appendChat(
   const chat: ChatRecord = {
     id,
     title: derivedTitle(messages),
+    systemPrompt,
     messages,
     updatedAt
   };
@@ -57,9 +60,11 @@ export function newChat(
   updatedAt = Date.now(),
   idSource: () => string = () => globalThis.crypto.randomUUID()
 ): ChatCollection {
-  return activeChat(collection).messages.length === 0
+  const current = activeChat(collection);
+  // A prompt-only chat owns durable user input and must not be reused as blank.
+  return current.messages.length === 0 && current.systemPrompt === ''
     ? collection
-    : appendChat(collection, [], updatedAt, idSource);
+    : appendChat(collection, [], '', updatedAt, idSource);
 }
 
 export function selectChat(collection: ChatCollection, id: string): ChatCollection {
@@ -119,6 +124,21 @@ export function replaceActiveTranscript(
   const title = current.title === NEW_CHAT_TITLE ? derivedTitle(messages) : current.title;
   const chats = [...collection.chats];
   chats[index] = { ...current, title, messages, updatedAt };
+  return { ...collection, chats };
+}
+
+export function replaceActiveSystemPrompt(
+  collection: ChatCollection,
+  systemPrompt: string
+): ChatCollection {
+  const index = collection.chats.findIndex(chat => chat.id === collection.activeChatId);
+  const current = collection.chats[index];
+  if (current.systemPrompt === systemPrompt) {
+    return collection;
+  }
+  const chats = [...collection.chats];
+  // Prompt edits are metadata edits and preserve transcript recency.
+  chats[index] = { ...current, systemPrompt };
   return { ...collection, chats };
 }
 

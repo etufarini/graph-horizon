@@ -53,8 +53,8 @@ relative components; traversal, absolute paths, and invalid UTF-8 receive `404`.
 ## Browser Chat
 
 The UI keeps the conversation in browser memory and sends `system`, `user`, and
-`assistant` messages. The system prompt is editable and saved in `localStorage`
-under `graph-horizon.system-prompt`; storage errors do not block the session.
+`assistant` messages. Each chat owns its editable system prompt, which is saved
+with that chat in `localStorage`; storage errors do not block the session.
 
 Every request uses `fetch` with:
 
@@ -88,8 +88,10 @@ pair, including partial raw text, to preserve alternating history.
 
 The composer remains editable while a response is streaming, so the next
 message can be prepared without starting a concurrent request. Send stays
-disabled until streaming ends, while Stop remains available. A failed request
-restores its submitted prompt only when no newer draft has been entered.
+disabled until streaming ends, while Stop remains available. The system-prompt
+editor is also disabled so prompt persistence cannot checkpoint a partial
+assistant response. A failed request restores its submitted prompt only when no
+newer draft has been entered.
 
 `--provider` and `--max-tokens` are ignored. `--context-tokens`, KV, threads, and
 placement configure the local engine. The Web wrapper publishes the loaded
@@ -104,16 +106,17 @@ sampling policy recorded in the current semantic campaign, with
 The browser restores one chat collection synchronously from the origin-scoped
 `localStorage` key `graph-horizon.conversation`. A different scheme, host, or
 port therefore selects a different archive. The private compact record is
-distinct from import/export and has exactly this version-2 shape:
+distinct from import/export and has exactly this version-3 shape:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "activeChatId": "00000000-0000-4000-8000-000000000001",
   "chats": [
     {
       "id": "00000000-0000-4000-8000-000000000001",
       "title": "Titolo",
+      "systemPrompt": "",
       "messages": [
         { "role": "user", "content": "..." },
         { "role": "assistant", "content": "..." }
@@ -127,29 +130,29 @@ distinct from import/export and has exactly this version-2 shape:
 The list is never empty, IDs are unique UUIDs, and `activeChatId` identifies
 exactly one member. Every transcript is empty or consists of complete, strictly
 alternating `user`/`assistant` pairs. Titles contain 1–80 Unicode code points;
-`updatedAt` is a non-negative safe Unix time in milliseconds. Runtime message
-IDs are regenerated on restore and never enter the archive.
+each `systemPrompt` is a string; `updatedAt` is a non-negative safe Unix time in
+milliseconds. Runtime message IDs are regenerated on restore and never enter
+the archive.
 
 The serialized archive is limited to 4,194,304 UTF-8 bytes. A missing key
 creates, activates, and immediately attempts to save one empty `Nuova chat`.
 Malformed JSON, unknown versions, extra or missing fields, oversize data, and
 any invariant violation cause the entire archive to be ignored and removed
 when possible. Successful cleanup shows `Archivio chat non valido: avvio con
-una chat vuota`; a cleanup, acquisition, read, or write failure shows
+una nuova chat`; a cleanup, acquisition, read, or write failure shows
 `Persistenza non disponibile: le chat resteranno solo in memoria`.
 
-The system prompt remains global and separately stored under
-`graph-horizon.system-prompt`. The archive excludes it along with drafts,
-status, errors, generation timing, context settings, and presentation-only
-Reasoning state.
+The archive stores each system prompt with its chat. It excludes drafts, status,
+errors, generation timing, context settings, and presentation-only Reasoning
+state.
 
 Stable transcript checkpoints are successful `[DONE]`, settled Stop,
 regenerate, edit-and-regenerate, and deletion of the final turn. They update
 that chat's `updatedAt` and save the complete collection once after idle state.
 Creating, selecting, renaming, or deleting a chat and importing a chat also
-save immediately; selection and rename do not change `updatedAt`. Generation
-start, assistant deltas, draft/system-prompt edits, capacity rejection, and
-transport rollback never save the collection.
+save immediately. System-prompt edits save immediately but, like selection and
+rename, do not change `updatedAt`. Generation start, assistant deltas, draft
+edits, capacity rejection, and transport rollback never save the collection.
 
 A failed stable save keeps the in-memory result and preserves the previous
 stored value. Reload may therefore restore the older archive; this is not a
@@ -160,25 +163,31 @@ write, or HTTP route.
 
 ### Legacy Conversation Migration
 
-The loader recognizes only the exact legacy private record
-`{"version":1,"messages":[...]}` with a valid complete transcript. It migrates
-the transcript unchanged into one active chat, derives the title from the
-first user message, and attempts one version-2 `setItem` on the same key.
+The loader recognizes the exact version-2 multi-chat archive and the exact
+version-1 private record `{"version":1,"messages":[...]}` with a valid complete
+transcript. During either migration, the former global value under
+`graph-horizon.system-prompt`, or an empty string when absent, is copied into
+every migrated chat. Version 1 becomes one active chat whose title is derived
+from the first user message. The loader then attempts one version-3 `setItem` on
+the conversation key.
 
 The replacement is atomic from the application's perspective: the legacy value
-is replaced only when the version-2 write succeeds. If serialization or the
-write fails, the migrated collection remains usable in memory, the exact
-version-1 value remains stored, and persistence is reported unavailable. A
-later reload may therefore attempt migration again. Invalid legacy input follows
-the invalid-archive cleanup path rather than returning a valid prefix.
+is replaced only when the version-3 write succeeds. Only after that write does
+the loader remove the obsolete global-prompt key. If serialization or the write
+fails, the migrated collection remains usable in memory, the exact legacy
+archive and global prompt remain stored, and persistence is reported
+unavailable. A later reload may therefore attempt migration again. Invalid
+legacy input follows the invalid-archive cleanup path rather than returning a
+valid prefix.
 
 ### Chat History Controls
 
-`NUOVA CHAT` creates and activates an empty chat only when the current chat is
-non-empty; requesting it from an already empty active chat is a no-op. A new
-chat receives an unused UUID, `Nuova chat`, and the current timestamp. Its first
-stable transcript derives a title from the first 48 Unicode code points of the
-trimmed first user message after collapsing whitespace, without an ellipsis.
+`NUOVA CHAT` creates and activates an empty chat when the current chat has a
+transcript or a system prompt; requesting it from an active chat with neither is
+a no-op. A new chat receives an unused UUID, `Nuova chat`, an empty system
+prompt, and the current timestamp. Its first stable transcript derives a title
+from the first 48 Unicode code points of the trimmed first user message after
+collapsing whitespace, without an ellipsis.
 
 The history list sorts by descending `updatedAt`, then ascending ID. Selection
 persists only `activeChatId`. The always-visible row menu offers `RINOMINA` and
@@ -303,12 +312,12 @@ The web UI exports a versioned JSON object:
 
 Import requires `version: 1`, strings for the system prompt and message content,
 and complete `user`/`assistant` pairs. A valid file creates and activates a new
-chat, derives its title, persists the collection, and applies its system prompt
-globally. An imported empty transcript still creates a new empty chat. Invalid
-or unreadable files leave the collection, active selection, archive, and global
+chat, derives its title, and stores the imported system prompt only on that chat.
+An imported empty transcript still creates a new empty chat. Invalid or
+unreadable files leave the collection, active selection, archive, and every
 system prompt unchanged. No replacement confirmation is shown.
 
-Export serializes only the active chat. Unlike the private version-2 browser
+Export serializes only the active chat. Unlike the private version-3 browser
 archive, the public file remains version 1 and includes `systemPrompt`; private
 chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
 share complete-pair transcript validation, but neither is the JSON array used by

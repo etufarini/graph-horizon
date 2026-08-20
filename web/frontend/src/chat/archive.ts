@@ -1,14 +1,14 @@
 /*
  * Private chat-archive format boundary: owns exact version schemas, strict
- * object validation, the UTF-8 size limit, and version-1 migration. Browser
- * storage I/O and application mutations remain outside this module.
+ * object validation, the UTF-8 size limit, and version-1/2 migration into
+ * per-chat prompts. Browser storage I/O remains outside this module.
  */
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
 import { hydrateTranscript, validateTranscript } from './transcript.ts';
 import type { ChatArchiveRecord, ChatCollection, TranscriptMessage } from './types.ts';
 
 export const STORAGE_KEY = 'graph-horizon.conversation';
-export const FORMAT_VERSION = 2;
+export const FORMAT_VERSION = 3;
 export const MAX_RECORD_BYTES = 4_194_304;
 
 export type ArchiveParseResult =
@@ -25,7 +25,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export function parseArchive(
   raw: string,
   migratedAt = Date.now(),
-  idSource: () => string = () => globalThis.crypto.randomUUID()
+  idSource: () => string = () => globalThis.crypto.randomUUID(),
+  legacySystemPrompt = ''
 ): ArchiveParseResult {
   if (bytes(raw) > MAX_RECORD_BYTES) {
     return { kind: 'invalid' };
@@ -40,13 +41,17 @@ export function parseArchive(
     return { kind: 'invalid' };
   }
   if (value.version === FORMAT_VERSION) {
-    const collection = parseCurrent(value);
+    const collection = parseCollection(value, true);
     return collection ? { kind: 'current', collection } : { kind: 'invalid' };
+  }
+  if (value.version === 2) {
+    const collection = parseCollection(value, false, legacySystemPrompt);
+    return collection ? { kind: 'legacy', collection } : { kind: 'invalid' };
   }
   if (value.version === 1) {
     const transcript = parseLegacy(value);
     if (transcript) {
-      const collection = createCollection(migratedAt, idSource);
+      const collection = createCollection(migratedAt, idSource, legacySystemPrompt);
       return {
         kind: 'legacy',
         collection: replaceActiveTranscript(collection, hydrateTranscript(transcript), migratedAt)
@@ -63,6 +68,7 @@ export function serializeArchive(collection: ChatCollection): ArchiveSerializeRe
     chats: collection.chats.map(chat => ({
       id: chat.id,
       title: chat.title,
+      systemPrompt: chat.systemPrompt,
       messages: chat.messages.map(({ role, content }) => ({ role, content })),
       updatedAt: chat.updatedAt
     }))
@@ -73,7 +79,11 @@ export function serializeArchive(collection: ChatCollection): ArchiveSerializeRe
     : { ok: false, error: 'oversized' };
 }
 
-function parseCurrent(value: Record<string, unknown>): ChatCollection | null {
+function parseCollection(
+  value: Record<string, unknown>,
+  promptsRequired: boolean,
+  legacySystemPrompt = ''
+): ChatCollection | null {
   if (!exact(value, ['version', 'activeChatId', 'chats']) ||
       typeof value.activeChatId !== 'string' || !UUID.test(value.activeChatId) ||
       !Array.isArray(value.chats) || value.chats.length === 0) {
@@ -82,9 +92,13 @@ function parseCurrent(value: Record<string, unknown>): ChatCollection | null {
   const ids = new Set<string>();
   const chats = [];
   for (const entry of value.chats) {
-    if (!isObject(entry) || !exact(entry, ['id', 'title', 'messages', 'updatedAt']) ||
+    const keys = promptsRequired
+      ? ['id', 'title', 'systemPrompt', 'messages', 'updatedAt']
+      : ['id', 'title', 'messages', 'updatedAt'];
+    if (!isObject(entry) || !exact(entry, keys) ||
         typeof entry.id !== 'string' || !UUID.test(entry.id) || ids.has(entry.id) ||
         typeof entry.title !== 'string' || !validTitle(entry.title) ||
+        (promptsRequired && typeof entry.systemPrompt !== 'string') ||
         !Number.isSafeInteger(entry.updatedAt) || (entry.updatedAt as number) < 0) {
       return null;
     }
@@ -96,6 +110,7 @@ function parseCurrent(value: Record<string, unknown>): ChatCollection | null {
     chats.push({
       id: entry.id,
       title: entry.title,
+      systemPrompt: promptsRequired ? entry.systemPrompt as string : legacySystemPrompt,
       messages: hydrateTranscript(messages),
       updatedAt: entry.updatedAt as number
     });

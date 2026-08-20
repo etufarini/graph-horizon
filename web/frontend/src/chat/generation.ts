@@ -69,7 +69,7 @@ export function createGeneration(
     }
     const previousMessages = chat.messages;
     const prior = mode === 'replace' ? beforeFinalPair(previousMessages) : previousMessages;
-    const wire = wireMessages(prior, current.systemPrompt);
+    const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: prompt });
     const admission = admitMessages(wire, context);
     if (!admission.ok) {

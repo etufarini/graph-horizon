@@ -1,13 +1,13 @@
 /*
- * Deterministic in-memory storage coverage for version-2 collection startup,
- * stable saves, invalid cleanup, and atomic legacy migration. Real browser,
+ * Deterministic in-memory storage coverage for version-3 collection startup,
+ * stable saves, invalid cleanup, and global-prompt migration. Real browser,
  * filesystem, and network I/O are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { serializeArchive, STORAGE_KEY } from './archive.ts';
-import { loadChats, saveChats } from './persistence.ts';
+import { LEGACY_SYSTEM_PROMPT_KEY, loadChats, saveChats } from './persistence.ts';
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
 import { hydrateTranscript } from './transcript.ts';
 
@@ -56,7 +56,7 @@ function useStorage(storage: MemoryStorage): void {
 
 function collection() {
   return replaceActiveTranscript(
-    createCollection(10, source(firstId)),
+    createCollection(10, source(firstId), 'specifico'),
     hydrateTranscript(plain),
     11
   );
@@ -74,9 +74,10 @@ test('missing storage creates and immediately persists one empty collection', ()
   const result = loadChats(42, source(firstId));
   assert.equal(result.warning, null);
   assert.equal(result.collection.activeChatId, firstId);
+  assert.equal(result.collection.chats[0].systemPrompt, '');
   assert.deepEqual(result.collection.chats[0].messages, []);
   assert.equal(storage.setCalls.length, 1);
-  assert.equal(JSON.parse(storage.setCalls[0][1]).version, 2);
+  assert.equal(JSON.parse(storage.setCalls[0][1]).version, 3);
 });
 
 test('a valid archive loads without storage mutation and hydrates IDs', () => {
@@ -97,12 +98,13 @@ test('a valid archive loads without storage mutation and hydrates IDs', () => {
 test('invalid archive cleanup reports the exact warning and touches only its key', () => {
   const storage = new MemoryStorage();
   storage.values.set(STORAGE_KEY, '{');
-  storage.values.set('graph-horizon.system-prompt', 'keep');
+  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'keep');
   useStorage(storage);
   const result = loadChats(1, source(firstId));
   assert.equal(result.warning, 'invalid-record');
+  assert.equal(result.collection.chats[0].systemPrompt, 'keep');
   assert.deepEqual(storage.removeCalls, [STORAGE_KEY]);
-  assert.equal(storage.values.get('graph-horizon.system-prompt'), 'keep');
+  assert.equal(storage.values.get(LEGACY_SYSTEM_PROMPT_KEY), 'keep');
   assert.deepEqual(storage.setCalls, []);
 });
 
@@ -121,15 +123,19 @@ test('legacy migration replaces the exact value only after a successful write', 
   const storage = new MemoryStorage();
   const legacy = JSON.stringify({ version: 1, messages: plain });
   storage.values.set(STORAGE_KEY, legacy);
+  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'legacy prompt');
   useStorage(storage);
   const result = loadChats(77, source(secondId));
   assert.equal(result.warning, null);
   assert.equal(result.collection.activeChatId, secondId);
+  assert.equal(result.collection.chats[0].systemPrompt, 'legacy prompt');
   assert.equal(storage.setCalls.length, 1);
-  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).version, 2);
+  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).version, 3);
+  assert.equal(storage.values.has(LEGACY_SYSTEM_PROMPT_KEY), false);
 
   const failed = new MemoryStorage();
   failed.values.set(STORAGE_KEY, legacy);
+  failed.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'legacy prompt');
   failed.throwSet = true;
   useStorage(failed);
   const fallback = loadChats(77, source(secondId));
@@ -139,15 +145,29 @@ test('legacy migration replaces the exact value only after a successful write', 
     plain
   );
   assert.equal(failed.values.get(STORAGE_KEY), legacy);
+  assert.equal(failed.values.get(LEGACY_SYSTEM_PROMPT_KEY), 'legacy prompt');
+});
+
+test('missing archive adopts the legacy prompt before removing its old key', () => {
+  const storage = new MemoryStorage();
+  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'solo prompt');
+  useStorage(storage);
+  const result = loadChats(42, source(firstId));
+  assert.equal(result.warning, null);
+  assert.equal(result.collection.chats[0].systemPrompt, 'solo prompt');
+  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).chats[0].systemPrompt, 'solo prompt');
+  assert.equal(storage.values.has(LEGACY_SYSTEM_PROMPT_KEY), false);
 });
 
 test('stable save uses one setItem and a failed save preserves the prior value', () => {
   const storage = new MemoryStorage();
   storage.values.set(STORAGE_KEY, 'old');
+  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'obsolete');
   useStorage(storage);
   assert.equal(saveChats(collection()), null);
   assert.equal(storage.setCalls.length, 1);
   const stable = storage.values.get(STORAGE_KEY);
+  assert.equal(storage.values.has(LEGACY_SYSTEM_PROMPT_KEY), false);
 
   storage.throwSet = true;
   assert.equal(saveChats(createCollection(20, source(secondId))), 'unavailable');

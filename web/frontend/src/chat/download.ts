@@ -1,8 +1,8 @@
 /*
  * download.ts — isolates the Blob/anchor browser-download side effect and
  * owns the exported chat file naming (graph-horizon-chat-<timestamp>.json),
- * mirroring how client.ts isolates fetch and systemPrompt.ts localStorage.
- * The function trusts its caller: no validation of the JSON text.
+ * mirroring how client.ts isolates fetch. The function trusts its caller: no
+ * validation of the JSON text.
  */
 export function downloadChatFile(jsonText: string): void {
   const now = new Date();

@@ -3,7 +3,7 @@
   surface. Conversation state and transport remain inside Chat.
 -->
 <script lang="ts">
-  import Chat from './components/Chat.svelte';
+  import Chat from './components/chat/Chat.svelte';
   import './theme/tokens.scss';
   import './theme/global.scss';
   import './theme/markdown.scss';

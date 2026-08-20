@@ -7,6 +7,7 @@
 import { get, type Writable } from 'svelte/store';
 import { streamAssistant } from './client.ts';
 import { admitMessages } from './context.ts';
+import { expandPromptWithMarkdownFiles } from './files/context.ts';
 import { activeChat } from './sessions.ts';
 import {
   appendAssistant,
@@ -23,6 +24,7 @@ import type {
   RuntimeContext,
   StreamEvent
 } from './types.ts';
+import type { MarkdownFileRecord } from './files/record.ts';
 
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Risposta interrotta';
@@ -33,20 +35,32 @@ export function createGeneration(
 ) {
   let controller: AbortController | null = null;
 
-  async function send(text: string, context: RuntimeContext): Promise<void> {
-    await generate('append', text.trim(), context);
+  async function send(
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    await generate('append', text.trim(), context, '', files);
   }
 
-  async function regenerate(context: RuntimeContext): Promise<void> {
+  async function regenerate(
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
     const snapshot = get(store);
     const pair = finalPair(activeChat(snapshot.collection).messages);
     if (pair) {
-      await generate('replace', pair[0].content, context, pair[0].id);
+      await generate('replace', pair[0].content, context, pair[0].id, files);
     }
   }
 
-  async function editPrompt(userId: string, text: string, context: RuntimeContext): Promise<void> {
-    await generate('replace', text.trim(), context, userId);
+  async function editPrompt(
+    userId: string,
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    await generate('replace', text.trim(), context, userId, files);
   }
 
   function stop(): void {
@@ -57,7 +71,8 @@ export function createGeneration(
     mode: 'append' | 'replace',
     prompt: string,
     context: RuntimeContext,
-    userId = ''
+    userId = '',
+    files: MarkdownFileRecord[] = []
   ): Promise<void> {
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
@@ -71,7 +86,7 @@ export function createGeneration(
     const previousMessages = chat.messages;
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
-    wire.push({ role: 'user', content: prompt });
+    wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
     const admission = admitMessages(wire, context);
     if (!admission.ok) {
       store.set({

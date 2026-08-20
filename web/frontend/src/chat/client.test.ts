@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { streamAssistant } from './client.ts';
+import { MAX_REQUEST_BYTES, streamAssistant } from './client.ts';
 
 const messages = [{ role: 'user' as const, content: 'ciao' }];
 const originalFetch = globalThis.fetch;
@@ -91,6 +91,24 @@ test('unsuccessful and bodyless responses use request failure', async () => {
       { message: 'Richiesta non riuscita' }
     );
   }
+});
+
+test('an oversized assembled JSON body is rejected before fetch', async () => {
+  let fetches = 0;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    throw new Error('unexpected fetch');
+  };
+  await assert.rejects(
+    streamAssistant(
+      [{ role: 'user', content: 'x'.repeat(MAX_REQUEST_BYTES) }],
+      4096,
+      () => {},
+      new AbortController().signal
+    ),
+    { message: 'Richiesta non riuscita' }
+  );
+  assert.equal(fetches, 0);
 });
 
 test('external abort remains a recognizable voluntary Stop', async t => {

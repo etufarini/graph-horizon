@@ -9,8 +9,9 @@
   import { renderMarkdown } from '../chat/markdown';
 
   export let content: string;
+  export let documentPreview = false;
 
-  $: html = renderMarkdown(content);
+  $: html = renderMarkdown(content, documentPreview);
 </script>
 
 <div class="markdown-body">{@html html}</div>

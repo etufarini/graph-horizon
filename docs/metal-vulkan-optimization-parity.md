@@ -205,6 +205,8 @@ the allocation bound; RoPE timing remains to be measured.
 | P03 | 64-row projection/graph tile | weight reuse and pure-Metal row ownership | Q4/Q6 3/32/64-row oracles; 64-row attention oracle; full Metal suite | 128 -18.39%; 512 -18.17%; 2K -16.07%; 8K -9.46% | RETAINED |
 | P04 | post-P03 stage attribution | timestamp instrumentation only | phase totals, category sums, diagnostics-free timing authority | required 128/2K/28K points captured; 90.96--99.63% kernel coverage plus measured command residual | EVIDENCE; profiler reverted |
 | P05a | grouped GQA decode, 128 threads | four query heads reuse one staged KV tile | 1,024/2,048 GPU serial oracle; route predicate | 128 control flat; 2K decode -16.00% | REJECTED; insufficient history parallelism |
+| P05b | grouped GQA decode, 256 threads | eight history streams/head plus four-head KV reuse | serial GPU oracle; full Metal suite; all six real models | 2K +10.59%; 8K +22.56%; 28K +31.92% decode | RETAINED |
+| P06 | post-P05b attribution | timestamp instrumentation only | phase totals and explicit grouped-pipeline classification | attention -26.4% at 2K/28K; 97.63% 28K decode coverage | EVIDENCE; profiler reverted |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -515,7 +517,68 @@ group in each pair writes that head's output. The main risks are partial-state
 indexing and a remaining twofold loss of history parallelism. The same oracle
 and 2K screen gate P05b before any long run.
 
+P05b is retained as exact commit `8408e92`. Its grouped result matches the
+forced serial Metal oracle at positions 1,024 and 2,048 within 0.02. The full
+Metal engine suite passes (139 unit and 17 non-ignored integration tests), and
+CPU plus Metal-hybrid compile controls pass with only the two acquired CPU SIMD
+warnings. All six 3B/8B/14B Instruct/Reasoning artifacts generate successfully
+beyond the route threshold. The broader root suite passes 165 of 166 tests;
+the unrelated remaining fixture hardcodes absent macOS path
+`/usr/bin/sha256sum`.
+
+| Position | Baseline A1 | P05b B | Baseline A2 | B vs A mean | Candidate decode CV | TTFT control |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 28.98 tok/s | 29.04 tok/s | 29.03 tok/s | +0.12% | 0.18% | -0.11% |
+| 2,048 | 25.21 tok/s | 27.98 tok/s | 25.30 tok/s | +10.79% | 0.14% | within 1.1% |
+| 8,192 | 12.08 tok/s | 14.48 tok/s | 11.55 tok/s | +22.56% | 0.32% | thermal only; route unchanged |
+| 28,000 | 4.26 tok/s | 5.62 tok/s | 4.26 tok/s | +31.92% | established by 2K/8K reps | thermal only; route unchanged |
+
+P06 reuses the isolated profiler as commit `4e509b3` and removes it with
+`62be3ef`. At 2K, grouped attention falls from 452.67 to 333.34 ms (-26.36%)
+and from 37.89% to 31.08% of decode kernel time. At 28K it falls from 6,422.10
+to 4,723.57 ms (-26.45%); prefill shares remain unchanged, while decode kernel
+coverage is 97.63%. Attention still owns 86.49% of sampled kernel time and
+84.45% of the enclosing GPU command interval, so the global stop is not yet
+met.
+
+### P05c structure amendment: full-parallel grouped split/reduce
+
+Target: the remaining twofold history-parallelism gap in P05b. Intentional
+variable: use one 512-thread split threadgroup per KV head, four SIMD groups
+per query head, and the same shared 32-token KV tile. Each group writes one
+FP32 online-softmax partial into an unused view of the persistent logits buffer;
+a 32-thread reduction pipeline combines four partials per query head. This
+restores the mode-5 sixteen history streams per head while retaining fourfold
+global KV reuse. P05b remains the exact fallback when SIMD32 or 512 threads are
+unavailable; Metal-hybrid, INT8, prefill, public APIs, and allocations remain
+unchanged.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── backend.rs                   (~250 productive lines; category I, no limit)
+├── pipeline.rs                  (~200 productive lines)
+├── kernels/attention.rs         (~200 productive lines)
+├── shaders/attention.metal      (category K, no line limit)
+└── kernels/mod.rs               (~25 production lines, excluding tests)
+```
+
+No new file is warranted: both pipelines are variants of causal attention,
+and their narrow dispatch remains in the attention operation module. Every
+orchestration file stays at or below 200 productive lines; `backend.rs` remains
+one category-I delegator block. The logits alias requires 65,536 bytes of FP32
+partials plus 1,024 bytes of state for the qualified 32-head shape, is checked
+against the real buffer before encoding, and is fully consumed before final
+logits overwrite it. Default Metal hazard tracking orders split writes before
+reduction reads in the same encoder.
+
+The invariants are that all 512 split threads reach both tile barriers, the
+four groups for each query head write disjoint partials, the reduction reads
+exactly those four states, and fallback routing occurs before any encoder
+mutation when resources do not qualify. Main risks are global-partial indexing,
+the extra dispatch, and 512-thread occupancy. The forced-serial oracle and 2K
+economic screen gate any longer run.
+
 ## Current next action
 
-Implement and numerically qualify P05b, then repeat the 2K screen. Continue to
-8K and 28K only if it clears that control and remains economically plausible.
+Implement and numerically qualify P05c, then repeat the 2K screen. Continue to
+8K and 28K only if it improves materially over retained P05b.

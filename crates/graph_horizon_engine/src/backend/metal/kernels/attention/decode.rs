@@ -3,14 +3,17 @@
  * Selects the qualified grouped split/reduce route and preserves the generic
  * attention fallback without owning pipelines or buffers.
  */
-use super::super::super::{
-    MetalBuffer, MetalEncoder,
-    exec::dispatch,
-    pipeline::{Kernel, PipelineRegistry},
-};
-use super::{constants, prefill};
-use crate::kv_cache::{Kv, scheme::KvQuant};
+use super::super::super::{MetalBuffer, MetalEncoder, pipeline::PipelineRegistry};
+#[cfg(feature = "metal")]
+use super::super::super::{exec::dispatch, pipeline::Kernel};
+#[cfg(feature = "metal")]
+use super::constants;
+use super::prefill;
+use crate::kv_cache::Kv;
+#[cfg(feature = "metal")]
+use crate::kv_cache::scheme::KvQuant;
 
+#[cfg(feature = "metal")]
 const PARALLEL_CONTEXT: u32 = 1024;
 #[cfg(feature = "metal")]
 const GQA_PARTS: u64 = 8;

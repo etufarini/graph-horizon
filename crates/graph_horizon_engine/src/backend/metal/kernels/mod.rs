@@ -709,7 +709,6 @@ mod tests {
             1,
             4,
             1,
-            1,
             &yarn,
             RopeRole::Key,
         )?;
@@ -732,114 +731,6 @@ mod tests {
         kv_write::encode(&encoder, &pipelines, &kv, &zero, &zero, 0, 0, 4, 4, 1)?;
         encoder.submit()?;
         assert_eq!(kv.k.read(bytes as usize)?, vec![0; bytes as usize]);
-        Ok(())
-    }
-
-    #[test]
-    fn batched_rope_matches_per_row_and_cpu_across_scale_bucket() -> Result<()> {
-        use crate::backend::rope::{RopeRole, Yarn};
-
-        const ROWS: usize = 3;
-        const Q_HEADS: usize = 2;
-        const K_HEADS: usize = 1;
-        const DIM: usize = 4;
-        const BASE: usize = 1;
-
-        let device = Device::acquire()?;
-        let pipelines = PipelineRegistry::load(&device)?;
-        let yarn = Yarn {
-            rope_dim: DIM,
-            original_context: 2,
-            freq_base: 10_000.,
-            factor: 2.,
-            beta_fast: 32.,
-            beta_slow: 1.,
-            log_multiplier: 1.,
-            q_temperature_scale: 0.5,
-        };
-        let q_values = (0..ROWS * Q_HEADS * DIM)
-            .map(|index| index as f32 / 8. - 1.)
-            .collect::<Vec<_>>();
-        let k_values = (0..ROWS * K_HEADS * DIM)
-            .map(|index| 1. - index as f32 / 8.)
-            .collect::<Vec<_>>();
-        let q_batched = buffer(&device, &q_values, MetalFormat::F16)?;
-        let k_batched = buffer(&device, &k_values, MetalFormat::F16)?;
-        let q_serial = buffer(&device, &q_values, MetalFormat::F16)?;
-        let k_serial = buffer(&device, &k_values, MetalFormat::F16)?;
-
-        let encoder = MetalEncoder::begin(&device)?;
-        rope::encode_batched(
-            &encoder,
-            &pipelines,
-            &q_batched,
-            &k_batched,
-            Q_HEADS as u32,
-            K_HEADS as u32,
-            DIM as u32,
-            BASE as u32,
-            ROWS as u32,
-            &yarn,
-        )?;
-        encoder.submit()?;
-
-        let q_stride = (Q_HEADS * DIM * 2) as u64;
-        let k_stride = (K_HEADS * DIM * 2) as u64;
-        let encoder = MetalEncoder::begin(&device)?;
-        for row in 0..ROWS {
-            rope::encode(
-                &encoder,
-                &pipelines,
-                &q_serial.view(row as u64 * q_stride, q_stride)?,
-                Q_HEADS as u32,
-                DIM as u32,
-                (BASE + row) as u32,
-                1,
-                &yarn,
-                RopeRole::Query,
-            )?;
-            rope::encode(
-                &encoder,
-                &pipelines,
-                &k_serial.view(row as u64 * k_stride, k_stride)?,
-                K_HEADS as u32,
-                DIM as u32,
-                (BASE + row) as u32,
-                1,
-                &yarn,
-                RopeRole::Key,
-            )?;
-        }
-        encoder.submit()?;
-
-        assert_eq!(
-            q_batched.read(q_values.len() * 2)?,
-            q_serial.read(q_values.len() * 2)?
-        );
-        assert_eq!(
-            k_batched.read(k_values.len() * 2)?,
-            k_serial.read(k_values.len() * 2)?
-        );
-
-        let got = halfs(&q_batched, q_values.len())?;
-        for row in 0..ROWS {
-            for head in 0..Q_HEADS {
-                for pair in 0..DIM / 2 {
-                    let index = (row * Q_HEADS + head) * DIM + pair * 2;
-                    let rotation = yarn.pair(RopeRole::Query, pair, BASE + row)?;
-                    let scale = yarn.post_scale(RopeRole::Query, BASE + row);
-                    let expected = [
-                        (q_values[index] * rotation.cos - q_values[index + 1] * rotation.sin)
-                            * scale,
-                        (q_values[index] * rotation.sin + q_values[index + 1] * rotation.cos)
-                            * scale,
-                    ];
-                    for (actual, expected) in got[index..index + 2].iter().zip(expected) {
-                        assert!((actual - expected).abs() <= 0.003, "{actual} != {expected}");
-                    }
-                }
-            }
-        }
         Ok(())
     }
 }

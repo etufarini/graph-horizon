@@ -210,35 +210,8 @@ impl Backend for MetalBackend {
             heads,
             head_dim,
             position,
-            1,
             yarn,
             role,
-        )
-    }
-
-    fn rope_yarn_batched(
-        &self,
-        encoder: &MetalEncoder,
-        q: &MetalBuffer,
-        k: &MetalBuffer,
-        q_heads: u32,
-        kv_heads: u32,
-        head_dim: u32,
-        base: u32,
-        rows: u32,
-        yarn: &crate::backend::rope::Yarn,
-    ) -> Result<()> {
-        kernels::rope::encode_batched(
-            encoder,
-            &self.pipelines,
-            q,
-            k,
-            q_heads,
-            kv_heads,
-            head_dim,
-            base,
-            rows,
-            yarn,
         )
     }
 

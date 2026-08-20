@@ -5,6 +5,7 @@
  */
 import { get, writable } from 'svelte/store';
 import { createGeneration } from './generation.ts';
+import { markdownFiles } from './files/state.ts';
 import { loadChats, saveChats } from './persistence.ts';
 import {
   activeChat,
@@ -19,6 +20,7 @@ import {
 import { finalPair, hydrateTranscript, removeTrailingTurn } from './transcript.ts';
 import { parseChatFile } from './transfer.ts';
 import type { ChatCollection, ChatSnapshot, RuntimeContext } from './types.ts';
+import type { MarkdownFileRecord } from './files/record.ts';
 
 export { wireMessages } from './transcript.ts';
 
@@ -37,20 +39,32 @@ function createChatState() {
   const store = writable<ChatSnapshot>(initialSnapshot());
   const generation = createGeneration(store, checkpoint);
 
-  async function send(text: string, context: RuntimeContext): Promise<void> {
-    await generation.send(text, context);
+  async function send(
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    await generation.send(text, context, files);
   }
 
   function stop(): void {
     generation.stop();
   }
 
-  async function regenerate(context: RuntimeContext): Promise<void> {
-    await generation.regenerate(context);
+  async function regenerate(
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    await generation.regenerate(context, files);
   }
 
-  async function editPrompt(userId: string, text: string, context: RuntimeContext): Promise<void> {
-    await generation.editPrompt(userId, text, context);
+  async function editPrompt(
+    userId: string,
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    await generation.editPrompt(userId, text, context, files);
   }
 
   function deleteLastTurn(): void {
@@ -85,7 +99,12 @@ function createChatState() {
   }
 
   function deleteChat(id: string): void {
+    const current = get(store);
+    if (current.status === 'streaming' || !current.collection.chats.some(chat => chat.id === id)) {
+      return;
+    }
     mutate(collection => deleteSession(collection, id));
+    void markdownFiles.removeChat(id);
   }
 
   function importChat(text: string): void {

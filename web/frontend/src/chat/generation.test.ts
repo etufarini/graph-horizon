@@ -12,6 +12,7 @@ import { createGeneration } from './generation.ts';
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
 import { hydrateTranscript } from './transcript.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
+import type { MarkdownFileRecord } from './files/record.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
 const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
@@ -111,6 +112,28 @@ test('append streams without checkpoints and commits once after idle', async () 
   assert.equal(get(store).status, 'idle');
   assert.equal(get(store).telemetry?.stats?.completionTokens, 3);
   assert.deepEqual(checkpoints, [id]);
+});
+
+test('Markdown files expand only the outgoing user copy', async () => {
+  const stream = controlledFetch();
+  const { store, generation } = harness();
+  const files: MarkdownFileRecord[] = [{
+    id: '00000000-0000-4000-8000-000000000002',
+    chatId: id,
+    name: 'note.md',
+    content: '# Fonte',
+    utf8Bytes: 7,
+    addedAt: 1
+  }];
+  const pending = generation.send('domanda visibile', context, files);
+  await tick();
+  const sent = stream.body().messages.at(-1).content as string;
+  assert.match(sent, /### File: note\.md/);
+  assert.ok(sent.endsWith("### Richiesta dell'utente\ndomanda visibile"));
+  assert.equal(plain(get(store)).at(-2)?.content, 'domanda visibile');
+  stream.done();
+  await pending;
+  assert.equal(plain(get(store)).at(-2)?.content, 'domanda visibile');
 });
 
 test('valid zero-delta completion retains the empty response and checkpoints', async () => {

@@ -13,6 +13,7 @@ import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage }
 const FAILED = 'Richiesta non riuscita';
 const INTERRUPTED = 'Connessione interrotta';
 const INACTIVITY_MS = 5 * 60_000;
+export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
   byte.toString(16).padStart(2, '0')
 ).join('');
@@ -73,17 +74,21 @@ export async function streamAssistant(
   signal.addEventListener('abort', stop, { once: true });
   if (signal.aborted) stop();
   try {
+    const body = JSON.stringify({
+      messages,
+      max_tokens: contextLimit,
+      stream: true
+    });
+    if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
+      throw new Error(FAILED);
+    }
     const response = await fetch('/v1/chat/completions', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-graph-horizon-cache': CACHE_KEY
       },
-      body: JSON.stringify({
-        messages,
-        max_tokens: contextLimit,
-        stream: true
-      }),
+      body,
       signal: controller.signal
     });
 

@@ -109,7 +109,7 @@ similarly named source exists.
 | Attention decode | generic plus vectorized GQA split/reduce | segmented persistent partial state per query head | F16/INT8 KV | decode | PARTIAL PARITY | missing cross-head reuse; medium-high |
 | Persistent attention state | Q64/other fused paths avoid global score/probability tensors | every Metal mode retains online-softmax accumulator/state | registers/threadgroup state | prefill/decode | PARITY | no rewrite |
 | Reduced attention traffic/barriers | Q64 avoids global intermediates and per-KV-tile barriers | mode 4 uses shared K/V tiles and two barriers/tile; other modes stream directly | fused | prefill | METAL UNDERPERFORMS | prior 8-row tile gained only 2.15% request; closed locally |
-| RoPE batching | one dispatch per role/context segment | two dispatches per prompt row through default trait | in-place FP16 Q/K | prefill | MISSING METAL IMPLEMENTATION | thousands of dispatches at long prompts; high, compact |
+| RoPE batching | one dispatch per role/context segment | two dispatches per prompt row through default trait | in-place FP16 Q/K | prefill | MISSING; ECONOMICALLY CLOSED | P02 gained 0.74%/1.88% at 128/512, below gate |
 | Final-only logits | shared graph emits tail only on final prompt chunk | same shared graph | FP32 logits | TTFT | PARITY | closed |
 | KV append | one batched append per layer/chunk | one batched append per layer/chunk | F16/INT8 KV | prefill | PARITY | prior Metal attribution negligible |
 | Request KV retention | single-slot allocation retained; optional exact keyed prefix | P01 enables the same single-slot ownership for pure Metal | backend-native KV buffers | repeated requests / TTFT | PARITY | removes 104--110 ms/request at 3B/context-32768 |
@@ -137,7 +137,7 @@ similarly named source exists.
 | GQA/KV reuse prefill | yes | yes | parity |
 | GQA/KV reuse decode | yes | no | missing |
 | vectorized decode | yes | yes | partial parity |
-| batched RoPE | yes | no | missing |
+| batched RoPE | yes | no | P02 economically closed |
 | final-only logits | yes | yes | parity |
 | resource retention | yes | model and request KV | parity after P01 |
 | shape/capability routing | yes | partial | missing row/batch eligibility |
@@ -189,7 +189,7 @@ the allocation bound; RoPE timing remains to be measured.
 | Rank | Candidate | Affected fraction / evidence | Realistic local speedup | Predicted removable | Decision gate |
 |---:|---|---|---:|---:|---|
 | 1 | retain Metal request KV and exact keyed prefix | 15.54% at 128; 4.05% at 512 | allocation-only elimination | 104--110 ms/request | RETAINED as P01 |
-| 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | dispatch/encoding term pending | bounded by non-matrix/attention + residual | compact parity gap; screen 128/512 |
+| 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | measured 47 ms at 512 | 1.88% at 512; about 1.5% stable 2K signal | REJECTED as P02 |
 | 3 | larger Metal prefill request ownership | 32-row qualified tiles; Vulkan gained 5--7% from larger ownership | 1.05--1.10x request estimate | about 0.12--0.26 s at 512 if estimate holds | requires >=5% and stable controls |
 | 4 | vectorized 4:1 GQA Metal decode | missing K/V reuse; long ratio reaches 1.84x | attribution pending | pending | implement only after decode attribution |
 | 5 | new long-prefill attention architecture | 45.8% at 8K and grows quadratically | prior local reuse only 1.09x attention | prior request result 2.15% | closed until distinct mechanism clears 10% request gate |
@@ -200,6 +200,7 @@ the allocation bound; RoPE timing remains to be measured.
 |---|---|---|---|---|---|
 | P00 | baseline | current production source | existing Metal suites | full 128--28K matrix above; every TTFT CV below 5% | evidence |
 | P01 | request KV lifetime | existing homogeneous cache enabled for pure Metal | 138 unit + 17 integration tests; repeated real generation | 128 -15.54%; 512 -4.05%; no decode regression | RETAINED |
+| P02 | RoPE dispatch batching | rows per Q/K dispatch | byte-exact old Metal route + CPU oracle; 139 unit + 17 integration tests | 128 -0.74%; 512 -1.88%; stable 2K signal about -1.5% | REJECTED below gate |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -257,8 +258,92 @@ bound where Amdahl makes it immaterial. First-request work and idle retained
 capacity are unchanged from the preflight budget; exact keyed prefix reuse is
 an additional semantic capability, not included in these unkeyed timings.
 
+### P02 structure checkpoint: batched Metal RoPE
+
+Target: prefill command recording and dispatch overhead. Intentional variable:
+replace Metal's portable per-row Q/K dispatch loop with one Q and one K dispatch
+per constant YaRN temperature bucket. The rotation formula, FP16 in-place
+layout, role scaling, graph order, barriers, hybrid behavior, and single-token
+entry point remain unchanged.
+
+The local change uses only existing files:
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── backend.rs                 (~250 productive lines; category I, no limit)
+├── kernels/rope.rs             (~125 productive lines)
+├── shaders/rope.metal          (~15 productive lines; category K, no limit)
+└── kernels/mod.rs              (~25 production lines, excluding tests)
+```
+
+`backend.rs` remains one category-I `impl Backend` of thin delegators;
+segmentation belongs to the focused RoPE dispatch file. `rope.metal` remains
+one category-K numeric operation. The invariant is that every row uses absolute
+position `base + row`, and query post-scale is constant only inside one
+`original_context` bucket; key scale remains one. The smallest viable change is
+one row count in the existing constants plus checked host segmentation. The
+main risk is crossing a query-temperature bucket or indexing a later row with
+the wrong stride. A multi-row GPU test will compare the batched route against
+the former per-row Metal route across a bucket boundary before benchmarking.
+
+P02 added a checked batched host route and one row dimension to the existing
+shader. Its cross-bucket GPU test was byte-identical to the former per-row Metal
+dispatches and within 0.003 of the CPU scalar oracle. All pure-Metal tests pass.
+The real-model screen compared retained P01 as A with P01+P02 as B:
+
+| Prompt | P01 A1 | P02 B | P01 A2 | B vs A mean | Candidate CV | Decode control |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 598.68 ms | 598.95 ms | 608.19 ms | -0.74% | 0.62% | -1.42% |
+| 512 | 2,519.85 ms | 2,469.98 ms | 2,514.84 ms | -1.88% | 0.15% | +0.33% |
+| 2,048 | 11,540.26 ms | 11,372.21 ms | 11,980.52 ms | -3.30% nominal | 0.34% | +0.18% |
+
+The final 2K baseline drifted 3.81% from A1 and had 1.68% within-run CV. The
+candidate's 168.05 ms lead over the stable A1 agrees with the 512-derived
+dispatch model (about 189 ms), giving a 1.46--1.88% repeatable signal rather
+than a repeatable 3% endpoint gain. Projecting the same linear dispatch term to
+8K yields about 0.8 seconds against a 77-second endpoint, far below the 5%
+long-context gate. P02 is therefore rejected despite removing real work. The
+exact candidate is commit `ceede6b`; `3089746` restores retained P01 source.
+
+### P03 structure checkpoint: 64-row Metal weight-tile reuse
+
+Target: the dominant quantized projection family and full-graph submission
+ownership. Intentional variable: add a separate 64-row SIMD-matrix kernel for
+pure Metal so one canonical K32 weight tile serves twice as many prompt rows,
+and submit the corresponding 64-row graph chunk. The existing 32-row kernel is
+unchanged for its route; mixed Metal, Vulkan, CPU, formats, arithmetic precision,
+weight representation, decode, and public APIs remain unchanged.
+
+The local change uses only existing files:
+
+```text
+crates/graph_horizon_engine/src/
+├── backend/selection.rs                         (~180 productive lines)
+├── backend/metal/mod.rs                         (~105 productive lines)
+├── backend/metal/pipeline.rs                    (~185 productive lines)
+├── backend/metal/mem/budget.rs                  (~180 productive lines)
+├── backend/metal/kernels/matmul.rs              (~180 productive lines)
+├── backend/metal/kernels/attention.rs           (~150 productive lines)
+├── backend/metal/shaders/matmul.metal           (category K, no limit)
+└── backend/metal/kernels/mod.rs                 (~25 production lines, excluding tests)
+```
+
+Every orchestration file remains below 200 productive lines. The projection
+shader remains one category-K family of per-format variants of one operation.
+The invariant is that each 64-row threadgroup uses 24,576 bytes (4 KiB weights,
+4 KiB activations, 16 KiB FP32 results), below the queried 32,768-byte limit;
+the existing 32-row route keeps its 14 KiB allocation and occupancy. Only the
+first 128 of 256 threads dequantize the shared weight tile, all eight SIMD groups
+multiply distinct 16-row tiles, and every thread reaches both barriers. The
+smallest viable change is one additional pipeline function plus a pure-Metal
+64-row capacity constant. The main risks are threadgroup indexing, memory-budget
+under-accounting, partial final batches, and losing the qualified 4:1 GQA
+attention route at 64 rows. Exact Q4/Q6 projection oracles, 32/64-row attention
+oracles, allocation-policy tests, the full Metal suite, and real A/B/A timing
+guard those boundaries. Retention requires at least 3% at 512/2K, no short or
+decode control worse than 5%, and at least 5% before claiming a long-context win.
+
 ## Current next action
 
-Commit retained P01, then implement and screen batched Metal RoPE against the
-frozen P00 and retained P01 binaries. Recalculate Amdahl ranking from the new
-endpoint and reprofile after every retained whole-request gain.
+Implement and screen P03 against retained P01. Recalculate Amdahl ranking from
+the new endpoint and reprofile after every retained whole-request gain.

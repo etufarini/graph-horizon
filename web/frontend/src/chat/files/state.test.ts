@@ -93,6 +93,27 @@ test('failed durable writes retain usable in-memory files with a warning', async
   assert.equal(get(state).warning, 'unavailable');
 });
 
+test('a pending read cannot leak busy or error state into a newly selected chat', async () => {
+  const storage = new MemoryStorage();
+  const state = createMarkdownFileState(storage);
+  await state.select(CHAT_ID);
+  let finish!: (bytes: ArrayBuffer) => void;
+  const bytes = new TextEncoder().encode('lento');
+  const slow = {
+    name: 'slow.md',
+    size: bytes.byteLength,
+    arrayBuffer: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; })
+  } as File;
+  const pending = state.add([slow], CHAT_ID, [], CONTEXT);
+  assert.equal(get(state).busy, true);
+  await state.select(OTHER_ID);
+  finish(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  await pending;
+  assert.equal(get(state).chatId, OTHER_ID);
+  assert.equal(get(state).busy, false);
+  assert.equal(get(state).error, null);
+});
+
 test('reconcile removes records owned by deleted chats', async () => {
   const storage = new MemoryStorage();
   storage.records = [{

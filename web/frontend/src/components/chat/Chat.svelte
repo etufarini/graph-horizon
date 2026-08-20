@@ -76,8 +76,10 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     selectedFileChat = currentChat.id;
     void markdownFiles.select(currentChat.id);
   }
-  $: filesReady = $markdownFiles.ready && $markdownFiles.chatId === currentChat.id;
-  $: fileOverhead = filesReady ? markdownFileOverhead($markdownFiles.files) : '';
+  $: filesLoaded = $markdownFiles.ready && $markdownFiles.chatId === currentChat.id;
+  $: filesReady = filesLoaded && !$markdownFiles.busy;
+  $: chatLocked = streaming || $markdownFiles.busy;
+  $: fileOverhead = filesLoaded ? markdownFileOverhead($markdownFiles.files) : '';
   $: occupancyMessages = [
     ...wireMessages(messages, currentChat.systemPrompt, streaming ? '' : draft),
     ...(fileOverhead ? [{ role: 'user' as const, content: fileOverhead }] : [])
@@ -153,7 +155,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     {chats}
     activeId={$chat.collection.activeChatId}
     open={historyOpen}
-    {streaming}
+    streaming={chatLocked}
     on:new={() => chat.newChat()}
     on:select={event => selectChat(event.detail)}
     on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
@@ -173,9 +175,9 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
       on:files={toggleFiles}
     />
 
-    <SystemPrompt value={currentChat.systemPrompt} disabled={streaming} on:change={event => chat.setSystemPrompt(event.detail)} />
-    <SessionActions importDisabled={streaming} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
-    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => chat.deleteLastTurn()} />
+    <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
+    <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
+    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />
@@ -188,7 +190,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     overlay={filesOverlay}
     disabled={streaming || runtimeContext === null}
     busy={$markdownFiles.busy}
-    ready={filesReady}
+    ready={filesLoaded}
     on:add={event => addFiles(event.detail)}
     on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
     on:delete={event => markdownFiles.remove(event.detail)}

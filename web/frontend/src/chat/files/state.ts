@@ -72,13 +72,13 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
     for (const file of selected) {
       const result = await readMarkdownFile(file, chatId);
       if (!result.ok) {
-        fail(fileError(result.error));
+        fail(chatId, fileError(result.error));
         return;
       }
       prepared.push(result.record);
     }
     if (new Set(prepared.map(file => file.name)).size !== prepared.length) {
-      fail('Selezione non valida: più file hanno lo stesso nome');
+      fail(chatId, 'Selezione non valida: più file hanno lo stesso nome');
       return;
     }
 
@@ -86,12 +86,12 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
     const retained = current.files.filter(file => !replacements.has(file.name));
     const candidate = ordered([...retained, ...prepared]);
     if (candidate.length > MAX_FILES_PER_CHAT) {
-      fail(`Limite file superato: massimo ${MAX_FILES_PER_CHAT} per chat`);
+      fail(chatId, `Limite file superato: massimo ${MAX_FILES_PER_CHAT} per chat`);
       return;
     }
     const bytes = candidate.reduce((total, file) => total + file.utf8Bytes, 0);
     if (!Number.isSafeInteger(bytes) || bytes > MAX_CHAT_FILE_BYTES) {
-      fail('Dimensione complessiva dei file superiore a 2 MiB');
+      fail(chatId, 'Dimensione complessiva dei file superiore a 2 MiB');
       return;
     }
     const overhead = markdownFileOverhead(candidate);
@@ -100,7 +100,7 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
       context
     );
     if (!admission.ok) {
-      fail(`Contesto insufficiente: i file superano il budget sicuro di ${admission.safePromptBudget} token`);
+      fail(chatId, `Contesto insufficiente: i file superano il budget sicuro di ${admission.safePromptBudget} token`);
       return;
     }
 
@@ -159,8 +159,11 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
     }
   }
 
-  function fail(error: string): void {
-    store.update(current => ({ ...current, busy: false, error }));
+  function fail(chatId: string, error: string): void {
+    store.update(current => current.chatId === chatId
+      ? { ...current, busy: false, error }
+      : current
+    );
   }
 
   return { subscribe: store.subscribe, select, add, remove, removeChat, reconcile };

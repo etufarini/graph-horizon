@@ -44,6 +44,7 @@ function createChatState() {
     context: RuntimeContext,
     files: MarkdownFileRecord[] = []
   ): Promise<void> {
+    if (get(markdownFiles).busy) return;
     await generation.send(text, context, files);
   }
 
@@ -55,6 +56,7 @@ function createChatState() {
     context: RuntimeContext,
     files: MarkdownFileRecord[] = []
   ): Promise<void> {
+    if (get(markdownFiles).busy) return;
     await generation.regenerate(context, files);
   }
 
@@ -64,12 +66,13 @@ function createChatState() {
     context: RuntimeContext,
     files: MarkdownFileRecord[] = []
   ): Promise<void> {
+    if (get(markdownFiles).busy) return;
     await generation.editPrompt(userId, text, context, files);
   }
 
   function deleteLastTurn(): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const chat = activeChat(current.collection);
     const pair = finalPair(chat.messages);
     if (!pair) return;
@@ -88,7 +91,8 @@ function createChatState() {
   function renameChat(id: string, requestedTitle: string): boolean {
     const current = get(store);
     const title = requestedTitle.trim();
-    if (current.status === 'streaming' || !title || Array.from(title).length > 80 ||
+    if (current.status === 'streaming' || get(markdownFiles).busy ||
+        !title || Array.from(title).length > 80 ||
         !current.collection.chats.some(chat => chat.id === id)) {
       return false;
     }
@@ -100,7 +104,8 @@ function createChatState() {
 
   function deleteChat(id: string): void {
     const current = get(store);
-    if (current.status === 'streaming' || !current.collection.chats.some(chat => chat.id === id)) {
+    if (current.status === 'streaming' || get(markdownFiles).busy ||
+        !current.collection.chats.some(chat => chat.id === id)) {
       return;
     }
     mutate(collection => deleteSession(collection, id));
@@ -109,7 +114,7 @@ function createChatState() {
 
   function importChat(text: string): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const result = parseChatFile(text);
     if (!result.ok) {
       const error = result.error === 'invalid-json'
@@ -136,7 +141,7 @@ function createChatState() {
   function setSystemPrompt(text: string): void {
     const current = get(store);
     // Persisting during streaming would checkpoint a partial assistant response.
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const collection = replaceActiveSystemPrompt(current.collection, text);
     if (collection === current.collection) return;
     store.set({ ...current, collection });
@@ -145,7 +150,7 @@ function createChatState() {
 
   function mutate(change: (collection: ChatCollection) => ChatCollection): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const collection = change(current.collection);
     if (collection === current.collection) return;
     store.set({

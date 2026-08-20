@@ -105,9 +105,9 @@ similarly named source exists.
 | Short/long prefill ownership | 256 rows portable, 512 when Q4 Matrix2 + Q64 attention, AMD 128/64 | P03 qualifies 64 rows for pure Metal | FP16 intermediates | medium/long prompts | PARTIAL PARITY | 16.07% at 2K and 9.46% at 8K; larger rows remain resource-bound |
 | Weight-tile reuse | Matrix paths decode once and reuse across 128/256 prompt rows | P03 decodes each K32 tile once for 64 prompt rows | packed canonical blocks | Q/K/V/O/MLP | METAL UNDERPERFORMS | doubled from 32; further doubling does not fit current result tile |
 | Decode GEMV | Q4 DP4A where qualified; exact per-format fallbacks | direct packed Q4/Q6 SIMD decode | canonical Q4_K/Q6_K | all decode projections/logits | METAL HAS BETTER ALTERNATIVE | short decode within 1.22x comparator on 3B; closed pending reprofile |
-| GQA decode | dedicated 4:1 split/reduce reuses K/V across query heads | per-query-head mode 1/2/3/5; no cross-head K/V reuse | F16/INT8 KV | especially long decode | MISSING METAL IMPLEMENTATION | 28K comparator ratio 1.84x; medium-high |
+| GQA decode | dedicated 4:1 split/reduce reuses K/V across query heads | P05d four-split 4:1 F16 route at base >=1,023; existing per-head fallbacks | F16/INT8 KV | especially long decode | PARITY principle for qualified F16 | +9.67% at 2K, +25.40% at 8K, +45.63% at 28K vs P05c |
 | Attention prefill | exact fused online softmax; Q32/Q64 Matrix2 and portable tiles | fused online softmax; mode 4 reuses a K/V tile across 4 query rows and four GQA heads | F16/INT8 KV | all prefill | PARITY principle; UNDERPERFORMS long | 45.8% at 8K, grows quadratically; high but prior local tiles closed |
-| Attention decode | generic plus vectorized GQA split/reduce | segmented persistent partial state per query head | F16/INT8 KV | decode | PARTIAL PARITY | missing cross-head reuse; medium-high |
+| Attention decode | generic plus vectorized GQA split/reduce | P05d split/reduce with shared K/V for qualified 4:1 F16; segmented fallback | F16/INT8 KV | decode | PARITY for qualified F16; PARTIAL other shapes | retained; P05e eight-split scaling closed below gate |
 | Persistent attention state | Q64/other fused paths avoid global score/probability tensors | every Metal mode retains online-softmax accumulator/state | registers/threadgroup state | prefill/decode | PARITY | no rewrite |
 | Reduced attention traffic/barriers | Q64 avoids global intermediates and per-KV-tile barriers | mode 4 uses shared K/V tiles and two barriers/tile; other modes stream directly | fused | prefill | METAL UNDERPERFORMS | prior 8-row tile gained only 2.15% request; closed locally |
 | RoPE batching | one dispatch per role/context segment | two dispatches per prompt row through default trait | in-place FP16 Q/K | prefill | MISSING; ECONOMICALLY CLOSED | P02 gained 0.74%/1.88% at 128/512, below gate |
@@ -136,7 +136,7 @@ similarly named source exists.
 | attention traffic optimization | yes | yes | Metal underperforms long |
 | persistent attention state | yes | yes | parity |
 | GQA/KV reuse prefill | yes | yes | parity |
-| GQA/KV reuse decode | yes | no | missing |
+| GQA/KV reuse decode | yes | yes, qualified 4:1 F16 | parity principle after P05d |
 | vectorized decode | yes | yes | partial parity |
 | batched RoPE | yes | no | P02 economically closed |
 | final-only logits | yes | yes | parity |
@@ -192,7 +192,7 @@ the allocation bound; RoPE timing remains to be measured.
 | 1 | retain Metal request KV and exact keyed prefix | 15.54% at 128; 4.05% at 512 | allocation-only elimination | 104--110 ms/request | RETAINED as P01 |
 | 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | measured 47 ms at 512 | 1.88% at 512; about 1.5% stable 2K signal | REJECTED as P02 |
 | 3 | 64-row Metal tile reuse and request ownership | 92.4% matrix share at 512 plus half as many weight reads/submits | measured 1.22x at 512 | 0.45 s at 512; 7.62 s at 8K | RETAINED as P03 |
-| 4 | vectorized 4:1 GQA Metal decode | attention is 89.44% of 28K decode kernel time; long ratio reaches 1.84x | 2x attention gives about 1.78x command speedup | about 3.2 s/token at 28K | next production candidate |
+| 4 | vectorized 4:1 GQA Metal decode | attention was 89.44% of 28K decode kernel time | measured split/reduce sequence | decode rises from 4.26 to 11.65 tok/s at 28K across retained steps | RETAINED through P05d |
 | 5 | new long-prefill attention architecture | 45.8% at 8K and grows quadratically | prior local reuse only 1.09x attention | prior request result 2.15% | closed until distinct mechanism clears 10% request gate |
 
 ## Experiment registry
@@ -209,6 +209,8 @@ the allocation bound; RoPE timing remains to be measured.
 | P06 | post-P05b attribution | timestamp instrumentation only | phase totals and explicit grouped-pipeline classification | attention -26.4% at 2K/28K; 97.63% 28K decode coverage | EVIDENCE; profiler reverted |
 | P05c | grouped split/reduce decode | restore sixteen history streams/head | serial GPU oracle; full Metal suite; all six real models | vs P05b: 2K +13.02%; 8K +29.74%; 28K +41.34% | RETAINED |
 | P07 | post-P05c attribution | timestamp instrumentation only | split and reduce both classified as attention | 2K attention 211.97 ms; 28K 2,958.31 ms; 96.59% coverage | EVIDENCE; profiler reverted |
+| P05d | four disjoint history splits | thirty-two aggregate streams/head without duplicate KV reads | serial GPU oracle; replicated 2K/8K; 28K endpoint | vs P05c: 2K +9.67%; 8K +25.40%; 28K +45.63% | RETAINED |
+| P05e | eight disjoint history splits | match Vulkan split count; sixty-four aggregate streams/head | serial GPU oracle; P05d A/B/A at 2K/8K | vs P05d: 2K -0.82%; 8K +2.51% | REJECTED below gate |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -625,6 +627,16 @@ are incorrect tile coverage, reduction indexing, and extra-dispatch overhead at
 short contexts. The serial oracle and 2K screen gate longer runs; if 2K loses
 but 8K is plausible, routing must use an evidence-based longer threshold.
 
+P05d is retained as exact commit `5c6b001`. Its serial oracle passes at both
+1,024 and 2,048. Against P05c bookends it is effectively neutral-to-positive
+at the route's shorter end and scales strongly with history length:
+
+| Position | P05c A1 | P05d B | P05c A2 | B vs A mean | Candidate decode CV |
+|---:|---:|---:|---:|---:|---:|
+| 2,048 | 31.54 tok/s | 34.47 tok/s | 31.32 tok/s | +9.67% | 0.06% |
+| 8,192 | 19.14 tok/s | 23.80 tok/s | 18.82 tok/s | +25.40% | 1.12% |
+| 28,000 | 8.00 tok/s | 11.65 tok/s | established P05c endpoint | +45.63% | established by 2K/8K reps |
+
 ### P05e structure amendment: Vulkan-parity split count
 
 Target: the last explicit split-count gap with Vulkan grouped decode.
@@ -651,8 +663,21 @@ reduction cost, dispatch saturation, and a context-dependent crossover. The
 same serial oracle gates performance measurement, followed by P05d A/B/A at
 2K and only the longer contexts justified by that screen.
 
+P05e is isolated as `a428d17` and removed by `01510ac`. It passes the same
+1,024/2,048 serial GPU oracle, but split-count scaling is already saturated:
+
+| Position | P05d A1 | P05e B | P05d A2 | B vs A mean | Candidate decode CV |
+|---:|---:|---:|---:|---:|---:|
+| 2,048 | 34.48 tok/s | 33.80 tok/s | 33.68 tok/s | -0.82% | 0.40% |
+| 8,192 | 23.79 tok/s | 24.46 tok/s | 23.93 tok/s | +2.51% | 0.28% |
+
+Both outcomes are below the 10% retention gate, so no 28K P05e run is
+warranted. Four splits are the measured winner on this Apple M4 despite
+Vulkan's eight-split implementation; optimization-principle parity does not
+require copying a device-specific split count.
+
 ## Current next action
 
-Finish the active P05d 28K screen, qualify P05e against the serial oracle, and
-use measured split-count scaling to select the final long-decode route. Then
-repeat stage attribution and apply the global stop rule.
+Run P05d's full correctness and six-model validation, repeat retained-source
+stage attribution, and apply the global stop rule to the remaining prefill and
+decode fractions.

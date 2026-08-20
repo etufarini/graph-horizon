@@ -188,7 +188,7 @@ device, allocation, pipeline, command, and readback failures remain errors.
 Sampling supports greedy/argmax and the public parameters defined by
 `SamplingParams`. Application surfaces may expose only a subset. The server and
 Web wrapper keep Instruct greedy and select the Reasoning sampling policy
-recorded in the current semantic campaign, with `temperature=0.7`; request
+defined by the qualification protocol, with `temperature=0.7`; request
 sampling fields remain ignored.
 
 Internal kernel numeric formats do not automatically expand the accepted GGUF

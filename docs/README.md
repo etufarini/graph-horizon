@@ -5,8 +5,6 @@ model-neutral behavior from the current support contract and validation evidence
 
 # Documentation
 
-- [Current optimization state](../CURRENT_OPTIMIZATION_STATE.md)
-
 These pages describe Graph Horizon surfaces and processes without assuming a
 specific model family, size, or release. Examples therefore use the
 `<model.gguf>` placeholder.
@@ -44,11 +42,15 @@ belong in the [validation register](../VALIDATION.md).
 | [kv-quant-mistral-validation.md](kv-quant-mistral-validation.md) | Ministral f16/int8 KV comparison contract |
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
-| [production-optimization-cleanup.md](production-optimization-cleanup.md) | Post-optimization ablations, retained invariants, and qualification evidence |
-| [vulkan-structural-phase2.md](vulkan-structural-phase2.md) | Structural Q4-versus-attention long-prefill investigation |
-| [vulkan-portable-phase2-integration.md](vulkan-portable-phase2-integration.md) | Qualified portable Vulkan integration and hardware-specialization baseline |
-| [metal-long-context-investigation.md](metal-long-context-investigation.md) | Vulkan-to-Metal long-context kernel investigation |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
+
+## Reviewed Evidence
+
+| Document | Contents |
+|---|---|
+| [Current optimization state](../CURRENT_OPTIMIZATION_STATE.md) | Retained CPU, Vulkan, AMD, and Metal results and remaining bottlenecks |
+| [Validation register](../VALIDATION.md) | Artifact identities, reviewed qualification evidence, and release readiness |
+| [Pre-release qualification](../RELEASE_QUALIFICATION.md) | Historical v0.1.0 candidate gates that must be refreshed before release |
 
 For installation, catalogs, and operational scripts, also see
 [support/README.md](../support/README.md).

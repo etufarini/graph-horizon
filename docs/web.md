@@ -103,8 +103,7 @@ placement configure the local engine. The Web wrapper publishes the loaded
 engine's `n_ctx` as both capacity fields.
 The browser sends `max_tokens` equal to `n_ctx`.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
-sampling policy recorded in the current semantic campaign, with
-`temperature=0.7`.
+sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Saved Chat Persistence
 

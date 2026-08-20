@@ -4,7 +4,10 @@ Candidate optimizations for prefill and decode, **sorted by risk under a bit-exa
 
 The decode loop runs once per generated token and is latency-sensitive, so per-iteration overhead dominates there. Prefill runs once over the prompt and is usually compute/throughput-bound, so it rewards better arithmetic intensity and parallelism. Match the optimization to the path you profiled.
 
-In this engine the tracers attribute time to fixed axes — prefill: Projections / SsmScan / Attn / Transfers / CpuGlue; decode: the same GPU-compute axes plus **`ReadbackSampling`** (per-token host readback of logits + host sampling). The standing decode suspect is the **per-token D2H round-trip** (one `submit_wait` + readback per generated token), so decode candidates that cut or amortise that readback are high-value (see the perf-gap notes). Pick the candidate that targets the axis your trace flagged.
+The retained public harness separates TTFT, prompt throughput, decode
+throughput, memory, and placement. Backend-internal profilers are intentionally
+not permanent production interfaces; add focused temporary attribution only
+when the public measurements cannot rank the next candidate.
 
 ---
 
@@ -12,7 +15,10 @@ In this engine the tracers attribute time to fixed axes — prefill: Projections
 
 These do not reorder or re-round floating-point arithmetic, so they should keep token IDs identical. Still gate every one — a logic bug can break bit-exactness even in a "safe" change.
 
-**Hot-path allocation removal (decode).** Per-token `Vec`/`String`/`Box` allocations are a classic decode killer. Pre-allocate buffers once and reuse them across tokens; use `Vec::clear()` + reuse instead of re-allocating; consider `SmallVec`/arena for tiny transient buffers. Eliminate `format!`/`to_string` on the hot path.
+**Hot-path allocation removal (decode).** Per-token `Vec`/`String`/`Box`
+allocations are a classic decode cost. Pre-allocate existing buffers and reuse
+them with `Vec::clear()` where ownership stays obvious. Do not add a dependency
+for a hypothetical allocation win.
 
 **Avoid copies and redundant clones.** Replace `.clone()` with borrows where lifetimes allow; pass slices instead of owned buffers; use `Cow` where appropriate. Each avoided memcpy is free latency.
 

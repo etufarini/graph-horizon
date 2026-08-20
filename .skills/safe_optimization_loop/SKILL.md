@@ -43,9 +43,9 @@ cargo test --workspace --no-default-features --features cpu
 cargo check --workspace --no-default-features --features <cpu|vulkan|vulkan-hybrid|metal|metal-hybrid>
 ```
 
-Usa uno dei due artefatti 3B fissati dalla specifica. Q8_0 e Q4_K_M sono casi
-separati; non richiedere token identici tra quantizzazioni. Registra SHA,
-contesto, KV e commit.
+Usa un artefatto 3B Q4_K_M autenticato da `support/models.tsv`. Q8_0 è soltanto
+un caso negativo del gate pubblico e non è un target di parity reale. Registra
+SHA, contesto, KV e commit.
 
 Leggi [references/correctness-oracle.md](references/correctness-oracle.md) per
 la matrice esatta e

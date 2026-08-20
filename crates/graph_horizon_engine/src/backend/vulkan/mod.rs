@@ -23,7 +23,9 @@ use crate::backend::buffers::Buffers;
 use buffers::GpuBuffer;
 #[cfg(not(feature = "vulkan-hybrid"))]
 use init::device::Device;
-use pipeline::{Kernel, PipelineRegistry};
+#[cfg(feature = "vulkan")]
+use pipeline::Kernel;
+use pipeline::PipelineRegistry;
 
 // Persistent resources owned by one Vulkan model backend.
 pub(crate) struct VulkanBackend {

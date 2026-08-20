@@ -92,9 +92,11 @@ kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device co
   threadgroup_barrier(mem_flags::mem_threadgroup);
   threadgroup const half*wm_base=weights+4*64*(sg&1);threadgroup const half*am_base=acts+2*64*(sg>>1);
   for(uint k=0;k<4;k++){
-   simdgroup_half8x8 wm[4],am[2];
+   simdgroup_half8x8 wm[4],am[2];simdgroup_barrier(mem_flags::mem_none);
    for(uint i=0;i<4;i++)simdgroup_load(wm[i],wm_base+64*i,8,0,false);
+   simdgroup_barrier(mem_flags::mem_none);
    for(uint i=0;i<2;i++)simdgroup_load(am[i],am_base+64*i,8,0,false);
+   simdgroup_barrier(mem_flags::mem_none);
    for(uint token=0;token<2;token++)for(uint column=0;column<4;column++){uint i=token*4+column;simdgroup_multiply_accumulate(acc[i],am[token],wm[column],acc[i]);}
    wm_base+=8*64;am_base+=8*64;
   }

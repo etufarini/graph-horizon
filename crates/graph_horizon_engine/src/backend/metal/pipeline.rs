@@ -130,6 +130,12 @@ impl PipelineRegistry {
                 .raw
                 .newComputePipelineStateWithFunction_error(&function)
                 .map_err(|_| eyre!("metal: pipeline creation failed"))?;
+            #[cfg(feature = "metal")]
+            if matches!(kernel, Kernel::MatmulBatchedWide)
+                && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 256)
+            {
+                return Err(eyre!("metal: wide prefill pipeline is unavailable"));
+            }
             values.push(Pipeline {
                 width: raw.threadExecutionWidth(),
                 max_threads: raw.maxTotalThreadsPerThreadgroup(),

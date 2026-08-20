@@ -322,6 +322,7 @@ The local change uses only existing files:
 crates/graph_horizon_engine/src/
 ├── backend/selection.rs                         (~180 productive lines)
 ├── backend/metal/mod.rs                         (~105 productive lines)
+├── backend/metal/device.rs                      (~145 productive lines)
 ├── backend/metal/pipeline.rs                    (~185 productive lines)
 ├── backend/metal/mem/budget.rs                  (~180 productive lines)
 ├── backend/metal/kernels/matmul.rs              (~180 productive lines)
@@ -344,6 +345,13 @@ attention route at 64 rows. Exact Q4/Q6 projection oracles, 32/64-row attention
 oracles, allocation-policy tests, the full Metal suite, and real A/B/A timing
 guard those boundaries. Retention requires at least 3% at 512/2K, no short or
 decode control worse than 5%, and at least 5% before claiming a long-context win.
+
+The first successful real run exposed one admission invariant that was not in
+the initial tree: standalone Metal must guarantee the wide kernel's 256 threads
+and 24 KiB threadgroup memory before selecting 64 rows. `device.rs` is therefore
+added above before that local fix. The pipeline registry also checks the
+compiled function's own 256-thread capacity. Metal-hybrid retains its existing
+128-thread/16 KiB device floor because it never selects the wide route.
 
 P03 adds a separate 256-thread wide pipeline; the retained 128-thread pipeline
 and mixed-placement route are unchanged. The wide Q4/Q6 projection matches the

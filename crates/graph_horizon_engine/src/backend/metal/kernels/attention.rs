@@ -93,14 +93,6 @@ fn geometry(
         Ok((0, heads, 0))
     } else {
         let qualified = dim == 128 && width == 32;
-        if f16
-            && qualified
-            && rows == 1
-            && base >= PARALLEL_CONTEXT - 1
-            && kvh.checked_mul(4) == Some(qh)
-        {
-            return Ok((6, kvh as usize, width * 4));
-        }
         if f16 && qualified && matches!(rows, 32 | 64) && kvh.checked_mul(4) == Some(qh) {
             let grid = (rows as usize / 4)
                 .checked_mul(kvh as usize)
@@ -170,11 +162,7 @@ mod tests {
         );
         assert_eq!(
             geometry(false, 1, 4, 1, 128, 1023, 32, true).unwrap(),
-            (6, 1, 128)
-        );
-        assert_eq!(
-            geometry(false, 1, 8, 4, 128, 1023, 32, true).unwrap(),
-            (5, 8, 128)
+            (5, 4, 128)
         );
         assert_eq!(
             geometry(false, 1, 4, 1, 128, 1023, 32, false).unwrap(),

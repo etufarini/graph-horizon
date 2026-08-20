@@ -88,8 +88,8 @@ submission. Collection rules, transport, and storage schemas remain outside.
     if (runtimeContext) void chat.regenerate(runtimeContext);
   }
 
-  function editLastPrompt(text: string): void {
-    if (runtimeContext) void chat.editLastPrompt(text, runtimeContext);
+  function editPrompt(userId: string, text: string): void {
+    if (runtimeContext) void chat.editPrompt(userId, text, runtimeContext);
   }
 </script>
 
@@ -121,7 +121,7 @@ submission. Collection rules, transport, and storage schemas remain outside.
 
     <SystemPrompt value={currentChat.systemPrompt} disabled={streaming} on:change={event => chat.setSystemPrompt(event.detail)} />
     <SessionActions importDisabled={streaming} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
-    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editLastPrompt(event.detail)} on:delete={() => chat.deleteLastTurn()} />
+    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => chat.deleteLastTurn()} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />

@@ -1,6 +1,6 @@
 /*
  * Transactional generation lifecycle: admits prompt occupancy before visible
- * mutation, then owns one request, timing, deltas, append/replacement rollback,
+ * mutation, then owns one request, timing, deltas, append/restart rollback,
  * voluntary Stop commit, and stable checkpoint signals. Chat-list, storage,
  * Reasoning presentation, and UI are excluded.
  */
@@ -10,10 +10,10 @@ import { admitMessages } from './context.ts';
 import { activeChat } from './sessions.ts';
 import {
   appendAssistant,
-  beforeFinalPair,
+  findTurn,
   finalPair,
   hydrateTranscript,
-  replaceFinalPair,
+  replaceFromTurn,
   wireMessages
 } from './transcript.ts';
 import type {
@@ -41,12 +41,12 @@ export function createGeneration(
     const snapshot = get(store);
     const pair = finalPair(activeChat(snapshot.collection).messages);
     if (pair) {
-      await generate('replace', pair[0].content, context);
+      await generate('replace', pair[0].content, context, pair[0].id);
     }
   }
 
-  async function editLastPrompt(text: string, context: RuntimeContext): Promise<void> {
-    await generate('replace', text.trim(), context);
+  async function editPrompt(userId: string, text: string, context: RuntimeContext): Promise<void> {
+    await generate('replace', text.trim(), context, userId);
   }
 
   function stop(): void {
@@ -56,19 +56,20 @@ export function createGeneration(
   async function generate(
     mode: 'append' | 'replace',
     prompt: string,
-    context: RuntimeContext
+    context: RuntimeContext,
+    userId = ''
   ): Promise<void> {
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
       return;
     }
     const chat = activeChat(current.collection);
-    const previousPair = mode === 'replace' ? finalPair(chat.messages) : null;
-    if (mode === 'replace' && !previousPair) {
+    const turn = mode === 'replace' ? findTurn(chat.messages, userId) : null;
+    if (mode === 'replace' && !turn) {
       return;
     }
     const previousMessages = chat.messages;
-    const prior = mode === 'replace' ? beforeFinalPair(previousMessages) : previousMessages;
+    const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: prompt });
     const admission = admitMessages(wire, context);
@@ -81,15 +82,16 @@ export function createGeneration(
       return;
     }
 
+    // Replacement IDs remain stable so only its newly trailing assistant can stream.
     const pair = mode === 'append'
       ? hydrateTranscript([
           { role: 'user', content: prompt },
           { role: 'assistant', content: '' }
         ])
-      : previousPair!;
+      : [turn!.user, turn!.assistant];
     const messages = mode === 'append'
       ? [...previousMessages, ...pair]
-      : replaceFinalPair(previousMessages, pair[0].id, pair[1].id, prompt, '');
+      : replaceFromTurn(previousMessages, pair[0].id, prompt, '');
     const chatId = chat.id;
     const assistantId = pair[1].id;
     controller = new AbortController();
@@ -181,7 +183,7 @@ export function createGeneration(
     });
   }
 
-  return { send, regenerate, editLastPrompt, stop };
+  return { send, regenerate, editPrompt, stop };
 }
 
 function withMessages(

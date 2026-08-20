@@ -49,8 +49,8 @@ function createChatState() {
     await generation.regenerate(context);
   }
 
-  async function editLastPrompt(text: string, context: RuntimeContext): Promise<void> {
-    await generation.editLastPrompt(text, context);
+  async function editPrompt(userId: string, text: string, context: RuntimeContext): Promise<void> {
+    await generation.editPrompt(userId, text, context);
   }
 
   function deleteLastTurn(): void {
@@ -165,7 +165,7 @@ function createChatState() {
 
   return {
     subscribe: store.subscribe,
-    send, stop, regenerate, editLastPrompt, deleteLastTurn,
+    send, stop, regenerate, editPrompt, deleteLastTurn,
     newChat, selectChat, renameChat, deleteChat, importChat, setSystemPrompt
   };
 }

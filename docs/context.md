@@ -79,8 +79,11 @@ successful duration.
 ## Presentation Edge Cases
 
 Empty occupancy is zero. CLI shows counts without a percentage or bar. Web text
-uses `ceil(estimated_messages * 100 / context_limit)` and may exceed 100%; its
-accessible graphical value and fill are clamped to 100.
+shows the estimated occupancy, immutable context limit, and
+`ceil(estimated_messages * 100 / context_limit)` percentage together. The
+approximation marker remains visible because the estimate is not tokenizer
+output. The percentage may exceed 100%; its accessible graphical value and fill
+are clamped to 100.
 
 See [console.md](console.md) for the terminal label and [web.md](web.md) for the
 browser bar, colors, and timing presentation.

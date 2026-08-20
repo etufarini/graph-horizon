@@ -62,6 +62,7 @@ export interface RuntimeContext {
 
 export interface ContextUsage {
   estimatedTokens: number;
+  contextLimit: number;
   percent: number;
   progress: number;
 }

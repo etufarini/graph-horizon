@@ -203,7 +203,7 @@ test('invalid JSON preserves prompt and archive while export stays public versio
   assert.equal('title' in exported, false);
 });
 
-test('streaming guards every collection and last-turn mutation', async () => {
+test('streaming guards every collection and turn mutation', async () => {
   chat.selectChat(snapshot.collection.chats.find(item => item.messages.length > 0)!.id);
   storage.resetCalls();
   const stream = controlledFetch();
@@ -220,7 +220,7 @@ test('streaming guards every collection and last-turn mutation', async () => {
   chat.importChat(imported('blocked'));
   chat.setSystemPrompt('blocked');
   await chat.regenerate(context);
-  await chat.editLastPrompt('blocked', context);
+  await chat.editPrompt(active().messages[0].id, 'blocked', context);
   assert.equal(snapshot.collection, collection);
   assert.equal(conversationSets().length, 0);
   stream.delta('kept');

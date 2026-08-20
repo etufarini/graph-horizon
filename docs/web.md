@@ -1,6 +1,6 @@
 <!--
 This document owns the current local browser UI, static routes, multi-chat
-history, last-turn controls, browser persistence, Reasoning presentation, and
+history, turn controls, browser persistence, Reasoning presentation, and
 transfer format. It does not own server or model policy or describe removed
 tool/workspace capabilities.
 -->
@@ -152,7 +152,7 @@ errors, generation timing, context settings, and presentation-only Reasoning
 state.
 
 Stable transcript checkpoints are successful `[DONE]`, settled Stop,
-regenerate, edit-and-regenerate, and deletion of the final turn. They update
+regenerate, edit-and-restart, and deletion of the final turn. They update
 that chat's `updatedAt` and save the complete collection once after idle state.
 Creating, selecting, renaming, or deleting a chat and importing a chat also
 save immediately. System-prompt edits save immediately but, like selection and
@@ -203,31 +203,37 @@ remaining chat; deleting the only chat creates one empty active replacement.
 Deleting a final turn does not reset an already derived title.
 
 History creation, selection, rename, and deletion are disabled during
-streaming. Import and all final-turn controls are disabled at the same time;
-Stop remains available.
+streaming. Import and all turn controls are disabled at the same time; Stop
+remains available.
 
-### Last-Turn Controls
+### Turn Controls
 
-Only the final complete pair exposes controls: `MODIFICA` and `ELIMINA` below
-the user message, and `RIGENERA` below the assistant response. Earlier turns
-cannot be edited. Edit uses the current prompt as a local multiline draft;
-empty trimmed edits cannot be saved, and cancel or Escape discards the draft.
-Deletion asks `Eliminare l’ultimo turno? Il messaggio e la risposta verranno
-rimossi.` and removes the entire pair after confirmation.
+Every complete user message exposes `MODIFICA`. Only the final pair also exposes
+`ELIMINA` below the user message and `RIGENERA` below the assistant response.
+Edit uses the current prompt as a local multiline draft; empty trimmed edits
+cannot be saved, and cancel or Escape discards the draft. Saving an earlier
+prompt asks for confirmation because its old assistant response and every later
+turn will be removed. Saving the final prompt requires no additional
+confirmation. Deletion asks `Eliminare l’ultimo turno? Il messaggio e la
+risposta verranno rimossi.` and removes the entire final pair after confirmation.
 
 Regenerate sends the unchanged final user prompt with the system prompt and all
 messages before the final pair; the previous assistant response is excluded.
-Edit-and-regenerate substitutes the trimmed edited prompt. Capacity admission
-runs against that candidate and prior context before fetch or visible mutation.
-A rejected candidate leaves the stable transcript and archive unchanged.
+Edit-and-restart sends the trimmed edited prompt with only the messages before
+its selected pair. At generation start the selected pair keeps its runtime IDs,
+receives the edited prompt and an empty assistant response, and all causal
+successors are removed. Capacity admission runs against that candidate and
+prior context before fetch or visible mutation. A rejected or stale candidate
+leaves the stable transcript and archive unchanged.
 
 A new-send transport failure removes its uncommitted appended pair. A failed
-regenerate or edit-and-regenerate instead restores the exact prior user and
-assistant pair. An unsuccessful or bodyless HTTP response shows `Richiesta non
-riuscita`; timeout, missing `[DONE]`, or protocol/transport failure shows
-`Risposta interrotta`. Stop commits the candidate prompt and current replacement
-response, including an empty assistant response, clears final timing, updates
-recency, and saves once after abort settles. Stream deltas are never persisted.
+regenerate or edit-and-restart instead restores the exact complete transcript,
+including every removed successor. An unsuccessful or bodyless HTTP response
+shows `Richiesta non riuscita`; timeout, missing `[DONE]`, or protocol/transport
+failure shows `Risposta interrotta`. Stop commits the candidate prompt and
+current replacement response, including an empty assistant response, clears
+final timing, updates recency, and saves once after abort settles. Stream deltas
+are never persisted.
 
 ### Responsive Chat History
 
@@ -239,7 +245,7 @@ Escape close the mobile drawer and return focus to the accessible history
 toggle. The chat list and transcript scroll independently while the document
 body and composer remain fixed in the viewport. Collapse state is not stored.
 
-All history and final-turn controls are keyboard reachable, use visible focus
+All history and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
 
 ## Context And Generation Status
@@ -257,11 +263,14 @@ chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
 the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
-Whenever configuration is valid, `Contesto N%` appears above a horizontal
-progress bar. The visible percentage is not capped. The fill is normal below
-80%, warning from 80% through 99%, and error at 100% or above; its width and
-ARIA current value are capped at 100. The element exposes `role="progressbar"`,
-minimum 0, maximum 100, and the accessible name `Occupazione del contesto`.
+Whenever configuration is valid, `Contesto ≈N / M token · P%` appears above a
+horizontal progress bar, where `N` is the estimated current occupancy and `M`
+is the immutable context limit. The approximation marker distinguishes this
+live capacity estimate from exact post-generation engine metrics. The visible
+percentage is not capped. The fill is normal below 80%, warning from 80% through
+99%, and error at 100% or above; its width and ARIA current value are capped at
+100. The element exposes `role="progressbar"`, minimum 0, maximum 100, and the
+accessible name `Occupazione del contesto`.
 
 The header keeps immutable runtime identity separate from per-request status. It
 shows the loaded GGUF `general.name` when safe, otherwise `Modello locale`, then
@@ -349,7 +358,7 @@ become short UI messages; parser, engine, storage, and filesystem details are
 not shown. The Web gate rejects over-budget requests before transport.
 
 The Web UI has no server persistence, accounts, authentication, account or
-cross-tab synchronization/merge, response-version history, earlier-turn
-editing, chat search, pins, archive folders, bulk deletion, or model selection
-for regenerate. It also has no API-key flow, tool calling, workspace, separate
+cross-tab synchronization/merge, response-version or branch history, chat
+search, pins, archive folders, bulk deletion, or model selection for
+regenerate. It also has no API-key flow, tool calling, workspace, separate
 Reasoning protocol/state channel, or advanced sampling controls.

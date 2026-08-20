@@ -10,6 +10,7 @@
   export let warning: PersistenceWarning | null;
   export let error: string | null;
   export let usage: ContextUsage | null;
+  const tokens = new Intl.NumberFormat('it-IT');
   $: fillClass = !usage || usage.percent < 80
     ? 'fill-normal'
     : usage.percent < 100
@@ -31,7 +32,7 @@
 {#if usage}
   <div class="status-panel">
     <div class="status-labels">
-      <span>Contesto {usage.percent}%</span>
+      <span>Contesto ≈{tokens.format(usage.estimatedTokens)} / {tokens.format(usage.contextLimit)} token · {usage.percent}%</span>
     </div>
     <div
       class="context-track"

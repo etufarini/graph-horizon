@@ -193,13 +193,46 @@ test('regenerate excludes the old response and preserves the exact user prompt',
   assert.deepEqual(checkpoints, [id]);
 });
 
-test('edit trims the prompt, and a failed replacement restores the exact pair', async () => {
-  const original = snapshot();
+test('editing an earlier prompt truncates successors and sends only its causal prefix', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'prima domanda' },
+    { role: 'assistant', content: 'prima risposta' },
+    { role: 'user', content: 'domanda successiva' },
+    { role: 'assistant', content: 'risposta successiva' }
+  ]);
+  const userId = original.collection.chats[0].messages[0].id;
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness(original);
-  const pending = generation.editLastPrompt('  modificata 🧠  ', context);
+  const pending = generation.editPrompt(userId, '  modificata 🧠  ', context);
   await tick();
+  assert.deepEqual(stream.body().messages, [
+    { role: 'system', content: 'sistema' },
+    { role: 'user', content: 'modificata 🧠' }
+  ]);
+  assert.equal(plain(get(store)).length, 2);
   assert.equal(plain(get(store)).at(-2)?.content, 'modificata 🧠');
+  stream.delta('nuovo percorso');
+  stream.done();
+  await pending;
+  assert.deepEqual(plain(get(store)), [
+    { role: 'user', content: 'modificata 🧠' },
+    { role: 'assistant', content: 'nuovo percorso' }
+  ]);
+  assert.deepEqual(checkpoints, [id]);
+});
+
+test('a failed earlier edit restores the exact complete transcript', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'prima domanda' },
+    { role: 'assistant', content: 'prima risposta' },
+    { role: 'user', content: 'domanda successiva' },
+    { role: 'assistant', content: 'risposta successiva' }
+  ]);
+  const userId = original.collection.chats[0].messages[0].id;
+  const stream = controlledFetch();
+  const { store, checkpoints, generation } = harness(original);
+  const pending = generation.editPrompt(userId, 'modificata', context);
+  await tick();
   stream.delta('provvisoria');
   stream.close();
   await pending;
@@ -211,7 +244,8 @@ test('edit trims the prompt, and a failed replacement restores the exact pair', 
 test('stopping replacement commits candidate prompt with empty response', async () => {
   controlledFetch();
   const { store, checkpoints, generation } = harness();
-  const pending = generation.editLastPrompt('  candidata  ', context);
+  const userId = get(store).collection.chats[0].messages[0].id;
+  const pending = generation.editPrompt(userId, '  candidata  ', context);
   await tick();
   generation.stop();
   await pending;
@@ -227,16 +261,18 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   fetchHandler = async () => { fetches += 1; throw new Error('unexpected'); };
   const initial = snapshot();
   const { store, checkpoints, generation } = harness(initial);
-  await generation.editLastPrompt('   ', context);
-  await generation.send('troppo lungo', {
-    contextLimit: 10,
-    safePromptBudget: 9
+  const userId = initial.collection.chats[0].messages[0].id;
+  await generation.editPrompt(userId, '   ', context);
+  await generation.editPrompt('missing', 'valid', context);
+  await generation.editPrompt(userId, 'troppo lungo', {
+    contextLimit: 4,
+    safePromptBudget: 3
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));
   assert.equal(
     get(store).error,
-    'Contesto insufficiente: ~11 token stimati superano il budget sicuro di 9 token'
+    'Contesto insufficiente: ~4 token stimati superano il budget sicuro di 3 token'
   );
   assert.deepEqual(checkpoints, []);
 });

@@ -60,7 +60,7 @@ function estimate(messages: WireMessage[], context: RuntimeContext): { valid: bo
     }
     characters += contentCharacters;
     if (!Number.isSafeInteger(characters)) {
-      return overflowUsage();
+      return overflowUsage(context.contextLimit);
     }
   }
   const estimatedTokens = Math.floor(characters / 4);
@@ -70,21 +70,31 @@ function estimate(messages: WireMessage[], context: RuntimeContext): { valid: bo
       : (BigInt(estimatedTokens) * BigInt(100) + BigInt(context.contextLimit) - BigInt(1)) /
         BigInt(context.contextLimit);
   if (percentBig > BigInt(MAX_SAFE)) {
-    return overflowUsage();
+    return overflowUsage(context.contextLimit);
   }
   const percent = Number(percentBig);
   return {
     valid: true,
     estimatedTokens,
-    usage: { estimatedTokens, percent, progress: Math.min(percent, 100) }
+    usage: {
+      estimatedTokens,
+      contextLimit: context.contextLimit,
+      percent,
+      progress: Math.min(percent, 100)
+    }
   };
 }
 
-function overflowUsage() {
+function overflowUsage(contextLimit: number): { valid: false; estimatedTokens: number; usage: ContextUsage } {
   return {
     valid: false,
     estimatedTokens: MAX_SAFE,
-    usage: { estimatedTokens: MAX_SAFE, percent: MAX_SAFE, progress: 100 }
+    usage: {
+      estimatedTokens: MAX_SAFE,
+      contextLimit,
+      percent: MAX_SAFE,
+      progress: 100
+    }
   };
 }
 

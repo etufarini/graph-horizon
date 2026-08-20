@@ -440,10 +440,43 @@ speedup, nearly identical to the acquired 1.84x Vulkan/Metal comparator ratio.
 This is direct evidence for a grouped 4:1 GQA decode experiment, not merely a
 source-parity argument.
 
+### P05 structure checkpoint: grouped Metal GQA decode
+
+Target: the dominant long-context decode-attention traffic. Intentional
+variable: for pure-Metal F16 decode with head dimension 128 and exact 4:1 GQA,
+replace one mode-5 threadgroup per query head with one mode-6 threadgroup per
+KV head. Its four SIMD groups own the four query heads and cooperatively stage
+one 32-token K/V tile, reducing global K/V reads fourfold. The existing serial,
+medium, segmented, INT8, mixed-placement, and prefill modes remain exact
+fallbacks.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── kernels/attention.rs         (~160 productive lines)
+├── shaders/attention.metal      (category K, no line limit)
+└── kernels/mod.rs               (~25 production lines, excluding tests)
+```
+
+No new file, pipeline, scratch buffer, or durable abstraction is warranted.
+`attention.rs` remains the single operation's shape/capability dispatch and
+below 200 productive lines. `attention.metal` remains a category-K family for
+one numeric operation. The invariant is that all 128 threads reach both tile
+barriers; each KV head maps to exactly query heads `4*kh..4*kh+3`; tiles never
+read past configured context; and only positions through the current causal
+position contribute. The shared tile is exactly 16,384 bytes, matching the
+already-qualified mode-4 allocation.
+
+The smallest viable change is one new mode in the existing function plus its
+exact routing predicate. The main risks are reduced history parallelism,
+changed FP32 summation order, and a barrier or tail-tile indexing error. A GPU
+comparison against the forced serial Metal route at the 1,024 boundary and a
+later context must pass before real-model A/B/A. Retention requires at least
+10% long-decode improvement, no more than 5% short/control regression, finite
+outputs, and no generation drift beyond the repository's approved numeric
+tolerance.
+
 ## Current next action
 
-Audit the Vulkan grouped 4:1 decode kernel against Metal mode 5 and record the
-smallest capability/shape-gated Metal structure before editing. Preserve the
-current F16/INT8 modes as exact fallbacks. Screen the candidate at short, 2K,
-8K, and 28K positions; retain it only if long decode clears 10% with no
-material short regression or correctness drift.
+Implement and numerically qualify P05, then screen it at short, 2K, 8K, and
+28K positions. Retain it only if long decode clears 10% with no material short
+regression or correctness drift.

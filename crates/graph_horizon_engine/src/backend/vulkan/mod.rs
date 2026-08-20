@@ -23,6 +23,8 @@ use crate::backend::buffers::Buffers;
 use buffers::GpuBuffer;
 #[cfg(not(feature = "vulkan-hybrid"))]
 use init::device::Device;
+#[cfg(feature = "vulkan")]
+use pipeline::Kernel;
 use pipeline::PipelineRegistry;
 
 // Persistent resources owned by one Vulkan model backend.
@@ -60,6 +62,9 @@ pub(crate) const MMVQ_SCRATCH_ELEMENTS: u64 = MMVQ_SCRATCH_IN_DIM * MMVQ_SCRATCH
 // Eight complete Matrix2 row tiles amortize command recording without padding.
 #[cfg(feature = "vulkan")]
 const PREFILL_ROWS: usize = 256;
+// Registered direct-Q4 and Q64 pipelines benefit from twice the dispatch-level reuse.
+#[cfg(feature = "vulkan")]
+const MATRIX2_PREFILL_ROWS: usize = 512;
 // RADV's watchdog bounds one full-graph submission on the measured AMD family.
 // Sixteen Q4-MMQ row tiles keep late long-context chunks below that boundary.
 #[cfg(feature = "vulkan")]
@@ -70,11 +75,18 @@ const AMD_PREFILL_ROWS: usize = 128;
 const AMD_LONG_PREFILL_ROWS: usize = 64;
 
 #[cfg(feature = "vulkan")]
-const fn prefill_rows(vendor_id: u32, block_count: usize, context: usize) -> usize {
+const fn prefill_rows(
+    vendor_id: u32,
+    block_count: usize,
+    context: usize,
+    matrix2_wide: bool,
+) -> usize {
     if vendor_id == device::AMD_VENDOR_ID && block_count >= 32 && context >= 16_384 {
         AMD_LONG_PREFILL_ROWS
     } else if vendor_id == device::AMD_VENDOR_ID {
         AMD_PREFILL_ROWS
+    } else if matrix2_wide {
+        MATRIX2_PREFILL_ROWS
     } else {
         PREFILL_ROWS
     }
@@ -83,24 +95,31 @@ const fn prefill_rows(vendor_id: u32, block_count: usize, context: usize) -> usi
 #[cfg(feature = "vulkan")]
 impl VulkanBackend {
     pub(crate) fn prefill_rows(&self, block_count: usize, context: usize) -> usize {
-        prefill_rows(self.dev.vendor_id, block_count, context)
+        // Both consumers must profit from the larger request scratch; partial
+        // Matrix2 devices keep the portable 256-row ownership.
+        let matrix2_wide = self.reg.contains(Kernel::MatmulQ4KMatrix2F16Out)
+            && self.reg.contains(Kernel::AttentionPrefillMatrix2Q64);
+        prefill_rows(self.dev.vendor_id, block_count, context, matrix2_wide)
     }
 }
 
 #[cfg(all(test, feature = "vulkan"))]
 mod prefill_policy_tests {
-    use super::{AMD_LONG_PREFILL_ROWS, AMD_PREFILL_ROWS, PREFILL_ROWS, prefill_rows};
+    use super::{
+        AMD_LONG_PREFILL_ROWS, AMD_PREFILL_ROWS, MATRIX2_PREFILL_ROWS, PREFILL_ROWS, prefill_rows,
+    };
 
     #[test]
-    fn amd_bounds_prefill_submissions_without_changing_other_vendors() {
+    fn prefill_rows_preserve_amd_bounds_and_require_both_matrix2_paths() {
         let amd = super::device::AMD_VENDOR_ID;
-        assert_eq!(prefill_rows(amd, 26, 28_160), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 31, 16_384), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_384), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 33, 16_384), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_383), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_385), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(0x10de, 40, 32_768), PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 26, 28_160, true), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 31, 16_384, true), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_384, true), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 33, 16_384, true), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_383, true), AMD_PREFILL_ROWS);
+        assert_eq!(prefill_rows(amd, 32, 16_385, true), AMD_LONG_PREFILL_ROWS);
+        assert_eq!(prefill_rows(0x10de, 40, 32_768, false), PREFILL_ROWS);
+        assert_eq!(prefill_rows(0x10de, 40, 32_768, true), MATRIX2_PREFILL_ROWS);
     }
 }
 

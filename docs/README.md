@@ -45,6 +45,8 @@ belong in the [validation register](../VALIDATION.md).
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
 | [production-optimization-cleanup.md](production-optimization-cleanup.md) | Post-optimization ablations, retained invariants, and qualification evidence |
+| [vulkan-structural-phase2.md](vulkan-structural-phase2.md) | Structural Q4-versus-attention long-prefill investigation |
+| [vulkan-portable-phase2-integration.md](vulkan-portable-phase2-integration.md) | Qualified portable Vulkan integration and hardware-specialization baseline |
 | [metal-long-context-investigation.md](metal-long-context-investigation.md) | Vulkan-to-Metal long-context kernel investigation |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 

@@ -90,7 +90,7 @@ for model lifetime. All current buffers use shared storage on unified memory.
 | medium decode | row 1, base >=511, head 128 | four lane-octet segments | mode 2 | shorter or other dimension |
 | RoPE prefill | Q and K rows | batched role dispatch | default trait emits two dispatches per row | Metal has no batched override |
 | graph tail/logits | final prompt row only | one norm and logits projection | selected by shared graph on last chunk only | none |
-| request KV | K/V for full configured context | retained capacity | allocated and freed for every Metal request | cache is Vulkan-gated |
+| request KV | K/V for full configured context | retained capacity | P01 retains one successful pure-Metal session allocation | none for pure Metal; hybrid remains request-local |
 
 ## Mandatory parity matrix
 
@@ -112,8 +112,8 @@ similarly named source exists.
 | RoPE batching | one dispatch per role/context segment | two dispatches per prompt row through default trait | in-place FP16 Q/K | prefill | MISSING METAL IMPLEMENTATION | thousands of dispatches at long prompts; high, compact |
 | Final-only logits | shared graph emits tail only on final prompt chunk | same shared graph | FP32 logits | TTFT | PARITY | closed |
 | KV append | one batched append per layer/chunk | one batched append per layer/chunk | F16/INT8 KV | prefill | PARITY | prior Metal attribution negligible |
-| Request KV retention | single-slot allocation retained; optional exact keyed prefix | new allocation and destruction per request | backend-native KV buffers | repeated requests / TTFT | MISSING METAL IMPLEMENTATION | must isolate allocation cost; high by priority rule |
-| Prefix reuse | exact caller key + token prefix | public call falls back to uncached generation | KV state | repeated chats | MISSING METAL IMPLEMENTATION | potentially request-scale; requires same session cache |
+| Request KV retention | single-slot allocation retained; optional exact keyed prefix | P01 enables the same single-slot ownership for pure Metal | backend-native KV buffers | repeated requests / TTFT | PARITY | removes 104--110 ms/request at 3B/context-32768 |
+| Prefix reuse | exact caller key + token prefix | P01 enables the same exact key/token-prefix path | KV state | repeated chats | PARITY principle | shared cache tests pass; endpoint gain depends on common prefix |
 | Weight loading | persistent device-local canonical blocks | one model-lifetime copy into shared canonical buffers | Q4_K/Q5_K/Q6_K/F16 | model load | METAL HAS BETTER ARCHITECTURAL FIT | unified-memory hot path shows no transfer term; closed |
 | Direct canonical Q4 | direct packed callback; no expansion | direct `q4`/`q4x16`; no expansion | canonical Q4_K | prefill/decode | PARITY | closed |
 | Direct canonical Q6 | packed routes; staged alternatives rejected where inferior | direct `q6`/`q6x16`; no expansion | canonical Q6_K | prefill/decode | PARITY | audit independently in measurements |
@@ -139,7 +139,7 @@ similarly named source exists.
 | vectorized decode | yes | yes | partial parity |
 | batched RoPE | yes | no | missing |
 | final-only logits | yes | yes | parity |
-| resource retention | yes | model only | request KV missing |
+| resource retention | yes | model and request KV | parity after P01 |
 | shape/capability routing | yes | partial | missing row/batch eligibility |
 
 ## Fresh Metal baseline
@@ -183,12 +183,12 @@ renaming a kernel. GPU and end-to-end A/B measurements still decide retention.
 
 ## Initial Amdahl ranking
 
-No candidate is retained from this table alone. Allocation and RoPE timing will
-replace the conservative bounds before implementation decisions.
+No candidate was retained from this table alone. P01 measurements now replace
+the allocation bound; RoPE timing remains to be measured.
 
 | Rank | Candidate | Affected fraction / evidence | Realistic local speedup | Predicted removable | Decision gate |
 |---:|---|---|---:|---:|---|
-| 1 | retain Metal request KV and exact keyed prefix | allocation is currently once/request; direct timing pending | allocation-only elimination | pending | compact parity gap; keep only above noise |
+| 1 | retain Metal request KV and exact keyed prefix | 15.54% at 128; 4.05% at 512 | allocation-only elimination | 104--110 ms/request | RETAINED as P01 |
 | 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | dispatch/encoding term pending | bounded by non-matrix/attention + residual | compact parity gap; screen 128/512 |
 | 3 | larger Metal prefill request ownership | 32-row qualified tiles; Vulkan gained 5--7% from larger ownership | 1.05--1.10x request estimate | about 0.12--0.26 s at 512 if estimate holds | requires >=5% and stable controls |
 | 4 | vectorized 4:1 GQA Metal decode | missing K/V reuse; long ratio reaches 1.84x | attribution pending | pending | implement only after decode attribution |
@@ -199,6 +199,7 @@ replace the conservative bounds before implementation decisions.
 | ID | Target | Intentional variable | Correctness gate | Result | Decision |
 |---|---|---|---|---|---|
 | P00 | baseline | current production source | existing Metal suites | full 128--28K matrix above; every TTFT CV below 5% | evidence |
+| P01 | request KV lifetime | existing homogeneous cache enabled for pure Metal | 138 unit + 17 integration tests; repeated real generation | 128 -15.54%; 512 -4.05%; no decode regression | RETAINED |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -236,9 +237,28 @@ and destruction operations per request. P01 removes that repeated term after
 the first successful request; measured A/B determines its fraction rather than
 assuming allocation time from byte size.
 
+P01 changed 36 lines and removed 33 across the seven existing files. Pure
+Metal engine tests pass (138 unit, 17 non-ignored integration), as does the full
+Metal workspace check. The real-model screen used the frozen P00 binary as both
+A bookends and the isolated P01 binary as B:
+
+| Prompt | Baseline A1 | P01 B | Baseline A2 | B vs A mean | Candidate CV | Decode control |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 720.11 ms | 597.86 ms | 695.69 ms | -15.54% | 0.54% | +0.49% |
+| 512 | 2,568.62 ms | 2,461.29 ms | 2,561.89 ms | -4.05% | 0.42% | +0.73% |
+| 2,048 | 11,394.31 ms | 11,549.94 ms | 12,142.31 ms | -1.86% | 2.12% | +0.10% |
+
+The 2K bookends show a 6.56% thermal trajectory, so that row is a regression
+control rather than the allocation-cost estimate. The stable 128/512 brackets
+isolate a 104--110 ms fixed term; their mean, 107.00 ms, predicts only 0.94% at
+the 2K P00 endpoint. The candidate therefore satisfies the short/medium 3% gate
+where the eliminated fixed cost is material and stays inside the 5% control
+bound where Amdahl makes it immaterial. First-request work and idle retained
+capacity are unchanged from the preflight budget; exact keyed prefix reuse is
+an additional semantic capability, not included in these unkeyed timings.
+
 ## Current next action
 
-Freeze the fresh baseline checkpoint, isolate Metal KV allocation and RoPE
-command cost, calculate Amdahl values from those measurements, then test the
-highest-ranked compact parity gap. Reprofile after every retained whole-request
-gain.
+Commit retained P01, then implement and screen batched Metal RoPE against the
+frozen P00 and retained P01 binaries. Recalculate Amdahl ranking from the new
+endpoint and reprofile after every retained whole-request gain.

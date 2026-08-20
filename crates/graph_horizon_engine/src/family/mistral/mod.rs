@@ -71,7 +71,7 @@ pub(crate) struct RuntimeModel {
     pub(crate) context: usize,
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
     pub(crate) backend: selection::SelectedBackend,
-    #[cfg(feature = "vulkan")]
+    #[cfg(any(feature = "vulkan", feature = "metal"))]
     pub(in crate::family::mistral) session_cache:
         std::sync::Mutex<Option<generation::SessionCache>>,
 }
@@ -98,7 +98,7 @@ impl RuntimeModel {
             context,
             scheme: settings.kv_quant,
             backend,
-            #[cfg(feature = "vulkan")]
+            #[cfg(any(feature = "vulkan", feature = "metal"))]
             session_cache: std::sync::Mutex::new(None),
         })
     }
@@ -112,7 +112,7 @@ impl RuntimeModel {
     }
 }
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 impl Drop for RuntimeModel {
     fn drop(&mut self) {
         let slot = self

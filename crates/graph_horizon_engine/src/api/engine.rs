@@ -107,9 +107,9 @@ impl Engine {
     }
 
     pub fn generate_cached(&self, cache_key: [u8; 16], request: Request, sink: &mut dyn EventSink) {
-        #[cfg(feature = "vulkan")]
+        #[cfg(any(feature = "vulkan", feature = "metal"))]
         mistral::generation::generate_cached(&self.model, cache_key, request, sink);
-        #[cfg(not(feature = "vulkan"))]
+        #[cfg(not(any(feature = "vulkan", feature = "metal")))]
         {
             let _ = cache_key;
             mistral::generation::generate(&self.model, request, sink);

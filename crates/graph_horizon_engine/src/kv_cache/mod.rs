@@ -1,18 +1,17 @@
 /*
- * graph_horizon_engine — per-request KV cache
+ * graph_horizon_engine — request-session KV storage
  * Owns the `Kv` type (the key/value buffers plus the shape and the runtime
  * scheme needed to index them) and orchestrates its lifecycle as a thin layer
- * over the backend: allocate both buffers, append the current token, free
- * always. Every GPU action goes through the `Backend` primitives
+ * over the backend: allocate both buffers transactionally, append tokens, and
+ * free both buffers exactly once. Every GPU action goes through the `Backend` primitives
  * (`alloc_buffer`/`free_buffer`/`kv_write`); all layout arithmetic and the
  * position invariant live in `layout`, the per-scheme byte sizes in `scheme`.
  * The scheme is chosen once at load (I1) and fixed before any alloc; backends
  * branch on it once per call (I2). Each buffer holds a payload region followed
- * by a metadata region (identical layout for K and V). Allocated at the
- * K and V retain their own logical head widths and therefore their own checked
- * payload/metadata offsets. Allocated at the start of a request, freed on every
- * exit path (even on error): no orphaned
- * VRAM. No raw math and no concrete GPU API here.
+ * by a metadata region. K and V retain their own logical head widths and their
+ * own checked payload/metadata offsets. A homogeneous GPU session may transfer
+ * ownership to one serialized model cache; errors and final model drop still
+ * release it. No raw math and no concrete GPU API here.
 */
 
 #[cfg(any(
@@ -30,9 +29,8 @@ use color_eyre::eyre::Result;
 use crate::backend::Backend;
 use crate::kv_cache::scheme::{KvQuant, KvRole};
 
-// Per-request KV cache: the key/value buffers plus the shape and scheme needed
-// to index them. A plain data holder — allocation/append/free are the
-// functions below.
+// Request-session KV storage: the key/value buffers plus the shape and scheme
+// needed to index them. Allocation, append, and exact-once free are below.
 pub(crate) struct Kv<Buf> {
     pub k: Buf,
     pub v: Buf,

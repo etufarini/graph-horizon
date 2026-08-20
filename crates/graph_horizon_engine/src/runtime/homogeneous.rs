@@ -1,7 +1,8 @@
 /*
  * graph_horizon_engine — homogeneous request session
- * Owns one backend's per-request KV, delegates full graph traversal, readback,
- * and deterministic cleanup. It owns no family parsing, loading, or placement.
+ * Owns one backend's request KV, delegates full graph traversal and readback,
+ * and frees state unless transferred to a homogeneous cache. It owns no family
+ * parsing, loading, or placement.
  */
 
 use std::marker::PhantomData;
@@ -68,7 +69,7 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
         self.kv.as_ref().expect("request KV exists until drop")
     }
 
-    #[cfg(feature = "vulkan")]
+    #[cfg(any(feature = "vulkan", feature = "metal"))]
     pub(crate) fn into_state(mut self) -> Kv<B::Buffer> {
         self.kv.take().expect("cached session returns its KV")
     }

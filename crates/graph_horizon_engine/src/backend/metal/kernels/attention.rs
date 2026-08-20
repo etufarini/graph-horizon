@@ -110,7 +110,7 @@ pub(crate) fn encode(
         let matrix = p.get(Kernel::AttentionPrefillMatrix);
         if matrix.width == 32
             && matrix.max_threads >= 1024
-            && matrix.threadgroup_memory == 28 * 1024
+            && matrix.threadgroup_memory <= 28 * 1024
         {
             c.extend(0_u32.to_ne_bytes());
             return dispatch::encode_threadgroups(

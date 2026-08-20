@@ -312,5 +312,19 @@ not justified by a qualified whole-workload gain. Commits `ac6edc9` and
 `d458cd6` retain the experiment and its non-destructive removal; production is
 back to M01.
 
+### M03 — remove swizzled-load SIMD barriers: REJECT
+
+M03 removed the three `mem_none` SIMD-group barriers around each K8 matrix-load
+step in M01. The K32 threadgroup tiles are immutable during this phase, so this
+was a trivial, broadly reusable test with unchanged arithmetic and traffic; its
+predicted whole-request range was 1.7--4.0% at 2K.
+
+The Q4/Q6 oracle passed, but the 3B/512 A/B/A was 1,899.01 ms for M01,
+1,910.15 ms for M03, and 1,896.78 ms for the M01 bookend. Candidate CV was
+0.06% and both controls were below 0.23%. The barriers are therefore retained
+as useful compiler scheduling hints: removing them produces no gain and a
+small repeatable regression. Exact candidate `2a3a55f` was removed by
+`f124a37`.
+
 Final matrices and reproduction commands will be appended as the investigation
 proceeds.

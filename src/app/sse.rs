@@ -27,6 +27,7 @@ struct Chunk {
 #[derive(Serialize)]
 struct Usage {
     prompt_tokens: usize,
+    prefill_tokens: usize,
     completion_tokens: usize,
     prefill_ms: u64,
     decode_ms: u64,
@@ -100,6 +101,7 @@ fn usage_line_at(stats: &GenerationStats, created: u64) -> String {
         None,
         Some(Usage {
             prompt_tokens: stats.prompt_tokens,
+            prefill_tokens: stats.prefill_tokens,
             completion_tokens: stats.completion_tokens,
             prefill_ms: stats.prefill_ms,
             decode_ms: stats.decode_ms,
@@ -140,13 +142,14 @@ mod tests {
     fn usage_line_matches_server_usage_chunk_shape() {
         let stats = GenerationStats {
             prompt_tokens: 128,
+            prefill_tokens: 96,
             completion_tokens: 42,
             prefill_ms: 400,
             decode_ms: 875,
         };
         assert_eq!(
             usage_line_at(&stats, 7),
-            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":128,\"completion_tokens\":42,\"prefill_ms\":400,\"decode_ms\":875}}\n\n"
+            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}],\"usage\":{\"prompt_tokens\":128,\"prefill_tokens\":96,\"completion_tokens\":42,\"prefill_ms\":400,\"decode_ms\":875}}\n\n"
         );
     }
 
@@ -172,6 +175,7 @@ mod tests {
     fn server_usage_line_carries_exact_stats() {
         let line = usage_line(&GenerationStats {
             prompt_tokens: 128,
+            prefill_tokens: 96,
             completion_tokens: 42,
             prefill_ms: 400,
             decode_ms: 875,
@@ -181,10 +185,11 @@ mod tests {
         let json: serde_json::Value =
             serde_json::from_str(line.trim_start_matches("data: ").trim_end()).unwrap();
         assert_eq!(json["usage"]["prompt_tokens"], 128);
+        assert_eq!(json["usage"]["prefill_tokens"], 96);
         assert_eq!(json["usage"]["completion_tokens"], 42);
         assert_eq!(json["usage"]["prefill_ms"], 400);
         assert_eq!(json["usage"]["decode_ms"], 875);
-        assert_eq!(json["usage"].as_object().unwrap().len(), 4);
+        assert_eq!(json["usage"].as_object().unwrap().len(), 5);
         assert!(json["choices"][0]["finish_reason"].is_null());
     }
 

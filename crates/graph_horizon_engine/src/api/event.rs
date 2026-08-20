@@ -8,8 +8,15 @@
 use super::request::EventSink;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GenerationPhase {
+    Prefill,
+    Decode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenerationStats {
     pub prompt_tokens: usize,
+    pub prefill_tokens: usize,
     pub completion_tokens: usize,
     pub prefill_ms: u64,
     pub decode_ms: u64,
@@ -17,6 +24,7 @@ pub struct GenerationStats {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Event {
+    Phase(GenerationPhase),
     TextDelta(String),
     Finished(GenerationStats),
     Error(String),
@@ -37,6 +45,13 @@ impl<'a> Terminal<'a> {
 
     pub(crate) fn cancelled(&self) -> bool {
         self.closed || self.sink.cancelled()
+    }
+
+    pub(crate) fn phase(&mut self, phase: GenerationPhase) -> bool {
+        if self.cancelled() || !self.sink.emit(Event::Phase(phase)) {
+            self.closed = true;
+        }
+        !self.closed
     }
 
     pub(crate) fn delta(&mut self, text: String) -> bool {

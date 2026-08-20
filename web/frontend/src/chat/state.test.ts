@@ -63,6 +63,10 @@ function controlledFetch() {
     const body = new ReadableStream<Uint8Array>({
       start(value) {
         controller = value;
+        controller.enqueue(encoder.encode(
+          'data: {"graph_horizon":{"phase":"prefill"}}\n\n' +
+          'data: {"graph_horizon":{"phase":"decode"}}\n\n'
+        ));
         init?.signal?.addEventListener('abort', () =>
           controller.error(new DOMException('Aborted', 'AbortError')),
         { once: true });
@@ -76,7 +80,10 @@ function controlledFetch() {
       controller.enqueue(encoder.encode(`data: ${data}\n\n`));
     },
     done() {
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.enqueue(encoder.encode(
+        'data: {"usage":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
+        'data: [DONE]\n\n'
+      ));
       controller.close();
     }
   };
@@ -196,7 +203,7 @@ test('invalid JSON preserves prompt and archive while export stays public versio
   assert.equal('title' in exported, false);
 });
 
-test('streaming guards every collection and last-turn mutation', async () => {
+test('streaming guards every collection and turn mutation', async () => {
   chat.selectChat(snapshot.collection.chats.find(item => item.messages.length > 0)!.id);
   storage.resetCalls();
   const stream = controlledFetch();
@@ -213,7 +220,7 @@ test('streaming guards every collection and last-turn mutation', async () => {
   chat.importChat(imported('blocked'));
   chat.setSystemPrompt('blocked');
   await chat.regenerate(context);
-  await chat.editLastPrompt('blocked', context);
+  await chat.editPrompt(active().messages[0].id, 'blocked', context);
   assert.equal(snapshot.collection, collection);
   assert.equal(conversationSets().length, 0);
   stream.delta('kept');

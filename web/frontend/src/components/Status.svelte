@@ -2,37 +2,15 @@
   /*
    * Status.svelte
    * Single responsibility: present independent persistence warning/error
-   * strips, accessible context progress, and client-perceived generation time.
+   * strips and accessible context progress. Inference telemetry is presented by
+   * Metrics so estimated capacity never mixes with measured engine values.
    */
-  import { onDestroy } from 'svelte';
   import type { ContextUsage, PersistenceWarning } from '../chat/types';
 
   export let warning: PersistenceWarning | null;
   export let error: string | null;
   export let usage: ContextUsage | null;
-  export let generationStartedAt: number | null;
-  export let generationMs: number | null;
-
-  let now = performance.now();
-  let timer: ReturnType<typeof setInterval> | null = null;
-
-  function stopTimer(): void {
-    if (timer !== null) {
-      clearInterval(timer);
-      timer = null;
-    }
-  }
-
-  $: if (generationStartedAt !== null && timer === null) {
-    now = performance.now();
-    timer = setInterval(() => (now = performance.now()), 250);
-  } else if (generationStartedAt === null) {
-    stopTimer();
-  }
-
-  $: elapsedMs = generationStartedAt === null
-    ? generationMs
-    : Math.max(0, now - generationStartedAt);
+  const tokens = new Intl.NumberFormat('it-IT');
   $: fillClass = !usage || usage.percent < 80
     ? 'fill-normal'
     : usage.percent < 100
@@ -41,8 +19,6 @@
   $: warningText = warning === 'invalid-record'
     ? 'Conversazione salvata non valida: avvio con una chat vuota'
     : warning === 'unavailable' ? 'Persistenza non disponibile: la conversazione resterà solo in memoria' : null;
-
-  onDestroy(stopTimer);
 </script>
 
 {#if warningText}
@@ -56,10 +32,7 @@
 {#if usage}
   <div class="status-panel">
     <div class="status-labels">
-      <span>Contesto {usage.percent}%</span>
-      {#if elapsedMs !== null}
-        <span>Generazione {(elapsedMs / 1000).toFixed(1)}s</span>
-      {/if}
+      <span>Contesto ≈{tokens.format(usage.estimatedTokens)} / {tokens.format(usage.contextLimit)} token · {usage.percent}%</span>
     </div>
     <div
       class="context-track"

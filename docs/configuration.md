@@ -135,8 +135,9 @@ Those labels and their hardware/software scopes belong to the
 
 Every other platform/backend tuple is rejected before `npm` or Cargo starts;
 there is no backend or profile fallback. The local form above builds the
-checkout directly. After the repository is public, the public acquisition form
-downloads immutable `v0.1.0` and delegates to that same local installer:
+checkout directly. After the repository, tag, and release assets are public,
+the public acquisition form downloads immutable `v0.1.0` and delegates to that
+same local installer:
 
 ```sh
 curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend cpu

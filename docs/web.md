@@ -1,6 +1,6 @@
 <!--
 This document owns the current local browser UI, static routes, multi-chat
-history, last-turn controls, browser persistence, Reasoning presentation, and
+history, turn controls, browser persistence, Reasoning presentation, and
 transfer format. It does not own server or model policy or describe removed
 tool/workspace capabilities.
 -->
@@ -44,6 +44,7 @@ suite with Node's TypeScript stripping.
 | `GET /index.html` | Serves `index.html` |
 | `GET /assets/*` | Serves a built asset |
 | `GET /props` | Returns positive context and generation limits |
+| `GET /runtime` | Returns bounded model, backend, placement, and planned memory data |
 | `POST /v1/chat/completions` | Streams chat with SSE |
 
 There is no SPA fallback for other paths and there are no workspace, tool, or
@@ -71,20 +72,24 @@ its lifetime. On the Vulkan profile, the server retains one KV allocation and
 reuses only an exact rendered-token prefix with the same key. Another page may
 replace that slot; requests without the header keep the uncached behavior.
 
-On page initialization the browser requests exact `/props` with a three-second
-timeout. Send remains disabled until `n_ctx` and `max_tokens` are equal positive
-safe integers whose 90% prompt budget is non-zero. A failed, timed-out,
-malformed, unequal, non-integer, unsafe, or non-positive response shows
-`Configurazione del contesto non disponibile`.
+On page initialization the browser requests exact `/props` and `/runtime`, each
+with a three-second timeout. Send remains disabled until `n_ctx` and
+`max_tokens` are equal positive safe integers whose 90% prompt budget is
+non-zero. A failed, timed-out, malformed, unequal, non-integer, unsafe, or
+non-positive context response shows `Configurazione del contesto non
+disponibile`. Runtime metadata is informational and is omitted when unavailable;
+it does not weaken the capacity gate.
 
-The browser consumes only non-empty string `delta.content` and requires `[DONE]`
-for successful completion. It stops reading immediately at that sentinel. Usage
-and final-stop frames are tolerated but do not drive presentation. Invalid JSON,
-server error objects, `reasoning_content`, and tool frames interrupt the response
-without exposing payload details. A five-minute inactivity watchdog starts before
-the request and resets on every non-empty body chunk; it is not a total generation
-timeout. The stop button aborts voluntarily and retains the active
-pair, including partial raw text, to preserve alternating history.
+The browser consumes only non-empty string `delta.content`, ordered Graph
+Horizon prefill/decode frames, and one complete usage frame before `[DONE]`.
+Usage must contain exact non-negative prompt, prefill, completion, prefill-time,
+and decode-time values; prefill tokens cannot exceed prompt tokens. Data after
+usage, invalid JSON, server error objects, `reasoning_content`, and tool frames
+interrupt the response without exposing payload details. A five-minute
+inactivity watchdog starts before the request and resets on every non-empty body
+chunk; it is not a total generation timeout. The stop button aborts voluntarily
+and retains the active pair, including partial raw text, to preserve alternating
+history.
 
 The composer remains editable while a response is streaming, so the next
 message can be prepared without starting a concurrent request. Send stays
@@ -98,8 +103,7 @@ placement configure the local engine. The Web wrapper publishes the loaded
 engine's `n_ctx` as both capacity fields.
 The browser sends `max_tokens` equal to `n_ctx`.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
-sampling policy recorded in the current semantic campaign, with
-`temperature=0.7`.
+sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Saved Chat Persistence
 
@@ -147,7 +151,7 @@ errors, generation timing, context settings, and presentation-only Reasoning
 state.
 
 Stable transcript checkpoints are successful `[DONE]`, settled Stop,
-regenerate, edit-and-regenerate, and deletion of the final turn. They update
+regenerate, edit-and-restart, and deletion of the final turn. They update
 that chat's `updatedAt` and save the complete collection once after idle state.
 Creating, selecting, renaming, or deleting a chat and importing a chat also
 save immediately. System-prompt edits save immediately but, like selection and
@@ -198,31 +202,37 @@ remaining chat; deleting the only chat creates one empty active replacement.
 Deleting a final turn does not reset an already derived title.
 
 History creation, selection, rename, and deletion are disabled during
-streaming. Import and all final-turn controls are disabled at the same time;
-Stop remains available.
+streaming. Import and all turn controls are disabled at the same time; Stop
+remains available.
 
-### Last-Turn Controls
+### Turn Controls
 
-Only the final complete pair exposes controls: `MODIFICA` and `ELIMINA` below
-the user message, and `RIGENERA` below the assistant response. Earlier turns
-cannot be edited. Edit uses the current prompt as a local multiline draft;
-empty trimmed edits cannot be saved, and cancel or Escape discards the draft.
-Deletion asks `Eliminare l’ultimo turno? Il messaggio e la risposta verranno
-rimossi.` and removes the entire pair after confirmation.
+Every complete user message exposes `MODIFICA`. Only the final pair also exposes
+`ELIMINA` below the user message and `RIGENERA` below the assistant response.
+Edit uses the current prompt as a local multiline draft; empty trimmed edits
+cannot be saved, and cancel or Escape discards the draft. Saving an earlier
+prompt asks for confirmation because its old assistant response and every later
+turn will be removed. Saving the final prompt requires no additional
+confirmation. Deletion asks `Eliminare l’ultimo turno? Il messaggio e la
+risposta verranno rimossi.` and removes the entire final pair after confirmation.
 
 Regenerate sends the unchanged final user prompt with the system prompt and all
 messages before the final pair; the previous assistant response is excluded.
-Edit-and-regenerate substitutes the trimmed edited prompt. Capacity admission
-runs against that candidate and prior context before fetch or visible mutation.
-A rejected candidate leaves the stable transcript and archive unchanged.
+Edit-and-restart sends the trimmed edited prompt with only the messages before
+its selected pair. At generation start the selected pair keeps its runtime IDs,
+receives the edited prompt and an empty assistant response, and all causal
+successors are removed. Capacity admission runs against that candidate and
+prior context before fetch or visible mutation. A rejected or stale candidate
+leaves the stable transcript and archive unchanged.
 
 A new-send transport failure removes its uncommitted appended pair. A failed
-regenerate or edit-and-regenerate instead restores the exact prior user and
-assistant pair. An unsuccessful or bodyless HTTP response shows `Richiesta non
-riuscita`; timeout, missing `[DONE]`, or protocol/transport failure shows
-`Risposta interrotta`. Stop commits the candidate prompt and current replacement
-response, including an empty assistant response, clears final timing, updates
-recency, and saves once after abort settles. Stream deltas are never persisted.
+regenerate or edit-and-restart instead restores the exact complete transcript,
+including every removed successor. An unsuccessful or bodyless HTTP response
+shows `Richiesta non riuscita`; timeout, missing `[DONE]`, or protocol/transport
+failure shows `Risposta interrotta`. Stop commits the candidate prompt and
+current replacement response, including an empty assistant response, clears
+final timing, updates recency, and saves once after abort settles. Stream deltas
+are never persisted.
 
 ### Responsive Chat History
 
@@ -234,7 +244,7 @@ Escape close the mobile drawer and return focus to the accessible history
 toggle. The chat list and transcript scroll independently while the document
 body and composer remain fixed in the viewport. Collapse state is not stored.
 
-All history and final-turn controls are keyboard reachable, use visible focus
+All history and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
 
 ## Context And Generation Status
@@ -252,19 +262,39 @@ chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
 the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
-Whenever configuration is valid, `Contesto N%` appears above a horizontal
-progress bar. The visible percentage is not capped. The fill is normal below
-80%, warning from 80% through 99%, and error at 100% or above; its width and
-ARIA current value are capped at 100. The element exposes `role="progressbar"`,
-minimum 0, maximum 100, and the accessible name `Occupazione del contesto`.
+Whenever configuration is valid, `Contesto ≈N / M token · P%` appears above a
+horizontal progress bar, where `N` is the estimated current occupancy and `M`
+is the immutable context limit. The approximation marker distinguishes this
+live capacity estimate from exact post-generation engine metrics. The visible
+percentage is not capped. The fill is normal below 80%, warning from 80% through
+99%, and error at 100% or above; its width and ARIA current value are capped at
+100. The element exposes `role="progressbar"`, minimum 0, maximum 100, and the
+accessible name `Occupazione del contesto`.
 
-An admitted request starts a `performance.now()` timer immediately before chat
-transport. `Generazione N.Ns` refreshes every 250 ms and measures connection
-wait, prefill, transport, and decode. Successful `[DONE]` completion freezes the
-exact elapsed duration. Stop, inactivity, missing `[DONE]`, or failure clears
-timing without publishing a final value; a capacity rejection preserves the
-previous final duration because no generation started. Errors render in addition
-to a valid context bar.
+The header keeps immutable runtime identity separate from per-request status. It
+shows the loaded GGUF `general.name` when safe, otherwise `Modello locale`, then
+the compile-time backend, retained model weights, full-context KV capacity, and
+effective placement. The weight/KV summary is present for every backend and
+uses exact decimal bytes on the wire plus IEC units in the UI. It describes
+load-time planning rather than process RSS or live allocator state. Hybrid
+profiles additionally expose layer counts and a collapsed budget breakdown
+split by CPU and accelerator owner: weights, KV, scratch, fixed, staging,
+crossing, reserve, and totals. The budget label is deliberate because its total
+includes capacity withheld from allocation. Model paths, device names, and physical or available
+memory are never published. Homogeneous profiles omit only the owner breakdown
+because no placement report exists.
+
+An admitted request first shows `Attesa`, then the engine-emitted `Prefill` and
+`Decode` phases. A monotonic display timer refreshes every 250 ms for the active
+phase only. After exact usage arrives, the live phase is replaced by four compact
+cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
+tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
+cached prompt reuse is visible because prefill tokens may be lower than prompt
+tokens. Stop, inactivity, missing usage or `[DONE]`, invalid ordering, and
+failure clear request telemetry. A capacity rejection preserves the previous
+successful metrics because no generation started. Runtime identity and
+generation telemetry are operational state and are never written to chat
+history, `localStorage`, import, or export.
 
 ## Reasoning Presentation
 
@@ -331,7 +361,7 @@ become short UI messages; parser, engine, storage, and filesystem details are
 not shown. The Web gate rejects over-budget requests before transport.
 
 The Web UI has no server persistence, accounts, authentication, account or
-cross-tab synchronization/merge, response-version history, earlier-turn
-editing, chat search, pins, archive folders, bulk deletion, or model selection
-for regenerate. It also has no API-key flow, tool calling, workspace, separate
+cross-tab synchronization/merge, response-version or branch history, chat
+search, pins, archive folders, bulk deletion, or model selection for
+regenerate. It also has no API-key flow, tool calling, workspace, separate
 Reasoning protocol/state channel, or advanced sampling controls.

@@ -53,6 +53,7 @@ fn main() -> Result<()> {
         },
         &mut |event| {
             match event {
+                Event::Phase(_) => {}
                 Event::TextDelta(text) => response.push_str(&text),
                 Event::Error(message) => failure = Some(message),
                 Event::Finished(_) => {}

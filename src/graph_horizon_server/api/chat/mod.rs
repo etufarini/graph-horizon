@@ -5,14 +5,22 @@
  * and does not include tools, tool_choice, workspace, or reasoning controls.
 */
 
-use graph_horizon_engine::{Event, Message, Request, SamplingParams};
+use graph_horizon_engine::{Event, GenerationPhase, Message, Request, SamplingParams};
 use serde::Deserialize;
 
 use super::{ApiError, role_from_str};
-use crate::app::sse::{Delta, delta_line};
+use crate::app::sse::{Delta, data_line, delta_line};
 use crate::graph_horizon_server::ServerConfig;
 
 pub(crate) use crate::app::sse::{done_line, final_line, usage_line};
+
+pub(crate) fn phase_line(phase: GenerationPhase) -> String {
+    let phase = match phase {
+        GenerationPhase::Prefill => "prefill",
+        GenerationPhase::Decode => "decode",
+    };
+    data_line(&serde_json::json!({ "graph_horizon": { "phase": phase } }))
+}
 
 // The OpenAI subset we accept. Unknown fields (`model`, `temperature`, `stream`,
 // …) are ignored by design — no `deny_unknown_fields` — so clients sending the
@@ -209,11 +217,24 @@ mod tests {
         assert!(
             event_line(&Event::Finished(graph_horizon_engine::GenerationStats {
                 prompt_tokens: 128,
+                prefill_tokens: 96,
                 completion_tokens: 42,
                 prefill_ms: 400,
                 decode_ms: 875,
             }))
             .is_none()
+        );
+    }
+
+    #[test]
+    fn phase_extension_is_namespaced() {
+        assert_eq!(
+            phase_line(GenerationPhase::Prefill),
+            "data: {\"graph_horizon\":{\"phase\":\"prefill\"}}\n\n"
+        );
+        assert_eq!(
+            phase_line(GenerationPhase::Decode),
+            "data: {\"graph_horizon\":{\"phase\":\"decode\"}}\n\n"
         );
     }
 

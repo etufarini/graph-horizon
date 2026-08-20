@@ -101,6 +101,7 @@ fn measure_rep(engine: &Engine, cfg: &BenchConfig) -> Result<(RepSample, usize)>
     let mut stats = None;
     let mut failure = None;
     engine.generate(request, &mut |event| match event {
+        Event::Phase(_) => true,
         Event::TextDelta(_) => {
             timestamps.push(Instant::now());
             true

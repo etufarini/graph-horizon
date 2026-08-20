@@ -1,17 +1,18 @@
 <!--
-This document is the compact, reviewed record of the retained Vulkan
-optimizations. Detailed experiment logs remain available in Git history.
+This document is the compact, reviewed record of retained backend
+optimizations and their measured boundaries. Detailed experiment logs remain
+available in Git history.
 -->
 
 # Current Optimization State
 
 ## Scope
 
-The retained implementation targets Vulkan inference for the supported
-Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models on NVIDIA and AMD.
-It adds no dependency, public API, model-name route, or device-name route.
-Every specialized path is capability-, vendor-family-, format-, and shape-gated
-and preserves the generic fallback.
+The retained implementation specializes CPU, Vulkan, and Metal inference for
+Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models. It adds no dependency,
+public API, model-name route, or device-name route. Specialized device paths are
+capability-, vendor-family-, format-, and shape-gated and preserve a generic
+operation fallback.
 
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
@@ -32,23 +33,27 @@ The authenticated 3B artifact used throughout the investigation was
 | AMD required-wave32 4:1 GQA decode | AMD, required subgroup 32, F16 KV, head 128, exact 4:1 GQA | exact wave64 or generic decode | 3B/28K 16.144 → 49.398 tok/s; 8B/28K 18.868 fallback → 28.374 tok/s |
 | Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
 | Request KV reuse | serialized Vulkan requests; keyed calls may also reuse an identical token prefix | fresh state on cache failure | avoids reallocating request-local cache while preserving fresh tail logits |
+| CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
+| CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
+| Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
 
-## Fresh Comparison With `origin/main`
+## Historical NVIDIA A/B Comparison
 
-On 2026-08-18, commit `bc0145d` and this branch were rebuilt in release mode
-and measured on the same RTX 3060 with the authenticated 3B model, Vulkan,
-F16 KV, context 4096, a 128-token prompt, one warm-up, and three repetitions.
+On 2026-08-18, commit `bc0145d` and the retained Vulkan candidate were rebuilt
+in release mode and measured on the same RTX 3060 with the authenticated 3B
+model, Vulkan, F16 KV, context 4096, a 128-token prompt, one warm-up, and three
+repetitions.
 
-| Metric | `origin/main` | Clean branch | Change |
+| Metric | `origin/main` | Retained candidate | Change |
 |---|---:|---:|---:|
 | TTFT mean | 1,356.07 ms | 78.70 ms | -94.2% |
 | Prompt throughput mean | 94.39 tok/s | 1,628.55 tok/s | 17.3x |
 | Decode throughput mean | 43.27 tok/s | 69.81 tok/s | +61.3% |
 
-The current TTFT CV was 4.36% versus 0.25% on main, but the measured gap is
+The candidate TTFT CV was 4.36% versus 0.25% on main, but the measured gap is
 far larger than either run's variation.
 
 ## Historical Representative Result
@@ -90,22 +95,47 @@ the pinned llama.cpp Vulkan build `9bebfcb4b`.
 | 14B prefill / 8K | 75.383 s | 23.831 s | 3.16x |
 | 14B decode / 8K | 21.840 tok/s | 36.715 tok/s | 1.68x latency |
 
+### CPU Reference Comparison
+
+These rows use six pinned i5-9600K cores, F16 KV, the authenticated 3B artifact,
+and the pinned llama.cpp CPU comparator. CPU remains a correctness reference,
+not a performance-qualified backend.
+
+| Workload | CPU final | llama.cpp | Final ratio |
+|---|---:|---:|---:|
+| 3B prefill / 128 | 5.025 s | 0.317 s | 15.83x latency |
+| 3B prefill / 2K | 96.000 s | 2.385 s | 40.26x latency |
+| 3B decode / 128 | 6.79 tok/s | 10.312 tok/s | 1.52x latency |
+| 3B decode / 2K | 5.73 tok/s | 8.957 tok/s | 1.56x latency |
+
+### Metal Final Comparison
+
+These rows use an Apple M4 10-core GPU on macOS 26.3, full Metal placement,
+F16 KV, and pinned llama.cpp `13f2b28b0`. Graph Horizon TTFT includes a broader
+public-event boundary than llama.cpp prompt evaluation.
+
+| Workload | Metal final | llama.cpp | Final ratio |
+|---|---:|---:|---:|
+| 3B prefill / 128 | 677.26 ms | 323.55 ms | 2.09x |
+| 3B prefill / 2K | 11.449 s | 5.768 s | 1.99x |
+| 8B prefill / 2K | 26.685 s | 15.427 s | 1.73x |
+| 14B prefill / 2K | 45.329 s | 24.351 s | 1.86x |
+| 3B decode / 2K | 25.40 tok/s | 27.56 tok/s | 1.09x latency |
+| 14B decode / 2K | 9.01 tok/s | 10.81 tok/s | 1.20x latency |
+
 ## Correctness And Portability
 
 - Focused CPU/Vulkan numeric oracles cover Q4, Q6, attention, GQA, and retained
   Matrix2 shapes.
-- Teacher-forced top-two checks cover the six supported 3B/8B/14B Instruct and
+- Teacher-forced top-two checks cover the six catalogued 3B/8B/14B Instruct and
   Reasoning artifacts for numeric paths that do not promise bit identity. The
   final AMD route additionally passes the pinned external 16-token teacher on
   3B/8B/14B with exact prompt IDs and zero crossings.
 - The final local matrix passes CPU, Vulkan, and Vulkan-hybrid tests and
-  warning-denied Clippy. Metal remains external verification on macOS.
+  warning-denied Clippy. The Metal checkpoint passes pure/hybrid suites,
+  focused numeric tests, and the authenticated 3B teacher row on the M4 host.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
-
-The AMD program's complete capability inventory, llama.cpp comparison,
-experiment registry, rejected candidates, and raw-evidence locations are in
-[`docs/vulkan-amd-specialization.md`](docs/vulkan-amd-specialization.md).
 
 ## Deliberately Excluded
 
@@ -131,3 +161,9 @@ Q6 gained 2.15%, and lossy Q6 failed quality. Long decode now retains wave32
 GQA/Q6 and meets the historical envelope on 3B/8B; larger-model short decode is
 weight/Q6 dominated and further large gains require a separately approved
 numeric or persistent-representation contract.
+
+CPU prefill remains dominated by attention and quantized matrix multiplication;
+the next material designs require new packed-GEMM or query-tiled-attention
+subsystems. Metal's largest remaining gap is tiled F16 long-context attention,
+with INT8 long prefill on a separate non-tiled route. These are new performance
+programs, not unfinished cleanup tasks.

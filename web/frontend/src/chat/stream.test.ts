@@ -1,7 +1,7 @@
 /*
  * In-memory SSE tests cover split/CRLF framing, chunk activity, prohibited
- * protocol data, neutral usage/final frames, mandatory completion, and the
- * immediate terminal boundary. Fetch and chat-state behavior are excluded.
+ * protocol data, exact terminal usage, mandatory completion, and the immediate
+ * terminal boundary. Fetch and chat-state behavior are excluded.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,20 +21,21 @@ function body(chunks: string[], onCancel: () => void = () => {}): ReadableStream
 }
 
 test('split CRLF content and DONE report activity and complete', async () => {
-  const content: string[] = [];
+  const events: string[] = [];
   let activity = 0;
   await readChatStream(
     body([
       ': ignored\r\n',
       'data: {"choices":[{"delta":{"content":"ciao"}}]}\r\n',
-      '\r\ndata: [DO',
+      '\r\ndata: {"usage":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\r\n',
+      'data: [DO',
       'NE]\r\n\r\n'
     ]),
-    delta => content.push(delta.content),
+    event => events.push(event.type),
     () => { activity += 1; }
   );
-  assert.deepEqual(content, ['ciao']);
-  assert.equal(activity, 4);
+  assert.deepEqual(events, ['content', 'stats']);
+  assert.equal(activity, 5);
 });
 
 test('DONE cancels immediately and ignores later bytes', async () => {
@@ -42,10 +43,11 @@ test('DONE cancels immediately and ignores later bytes', async () => {
   let cancelled = 0;
   await readChatStream(
     body([
+      'data: {"usage":{"prompt_tokens":0,"prefill_tokens":0,"completion_tokens":0,"prefill_ms":0,"decode_ms":0}}\n',
       'data: [DONE]\n',
       'data: {"choices":[{"delta":{"content":"vietato"}}]}\n'
     ], () => { cancelled += 1; }),
-    delta => content.push(delta.content)
+    event => { if (event.type === 'content') content.push(event.content); }
   );
   assert.deepEqual(content, []);
   assert.equal(cancelled, 1);
@@ -56,7 +58,7 @@ test('EOF before DONE rejects even after content', async () => {
   await assert.rejects(
     readChatStream(
       body(['data: {"choices":[{"delta":{"content":"parziale"}}]}\n\n']),
-      delta => content.push(delta.content)
+      event => { if (event.type === 'content') content.push(event.content); }
     ),
     { message: 'Connessione interrotta' }
   );
@@ -83,15 +85,32 @@ test('invalid and prohibited data frames reject uniformly', async t => {
   }
 });
 
-test('usage and final-stop frames are presentation-neutral', async () => {
-  const content: string[] = [];
+test('phase, exact usage and final-stop frames emit typed telemetry', async () => {
+  const events: string[] = [];
   await readChatStream(
     body([
-      'data: {"usage":{"prompt_tokens":2}}\n',
+      'data: {"graph_horizon":{"phase":"prefill"}}\n',
+      'data: {"graph_horizon":{"phase":"decode"}}\n',
+      'data: {"usage":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n',
       'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
       'data: [DONE]\n'
     ]),
-    delta => content.push(delta.content)
+    event => events.push(event.type)
   );
-  assert.deepEqual(content, []);
+  assert.deepEqual(events, ['phase', 'phase', 'stats']);
+});
+
+test('usage rejects later content or phase frames', async t => {
+  const usage = 'data: {"usage":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n';
+  for (const later of [
+    'data: {"choices":[{"delta":{"content":"late"}}]}\n',
+    'data: {"graph_horizon":{"phase":"decode"}}\n'
+  ]) {
+    await t.test(later.includes('content') ? 'content' : 'phase', async () => {
+      await assert.rejects(
+        readChatStream(body([usage, later, 'data: [DONE]\n']), () => {}),
+        { message: 'Connessione interrotta' }
+      );
+    });
+  }
 });

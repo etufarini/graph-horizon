@@ -17,7 +17,7 @@ use color_eyre::eyre::{Result, eyre};
 use graph_horizon_engine::{Engine, Event, EventSink, Request, SamplingParams};
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::{ChatMessage, Chunk, ChunkStream};
+use super::{ChatMessage, ChunkStream, StreamEvent};
 
 // Builds the local provider closure, shaped like the HTTP path. The shared Engine
 // is loaded once; every request contains only the text-chat fields the engine owns.
@@ -41,7 +41,7 @@ fn start(
         max_tokens,
     };
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Chunk>>(32);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<StreamEvent>>(32);
     tokio::task::spawn_blocking(move || {
         let mut sink = ChannelSink { tx };
         engine.generate(req, &mut sink);
@@ -56,7 +56,7 @@ fn start(
 // correct answer, not corrupted output); it is translated here into a readable
 // CLI message instead of surfacing the raw engine error.
 struct ChannelSink {
-    tx: tokio::sync::mpsc::Sender<Result<Chunk>>,
+    tx: tokio::sync::mpsc::Sender<Result<StreamEvent>>,
 }
 
 impl EventSink for ChannelSink {
@@ -72,10 +72,11 @@ impl EventSink for ChannelSink {
     }
 }
 
-fn to_item(event: Event) -> Option<Result<Chunk>> {
+fn to_item(event: Event) -> Option<Result<StreamEvent>> {
     match event {
-        Event::TextDelta(s) => Some(Ok(Chunk { response: s })),
-        Event::Finished(_) => None,
+        Event::Phase(phase) => Some(Ok(StreamEvent::Phase(phase))),
+        Event::TextDelta(text) => Some(Ok(StreamEvent::Text(text))),
+        Event::Finished(stats) => Some(Ok(StreamEvent::Finished(stats))),
         Event::Error(message) => Some(Err(eyre!(message))),
     }
 }

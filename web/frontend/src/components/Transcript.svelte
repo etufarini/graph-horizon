@@ -1,6 +1,6 @@
 <!--
-Transcript.svelte renders validated complete pairs through Turn, delegates only
-final-turn intents, and owns pinned/autoscroll behavior. State mutation, chat
+Transcript.svelte renders validated complete pairs through Turn, delegates turn
+intents, and owns pinned/autoscroll behavior. State mutation, chat
 history, transcript repair, and persistence remain outside this component.
 -->
 <script lang="ts">
@@ -13,7 +13,7 @@ history, transcript repair, and persistence remain outside this component.
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
-    edit: string;
+    edit: { userId: string; text: string };
     delete: void;
   }>();
   let transcript: HTMLDivElement;

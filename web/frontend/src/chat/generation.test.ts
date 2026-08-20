@@ -31,8 +31,7 @@ function snapshot(messages = [
     status: 'idle',
     error: null,
     persistenceWarning: null,
-    generationStartedAt: null,
-    generationMs: 99
+    telemetry: null
   };
 }
 
@@ -48,6 +47,10 @@ function controlledFetch() {
     const body = new ReadableStream<Uint8Array>({
       start(value) {
         streamController = value;
+        streamController.enqueue(encoder.encode(
+          'data: {"graph_horizon":{"phase":"prefill"}}\n\n' +
+          'data: {"graph_horizon":{"phase":"decode"}}\n\n'
+        ));
         init?.signal?.addEventListener('abort', () =>
           streamController.error(new DOMException('Aborted', 'AbortError')),
         { once: true });
@@ -65,7 +68,10 @@ function controlledFetch() {
       streamController.enqueue(encoder.encode(`data: ${JSON.stringify(value)}\n\n`));
     },
     done() {
-      streamController.enqueue(encoder.encode('data: [DONE]\n\n'));
+      streamController.enqueue(encoder.encode(
+        'data: {"usage":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
+        'data: [DONE]\n\n'
+      ));
       streamController.close();
     },
     close() { streamController.close(); }
@@ -103,7 +109,7 @@ test('append streams without checkpoints and commits once after idle', async () 
   stream.done();
   await pending;
   assert.equal(get(store).status, 'idle');
-  assert.equal(typeof get(store).generationMs, 'number');
+  assert.equal(get(store).telemetry?.stats?.completionTokens, 3);
   assert.deepEqual(checkpoints, [id]);
 });
 
@@ -115,7 +121,7 @@ test('valid zero-delta completion retains the empty response and checkpoints', a
   stream.done();
   await pending;
   assert.equal(plain(get(store)).at(-1)?.content, '');
-  assert.equal(typeof get(store).generationMs, 'number');
+  assert.equal(get(store).telemetry?.stats?.completionTokens, 3);
   assert.deepEqual(checkpoints, [id]);
 });
 
@@ -132,7 +138,7 @@ test('append stop keeps empty or partial assistant and commits once', async () =
     generation.stop();
     await pending;
     assert.equal(plain(get(store)).at(-1)?.content, partial);
-    assert.equal(get(store).generationMs, null);
+    assert.equal(get(store).telemetry, null);
     assert.equal(get(store).error, null);
     assert.deepEqual(checkpoints, [id]);
   }
@@ -187,13 +193,46 @@ test('regenerate excludes the old response and preserves the exact user prompt',
   assert.deepEqual(checkpoints, [id]);
 });
 
-test('edit trims the prompt, and a failed replacement restores the exact pair', async () => {
-  const original = snapshot();
+test('editing an earlier prompt truncates successors and sends only its causal prefix', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'prima domanda' },
+    { role: 'assistant', content: 'prima risposta' },
+    { role: 'user', content: 'domanda successiva' },
+    { role: 'assistant', content: 'risposta successiva' }
+  ]);
+  const userId = original.collection.chats[0].messages[0].id;
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness(original);
-  const pending = generation.editLastPrompt('  modificata 🧠  ', context);
+  const pending = generation.editPrompt(userId, '  modificata 🧠  ', context);
   await tick();
+  assert.deepEqual(stream.body().messages, [
+    { role: 'system', content: 'sistema' },
+    { role: 'user', content: 'modificata 🧠' }
+  ]);
+  assert.equal(plain(get(store)).length, 2);
   assert.equal(plain(get(store)).at(-2)?.content, 'modificata 🧠');
+  stream.delta('nuovo percorso');
+  stream.done();
+  await pending;
+  assert.deepEqual(plain(get(store)), [
+    { role: 'user', content: 'modificata 🧠' },
+    { role: 'assistant', content: 'nuovo percorso' }
+  ]);
+  assert.deepEqual(checkpoints, [id]);
+});
+
+test('a failed earlier edit restores the exact complete transcript', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'prima domanda' },
+    { role: 'assistant', content: 'prima risposta' },
+    { role: 'user', content: 'domanda successiva' },
+    { role: 'assistant', content: 'risposta successiva' }
+  ]);
+  const userId = original.collection.chats[0].messages[0].id;
+  const stream = controlledFetch();
+  const { store, checkpoints, generation } = harness(original);
+  const pending = generation.editPrompt(userId, 'modificata', context);
+  await tick();
   stream.delta('provvisoria');
   stream.close();
   await pending;
@@ -205,7 +244,8 @@ test('edit trims the prompt, and a failed replacement restores the exact pair', 
 test('stopping replacement commits candidate prompt with empty response', async () => {
   controlledFetch();
   const { store, checkpoints, generation } = harness();
-  const pending = generation.editLastPrompt('  candidata  ', context);
+  const userId = get(store).collection.chats[0].messages[0].id;
+  const pending = generation.editPrompt(userId, '  candidata  ', context);
   await tick();
   generation.stop();
   await pending;
@@ -221,16 +261,18 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   fetchHandler = async () => { fetches += 1; throw new Error('unexpected'); };
   const initial = snapshot();
   const { store, checkpoints, generation } = harness(initial);
-  await generation.editLastPrompt('   ', context);
-  await generation.send('troppo lungo', {
-    contextLimit: 10,
-    safePromptBudget: 9
+  const userId = initial.collection.chats[0].messages[0].id;
+  await generation.editPrompt(userId, '   ', context);
+  await generation.editPrompt('missing', 'valid', context);
+  await generation.editPrompt(userId, 'troppo lungo', {
+    contextLimit: 4,
+    safePromptBudget: 3
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));
   assert.equal(
     get(store).error,
-    'Contesto insufficiente: ~11 token stimati superano il budget sicuro di 9 token'
+    'Contesto insufficiente: ~4 token stimati superano il budget sicuro di 3 token'
   );
   assert.deepEqual(checkpoints, []);
 });
@@ -253,8 +295,7 @@ test('timeout wins over a later Stop and rolls back partial output', async t => 
 
   assert.deepEqual(plain(get(store)), plain(original));
   assert.equal(get(store).error, 'Risposta interrotta');
-  assert.equal(get(store).generationStartedAt, null);
-  assert.equal(get(store).generationMs, null);
+  assert.equal(get(store).telemetry, null);
   assert.deepEqual(checkpoints, []);
 });
 

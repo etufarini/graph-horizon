@@ -1,13 +1,13 @@
 /*
  * Graph Horizon CLI Modules - Plugins - Command
- * Single responsibility: map retained chat slash commands to transcript actions
- * and completion. It depends on plugin actions/render history and does not
+ * Single responsibility: map retained chat slash commands to session/transcript
+ * actions and completion. It depends on plugin actions/render history and does not
  * expose tools, confirmations, profiles, workspace, or reasoning commands.
  */
 
 use crate::graph_horizon_cli::console::render::ChatTurn;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
-use action::{export_command, import_command};
+use action::{clear_command, export_command, import_command, system_command};
 
 mod action;
 mod completion;
@@ -15,10 +15,11 @@ mod completion;
 pub(crate) use completion::complete;
 
 // What running a command produces. A command never reaches the model: it either
-// shows a local notice (kept out of the model context) or restores a whole
-// conversation, replacing the current system prompt and history.
+// shows a context-free notice or requests one explicit session mutation.
 pub(crate) enum CommandResult {
     Notice(String),
+    Clear,
+    SetSystem(Option<String>),
     Restore {
         system: Option<String>,
         history: Vec<ChatTurn>,
@@ -41,6 +42,11 @@ struct Command {
 
 const COMMANDS: &[Command] = &[
     Command {
+        name: "/clear",
+        completes_path: false,
+        action: clear_command,
+    },
+    Command {
         name: "/export",
         completes_path: false,
         action: export_command,
@@ -49,6 +55,11 @@ const COMMANDS: &[Command] = &[
         name: "/import",
         completes_path: true,
         action: import_command,
+    },
+    Command {
+        name: "/system",
+        completes_path: false,
+        action: system_command,
     },
 ];
 
@@ -97,7 +108,7 @@ mod tests {
         // A lone '/' is ambiguous: every command listed, no auto-tail.
         let (tail, matches) = complete("/");
         assert_eq!(tail, None);
-        assert_eq!(matches.len(), 2);
+        assert_eq!(matches.len(), 4);
         // A non-command prompt yields nothing to complete.
         let (tail, matches) = complete("hello");
         assert!(tail.is_none());
@@ -116,6 +127,26 @@ mod tests {
     fn import_without_path_is_a_notice() {
         let result = run("/import", None, &[]).expect("recognised command");
         assert!(matches!(result, CommandResult::Notice(_)));
+    }
+
+    #[test]
+    fn session_commands_return_explicit_mutations() {
+        assert!(matches!(
+            run("/clear", Some("kept"), &[]),
+            Some(CommandResult::Clear)
+        ));
+        assert!(matches!(
+            run("/system concise", None, &[]),
+            Some(CommandResult::SetSystem(Some(value))) if value == "concise"
+        ));
+        assert!(matches!(
+            run("/system --clear", Some("old"), &[]),
+            Some(CommandResult::SetSystem(None))
+        ));
+        assert!(matches!(
+            run("/system", None, &[]),
+            Some(CommandResult::Notice(_))
+        ));
     }
 
     #[test]

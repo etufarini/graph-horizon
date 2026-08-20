@@ -18,17 +18,23 @@ mod sse;
 pub(crate) use client::stream_completion as generation_stream;
 pub(crate) use config::ClientConfig;
 pub(crate) use context::{CapacityError, ContextBudget, ContextUsage};
+pub(crate) use graph_horizon_engine::{
+    GenerationPhase, GenerationStats, ModelMemory, PlacementReport,
+};
 pub(crate) use message::ChatMessage;
 
-// A single assistant text chunk.
-pub(crate) struct Chunk {
-    pub response: String,
+#[derive(Clone)]
+pub(crate) struct RuntimeInfo {
+    pub(crate) model_name: String,
+    pub(crate) backend: &'static str,
+    pub(crate) memory: ModelMemory,
+    pub(crate) placement: Option<PlacementReport>,
 }
 
-// Public API for the runtime module: a stream of Chunks representing the model's response as it arrives.
-pub(crate) type ChunkStream = Pin<Box<dyn Stream<Item = Result<Chunk>> + Send>>;
-
-// Returns the response text from a chunk, or None if it is absent or empty.
-pub(crate) fn response(chunk: &Chunk) -> Option<&str> {
-    (!chunk.response.is_empty()).then_some(chunk.response.as_str())
+pub(crate) enum StreamEvent {
+    Text(String),
+    Phase(GenerationPhase),
+    Finished(GenerationStats),
 }
+
+pub(crate) type ChunkStream = Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>;

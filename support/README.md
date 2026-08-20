@@ -45,9 +45,10 @@ salta test sintetici.
 
 ## Installazione
 
-Il bootstrap pubblico sarà disponibile anonimamente soltanto quando il
-repository sarà pubblico. Scarica l'artefatto sorgente immutabile `v0.1.0` e il
-relativo record `.sha256`, verificandolo prima dell'estrazione:
+Il bootstrap pubblico sarà disponibile anonimamente soltanto quando repository,
+tag e asset della release saranno pubblici. Scarica l'artefatto sorgente
+immutabile `v0.1.0` e il relativo record `.sha256`, verificandolo prima
+dell'estrazione:
 
 ```sh
 curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend cpu
@@ -178,11 +179,10 @@ o catalogo invalidi prima dell'inferenza. Il run a `temperature=0.7` e `seed=0`
 è riproducibile solo a parità di commit, artefatto, backend, parametri e seed;
 non è una promessa di determinismo universale tra hardware.
 
-La matrice revisionata corrente è pubblicata in [VALIDATION.md](../VALIDATION.md):
-tre Instruct preservati; fra i Reasoning correnti, 3B e 14B sono `qualified`,
-mentre 8B è `not-qualified` perché la generazione S08 è rimasta incompleta.
-Quella evidenza copre il percorso API Rust esercitato dal test, non il server
-HTTP greedy.
+Gli esiti revisionati sono pubblicati in [VALIDATION.md](../VALIDATION.md) con
+il relativo commit. Una campagna precedente non qualifica automaticamente la
+sorgente corrente; il runner continua a definire il protocollo, non lo stato
+della futura release.
 
 ## Sicurezza
 

@@ -1,9 +1,8 @@
 /*
- * graph_horizon_engine — hybrid byte accounting namespace
- * Exports model representation and runtime-shape accounting only; placement,
- * allocation, device probes, and family semantics stay outside this module.
+ * graph_horizon_engine — backend-neutral byte accounting namespace
+ * Exports retained model representation and runtime-shape accounting only;
+ * placement, allocation, device probes, and family semantics stay outside.
  */
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 pub(crate) mod model;
 pub(crate) mod runtime;

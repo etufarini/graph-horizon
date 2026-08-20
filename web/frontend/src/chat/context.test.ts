@@ -72,14 +72,25 @@ test('admission accepts equality and rejects one token over', () => {
   if (!rejected.ok) {
     assert.equal(rejected.estimatedTokens, 1801);
     assert.equal(rejected.safePromptBudget, 1800);
-    assert.deepEqual(rejected.usage, { estimatedTokens: 1801, percent: 91, progress: 91 });
+    assert.deepEqual(rejected.usage, {
+      estimatedTokens: 1801,
+      contextLimit: 2000,
+      percent: 91,
+      progress: 91
+    });
   }
 });
 
-test('percentage uses ceiling while graphical progress clamps to 100', () => {
-  assert.deepEqual(contextUsage([], context), { estimatedTokens: 0, percent: 0, progress: 0 });
+test('usage includes its context denominator and clamps only graphical progress', () => {
+  assert.deepEqual(contextUsage([], context), {
+    estimatedTokens: 0,
+    contextLimit: 2000,
+    percent: 0,
+    progress: 0
+  });
   assert.deepEqual(contextUsage(user('x'.repeat(4)), context), {
     estimatedTokens: 1,
+    contextLimit: 2000,
     percent: 1,
     progress: 1
   });

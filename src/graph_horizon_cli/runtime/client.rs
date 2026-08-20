@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
-use super::{ChatMessage, Chunk, ChunkStream, ClientConfig, sse};
+use super::{ChatMessage, ChunkStream, ClientConfig, StreamEvent, sse};
 
 pub(super) const DEFAULT_BASE_URL: &str = "http://127.0.0.1:8080/v1";
 
@@ -85,7 +85,7 @@ pub(crate) async fn stream_completion(
         return Err(eyre!("provider returned {}", response.status()));
     }
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Chunk>>(32);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<StreamEvent>>(32);
 
     // Spawn a background task so the caller can start polling the channel
     // while the response body streams in, without blocking the async executor.
@@ -188,7 +188,10 @@ mod tests {
         };
         let mut stream = stream_completion(Vec::new(), config).await.unwrap();
         let chunk = stream.next().await.unwrap().unwrap();
-        assert_eq!(chunk.response, "last");
+        let StreamEvent::Text(text) = chunk else {
+            panic!("content did not produce text");
+        };
+        assert_eq!(text, "last");
         assert!(stream.next().await.is_none());
         server.await.unwrap();
     }

@@ -47,18 +47,26 @@ impl EventSink for Events {
 fn error_matrix_e18_e19_has_one_terminal_or_silent_cancel() {
     let stats = GenerationStats {
         prompt_tokens: 2,
+        prefill_tokens: 2,
         completion_tokens: 1,
         prefill_ms: 3,
         decode_ms: 4,
     };
     let mut success = Events::default();
     let mut terminal = Terminal::new(&mut success);
+    assert!(terminal.phase(GenerationPhase::Prefill));
+    assert!(terminal.phase(GenerationPhase::Decode));
     assert!(terminal.delta("x".into()));
     terminal.finish(stats);
     terminal.finish(stats);
     assert_eq!(
         success.values,
-        [Event::TextDelta("x".into()), Event::Finished(stats)]
+        [
+            Event::Phase(GenerationPhase::Prefill),
+            Event::Phase(GenerationPhase::Decode),
+            Event::TextDelta("x".into()),
+            Event::Finished(stats)
+        ]
     );
 
     let mut failure = Events::default();
@@ -101,6 +109,7 @@ fn reasoning_output_tags_remain_text_deltas() {
     decoder.finish();
     terminal.finish(GenerationStats {
         prompt_tokens: 1,
+        prefill_tokens: 1,
         completion_tokens: 3,
         prefill_ms: 0,
         decode_ms: 0,

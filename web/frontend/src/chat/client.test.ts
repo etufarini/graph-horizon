@@ -10,6 +10,7 @@ import { streamAssistant } from './client.ts';
 
 const messages = [{ role: 'user' as const, content: 'ciao' }];
 const originalFetch = globalThis.fetch;
+const usage = 'data: {"usage":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n\n';
 
 test.after(() => { globalThis.fetch = originalFetch; });
 
@@ -52,7 +53,7 @@ test('non-empty chunks reset inactivity beyond five minutes total', async t => {
     await Promise.resolve();
     await Promise.resolve();
   }
-  stream.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+  stream.enqueue(new TextEncoder().encode(`${usage}data: [DONE]\n\n`));
   await pending;
 
   assert.equal(request.max_tokens, 8192);
@@ -69,7 +70,7 @@ test('cache key remains stable across requests in one page session', async () =>
     keys.push(new Headers(init?.headers).get('x-graph-horizon-cache'));
     return new Response(new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n'));
+        controller.enqueue(new TextEncoder().encode(`${usage}data: [DONE]\n\n`));
         controller.close();
       }
     }));

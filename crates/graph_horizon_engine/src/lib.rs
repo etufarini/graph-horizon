@@ -15,8 +15,8 @@ mod kv_cache;
 mod runtime;
 mod sampling;
 
-pub use api::engine::{BackendMemory, Engine, EngineConfig, PlacementReport};
-pub use api::event::{Event, GenerationStats};
+pub use api::engine::{BackendMemory, Engine, EngineConfig, ModelMemory, PlacementReport};
+pub use api::event::{Event, GenerationPhase, GenerationStats};
 pub use api::message::{Message, Role};
 pub use api::request::{EventSink, Request, SamplingParams};
 pub use family::mistral::template::render as render_chat_prompt;

@@ -6,19 +6,27 @@ server or browser file handling.
 
 # Slash Commands And Attachments
 
-The TUI intercepts two local commands and can expand text files in the prompt. A
-recognized command never reaches the model: it produces a notice or replaces the
-current conversation.
+The TUI intercepts four local commands and can expand text files in the prompt. A
+recognized command never reaches the model: it produces a notice or applies one
+explicit session/transcript mutation.
 
 ## Commands
 
 | Command | Effect |
 |---|---|
+| `/clear` | Clears the conversation and metrics while preserving the system prompt |
 | `/export [path]` | Saves the conversation as JSON; defaults to `graph-horizon-export.json` |
 | `/import <path>` | Validates and restores a transcript, replacing the current one |
+| `/system <text>` | Replaces the session system prompt without retaining the command text in history |
+| `/system --clear` | Removes the session system prompt |
 
 The name must be a complete word. `/exporting` is an ordinary prompt, as is any
 unrecognized command.
+
+Bare `/system` reports its usage and does not reveal the current prompt. System
+prompt changes clear the prior generation metrics and recompute context
+occupancy; `/clear` keeps the prompt but removes every visible and contextual
+turn without reloading the model.
 
 ## TUI Transcript
 

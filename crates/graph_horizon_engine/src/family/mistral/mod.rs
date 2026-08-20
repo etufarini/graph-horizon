@@ -10,6 +10,7 @@ pub(crate) mod decode;
 pub(crate) mod detect;
 pub(crate) mod generation;
 pub(crate) mod graph;
+mod memory;
 pub(crate) mod parity;
 pub(crate) mod template;
 pub(crate) mod tensors;
@@ -18,11 +19,12 @@ mod version;
 
 use color_eyre::eyre::Result;
 
-use crate::api::engine::EngineConfig;
+use crate::api::engine::{EngineConfig, ModelMemory};
 #[cfg(test)]
 use crate::backend::Backend;
 use crate::backend::selection;
 use crate::gguf::loader::GgufFile;
+use crate::gguf::loader::GgufValue;
 use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::TensorIndex;
 use crate::runtime::contract::LayeredGraph;
@@ -66,10 +68,12 @@ pub(crate) struct MistralModel<B: Backend> {
 }
 
 pub(crate) struct RuntimeModel {
+    pub(crate) name: Option<String>,
     pub(crate) config: MistralConfig,
     pub(crate) tokenizer: TekkenTokenizer,
     pub(crate) context: usize,
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
+    pub(crate) memory: ModelMemory,
     pub(crate) backend: selection::SelectedBackend,
     #[cfg(feature = "vulkan")]
     pub(in crate::family::mistral) session_cache:
@@ -78,10 +82,18 @@ pub(crate) struct RuntimeModel {
 
 impl RuntimeModel {
     pub(crate) fn load(file: &GgufFile, settings: &EngineConfig) -> Result<Self> {
+        let name = display_name(file.metadata());
         let contract = MistralContract::from_gguf(file)?;
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
         let shape = graph::MistralGraph::shape(&contract.config);
+        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+        let memory = memory::homogeneous(
+            &contract.tensors,
+            &contract.config,
+            context,
+            settings.kv_quant,
+        )?;
         let backend = selection::load(
             file,
             &contract.tensors,
@@ -92,11 +104,15 @@ impl RuntimeModel {
             settings.vram_weights_percent,
             settings.vram_reserve_mib,
         )?;
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        let memory = memory::hybrid(selection::placement(&backend))?;
         Ok(Self {
+            name,
             config: contract.config,
             tokenizer: contract.tokenizer,
             context,
             scheme: settings.kv_quant,
+            memory,
             backend,
             #[cfg(feature = "vulkan")]
             session_cache: std::sync::Mutex::new(None),
@@ -110,6 +126,16 @@ impl RuntimeModel {
     pub(crate) fn shape(&self) -> crate::backend::hybrid::weights::runtime::RuntimeShape {
         graph::MistralGraph::shape(&self.config)
     }
+}
+
+fn display_name(md: &std::collections::HashMap<String, GgufValue>) -> Option<String> {
+    let raw = md.get("general.name").and_then(GgufValue::as_str)?;
+    if raw.chars().any(char::is_control) {
+        return None;
+    }
+    let name = raw.trim();
+    let length = name.chars().count();
+    (length > 0 && length <= 128).then(|| name.to_owned())
 }
 
 #[cfg(feature = "vulkan")]
@@ -160,5 +186,22 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn display_name_accepts_bounded_plain_metadata_only() {
+        let md = |name: &str| {
+            std::collections::HashMap::from([(
+                "general.name".into(),
+                GgufValue::String(name.into()),
+            )])
+        };
+        assert_eq!(
+            display_name(&md("  Ministral 3B  ")).as_deref(),
+            Some("Ministral 3B")
+        );
+        assert_eq!(display_name(&md("\nmodel")), None);
+        assert_eq!(display_name(&md(&"x".repeat(129))), None);
+        assert_eq!(display_name(&std::collections::HashMap::new()), None);
     }
 }

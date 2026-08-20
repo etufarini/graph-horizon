@@ -29,8 +29,7 @@ function initialSnapshot(): ChatSnapshot {
     status: 'idle',
     error: null,
     persistenceWarning: restored.warning,
-    generationStartedAt: null,
-    generationMs: null
+    telemetry: null
   };
 }
 
@@ -50,8 +49,8 @@ function createChatState() {
     await generation.regenerate(context);
   }
 
-  async function editLastPrompt(text: string, context: RuntimeContext): Promise<void> {
-    await generation.editLastPrompt(text, context);
+  async function editPrompt(userId: string, text: string, context: RuntimeContext): Promise<void> {
+    await generation.editPrompt(userId, text, context);
   }
 
   function deleteLastTurn(): void {
@@ -61,7 +60,7 @@ function createChatState() {
     const pair = finalPair(chat.messages);
     if (!pair) return;
     const messages = removeTrailingTurn(chat.messages, pair[0].id, pair[1].id);
-    applyStable(replaceActiveTranscript(current.collection, messages));
+    applyStable(replaceActiveTranscript(current.collection, messages), false);
   }
 
   function newChat(): void {
@@ -110,8 +109,7 @@ function createChatState() {
       collection,
       status: 'idle',
       error: null,
-      generationStartedAt: null,
-      generationMs: null
+      telemetry: null
     });
     persist(collection);
   }
@@ -136,8 +134,7 @@ function createChatState() {
       collection,
       status: 'idle',
       error: null,
-      generationStartedAt: null,
-      generationMs: null
+      telemetry: null
     });
     persist(collection);
   }
@@ -146,12 +143,18 @@ function createChatState() {
     const current = get(store);
     if (current.collection.activeChatId !== chatId) return;
     const messages = activeChat(current.collection).messages;
-    applyStable(replaceActiveTranscript(current.collection, messages));
+    applyStable(replaceActiveTranscript(current.collection, messages), true);
   }
 
-  function applyStable(collection: ChatCollection): void {
+  function applyStable(collection: ChatCollection, keepTelemetry: boolean): void {
     const current = get(store);
-    store.set({ ...current, collection, status: 'idle', error: null });
+    store.set({
+      ...current,
+      collection,
+      status: 'idle',
+      error: null,
+      telemetry: keepTelemetry ? current.telemetry : null
+    });
     persist(collection);
   }
 
@@ -162,7 +165,7 @@ function createChatState() {
 
   return {
     subscribe: store.subscribe,
-    send, stop, regenerate, editLastPrompt, deleteLastTurn,
+    send, stop, regenerate, editPrompt, deleteLastTurn,
     newChat, selectChat, renameChat, deleteChat, importChat, setSystemPrompt
   };
 }

@@ -23,6 +23,7 @@ impl GlobalBytes {
         checked_sum([self.embedding, self.output_norm, self.output.unwrap_or(0)])
     }
 
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid", test))]
     pub(crate) fn tail(self) -> Option<u64> {
         checked_sum([self.output_norm, self.output.unwrap_or(self.embedding)])
     }
@@ -80,6 +81,16 @@ impl WeightBytes {
             .try_fold(0u64, |sum, item| sum.checked_add(item.total))
     }
 
+    // Full retained representation for one homogeneous owner. Tied output
+    // weights are counted once because `globals.all()` preserves their identity.
+    #[cfg(any(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")), test))]
+    pub(crate) fn total(&self) -> Option<u64> {
+        self.globals
+            .all()?
+            .checked_add(self.layer_range(0..self.layers.len())?)
+    }
+
+    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     pub(crate) fn gpu_peak(&self, split: usize) -> Option<u64> {
         let global = if split == 0 {
             self.globals
@@ -198,6 +209,7 @@ mod tests {
             }
         );
         assert_eq!(weights.layer_range(0..2), Some(256));
+        assert_eq!(weights.total(), Some(448));
         assert_eq!(weights.layer_range(0..3), None);
         assert_eq!(align_up(u64::MAX), None);
     }

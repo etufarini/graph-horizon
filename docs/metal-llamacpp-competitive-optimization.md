@@ -286,5 +286,31 @@ Metal-hybrid clippy with warnings denied is blocked by two pre-existing unused
 `simd` arguments in the CPU attention module; M01 does not touch that module
 and Metal-hybrid's complete tests pass.
 
+### M02 — query-head prefill-attention ownership: REJECT
+
+M02 replaced the 1,024-thread, eight-KV-head dispatch with one 128-thread
+workgroup per eight query rows and query head. Four SIMD groups retained matrix
+QK/PV, read disjoint strided history tiles directly from device memory, kept
+independent FP32 online-softmax states, and merged those states in 3.8 KiB of
+threadgroup memory. This tested the principal ownership difference identified
+in llama.cpp without adding a buffer, kernel family, or numerical-policy
+change. The serial causal-attention oracle passed at base 0 and base 512.
+
+The 32.2% long-context Amdahl prediction did not materialize at medium context:
+relative to retained M01, 3B/512 improved only 1.44% (1,845.45 to 1,818.81 ms)
+and 3B/2K improved 3.08% (8,225.25 to 7,972.12 ms). Both candidate CVs were
+below 0.1%, so these sub-gate results are not noise. A cool single 8K probe did
+show the expected crossover, improving 47,681.63 to 43,900.42 ms (7.93%).
+
+The required sustained 8K A/B/A could not validate that probe on the fanless
+device. Baseline A was 48,277.26 ms (1.59% CV), M02 was 50,117.17 ms (1.81%
+CV), and the baseline bookend was 50,233.84 ms (4.21% CV). The 4.05% baseline
+drift makes the sequence inconclusive, while the stable 512/2K evidence remains
+below the economic gate for this moderate, higher-traffic redesign. M02 is
+therefore rejected: extra per-query-head K/V traffic and merge complexity are
+not justified by a qualified whole-workload gain. Commits `ac6edc9` and
+`d458cd6` retain the experiment and its non-destructive removal; production is
+back to M01.
+
 Final matrices and reproduction commands will be appended as the investigation
 proceeds.

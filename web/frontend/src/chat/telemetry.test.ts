@@ -31,6 +31,7 @@ test('runtime properties preserve exact bytes and bounded model identity', () =>
   const result = parseRuntimeInfo({
     model_name: '  Ministral 3B  ',
     backend: 'vulkan-hybrid',
+    memory: { weights_bytes: '2', kv_bytes: '4' },
     placement: {
       mode: 'mixed', cpu_layers: 12, accelerator_layers: 20,
       cpu: memory(), accelerator: memory('0')
@@ -39,24 +40,39 @@ test('runtime properties preserve exact bytes and bounded model identity', () =>
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.info.modelName, 'Ministral 3B');
+  assert.deepEqual(result.info.memory, { weights: BigInt(2), kv: BigInt(4) });
   assert.equal(result.info.placement?.cpu.total, BigInt('18446744073709551615'));
   assert.equal(result.info.placement?.accelerator.total, BigInt(0));
 
-  assert.deepEqual(parseRuntimeInfo({ model_name: null, backend: 'cpu', placement: null }), {
+  assert.deepEqual(parseRuntimeInfo({
+    model_name: null,
+    backend: 'cpu',
+    memory: { weights_bytes: '11', kv_bytes: '12' },
+    placement: null
+  }), {
     ok: true,
-    info: { modelName: 'Modello locale', backend: 'cpu', placement: null }
+    info: {
+      modelName: 'Modello locale',
+      backend: 'cpu',
+      memory: { weights: BigInt(11), kv: BigInt(12) },
+      placement: null
+    }
   });
 });
 
 test('runtime properties reject controls, unknown backends and invalid decimal bytes', () => {
   const valid = {
     model_name: 'model', backend: 'vulkan-hybrid',
+    memory: { weights_bytes: '2', kv_bytes: '4' },
     placement: { mode: 'mixed', cpu_layers: 1, accelerator_layers: 1, cpu: memory(), accelerator: memory() }
   };
   for (const changed of [
     { ...valid, model_name: '\nmodel' },
     { ...valid, backend: 'cuda' },
     { ...valid, backend: { toString: () => 'cpu' } },
+    { ...valid, memory: { weights_bytes: '01', kv_bytes: '2' } },
+    { ...valid, memory: null },
+    { ...valid, memory: { weights_bytes: '3', kv_bytes: '4' } },
     { ...valid, placement: { ...valid.placement, cpu: memory('01') } }
   ]) {
     assert.deepEqual(parseRuntimeInfo(changed), { ok: false, error: 'unavailable' });

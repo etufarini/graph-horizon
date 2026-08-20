@@ -99,10 +99,13 @@ The HTTP provider must expose `/props`, or the CLI must receive a valid
 `limite di contesto non disponibile; specificare --context-tokens`.
 
 For the local provider, the scrollable conversation header identifies the
-loaded model, compile-time backend, and effective hybrid placement. Hybrid
-profiles also show planned CPU and accelerator totals. It never includes the
-model path, device identity, or physical-memory capacity. Remote HTTP providers
-do not synthesize runtime identity from endpoint data.
+loaded model, compile-time backend, retained model weights, full-context KV
+capacity, and effective hybrid placement. The weight/KV summary is present for
+every backend profile; hybrid profiles additionally show planned CPU and
+accelerator budget totals, including the withheld reserve. These are immutable load-time values, not live
+RSS or allocator telemetry. The header never includes the model path, device
+identity, or physical-memory capacity. Remote HTTP providers do not synthesize
+runtime identity from endpoint data.
 
 The right-aligned status adapts to terminal width. While a request is active it
 shows `attesa`, `prefill`, or `decode` with a monotonic phase-local timer. After

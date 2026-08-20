@@ -27,8 +27,18 @@ export function parseRuntimeInfo(value: unknown): RuntimeInfoResult {
   if (value.model_name !== null && modelName === null) {
     return { ok: false, error: 'unavailable' };
   }
+  const memory = parseMemorySummary(value.memory);
+  if (memory === null) {
+    return { ok: false, error: 'unavailable' };
+  }
   const placement = value.placement === null ? null : parsePlacement(value.placement);
   if (value.placement !== null && placement === null) {
+    return { ok: false, error: 'unavailable' };
+  }
+  if (placement !== null && (
+    memory.weights !== placement.cpu.weights + placement.accelerator.weights ||
+    memory.kv !== placement.cpu.kv + placement.accelerator.kv
+  )) {
     return { ok: false, error: 'unavailable' };
   }
   return {
@@ -36,9 +46,17 @@ export function parseRuntimeInfo(value: unknown): RuntimeInfoResult {
     info: {
       modelName: modelName ?? 'Modello locale',
       backend: value.backend,
+      memory,
       placement
     }
   };
+}
+
+function parseMemorySummary(value: unknown): { weights: bigint; kv: bigint } | null {
+  if (!isRecord(value)) return null;
+  const weights = decimal(value.weights_bytes);
+  const kv = decimal(value.kv_bytes);
+  return weights === null || kv === null ? null : { weights, kv };
 }
 
 export function parseGenerationStats(value: unknown): GenerationStats | null {
@@ -87,10 +105,7 @@ function parsePlacement(value: unknown): RuntimePlacement | null {
 
 function parseMemory(value: unknown): RuntimeMemory | null {
   if (!isRecord(value)) return null;
-  const read = (key: string): bigint | null => {
-    const raw = value[key];
-    return typeof raw === 'string' && DECIMAL.test(raw) ? BigInt(raw) : null;
-  };
+  const read = (key: string): bigint | null => decimal(value[key]);
   const values = [
     read('weights_bytes'), read('kv_bytes'), read('scratch_bytes'), read('fixed_bytes'),
     read('staging_bytes'), read('crossing_bytes'), read('reserve_bytes'), read('total_bytes')
@@ -98,6 +113,10 @@ function parseMemory(value: unknown): RuntimeMemory | null {
   if (values.some(item => item === null)) return null;
   const [weights, kv, scratch, fixed, staging, crossing, reserve, total] = values as bigint[];
   return { weights, kv, scratch, fixed, staging, crossing, reserve, total };
+}
+
+function decimal(value: unknown): bigint | null {
+  return typeof value === 'string' && DECIMAL.test(value) ? BigInt(value) : null;
 }
 
 function displayName(value: unknown): string | null {

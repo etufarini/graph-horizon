@@ -274,12 +274,16 @@ accessible name `Occupazione del contesto`.
 
 The header keeps immutable runtime identity separate from per-request status. It
 shows the loaded GGUF `general.name` when safe, otherwise `Modello locale`, then
-the compile-time backend and effective placement. Hybrid profiles add layer
-counts and a collapsed memory disclosure split by CPU and accelerator owner;
-weights, KV, scratch, fixed, staging, crossing, reserve, and totals use exact
-decimal bytes on the wire and IEC units in the UI. Model paths, device names,
-and physical or available memory are never published. Homogeneous profiles omit
-the owner-memory disclosure because no placement report exists.
+the compile-time backend, retained model weights, full-context KV capacity, and
+effective placement. The weight/KV summary is present for every backend and
+uses exact decimal bytes on the wire plus IEC units in the UI. It describes
+load-time planning rather than process RSS or live allocator state. Hybrid
+profiles additionally expose layer counts and a collapsed budget breakdown
+split by CPU and accelerator owner: weights, KV, scratch, fixed, staging,
+crossing, reserve, and totals. The budget label is deliberate because its total
+includes capacity withheld from allocation. Model paths, device names, and physical or available
+memory are never published. Homogeneous profiles omit only the owner breakdown
+because no placement report exists.
 
 An admitted request first shows `Attesa`, then the engine-emitted `Prefill` and
 `Decode` phases. A monotonic display timer refreshes every 250 ms for the active

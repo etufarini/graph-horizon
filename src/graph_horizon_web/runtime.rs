@@ -5,14 +5,21 @@
  * surface. Paths, device identifiers, and physical memory never enter the DTO.
  */
 
-use graph_horizon_engine::{BackendMemory, Engine, PlacementReport};
+use graph_horizon_engine::{BackendMemory, Engine, ModelMemory, PlacementReport};
 use serde::Serialize;
 
 #[derive(Serialize)]
 pub(super) struct RuntimeProperties<'a> {
     model_name: Option<&'a str>,
     backend: &'static str,
+    memory: MemorySummary,
     placement: Option<Placement>,
+}
+
+#[derive(Serialize)]
+struct MemorySummary {
+    weights_bytes: String,
+    kv_bytes: String,
 }
 
 #[derive(Serialize)]
@@ -40,6 +47,7 @@ pub(super) fn payload(engine: &Engine) -> RuntimeProperties<'_> {
     fields(
         engine.model_name(),
         engine.backend_name(),
+        engine.memory(),
         engine.placement(),
     )
 }
@@ -47,11 +55,16 @@ pub(super) fn payload(engine: &Engine) -> RuntimeProperties<'_> {
 fn fields<'a>(
     model_name: Option<&'a str>,
     backend: &'static str,
+    model_memory: ModelMemory,
     placement: Option<PlacementReport>,
 ) -> RuntimeProperties<'a> {
     RuntimeProperties {
         model_name,
         backend,
+        memory: MemorySummary {
+            weights_bytes: model_memory.weights.to_string(),
+            kv_bytes: model_memory.kv.to_string(),
+        },
         placement: placement.map(|report| Placement {
             mode: report.mode,
             cpu_layers: report.cpu_layers,
@@ -87,16 +100,26 @@ mod tests {
             gpu_layers: 20,
             cpu: BackendMemory {
                 weights: u64::MAX,
+                kv: 42,
                 total: u64::MAX,
                 ..BackendMemory::default()
             },
             gpu: BackendMemory::default(),
         };
-        let value =
-            serde_json::to_value(fields(Some("Ministral 3B"), "vulkan-hybrid", Some(report)))
-                .unwrap();
+        let value = serde_json::to_value(fields(
+            Some("Ministral 3B"),
+            "vulkan-hybrid",
+            ModelMemory {
+                weights: u64::MAX,
+                kv: 42,
+            },
+            Some(report),
+        ))
+        .unwrap();
 
         assert_eq!(value["model_name"], "Ministral 3B");
+        assert_eq!(value["memory"]["weights_bytes"], u64::MAX.to_string());
+        assert_eq!(value["memory"]["kv_bytes"], "42");
         assert_eq!(value["placement"]["cpu_layers"], 12);
         assert_eq!(
             value["placement"]["cpu"]["total_bytes"],
@@ -106,5 +129,23 @@ mod tests {
         for prohibited in ["path", "device", "physical", "available"] {
             assert!(!raw.contains(prohibited));
         }
+    }
+
+    #[test]
+    fn homogeneous_payload_keeps_memory_without_fabricating_placement() {
+        let value = serde_json::to_value(fields(
+            None,
+            "cpu",
+            ModelMemory {
+                weights: 10,
+                kv: 20,
+            },
+            None,
+        ))
+        .unwrap();
+
+        assert_eq!(value["memory"]["weights_bytes"], "10");
+        assert_eq!(value["memory"]["kv_bytes"], "20");
+        assert!(value["placement"].is_null());
     }
 }

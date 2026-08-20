@@ -16,8 +16,8 @@
 
   function rows(memory: RuntimeMemory): Array<[string, string]> {
     return [
-      ['Weights', formatBytes(memory.weights)],
-      ['KV', formatBytes(memory.kv)],
+      ['Pesi', formatBytes(memory.weights)],
+      ['KV max', formatBytes(memory.kv)],
       ['Scratch', formatBytes(memory.scratch)],
       ['Fixed', formatBytes(memory.fixed)],
       ['Staging', formatBytes(memory.staging)],
@@ -32,6 +32,8 @@
     <strong class="model">{info.modelName}</strong>
     <span>{info.backend}</span>
     <span>{mode}</span>
+    <span>Pesi {formatBytes(info.memory.weights)}</span>
+    <span>KV max {formatBytes(info.memory.kv)}</span>
     {#if placement}
       <span>CPU {placement.cpuLayers}L / {accelerator} {placement.acceleratorLayers}L</span>
     {/if}
@@ -39,11 +41,11 @@
   {#if placement}
     <details>
       <summary>
-        Memoria CPU {formatBytes(placement.cpu.total)} · {accelerator} {formatBytes(placement.accelerator.total)}
+        Budget CPU {formatBytes(placement.cpu.total)} · {accelerator} {formatBytes(placement.accelerator.total)}
       </summary>
       <div class="memory-owners">
         <section class="memory-owner">
-          <h2>CPU · {formatBytes(placement.cpu.total)}</h2>
+          <h2>CPU · budget {formatBytes(placement.cpu.total)}</h2>
           <dl>
             {#each rows(placement.cpu) as row}
               <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>
@@ -51,7 +53,7 @@
           </dl>
         </section>
         <section class="memory-owner">
-          <h2>{accelerator} · {formatBytes(placement.accelerator.total)}</h2>
+          <h2>{accelerator} · budget {formatBytes(placement.accelerator.total)}</h2>
           <dl>
             {#each rows(placement.accelerator) as row}
               <div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>

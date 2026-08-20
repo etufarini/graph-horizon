@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — persistent public engine
  * Applies statically selected backend settings, owns the single Ministral model,
- * reports immutable placement, and submits cancellation-safe text requests.
+ * reports immutable memory/placement, and submits cancellation-safe requests.
  */
 
 use std::path::Path;
@@ -30,6 +30,12 @@ pub struct BackendMemory {
     pub crossing: u64,
     pub reserve: u64,
     pub total: u64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ModelMemory {
+    pub weights: u64,
+    pub kv: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +90,12 @@ impl Engine {
         return "metal";
         #[cfg(feature = "metal-hybrid")]
         return "metal-hybrid";
+    }
+
+    // Planned retained weights and full-context KV capacity. This is immutable
+    // load-time accounting, not process RSS or live allocator telemetry.
+    pub fn memory(&self) -> ModelMemory {
+        self.model.memory
     }
 
     pub fn default_sampling(&self) -> SamplingParams {

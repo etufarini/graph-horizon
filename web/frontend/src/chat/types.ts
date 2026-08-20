@@ -91,7 +91,12 @@ export interface RuntimeMemory {
   staging: bigint;
   crossing: bigint;
   reserve: bigint;
-  total: bigint;
+    total: bigint;
+}
+
+export interface RuntimeMemorySummary {
+  weights: bigint;
+  kv: bigint;
 }
 
 export interface RuntimePlacement {
@@ -105,6 +110,7 @@ export interface RuntimePlacement {
 export interface RuntimeInfo {
   modelName: string;
   backend: string;
+  memory: RuntimeMemorySummary;
   placement: RuntimePlacement | null;
 }
 

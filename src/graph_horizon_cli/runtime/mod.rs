@@ -18,13 +18,16 @@ mod sse;
 pub(crate) use client::stream_completion as generation_stream;
 pub(crate) use config::ClientConfig;
 pub(crate) use context::{CapacityError, ContextBudget, ContextUsage};
-pub(crate) use graph_horizon_engine::{GenerationPhase, GenerationStats, PlacementReport};
+pub(crate) use graph_horizon_engine::{
+    GenerationPhase, GenerationStats, ModelMemory, PlacementReport,
+};
 pub(crate) use message::ChatMessage;
 
 #[derive(Clone)]
 pub(crate) struct RuntimeInfo {
     pub(crate) model_name: String,
     pub(crate) backend: &'static str,
+    pub(crate) memory: ModelMemory,
     pub(crate) placement: Option<PlacementReport>,
 }
 

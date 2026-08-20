@@ -1,13 +1,35 @@
 /*
  * Graph Horizon CLI Modules - Plugins - Command - Action
- * Registry actions for /export and /import: workspace-confined transcript write and read.
- * Each returns a CommandResult; failures stay generic so no OS or path detail leaks.
+ * Registry actions for session mutation and workspace-confined transcript I/O.
+ * Each returns a CommandResult; failures stay generic so no internal detail leaks.
  */
 
 use super::CommandResult;
 use crate::graph_horizon_cli::console::render::ChatTurn;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::transcript;
+
+pub(super) fn clear_command(
+    _files: &FileAuthority,
+    _arg: &str,
+    _system: Option<&str>,
+    _history: &[ChatTurn],
+) -> CommandResult {
+    CommandResult::Clear
+}
+
+pub(super) fn system_command(
+    _files: &FileAuthority,
+    arg: &str,
+    _system: Option<&str>,
+    _history: &[ChatTurn],
+) -> CommandResult {
+    match arg {
+        "" => CommandResult::Notice("uso: /system <testo> oppure /system --clear".into()),
+        "--clear" => CommandResult::SetSystem(None),
+        text => CommandResult::SetSystem(Some(text.to_string())),
+    }
+}
 
 // Exports the conversation to `arg` (default graph-horizon-export.json). The outcome is
 // a notice so it is shown but never re-enters the model context. The path is

@@ -75,10 +75,12 @@ Rust API path used by the harness. The server selects the same sampling
 parameters for a Reasoning profile, but the complete gate remains owned by the
 harness because it also fixes the context, KV, placement, and semantic corpus.
 
-`Engine::placement()` provides the final placement and its planned memory
-breakdown; it does not expose the raw available VRAM. An error after final
-selection remains a failure with no retry or fallback. The command and
-operational protocol are in the [script guide](../../support/README.md).
+`Engine::memory()` provides retained model weights and full-context KV capacity
+for every backend profile. `Engine::placement()` provides the final hybrid
+placement and its complete planned breakdown. Neither method exposes process
+RSS, live allocator state, or raw available VRAM. An error after final selection
+remains a failure with no retry or fallback. The command and operational
+protocol are in the [script guide](../../support/README.md).
 
 ## Ministral contract
 
@@ -107,9 +109,9 @@ Ministral profiles.
 
 The crate root exposes only:
 
-- engine/config/placement: `Engine`, `EngineConfig`, `BackendMemory`,
-  `PlacementReport`, plus bounded `model_name` and static `backend_name`
-  inspection;
+- engine/config/placement: `Engine`, `EngineConfig`, `ModelMemory`,
+  `BackendMemory`, `PlacementReport`, plus bounded `model_name` and static
+  `backend_name` inspection;
 - chat and events: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
   `GenerationPhase`, `GenerationStats`, `EventSink`, `render_chat_prompt`;
 - Ministral/GGUF inspection: `MistralConfig`, `TekkenTokenizer`,

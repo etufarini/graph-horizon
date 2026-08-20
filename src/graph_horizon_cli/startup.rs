@@ -50,6 +50,7 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         let runtime = RuntimeInfo {
             model_name: chat.model_name().unwrap_or("Modello locale").to_string(),
             backend: chat.backend_name(),
+            memory: chat.memory(),
             placement: chat.placement(),
         };
         let generate = local::provider(chat, max_tokens);

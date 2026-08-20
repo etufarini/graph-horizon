@@ -10,6 +10,7 @@ pub(crate) mod decode;
 pub(crate) mod detect;
 pub(crate) mod generation;
 pub(crate) mod graph;
+mod memory;
 pub(crate) mod parity;
 pub(crate) mod template;
 pub(crate) mod tensors;
@@ -18,7 +19,7 @@ mod version;
 
 use color_eyre::eyre::Result;
 
-use crate::api::engine::EngineConfig;
+use crate::api::engine::{EngineConfig, ModelMemory};
 #[cfg(test)]
 use crate::backend::Backend;
 use crate::backend::selection;
@@ -72,6 +73,7 @@ pub(crate) struct RuntimeModel {
     pub(crate) tokenizer: TekkenTokenizer,
     pub(crate) context: usize,
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
+    pub(crate) memory: ModelMemory,
     pub(crate) backend: selection::SelectedBackend,
     #[cfg(feature = "vulkan")]
     pub(in crate::family::mistral) session_cache:
@@ -85,6 +87,13 @@ impl RuntimeModel {
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
         let shape = graph::MistralGraph::shape(&contract.config);
+        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+        let memory = memory::homogeneous(
+            &contract.tensors,
+            &contract.config,
+            context,
+            settings.kv_quant,
+        )?;
         let backend = selection::load(
             file,
             &contract.tensors,
@@ -95,12 +104,15 @@ impl RuntimeModel {
             settings.vram_weights_percent,
             settings.vram_reserve_mib,
         )?;
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        let memory = memory::hybrid(selection::placement(&backend))?;
         Ok(Self {
             name,
             config: contract.config,
             tokenizer: contract.tokenizer,
             context,
             scheme: settings.kv_quant,
+            memory,
             backend,
             #[cfg(feature = "vulkan")]
             session_cache: std::sync::Mutex::new(None),

@@ -357,5 +357,19 @@ ignored), and 12 semantic tests (1 ignored) under pure Metal; Metal-hybrid has
 203 unit tests with the same integration counts and ignores. Pure-Metal clippy
 with warnings denied and `git diff --check` also pass.
 
+### M05 — K64 wide-projection staging: REJECT
+
+M05 doubled the swizzled weight/activation tile from K32 to K64 while retaining
+the 64-by-64 output tile, dequantization, arithmetic, and traffic. It halved
+full-threadgroup synchronization frequency but raised static threadgroup memory
+from 24 to exactly 32 KiB. The Q4/Q6 oracle passed.
+
+The 3B/512 A/B/A was 1,826.51 ms for M04, 2,149.93 ms for M05, and 1,827.80 ms
+for the M04 bookend. M05 regressed 17.66%; candidate CV was 0.07% and both
+controls were below 0.3%. The exact-capacity tile causes a resource/scheduling
+cliff that overwhelms the saved barriers and would also tighten device
+admission. Exact candidate `3a2d34d` was removed by `b02ae2a`; K32 and the 24
+KiB footprint remain production.
+
 Final matrices and reproduction commands will be appended as the investigation
 proceeds.

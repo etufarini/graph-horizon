@@ -63,6 +63,10 @@ function controlledFetch() {
     const body = new ReadableStream<Uint8Array>({
       start(value) {
         controller = value;
+        controller.enqueue(encoder.encode(
+          'data: {"graph_horizon":{"phase":"prefill"}}\n\n' +
+          'data: {"graph_horizon":{"phase":"decode"}}\n\n'
+        ));
         init?.signal?.addEventListener('abort', () =>
           controller.error(new DOMException('Aborted', 'AbortError')),
         { once: true });
@@ -76,7 +80,10 @@ function controlledFetch() {
       controller.enqueue(encoder.encode(`data: ${data}\n\n`));
     },
     done() {
-      controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      controller.enqueue(encoder.encode(
+        'data: {"usage":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
+        'data: [DONE]\n\n'
+      ));
       controller.close();
     }
   };

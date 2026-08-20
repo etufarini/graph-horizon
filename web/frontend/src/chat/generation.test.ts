@@ -31,8 +31,7 @@ function snapshot(messages = [
     status: 'idle',
     error: null,
     persistenceWarning: null,
-    generationStartedAt: null,
-    generationMs: 99
+    telemetry: null
   };
 }
 
@@ -48,6 +47,10 @@ function controlledFetch() {
     const body = new ReadableStream<Uint8Array>({
       start(value) {
         streamController = value;
+        streamController.enqueue(encoder.encode(
+          'data: {"graph_horizon":{"phase":"prefill"}}\n\n' +
+          'data: {"graph_horizon":{"phase":"decode"}}\n\n'
+        ));
         init?.signal?.addEventListener('abort', () =>
           streamController.error(new DOMException('Aborted', 'AbortError')),
         { once: true });
@@ -65,7 +68,10 @@ function controlledFetch() {
       streamController.enqueue(encoder.encode(`data: ${JSON.stringify(value)}\n\n`));
     },
     done() {
-      streamController.enqueue(encoder.encode('data: [DONE]\n\n'));
+      streamController.enqueue(encoder.encode(
+        'data: {"usage":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
+        'data: [DONE]\n\n'
+      ));
       streamController.close();
     },
     close() { streamController.close(); }
@@ -103,7 +109,7 @@ test('append streams without checkpoints and commits once after idle', async () 
   stream.done();
   await pending;
   assert.equal(get(store).status, 'idle');
-  assert.equal(typeof get(store).generationMs, 'number');
+  assert.equal(get(store).telemetry?.stats?.completionTokens, 3);
   assert.deepEqual(checkpoints, [id]);
 });
 
@@ -115,7 +121,7 @@ test('valid zero-delta completion retains the empty response and checkpoints', a
   stream.done();
   await pending;
   assert.equal(plain(get(store)).at(-1)?.content, '');
-  assert.equal(typeof get(store).generationMs, 'number');
+  assert.equal(get(store).telemetry?.stats?.completionTokens, 3);
   assert.deepEqual(checkpoints, [id]);
 });
 
@@ -132,7 +138,7 @@ test('append stop keeps empty or partial assistant and commits once', async () =
     generation.stop();
     await pending;
     assert.equal(plain(get(store)).at(-1)?.content, partial);
-    assert.equal(get(store).generationMs, null);
+    assert.equal(get(store).telemetry, null);
     assert.equal(get(store).error, null);
     assert.deepEqual(checkpoints, [id]);
   }
@@ -253,8 +259,7 @@ test('timeout wins over a later Stop and rolls back partial output', async t => 
 
   assert.deepEqual(plain(get(store)), plain(original));
   assert.equal(get(store).error, 'Risposta interrotta');
-  assert.equal(get(store).generationStartedAt, null);
-  assert.equal(get(store).generationMs, null);
+  assert.equal(get(store).telemetry, null);
   assert.deepEqual(checkpoints, []);
 });
 

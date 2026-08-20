@@ -64,6 +64,11 @@ pub(crate) fn build_lines(
 
     let mut lines = Vec::new();
 
+    if let Some(info) = content.runtime {
+        super::runtime::push_banner(&mut lines, width, info);
+        lines.push(Line::default());
+    }
+
     for turn in content.history {
         push_prompt(&mut lines, width, &turn.prompt, None);
         push_answer(&mut lines, width, &turn.response, false, false, revision);
@@ -116,7 +121,19 @@ mod tests {
             "world".to_string(),
             Vec::new(),
         )];
-        let content = RenderContent::input(&history, "next", "", 0, &[], 0, usage(), None, None);
+        let content = RenderContent::input(
+            &history,
+            "next",
+            "",
+            0,
+            &[],
+            0,
+            usage(),
+            None,
+            None,
+            None,
+            None,
+        );
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -125,7 +142,19 @@ mod tests {
 
     #[test]
     fn wraps_long_prompt_into_scrollable_lines() {
-        let content = RenderContent::input(&[], "abcdefghi", "", 0, &[], 0, usage(), None, None);
+        let content = RenderContent::input(
+            &[],
+            "abcdefghi",
+            "",
+            0,
+            &[],
+            0,
+            usage(),
+            None,
+            None,
+            None,
+            None,
+        );
 
         let visible: Vec<String> = build_lines(6, 1, &content).iter().map(line_text).collect();
 
@@ -134,7 +163,7 @@ mod tests {
 
     #[test]
     fn shows_generating_before_first_chunk() {
-        let content = RenderContent::output(&[], "prompt", "", usage(), Duration::ZERO);
+        let content = RenderContent::output(&[], "prompt", "", usage(), None, None, Duration::ZERO);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -145,7 +174,15 @@ mod tests {
 
     #[test]
     fn no_generating_once_content_arrives() {
-        let content = RenderContent::output(&[], "prompt", "content", usage(), Duration::ZERO);
+        let content = RenderContent::output(
+            &[],
+            "prompt",
+            "content",
+            usage(),
+            None,
+            None,
+            Duration::ZERO,
+        );
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -154,7 +191,8 @@ mod tests {
 
     #[test]
     fn no_generating_in_input_mode() {
-        let content = RenderContent::input(&[], "hello", "", 0, &[], 0, usage(), None, None);
+        let content =
+            RenderContent::input(&[], "hello", "", 0, &[], 0, usage(), None, None, None, None);
 
         let visible: Vec<String> = build_lines(20, 1, &content).iter().map(line_text).collect();
 
@@ -163,7 +201,15 @@ mod tests {
 
     #[test]
     fn preserves_empty_lines_in_response() {
-        let content = RenderContent::output(&[], "prompt", "one\n\ntwo", usage(), Duration::ZERO);
+        let content = RenderContent::output(
+            &[],
+            "prompt",
+            "one\n\ntwo",
+            usage(),
+            None,
+            None,
+            Duration::ZERO,
+        );
 
         let visible: Vec<String> = build_lines(10, 1, &content).iter().map(line_text).collect();
 
@@ -336,11 +382,23 @@ mod tests {
     }
 
     fn output(response: &str) -> RenderContent<'_> {
-        RenderContent::output(&[], "prompt", response, usage(), Duration::ZERO)
+        RenderContent::output(&[], "prompt", response, usage(), None, None, Duration::ZERO)
     }
 
     fn input<'a>(history: &'a [ChatTurn], prompt: &'a str) -> RenderContent<'a> {
-        RenderContent::input(history, prompt, "", 0, &[], 0, usage(), None, None)
+        RenderContent::input(
+            history,
+            prompt,
+            "",
+            0,
+            &[],
+            0,
+            usage(),
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     // Returns the text of the single reverse-styled span — the caret cell — across all
@@ -355,7 +413,19 @@ mod tests {
     }
 
     fn input_lines(prompt: &str, hint: &str, cursor: usize, width: u16) -> Vec<Line<'static>> {
-        let content = RenderContent::input(&[], prompt, hint, cursor, &[], 0, usage(), None, None);
+        let content = RenderContent::input(
+            &[],
+            prompt,
+            hint,
+            cursor,
+            &[],
+            0,
+            usage(),
+            None,
+            None,
+            None,
+            None,
+        );
         build_lines(width, 1, &content)
     }
 

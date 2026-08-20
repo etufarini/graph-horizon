@@ -108,9 +108,10 @@ Ministral profiles.
 The crate root exposes only:
 
 - engine/config/placement: `Engine`, `EngineConfig`, `BackendMemory`,
-  `PlacementReport`;
+  `PlacementReport`, plus bounded `model_name` and static `backend_name`
+  inspection;
 - chat and events: `Message`, `Role`, `Request`, `SamplingParams`, `Event`,
-  `GenerationStats`, `EventSink`, `render_chat_prompt`;
+  `GenerationPhase`, `GenerationStats`, `EventSink`, `render_chat_prompt`;
 - Ministral/GGUF inspection: `MistralConfig`, `TekkenTokenizer`,
   `GgufFile`, `GgufValue`, `GgmlType`, `TensorInfo`;
 - KV selection: `KvQuant`;
@@ -155,10 +156,17 @@ it. Caller-provided content is not interpreted as a special token. The
 
 The public events are:
 
+- `Phase(Prefill)`;
+- `Phase(Decode)`;
 - `TextDelta(String)`;
 - `Finished(GenerationStats)`;
 - `Error("generation failed")`.
 
+Phase events are ordered and emitted immediately before their work.
+`GenerationStats` separates total prompt tokens from actually-prefilled tokens,
+then reports completion tokens and engine-measured prefill/decode milliseconds.
+With prefix reuse, cached tokens remain in the prompt total but not the prefill
+count. This preserves meaningful phase throughput without exposing cache state.
 Each generation emits exactly one terminal event. If the sink returns `false`,
 execution is cancelled, resources are released, and no further event is
 emitted.

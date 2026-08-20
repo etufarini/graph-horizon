@@ -69,6 +69,23 @@ impl Engine {
         self.model.context_limit()
     }
 
+    pub fn model_name(&self) -> Option<&str> {
+        self.model.name.as_deref()
+    }
+
+    pub fn backend_name(&self) -> &'static str {
+        #[cfg(feature = "cpu")]
+        return "cpu";
+        #[cfg(feature = "vulkan")]
+        return "vulkan";
+        #[cfg(feature = "vulkan-hybrid")]
+        return "vulkan-hybrid";
+        #[cfg(feature = "metal")]
+        return "metal";
+        #[cfg(feature = "metal-hybrid")]
+        return "metal-hybrid";
+    }
+
     pub fn default_sampling(&self) -> SamplingParams {
         sampling_for_profile(self.model.tokenizer.uses_reasoning_profile())
     }

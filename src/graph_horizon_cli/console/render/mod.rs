@@ -8,6 +8,7 @@ mod cache;
 mod content;
 mod conversation;
 mod draw;
+mod runtime;
 mod status;
 mod wrap;
 

@@ -17,7 +17,7 @@ use super::decode::TextDecoder;
 #[cfg(not(feature = "vulkan"))]
 use super::graph::MistralGraph;
 use super::template;
-use crate::api::event::{GenerationStats, Terminal};
+use crate::api::event::{GenerationPhase, GenerationStats, Terminal};
 use crate::api::request::{EventSink, Request};
 #[cfg(not(feature = "vulkan"))]
 use crate::backend::selection;
@@ -80,14 +80,24 @@ pub(super) fn drive<S: RuntimeSession>(
     session: &S,
     terminal: &mut Terminal<'_>,
 ) -> Result<Option<GenerationStats>> {
+    let prefill_tokens = prompt
+        .len()
+        .checked_sub(prefix)
+        .ok_or_else(|| color_eyre::eyre::eyre!("invalid cached prefix"))?;
+    if !terminal.phase(GenerationPhase::Prefill) {
+        return Ok(None);
+    }
     let prefill_start = std::time::Instant::now();
     session.prefill(&prompt[prefix..], prefix, &mut || {
         (!terminal.cancelled())
             .then_some(())
             .ok_or_else(|| color_eyre::eyre::eyre!("generation cancelled"))
     })?;
+    let prefill_ms = prefill_start.elapsed().as_millis() as u64;
+    if !terminal.phase(GenerationPhase::Decode) {
+        return Ok(None);
+    }
     let decode_start = std::time::Instant::now();
-    let prefill_ms = decode_start.duration_since(prefill_start).as_millis() as u64;
     let mut decoder = TextDecoder::default();
     let mut recent = prompt.to_vec();
     let mut rng = Rng::new(request.sampling.seed);
@@ -130,6 +140,7 @@ pub(super) fn drive<S: RuntimeSession>(
     decoder.finish();
     Ok(Some(GenerationStats {
         prompt_tokens: prompt.len(),
+        prefill_tokens,
         completion_tokens: produced,
         prefill_ms,
         decode_ms: decode_start.elapsed().as_millis() as u64,

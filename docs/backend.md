@@ -35,12 +35,24 @@ a compute target follows the
 `Request` contains text messages, sampling parameters, and `max_tokens`.
 `Engine::generate` sends only these events to the sink:
 
+- `Phase(Prefill)` immediately before prompt evaluation;
+- `Phase(Decode)` immediately before autoregressive generation;
 - `TextDelta(String)` for incremental text;
 - `Finished(GenerationStats)` for completion and metrics;
 - `Error("generation failed")` as the normalized terminal error.
 
+The two phase events are ordered and occur at most once. `GenerationStats`
+contains prompt, actually-prefilled, and completion token counts plus separate
+prefill and decode durations. Cached prompt tokens remain part of
+`prompt_tokens` but not `prefill_tokens`, so prefill throughput is not inflated.
 Each generation has exactly one terminal event. If the sink cancels the request,
 decoding stops and no further events are emitted.
+
+After a successful load, `Engine::model_name()` exposes only the bounded,
+control-free `general.name` display value when present; it never derives an
+identity from the model path. `Engine::backend_name()` reports the statically
+selected profile, while `Engine::placement()` remains the source of effective
+hybrid ownership and planned allocation bytes.
 
 ## Build Backends
 

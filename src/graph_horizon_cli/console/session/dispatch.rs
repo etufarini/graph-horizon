@@ -9,6 +9,7 @@ use super::super::render::{ChatTurn, conversation_characters};
 use super::super::scroll::ViewportState;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
+use crate::graph_horizon_cli::runtime::GenerationStats;
 use color_eyre::eyre::Result;
 
 // Outcome of dispatching one prompt back to the session loop.
@@ -29,6 +30,7 @@ pub(super) fn dispatch(
     history: &mut Vec<ChatTurn>,
     committed_characters: &mut Option<usize>,
     duration: &mut Option<std::time::Duration>,
+    stats: &mut Option<GenerationStats>,
     prompt: &str,
     files: &FileAuthority,
 ) -> Result<Dispatch> {
@@ -54,6 +56,7 @@ pub(super) fn dispatch(
             *history = restored_history;
             *committed_characters = conversation_characters(system.as_deref(), history);
             *duration = None;
+            *stats = None;
             viewport.manual_scroll = None;
             bump(content_revision);
             return Ok(Dispatch::Handled);

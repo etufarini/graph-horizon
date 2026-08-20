@@ -10,6 +10,7 @@ use crate::app::{args, engine};
 
 use super::console::terminal_user_interface;
 use super::plugins::attachments::FileAuthority;
+use super::runtime::RuntimeInfo;
 use super::runtime::{ClientConfig, ContextBudget, generation_stream, local};
 
 const CONTEXT_UNAVAILABLE: &str =
@@ -46,19 +47,33 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         // The explicit override still wins over the engine-resolved limit.
         client_config.apply_local_context_limit(chat.context_limit());
         let budget = context_budget(client_config.context_limit, max_tokens)?;
+        let runtime = RuntimeInfo {
+            model_name: chat.model_name().unwrap_or("Modello locale").to_string(),
+            backend: chat.backend_name(),
+            placement: chat.placement(),
+        };
         let generate = local::provider(chat, max_tokens);
         let mut terminal = ratatui::init();
-        let result = terminal_user_interface(&mut terminal, system, budget, &files, generate).await;
+        let result = terminal_user_interface(
+            &mut terminal,
+            system,
+            budget,
+            Some(runtime),
+            &files,
+            generate,
+        )
+        .await;
         ratatui::restore();
         result
     } else {
         // HTTP discovery is mandatory unless an explicit override is present.
         let budget = http_context_budget(&mut client_config).await?;
         let mut terminal = ratatui::init();
-        let result = terminal_user_interface(&mut terminal, system, budget, &files, move |msgs| {
-            generation_stream(msgs, client_config.clone())
-        })
-        .await;
+        let result =
+            terminal_user_interface(&mut terminal, system, budget, None, &files, move |msgs| {
+                generation_stream(msgs, client_config.clone())
+            })
+            .await;
         ratatui::restore();
         result
     }

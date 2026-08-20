@@ -44,6 +44,7 @@ suite with Node's TypeScript stripping.
 | `GET /index.html` | Serves `index.html` |
 | `GET /assets/*` | Serves a built asset |
 | `GET /props` | Returns positive context and generation limits |
+| `GET /runtime` | Returns bounded model, backend, placement, and planned memory data |
 | `POST /v1/chat/completions` | Streams chat with SSE |
 
 There is no SPA fallback for other paths and there are no workspace, tool, or
@@ -71,20 +72,24 @@ its lifetime. On the Vulkan profile, the server retains one KV allocation and
 reuses only an exact rendered-token prefix with the same key. Another page may
 replace that slot; requests without the header keep the uncached behavior.
 
-On page initialization the browser requests exact `/props` with a three-second
-timeout. Send remains disabled until `n_ctx` and `max_tokens` are equal positive
-safe integers whose 90% prompt budget is non-zero. A failed, timed-out,
-malformed, unequal, non-integer, unsafe, or non-positive response shows
-`Configurazione del contesto non disponibile`.
+On page initialization the browser requests exact `/props` and `/runtime`, each
+with a three-second timeout. Send remains disabled until `n_ctx` and
+`max_tokens` are equal positive safe integers whose 90% prompt budget is
+non-zero. A failed, timed-out, malformed, unequal, non-integer, unsafe, or
+non-positive context response shows `Configurazione del contesto non
+disponibile`. Runtime metadata is informational and is omitted when unavailable;
+it does not weaken the capacity gate.
 
-The browser consumes only non-empty string `delta.content` and requires `[DONE]`
-for successful completion. It stops reading immediately at that sentinel. Usage
-and final-stop frames are tolerated but do not drive presentation. Invalid JSON,
-server error objects, `reasoning_content`, and tool frames interrupt the response
-without exposing payload details. A five-minute inactivity watchdog starts before
-the request and resets on every non-empty body chunk; it is not a total generation
-timeout. The stop button aborts voluntarily and retains the active
-pair, including partial raw text, to preserve alternating history.
+The browser consumes only non-empty string `delta.content`, ordered Graph
+Horizon prefill/decode frames, and one complete usage frame before `[DONE]`.
+Usage must contain exact non-negative prompt, prefill, completion, prefill-time,
+and decode-time values; prefill tokens cannot exceed prompt tokens. Data after
+usage, invalid JSON, server error objects, `reasoning_content`, and tool frames
+interrupt the response without exposing payload details. A five-minute
+inactivity watchdog starts before the request and resets on every non-empty body
+chunk; it is not a total generation timeout. The stop button aborts voluntarily
+and retains the active pair, including partial raw text, to preserve alternating
+history.
 
 The composer remains editable while a response is streaming, so the next
 message can be prepared without starting a concurrent request. Send stays
@@ -258,13 +263,26 @@ progress bar. The visible percentage is not capped. The fill is normal below
 ARIA current value are capped at 100. The element exposes `role="progressbar"`,
 minimum 0, maximum 100, and the accessible name `Occupazione del contesto`.
 
-An admitted request starts a `performance.now()` timer immediately before chat
-transport. `Generazione N.Ns` refreshes every 250 ms and measures connection
-wait, prefill, transport, and decode. Successful `[DONE]` completion freezes the
-exact elapsed duration. Stop, inactivity, missing `[DONE]`, or failure clears
-timing without publishing a final value; a capacity rejection preserves the
-previous final duration because no generation started. Errors render in addition
-to a valid context bar.
+The header keeps immutable runtime identity separate from per-request status. It
+shows the loaded GGUF `general.name` when safe, otherwise `Modello locale`, then
+the compile-time backend and effective placement. Hybrid profiles add layer
+counts and a collapsed memory disclosure split by CPU and accelerator owner;
+weights, KV, scratch, fixed, staging, crossing, reserve, and totals use exact
+decimal bytes on the wire and IEC units in the UI. Model paths, device names,
+and physical or available memory are never published. Homogeneous profiles omit
+the owner-memory disclosure because no placement report exists.
+
+An admitted request first shows `Attesa`, then the engine-emitted `Prefill` and
+`Decode` phases. A monotonic display timer refreshes every 250 ms for the active
+phase only. After exact usage arrives, the live phase is replaced by four compact
+cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
+tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
+cached prompt reuse is visible because prefill tokens may be lower than prompt
+tokens. Stop, inactivity, missing usage or `[DONE]`, invalid ordering, and
+failure clear request telemetry. A capacity rejection preserves the previous
+successful metrics because no generation started. Runtime identity and
+generation telemetry are operational state and are never written to chat
+history, `localStorage`, import, or export.
 
 ## Reasoning Presentation
 

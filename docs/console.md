@@ -98,27 +98,38 @@ The HTTP provider must expose `/props`, or the CLI must receive a valid
 `--context-tokens`; otherwise startup stops before Ratatui with
 `limite di contesto non disponibile; specificare --context-tokens`.
 
-The right-aligned status has one compact form:
+For the local provider, the scrollable conversation header identifies the
+loaded model, compile-time backend, and effective hybrid placement. Hybrid
+profiles also show planned CPU and accelerator totals. It never includes the
+model path, device identity, or physical-memory capacity. Remote HTTP providers
+do not synthesize runtime identity from endpoint data.
+
+The right-aligned status adapts to terminal width. While a request is active it
+shows `attesa`, `prefill`, or `decode` with a monotonic phase-local timer. After
+a Graph Horizon generation completes, wide terminals show prompt, actually
+prefilled, and output counts plus separate phase durations and token rates:
 
 ```text
-ctx ~5.2k/32.8k tok gen 12.4s
+ctx ~1.2k/32.8k tok | 1.2k in · 96 pf · 42 out | pf 0.80s 120.0/s · dec 1.40s 30.0/s
 ```
 
-Counts below 1000 are integers; larger counts use one decimal and `k`. Only the
-occupied estimate has `~`. The CLI has no percentage and no graphical progress
-bar. `gen` is absent before the first successful generation.
+Medium widths retain output and both rates; narrow widths retain output and
+decode rate. Counts below 1000 are integers; larger counts use one decimal and
+`k`. Only the occupied estimate has `~`. A zero-duration rate is `—`. The CLI
+has no percentage and no graphical progress bar. Providers that emit ordinary
+OpenAI usage without Graph Horizon timing remain compatible: the CLI simply
+keeps the prior total-duration presentation.
 
 Occupancy includes the raw draft while editing, the expanded submitted prompt
 and partial assistant response while streaming, then the committed raw pair on
 success. A failed or empty turn remains outside model occupancy. `/import`
 recomputes occupancy and clears the prior duration.
 
-Generation time is monotonic client-perceived wall time. It begins after
-admission and immediately before the provider future, includes connection wait,
-prefill, transport, and decode, updates live, and freezes only on successful
-stream completion. A new admitted turn clears the previous result; interruption
-or failure leaves no new duration. A rejected prompt never starts the timer and
-therefore preserves the previous final duration.
+The live phase timer measures client-perceived time from receipt of each phase
+boundary; the completed durations and rates come only from engine usage. A new
+admitted turn clears the previous result; interruption or failure leaves no new
+metrics. A rejected prompt never starts the timer and therefore preserves the
+previous successful status.
 
 While a capacity error is present, the status row instead reports estimated
 messages, reserved tokens, and safe budget. The next edit, recall, completion,

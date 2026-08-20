@@ -66,6 +66,51 @@ export interface ContextUsage {
   progress: number;
 }
 
+export type GenerationPhase = 'waiting' | 'prefill' | 'decode';
+
+export interface GenerationStats {
+  promptTokens: number;
+  prefillTokens: number;
+  completionTokens: number;
+  prefillMs: number;
+  decodeMs: number;
+}
+
+export interface GenerationTelemetry {
+  phase: GenerationPhase | null;
+  phaseStartedAt: number | null;
+  stats: GenerationStats | null;
+}
+
+export interface RuntimeMemory {
+  weights: bigint;
+  kv: bigint;
+  scratch: bigint;
+  fixed: bigint;
+  staging: bigint;
+  crossing: bigint;
+  reserve: bigint;
+  total: bigint;
+}
+
+export interface RuntimePlacement {
+  mode: string;
+  cpuLayers: number;
+  acceleratorLayers: number;
+  cpu: RuntimeMemory;
+  accelerator: RuntimeMemory;
+}
+
+export interface RuntimeInfo {
+  modelName: string;
+  backend: string;
+  placement: RuntimePlacement | null;
+}
+
+export type RuntimeInfoResult =
+  | { ok: true; info: RuntimeInfo }
+  | { ok: false; error: 'unavailable' };
+
 export type ContextConfigResult =
   | { ok: true; context: RuntimeContext }
   | { ok: false; error: 'unavailable' };
@@ -84,10 +129,10 @@ export interface ChatSnapshot {
   status: ChatStatus;
   error: string | null;
   persistenceWarning: PersistenceWarning | null;
-  generationStartedAt: number | null;
-  generationMs: number | null;
+  telemetry: GenerationTelemetry | null;
 }
 
-export interface StreamDelta {
-  content: string;
-}
+export type StreamEvent =
+  | { type: 'content'; content: string }
+  | { type: 'phase'; phase: Exclude<GenerationPhase, 'waiting'> }
+  | { type: 'stats'; stats: GenerationStats };

@@ -6,8 +6,10 @@
 
 use super::super::render::{ChatTurn, RenderCache, RenderContent, draw_viewport};
 use super::super::scroll::{ViewportState, drain_stream_events};
-use crate::graph_horizon_cli::runtime::{self, ChunkStream, ContextBudget};
-use color_eyre::eyre::Result;
+use crate::graph_horizon_cli::runtime::{
+    ChunkStream, ContextBudget, GenerationPhase, GenerationStats, RuntimeInfo, StreamEvent,
+};
+use color_eyre::eyre::{Result, eyre};
 use ratatui::DefaultTerminal;
 use std::time::{Duration, Instant};
 use tokio_stream::StreamExt;
@@ -19,7 +21,7 @@ pub(super) const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(16);
 pub(crate) enum StreamOutcome {
     Quit,        // Esc: exit the app
     Interrupted, // Ctrl+C: discard partial output, back to input
-    Completed(String, Duration),
+    Completed(String, Duration, Option<GenerationStats>),
 }
 
 // Streams the response for one prompt and returns how the phase ended: Quit on Esc,
@@ -36,6 +38,7 @@ pub(crate) async fn stream_response<Fut>(
     history: &[ChatTurn],
     prompt: &str,
     budget: ContextBudget,
+    runtime: Option<&RuntimeInfo>,
     input_characters: usize,
     started: Instant,
     stream_future: Fut,
@@ -57,6 +60,8 @@ where
                 prompt,
                 "",
                 budget.usage(input_characters),
+                runtime,
+                None,
                 started.elapsed(),
             ),
             viewport,
@@ -74,16 +79,46 @@ where
     };
 
     let mut resp = String::new();
+    let mut phase = None;
+    let mut phase_started = started;
+    let mut stats = None;
     loop {
         let content_changed = match tokio::time::timeout(STREAM_POLL_INTERVAL, stream.next()).await
         {
-            Ok(Some(chunk)) => {
-                let c = chunk?;
-                runtime::response(&c).is_some_and(|r| {
-                    resp.push_str(r);
+            Ok(Some(chunk)) => match chunk? {
+                StreamEvent::Text(text) => {
+                    if stats.is_some() {
+                        return Err(eyre!("provider returned content after usage"));
+                    }
+                    resp.push_str(&text);
+                    !text.is_empty()
+                }
+                StreamEvent::Phase(next) => {
+                    if stats.is_some() {
+                        return Err(eyre!("provider returned a phase after usage"));
+                    }
+                    let valid = matches!(
+                        (phase, next),
+                        (None, GenerationPhase::Prefill)
+                            | (Some(GenerationPhase::Prefill), GenerationPhase::Decode)
+                    );
+                    if !valid {
+                        return Err(eyre!("provider returned phases out of order"));
+                    }
+                    phase = Some(next);
+                    phase_started = Instant::now();
                     true
-                })
-            }
+                }
+                StreamEvent::Finished(value) => {
+                    if phase == Some(GenerationPhase::Prefill) {
+                        return Err(eyre!("provider returned usage before decode"));
+                    }
+                    if stats.replace(value).is_some() {
+                        return Err(eyre!("provider returned multiple usage frames"));
+                    }
+                    true
+                }
+            },
             Ok(None) => break,
             Err(_) => false,
         };
@@ -109,7 +144,9 @@ where
             prompt,
             &resp,
             budget.usage(live_characters),
-            started.elapsed(),
+            runtime,
+            phase,
+            phase_started.elapsed(),
         );
         if content_changed || content.loading() {
             super::super::bump(content_revision);
@@ -120,5 +157,5 @@ where
         }
     }
 
-    Ok(StreamOutcome::Completed(resp, started.elapsed()))
+    Ok(StreamOutcome::Completed(resp, started.elapsed(), stats))
 }

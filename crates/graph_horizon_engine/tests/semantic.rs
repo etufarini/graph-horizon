@@ -443,6 +443,8 @@ fn event_response(events: &[Event]) -> Result<(String, GenerationStats), &'stati
     let mut terminal = None;
     for event in events {
         match event {
+            Event::Phase(_) if terminal.is_none() => {}
+            Event::Phase(_) => return Err("Phase after terminal event"),
             Event::TextDelta(text) if terminal.is_none() => parts.push(text.as_bytes().to_vec()),
             Event::TextDelta(_) => return Err("TextDelta after terminal event"),
             Event::Finished(stats) if terminal.is_none() => terminal = Some(*stats),
@@ -733,6 +735,7 @@ fn normalization_requires_one_complete_reasoning_marker_pair() {
 fn stop_classification_prefers_context_and_requires_exact_limits() {
     let stats = |prompt_tokens, completion_tokens| GenerationStats {
         prompt_tokens,
+        prefill_tokens: prompt_tokens,
         completion_tokens,
         prefill_ms: 0,
         decode_ms: 0,
@@ -840,6 +843,7 @@ fn timing_uses_checked_sums() {
     timing
         .add_case(Some(GenerationStats {
             prompt_tokens: 1,
+            prefill_tokens: 1,
             completion_tokens: 2,
             prefill_ms: 3,
             decode_ms: 4,
@@ -856,6 +860,7 @@ fn timing_uses_checked_sums() {
     assert_eq!(
         timing.add_case(Some(GenerationStats {
             prompt_tokens: 1,
+            prefill_tokens: 1,
             completion_tokens: 1,
             prefill_ms: 1,
             decode_ms: 1,
@@ -877,6 +882,7 @@ fn failure_excerpt_is_unicode_bounded() {
 fn event_collection_requires_one_finished_and_valid_utf8() {
     let stats = GenerationStats {
         prompt_tokens: 1,
+        prefill_tokens: 1,
         completion_tokens: 2,
         prefill_ms: 3,
         decode_ms: 4,

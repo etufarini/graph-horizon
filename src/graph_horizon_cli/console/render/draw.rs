@@ -8,7 +8,7 @@ use ratatui::DefaultTerminal;
 use ratatui::{prelude::*, widgets::Paragraph};
 
 use super::super::scroll::{ViewportState, sync_scroll_state};
-use super::status::{capacity_error, context_status};
+use super::status::{capacity_error, generation_status};
 use super::{RenderCache, RenderContent};
 use crate::graph_horizon_cli::style;
 use color_eyre::eyre::Result;
@@ -51,7 +51,15 @@ pub(crate) fn draw_viewport(
                 Some(error) => (style::Palette::Error, capacity_error(error)),
                 None => (
                     style::Palette::Hint,
-                    context_status(content.usage, content.duration),
+                    generation_status(
+                        content.usage,
+                        content.duration,
+                        content.stats,
+                        content.phase,
+                        content.phase_duration,
+                        content.caret.is_none(),
+                        status.width,
+                    ),
                 ),
             };
             f.render_widget(

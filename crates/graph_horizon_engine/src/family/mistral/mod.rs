@@ -23,6 +23,7 @@ use crate::api::engine::EngineConfig;
 use crate::backend::Backend;
 use crate::backend::selection;
 use crate::gguf::loader::GgufFile;
+use crate::gguf::loader::GgufValue;
 use crate::gguf::metadata::ModelMetadata;
 use crate::gguf::tensor_index::TensorIndex;
 use crate::runtime::contract::LayeredGraph;
@@ -66,6 +67,7 @@ pub(crate) struct MistralModel<B: Backend> {
 }
 
 pub(crate) struct RuntimeModel {
+    pub(crate) name: Option<String>,
     pub(crate) config: MistralConfig,
     pub(crate) tokenizer: TekkenTokenizer,
     pub(crate) context: usize,
@@ -78,6 +80,7 @@ pub(crate) struct RuntimeModel {
 
 impl RuntimeModel {
     pub(crate) fn load(file: &GgufFile, settings: &EngineConfig) -> Result<Self> {
+        let name = display_name(file.metadata());
         let contract = MistralContract::from_gguf(file)?;
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
@@ -93,6 +96,7 @@ impl RuntimeModel {
             settings.vram_reserve_mib,
         )?;
         Ok(Self {
+            name,
             config: contract.config,
             tokenizer: contract.tokenizer,
             context,
@@ -110,6 +114,16 @@ impl RuntimeModel {
     pub(crate) fn shape(&self) -> crate::backend::hybrid::weights::runtime::RuntimeShape {
         graph::MistralGraph::shape(&self.config)
     }
+}
+
+fn display_name(md: &std::collections::HashMap<String, GgufValue>) -> Option<String> {
+    let raw = md.get("general.name").and_then(GgufValue::as_str)?;
+    if raw.chars().any(char::is_control) {
+        return None;
+    }
+    let name = raw.trim();
+    let length = name.chars().count();
+    (length > 0 && length <= 128).then(|| name.to_owned())
 }
 
 #[cfg(feature = "vulkan")]
@@ -160,5 +174,22 @@ mod tests {
                 )
             );
         }
+    }
+
+    #[test]
+    fn display_name_accepts_bounded_plain_metadata_only() {
+        let md = |name: &str| {
+            std::collections::HashMap::from([(
+                "general.name".into(),
+                GgufValue::String(name.into()),
+            )])
+        };
+        assert_eq!(
+            display_name(&md("  Ministral 3B  ")).as_deref(),
+            Some("Ministral 3B")
+        );
+        assert_eq!(display_name(&md("\nmodel")), None);
+        assert_eq!(display_name(&md(&"x".repeat(129))), None);
+        assert_eq!(display_name(&std::collections::HashMap::new()), None);
     }
 }

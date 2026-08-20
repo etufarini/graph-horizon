@@ -21,7 +21,7 @@ import type {
   ChatMessage,
   ChatSnapshot,
   RuntimeContext,
-  StreamDelta
+  StreamEvent
 } from './types.ts';
 
 const FAILED = 'Richiesta non riuscita';
@@ -94,29 +94,29 @@ export function createGeneration(
     const assistantId = pair[1].id;
     controller = new AbortController();
     const request = controller;
-    const generationStartedAt = performance.now();
     store.set({
       ...current,
       collection: withMessages(current.collection, chatId, messages),
       status: 'streaming',
       error: null,
-      generationStartedAt,
-      generationMs: null
+      telemetry: {
+        phase: 'waiting',
+        phaseStartedAt: performance.now(),
+        stats: null
+      }
     });
 
     try {
       await streamAssistant(
         wire,
         context.contextLimit,
-        delta => applyDelta(chatId, assistantId, delta),
+        event => applyEvent(chatId, assistantId, event),
         request.signal
       );
       store.update(snapshot => ({
         ...snapshot,
         status: 'idle',
-        error: null,
-        generationStartedAt: null,
-        generationMs: performance.now() - generationStartedAt
+        error: null
       }));
       checkpoint(chatId);
     } catch (error) {
@@ -127,8 +127,7 @@ export function createGeneration(
           ...snapshot,
           status: 'idle',
           error: null,
-          generationStartedAt: null,
-          generationMs: null
+          telemetry: null
         }));
         checkpoint(chatId);
       } else {
@@ -137,8 +136,7 @@ export function createGeneration(
           collection: withMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
           error: error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED,
-          generationStartedAt: null,
-          generationMs: null
+          telemetry: null
         }));
       }
     } finally {
@@ -148,18 +146,36 @@ export function createGeneration(
     }
   }
 
-  function applyDelta(chatId: string, assistantId: string, delta: StreamDelta): void {
+  function applyEvent(chatId: string, assistantId: string, event: StreamEvent): void {
     store.update(snapshot => {
       const chat = snapshot.collection.chats.find(candidate => candidate.id === chatId);
       if (!chat || chat.messages.at(-1)?.id !== assistantId) {
         return snapshot;
+      }
+      if (snapshot.telemetry?.stats) throw new Error(INTERRUPTED);
+      if (event.type === 'phase') {
+        const prior = snapshot.telemetry?.phase;
+        const valid = (prior === 'waiting' && event.phase === 'prefill') ||
+          (prior === 'prefill' && event.phase === 'decode');
+        if (!valid) throw new Error(INTERRUPTED);
+        return {
+          ...snapshot,
+          telemetry: { phase: event.phase, phaseStartedAt: performance.now(), stats: null }
+        };
+      }
+      if (event.type === 'stats') {
+        if (snapshot.telemetry?.phase !== 'decode') throw new Error(INTERRUPTED);
+        return {
+          ...snapshot,
+          telemetry: { phase: null, phaseStartedAt: null, stats: event.stats }
+        };
       }
       return {
         ...snapshot,
         collection: withMessages(
           snapshot.collection,
           chatId,
-          appendAssistant(chat.messages, delta.content)
+          appendAssistant(chat.messages, event.content)
         )
       };
     });

@@ -8,5 +8,6 @@
 mod assets;
 mod config;
 mod router;
+mod runtime;
 mod server;
 pub(crate) mod startup;

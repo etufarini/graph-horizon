@@ -13,7 +13,9 @@ mod stream;
 use super::render::{ChatTurn, RenderCache, conversation_characters};
 use super::scroll::ViewportState;
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
-use crate::graph_horizon_cli::runtime::{CapacityError, ChatMessage, ChunkStream, ContextBudget};
+use crate::graph_horizon_cli::runtime::{
+    CapacityError, ChatMessage, ChunkStream, ContextBudget, RuntimeInfo,
+};
 use color_eyre::eyre::Result;
 use ratatui::DefaultTerminal;
 
@@ -24,6 +26,7 @@ pub(crate) async fn terminal_user_interface<Fut>(
     // one recorded in the restored transcript.
     mut system: Option<String>,
     budget: ContextBudget,
+    runtime: Option<RuntimeInfo>,
     files: &FileAuthority,
     generate: impl Fn(Vec<ChatMessage>) -> Fut,
 ) -> Result<()>
@@ -39,6 +42,7 @@ where
     // the status bar shows this without recounting the whole history each draw.
     let mut committed_characters = conversation_characters(system.as_deref(), &history);
     let mut duration = None;
+    let mut stats = None;
     // Text that prefills the next input field; set only by a Ctrl+C interruption,
     // consumed (taken) by every read_prompt call so it never survives past one turn.
     let mut prefill = String::new();
@@ -53,7 +57,9 @@ where
             std::mem::take(&mut prefill),
             committed_characters,
             budget,
+            runtime.as_ref(),
             duration,
+            stats,
             &mut capacity_error,
             files,
         )?
@@ -70,6 +76,7 @@ where
             &mut history,
             &mut committed_characters,
             &mut duration,
+            &mut stats,
             &prompt,
             files,
         )? {
@@ -91,6 +98,7 @@ where
         // An admitted generation replaces any previous final duration; rejected
         // requests return above and therefore leave it untouched.
         duration = None;
+        stats = None;
         let outcome = stream::stream_response(
             terminal,
             &mut document,
@@ -99,6 +107,7 @@ where
             &history,
             &prompt,
             budget,
+            runtime.as_ref(),
             input_characters,
             started,
             stream_future,
@@ -114,6 +123,7 @@ where
             prompt,
             &mut committed_characters,
             &mut duration,
+            &mut stats,
         ) {
             history::Commit::Quit => return Ok(()),
             history::Commit::Interrupted(prompt) => {

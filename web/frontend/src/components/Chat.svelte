@@ -7,20 +7,23 @@ submission. Collection rules, transport, and storage schemas remain outside.
   import { onMount, tick } from 'svelte';
   import ChatHistory from './ChatHistory.svelte';
   import Composer from './Composer.svelte';
+  import Metrics from './Metrics.svelte';
+  import Runtime from './Runtime.svelte';
   import SessionActions from './SessionActions.svelte';
   import Status from './Status.svelte';
   import SystemPrompt from './SystemPrompt.svelte';
   import Transcript from './Transcript.svelte';
-  import { loadRuntimeContext } from '../chat/client';
+  import { loadRuntimeContext, loadRuntimeInfo } from '../chat/client';
   import { contextUsage } from '../chat/context';
   import { downloadChatFile } from '../chat/download';
   import { activeChat, orderedChats } from '../chat/sessions';
   import { chat, wireMessages } from '../chat/state';
   import { serializeChat } from '../chat/transfer';
-  import type { RuntimeContext } from '../chat/types';
+  import type { RuntimeContext, RuntimeInfo } from '../chat/types';
 
   let draft = '';
   let runtimeContext: RuntimeContext | null = null;
+  let runtimeInfo: RuntimeInfo | null = null;
   let configurationError: string | null = null;
   let historyOpen = false;
   let mobile = false;
@@ -39,6 +42,9 @@ submission. Collection rules, transport, and storage schemas remain outside.
       if (contextController.signal.aborted) return;
       if (result.ok) runtimeContext = result.context;
       else configurationError = 'Configurazione del contesto non disponibile';
+    });
+    void loadRuntimeInfo(contextController.signal).then(result => {
+      if (!contextController.signal.aborted && result.ok) runtimeInfo = result.info;
     });
     return () => {
       media.removeEventListener('change', applyBreakpoint);
@@ -102,19 +108,23 @@ submission. Collection rules, transport, and storage schemas remain outside.
 
   <section class="chat-layout">
     <header class="chat-header">
-      <button class="history-toggle" type="button" bind:this={historyToggle} aria-label="Mostra cronologia chat" aria-expanded={historyOpen} aria-controls="chat-history" on:click={() => historyOpen = !historyOpen}>Chat</button>
-      <h1 class="chat-title">
-        <span class="chat-brand">Graph Horizon</span>
-        <span class="chat-divider" aria-hidden="true">//</span>
-        <span class="chat-sub">console d'inferenza locale</span>
-      </h1>
+      <div class="header-main">
+        <button class="history-toggle" type="button" bind:this={historyToggle} aria-label="Mostra cronologia chat" aria-expanded={historyOpen} aria-controls="chat-history" on:click={() => historyOpen = !historyOpen}>Chat</button>
+        <h1 class="chat-title">
+          <span class="chat-brand">Graph Horizon</span>
+          <span class="chat-divider" aria-hidden="true">//</span>
+          <span class="chat-sub">console d'inferenza locale</span>
+        </h1>
+      </div>
+      {#if runtimeInfo}<Runtime info={runtimeInfo} />{/if}
     </header>
 
     <SystemPrompt value={currentChat.systemPrompt} disabled={streaming} on:change={event => chat.setSystemPrompt(event.detail)} />
     <SessionActions importDisabled={streaming} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
     <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editLastPrompt(event.detail)} on:delete={() => chat.deleteLastTurn()} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
-    <Status warning={null} error={configurationError ?? $chat.error} {usage} generationStartedAt={$chat.generationStartedAt} generationMs={$chat.generationMs} />
+    <Status warning={null} error={configurationError ?? $chat.error} {usage} />
+    <Metrics telemetry={$chat.telemetry} />
     <Composer bind:value={draft} {streaming} contextAvailable={runtimeContext !== null} on:send={send} on:stop={() => chat.stop()} />
   </section>
 </section>
@@ -128,14 +138,15 @@ submission. Collection rules, transport, and storage schemas remain outside.
   .chat-layout {
     flex: 1; min-width: 0; height: 100%; min-height: 0;
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto;
+    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto auto;
     gap: var(--gn-space-md);
   }
   .chat-header {
-    display: flex; align-items: center; gap: var(--gn-space-sm);
+    display: grid; gap: var(--gn-space-xs);
     border-bottom: var(--gn-rule-width) solid var(--gn-border);
     padding-bottom: var(--gn-space-sm);
   }
+  .header-main { display: flex; align-items: center; gap: var(--gn-space-sm); }
   .history-toggle {
     border: var(--gn-border-width) solid var(--gn-border); border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel); padding: var(--gn-space-xs) var(--gn-space-sm);

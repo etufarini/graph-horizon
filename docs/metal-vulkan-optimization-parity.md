@@ -204,6 +204,7 @@ the allocation bound; RoPE timing remains to be measured.
 | P02 | RoPE dispatch batching | rows per Q/K dispatch | byte-exact old Metal route + CPU oracle; 139 unit + 17 integration tests | 128 -0.74%; 512 -1.88%; stable 2K signal about -1.5% | REJECTED below gate |
 | P03 | 64-row projection/graph tile | weight reuse and pure-Metal row ownership | Q4/Q6 3/32/64-row oracles; 64-row attention oracle; full Metal suite | 128 -18.39%; 512 -18.17%; 2K -16.07%; 8K -9.46% | RETAINED |
 | P04 | post-P03 stage attribution | timestamp instrumentation only | phase totals, category sums, diagnostics-free timing authority | required 128/2K/28K points captured; 90.96--99.63% kernel coverage plus measured command residual | EVIDENCE; profiler reverted |
+| P05a | grouped GQA decode, 128 threads | four query heads reuse one staged KV tile | 1,024/2,048 GPU serial oracle; route predicate | 128 control flat; 2K decode -16.00% | REJECTED; insufficient history parallelism |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -475,8 +476,46 @@ later context must pass before real-model A/B/A. Retention requires at least
 outputs, and no generation drift beyond the repository's approved numeric
 tolerance.
 
+P05a is exact candidate commit `699ce10` and is removed by `e878459`. Its GPU
+oracle passes at 1,024 and 2,048. The 128 A/B/A control is flat: 29.04 tok/s
+against 29.01 tok/s baseline bookends. At 2K, however, decode falls to 21.16
+tok/s from a 25.19 tok/s bookend mean, a 16.00% regression; candidate CV is
+0.20%. TTFT remains within 0.2%, confirming that only decode changed. The
+candidate traded sixteen independent history streams per query head for one.
+The fourfold reduction in global KV traffic does not repay that lost latency
+hiding at 2K, so the stop rule rejects it before expensive 8K/28K runs.
+
+### P05b structure amendment: parallel grouped Metal GQA decode
+
+The P05a result reveals an in-scope resource change that was not knowable
+before measurement. P05b keeps the same cross-head reuse but uses eight SIMD
+groups: two per query head, each with four lane-octet history streams. This
+retains eight streams per head while still loading every global K/V tile once.
+A separate pure-Metal pipeline contains 16 KiB of staged K/V plus 4 KiB of
+FP32 partial outputs and 64 bytes of online-softmax state (20,544 bytes total).
+It avoids raising the resource floor of the existing attention pipeline or the
+Metal-hybrid fallback.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── pipeline.rs                  (~195 productive lines)
+├── kernels/attention.rs         (~175 productive lines)
+├── shaders/attention.metal      (category K, no line limit)
+└── kernels/mod.rs               (~25 production lines, excluding tests)
+```
+
+All orchestration remains below 200 productive lines. The new pipeline is
+compiled and loaded only for the standalone `metal` feature, whose P03 device
+contract already guarantees 256 threads and 24 KiB. Its exact compiled SIMD
+width, thread capacity, and static-memory size are checked before routing.
+Metal-hybrid and all old attention modes remain unchanged. The additional
+invariant is that each pair of SIMD groups writes disjoint partial state for
+one query head, all 256 threads reach the merge barrier, and only the first
+group in each pair writes that head's output. The main risks are partial-state
+indexing and a remaining twofold loss of history parallelism. The same oracle
+and 2K screen gate P05b before any long run.
+
 ## Current next action
 
-Implement and numerically qualify P05, then screen it at short, 2K, 8K, and
-28K positions. Retain it only if long decode clears 10% with no material short
-regression or correctness drift.
+Implement and numerically qualify P05b, then repeat the 2K screen. Continue to
+8K and 28K only if it clears that control and remains economically plausible.

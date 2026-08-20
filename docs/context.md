@@ -47,6 +47,7 @@ The estimate covers the exact content a surface would send:
 - every committed raw user and assistant message, including Reasoning markers;
 - the trimmed Web or raw CLI draft while idle;
 - the attachment-expanded CLI prompt between submission and admission;
+- the Web's current per-chat Markdown-file framing and request heading;
 - the submitted user and partial raw assistant messages while streaming.
 
 Failed CLI turns and rolled-back Web transport errors remain outside occupancy.
@@ -55,6 +56,12 @@ oversized history is retained; only its next submission is rejected.
 
 CLI attachments affect the submitted estimate. Rejection restores the original
 spelling; success commits that spelling rather than embedded file contents.
+Web Markdown files follow the same raw-transcript rule but remain active across
+requests until deleted. Idle occupancy includes their complete deterministic
+framing even with an empty draft. Upload admission also rejects a candidate
+file collection whose full framing plus the current chat already exceeds the
+safe prompt budget. Generation expands only the candidate outgoing user copy;
+edit and regenerate use the file snapshots active at that later operation.
 
 ## Context Discovery And Reserves
 

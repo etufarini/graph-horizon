@@ -157,11 +157,11 @@ to the exact shown token count and 32 completion tokens are requested.
 | 3B Instruct | 8,192 | 77,048.23 ms | 4.35% | 106.46 | 11.73 | fresh; thermally noisy |
 | 3B Instruct | 28,000 | 587,278.11 ms | 0.15% | 47.68 | 4.33 | fresh |
 
-The acquired diagnostics at the unchanged numeric/routing checkpoint account
-for 97.7% of 512 and 97.6% of 2K GPU command time. After the retained early
-tiled-attention route, 512 quantized matrices consume 2,294.89 ms and 92.4% of
-sampled kernel time; attention consumes 123.57 ms. At 8K, attention is 31.98 s
-(45.8%), quantized matrices 36.65 s (52.5%), and command residual 1.34 s.
+The acquired P00 diagnostics account for 97.7% of 512 and 97.6% of 2K GPU
+command time. Before P03, 512 quantized matrices consumed 2,294.89 ms and 92.4%
+of sampled kernel time; attention consumed 123.57 ms. At 8K, attention was
+31.98 s (45.8%), quantized matrices 36.65 s (52.5%), and command residual
+1.34 s. P04 below supersedes those shares for the retained P03 endpoint.
 
 ### Static command audit
 
@@ -192,7 +192,7 @@ the allocation bound; RoPE timing remains to be measured.
 | 1 | retain Metal request KV and exact keyed prefix | 15.54% at 128; 4.05% at 512 | allocation-only elimination | 104--110 ms/request | RETAINED as P01 |
 | 2 | batched Metal RoPE | 2 x rows x layers dispatches become about 2 x layers | measured 47 ms at 512 | 1.88% at 512; about 1.5% stable 2K signal | REJECTED as P02 |
 | 3 | 64-row Metal tile reuse and request ownership | 92.4% matrix share at 512 plus half as many weight reads/submits | measured 1.22x at 512 | 0.45 s at 512; 7.62 s at 8K | RETAINED as P03 |
-| 4 | vectorized 4:1 GQA Metal decode | missing K/V reuse; long ratio reaches 1.84x | attribution pending | pending | implement only after decode attribution |
+| 4 | vectorized 4:1 GQA Metal decode | attention is 89.44% of 28K decode kernel time; long ratio reaches 1.84x | 2x attention gives about 1.78x command speedup | about 3.2 s/token at 28K | next production candidate |
 | 5 | new long-prefill attention architecture | 45.8% at 8K and grows quadratically | prior local reuse only 1.09x attention | prior request result 2.15% | closed until distinct mechanism clears 10% request gate |
 
 ## Experiment registry
@@ -203,6 +203,7 @@ the allocation bound; RoPE timing remains to be measured.
 | P01 | request KV lifetime | existing homogeneous cache enabled for pure Metal | 138 unit + 17 integration tests; repeated real generation | 128 -15.54%; 512 -4.05%; no decode regression | RETAINED |
 | P02 | RoPE dispatch batching | rows per Q/K dispatch | byte-exact old Metal route + CPU oracle; 139 unit + 17 integration tests | 128 -0.74%; 512 -1.88%; stable 2K signal about -1.5% | REJECTED below gate |
 | P03 | 64-row projection/graph tile | weight reuse and pure-Metal row ownership | Q4/Q6 3/32/64-row oracles; 64-row attention oracle; full Metal suite | 128 -18.39%; 512 -18.17%; 2K -16.07%; 8K -9.46% | RETAINED |
+| P04 | post-P03 stage attribution | timestamp instrumentation only | phase totals, category sums, diagnostics-free timing authority | required 128/2K/28K points captured; 90.96--99.63% kernel coverage plus measured command residual | EVIDENCE; profiler reverted |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -377,8 +378,72 @@ P00 endpoints, retained P01+P03 reduce 128/512/2K/8K TTFT by
 30.56%/21.57%/15.98%/5.42%; same-session P03 bookends are the authoritative
 candidate effect where thermal drift is material.
 
+### P04 structure checkpoint: temporary post-P03 attribution
+
+Target: restore at least 95% GPU-time attribution after the material P03
+change. Intentional variable: reintroduce the repository's prior stage-boundary
+timestamp profiler behind a non-production `metal-profile` feature, extended
+only to classify `MatmulBatchedWide` as prefill matmul. Numeric kernels,
+production Metal builds, routing, resources, and public APIs remain unchanged.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/exec/
+├── profile/mod.rs              (~200 productive lines)
+├── profile/category.rs         (~160 productive lines)
+├── profile/report.rs            (~50 productive lines)
+└── profile/summary.rs           (~75 productive lines)
+
+Existing orchestration touched by the temporary feature:
+├── Cargo.toml                                   (~55 productive lines)
+├── crates/graph_horizon_engine/Cargo.toml       (~55 productive lines)
+├── backend/metal/device.rs                      (~170 productive lines)
+├── backend/metal/exec/encoder.rs                (~130 productive lines)
+├── backend/metal/exec/dispatch.rs               (~145 productive lines)
+├── backend/metal/exec/mod.rs                     (~10 productive lines)
+└── backend/metal/pipeline.rs                    (~190 productive lines)
+```
+
+The new directory is warranted because sampling ownership, category mapping,
+aggregation, and reporting are four separate files; every orchestration file
+stays at or below 200 productive lines. The invariant is that the profiling
+feature changes only encoder boundaries and timestamp collection, while the
+diagnostics-free P03 binary remains the performance authority. Main risks are
+sample-capacity overflow, category drift from the seven-matmul layer order, and
+profiling perturbation. The existing checked 4,096-sample bound, explicit wide
+kernel classification, phase totals, and comparison against diagnostics-free
+TTFT guard those risks. The profiler will be reverted after recording the
+attribution checkpoint.
+
+P04 is isolated as commit `38de361` and removed by `d8cb37d`; neither commit
+changes a numeric kernel. The profiler timestamps command boundaries and every
+adjacent same-category compute pass. `Kernel coverage` below is the sum of
+those passes divided by the enclosing GPU command interval. The complementary
+measured interval is command/encoder overhead, so kernel stages plus that
+orchestration bucket cover 100% of GPU time even where short requests do not
+reach 95% kernel-only coverage.
+
+| Position | Phase | GPU total | Kernel coverage | Attention | Projections | MLP | Logits | Other kernels | Command / encoder |
+|---:|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | prefill | 582.72 ms | 90.96% | 1.50% | 28.63% | 66.36% | 0.59% | 2.92% | 9.04% |
+| 128 | decode | 1,126.81 ms | 88.43% | 26.11% | 16.69% | 42.42% | 10.15% | 4.63% | 11.57% |
+| 2,048 | prefill | 9,896.28 ms | 98.07% | 19.82% | 22.34% | 54.69% | 0.03% | 3.12% | 1.93% |
+| 2,048 | decode | 1,319.85 ms | 90.52% | 37.89% | 14.45% | 35.37% | 8.62% | 3.67% | 9.48% |
+| 28,000 | prefill | 521,921.97 ms | 99.63% | 76.58% | 6.67% | 15.77% | 0.00% | 0.98% | 0.37% |
+| 28,000 | decode | 7,314.71 ms | 98.16% | 89.44% | 2.50% | 5.92% | 1.43% | 0.71% | 1.84% |
+
+Category percentages are shares of sampled kernel time; the final column is a
+share of enclosing command time. Supporting 512 and 8K traces show the same
+crossover: prefill attention grows from 5.38% to 50.23%, while decode attention
+grows from 38.12% to 70.68%. At 28K, decode attention alone consumes 6,422.10
+ms of the 7,314.71 ms GPU interval. Halving that stage predicts a 1.78x command
+speedup, nearly identical to the acquired 1.84x Vulkan/Metal comparator ratio.
+This is direct evidence for a grouped 4:1 GQA decode experiment, not merely a
+source-parity argument.
+
 ## Current next action
 
-Commit retained P03 and reprofile the new endpoint. Use the resulting decode
-and long-prefill attribution to rank grouped GQA decode against any distinct
-long-attention candidate before the next production experiment.
+Audit the Vulkan grouped 4:1 decode kernel against Metal mode 5 and record the
+smallest capability/shape-gated Metal structure before editing. Preserve the
+current F16/INT8 modes as exact fallbacks. Screen the candidate at short, 2K,
+8K, and 28K positions; retain it only if long decode clears 10% with no
+material short regression or correctness drift.

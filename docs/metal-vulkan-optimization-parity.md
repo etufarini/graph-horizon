@@ -676,8 +676,41 @@ warranted. Four splits are the measured winner on this Apple M4 despite
 Vulkan's eight-split implementation; optimization-principle parity does not
 require copying a device-specific split count.
 
+### P09 structure amendment: SIMD-matrix long-prefill attention
+
+Target: the final 75.90% long-prefill attention kernel share. Intentional
+variable: add a separate complete-Q64 F16 4:1 GQA kernel in which one
+1,024-thread group owns one KV head and all sixty-four query rows. Its thirty-two
+SIMD groups each own eight rows of one query head, use 8x8 SIMD-matrix products
+for QK and probability-by-V, and share each eight-token K/V tile across all four
+query heads. FP32 matrix accumulators and per-row online maximum/sum state remain
+resident; probabilities alone narrow to FP16, matching the acquired Vulkan
+Matrix2 principle.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── pipeline.rs                  (~200 productive lines)
+├── kernels/attention.rs         (~200 productive lines)
+└── shaders/attention.metal      (category K, no line limit)
+```
+
+No new file is warranted because this is one causal-attention kernel variant
+and its narrow dispatch. Existing mode 4 is the exact fallback. Eligibility
+requires pure Metal, F16 KV, head dimension 128, exact 4:1 GQA, sixty-four
+complete rows, SIMD32, 1,024 compiled threads, and no more than the device's
+32 KiB threadgroup limit. The 28 KiB static layout contains shared K/V,
+per-SIMD-group score/probability tiles, and diagonal row scales.
+
+The invariants are that all 1,024 threads reach every group barrier, causal
+masking admits exactly positions through `base + row`, every K/V token is loaded
+once per KV head/tile, and output accumulator rescaling uses the same new
+online maximum as probability normalization. Main risks are occupancy/resource
+rejection, matrix layout transposition, causal-edge indexing, and FP16
+probability error. The existing 64-row serial oracle gates a 2K screen; a gain
+below 10% closes the mechanism without a long run.
+
 ## Current next action
 
-Run P05d's full correctness and six-model validation, repeat retained-source
-stage attribution, and apply the global stop rule to the remaining prefill and
-decode fractions.
+Implement and numerically qualify P09, screen it at 2K, and run longer contexts
+only if it clears the 10% gate. Then restore the measured winner and apply the
+global stop rule.

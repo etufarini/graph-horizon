@@ -616,6 +616,7 @@ mod tests {
             let bytes = (QUERY_HEADS * DIM * 2) as u64;
             let grouped = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
             let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+            let scratch = MetalBuffer::allocate(&device, 128 * 1024, MetalFormat::Raw)?;
             let encoder = MetalEncoder::begin(&device)?;
             kv_write::encode(
                 &encoder,
@@ -629,7 +630,7 @@ mod tests {
                 kv.meta_base_for(KvRole::Value),
                 context as u32,
             )?;
-            attention::encode(
+            attention::encode_decode(
                 &encoder,
                 &pipelines,
                 &grouped,
@@ -637,9 +638,9 @@ mod tests {
                 &kv,
                 QUERY_HEADS as u32,
                 (context - 1) as u32,
-                1,
                 0,
                 false,
+                &scratch,
             )?;
             attention::encode(
                 &encoder,

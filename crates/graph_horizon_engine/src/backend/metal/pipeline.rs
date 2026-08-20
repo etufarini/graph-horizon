@@ -38,6 +38,10 @@ pub(crate) enum Kernel {
     Topk,
     #[cfg(feature = "metal")]
     AttentionGqaDecode,
+    #[cfg(feature = "metal")]
+    AttentionGqaSplit,
+    #[cfg(feature = "metal")]
+    AttentionGqaReduce,
 }
 
 const KERNELS: &[Kernel] = &[
@@ -55,6 +59,10 @@ const KERNELS: &[Kernel] = &[
     Kernel::Topk,
     #[cfg(feature = "metal")]
     Kernel::AttentionGqaDecode,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaSplit,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaReduce,
 ];
 
 impl Kernel {
@@ -74,6 +82,10 @@ impl Kernel {
             Self::Topk => "metal_topk",
             #[cfg(feature = "metal")]
             Self::AttentionGqaDecode => "metal_attention_gqa_decode",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaSplit => "metal_attention_gqa_split",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaReduce => "metal_attention_gqa_reduce",
         }
     }
 }
@@ -82,6 +94,7 @@ pub(crate) struct Pipeline {
     pub(crate) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(crate) width: usize,
     pub(crate) max_threads: usize,
+    pub(crate) threadgroup_memory: usize,
     #[cfg(test)]
     drops: Arc<AtomicUsize>,
 }
@@ -157,6 +170,7 @@ impl PipelineRegistry {
             values.push(Pipeline {
                 width: raw.threadExecutionWidth(),
                 max_threads: raw.maxTotalThreadsPerThreadgroup(),
+                threadgroup_memory: raw.staticThreadgroupMemoryLength(),
                 raw,
                 #[cfg(test)]
                 drops: drops.clone(),

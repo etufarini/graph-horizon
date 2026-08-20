@@ -207,6 +207,8 @@ the allocation bound; RoPE timing remains to be measured.
 | P05a | grouped GQA decode, 128 threads | four query heads reuse one staged KV tile | 1,024/2,048 GPU serial oracle; route predicate | 128 control flat; 2K decode -16.00% | REJECTED; insufficient history parallelism |
 | P05b | grouped GQA decode, 256 threads | eight history streams/head plus four-head KV reuse | serial GPU oracle; full Metal suite; all six real models | 2K +10.59%; 8K +22.56%; 28K +31.92% decode | RETAINED |
 | P06 | post-P05b attribution | timestamp instrumentation only | phase totals and explicit grouped-pipeline classification | attention -26.4% at 2K/28K; 97.63% 28K decode coverage | EVIDENCE; profiler reverted |
+| P05c | grouped split/reduce decode | restore sixteen history streams/head | serial GPU oracle; full Metal suite; all six real models | vs P05b: 2K +13.02%; 8K +29.74%; 28K +41.34% | RETAINED |
+| P07 | post-P05c attribution | timestamp instrumentation only | split and reduce both classified as attention | 2K attention 211.97 ms; 28K 2,958.31 ms; 96.59% coverage | EVIDENCE; profiler reverted |
 
 ### P01 structure checkpoint: Metal request KV retention
 
@@ -578,7 +580,53 @@ mutation when resources do not qualify. Main risks are global-partial indexing,
 the extra dispatch, and 512-thread occupancy. The forced-serial oracle and 2K
 economic screen gate any longer run.
 
+P05c is retained as `2a2ff0c`; `70e1715` keeps its capability-only field out
+of Metal-hybrid builds. It passes the same 1,024/2,048 serial GPU oracle, the
+full Metal engine suite, CPU/hybrid controls, and generation on all six real
+model variants. The root-suite exception remains the unrelated macOS checksum
+fixture described above.
+
+| Position | P05b A1 | P05c B | P05b A2 | B vs A mean | Candidate decode CV |
+|---:|---:|---:|---:|---:|---:|
+| 2,048 | 28.02 tok/s | 31.59 tok/s | 27.88 tok/s | +13.02% | 0.40% |
+| 8,192 | 14.52 tok/s | 18.65 tok/s | 14.23 tok/s | +29.74% | 0.42% |
+| 28,000 | 5.61 tok/s | 8.00 tok/s | 5.71 tok/s | +41.34% | established by 2K/8K reps |
+
+P07 is isolated as `24f0df0` and removed by `450d3db`. At 2K, P05c attention
+is 211.97 ms and 22.53% of kernel time. At 28K it is 2,958.31 ms, 79.48% of
+kernel time and 76.76% of the 3,853.91 ms GPU command interval; total coverage
+is 96.59%. Prefill remains unchanged. The remaining attention fraction still
+admits a 1.62x request speedup if a distinct mechanism can halve it, so the
+global stop is not met.
+
+### P05d structure amendment: disjoint multi-split history
+
+Target: remaining long-decode history parallelism. Intentional variable: keep
+the split/reduce pipelines and four-head KV reuse, but dispatch four disjoint
+history splits per KV head. Each 256-thread group owns every fourth 32-token
+tile and provides two SIMD groups per query head; the reduction combines eight
+partials per head. This doubles aggregate history streams from sixteen to
+thirty-two without rereading any global KV tile. P05c/P05b behavior remains the
+fallback until measurements qualify the new threshold.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── kernels/attention.rs         (~200 productive lines)
+├── shaders/attention.metal      (category K, no line limit)
+└── kernels/mod.rs               (~25 production lines, excluding tests)
+```
+
+No new file or pipeline is warranted. The invariant is that tile number `n`
+belongs only to split `n % 4`, every token through the causal position appears
+in exactly one partial, part index `head*8 + split*2 + band` is collision-free,
+and all 256 threads reach both barriers. The larger scratch alias is still only
+132,096 bytes at 32 query heads and remains checked before encoding. Main risks
+are incorrect tile coverage, reduction indexing, and extra-dispatch overhead at
+short contexts. The serial oracle and 2K screen gate longer runs; if 2K loses
+but 8K is plausible, routing must use an evidence-based longer threshold.
+
 ## Current next action
 
-Implement and numerically qualify P05c, then repeat the 2K screen. Continue to
-8K and 28K only if it improves materially over retained P05b.
+Implement and numerically qualify P05d, then repeat the 2K screen against
+retained P05c. Continue only if it improves or establishes a justified longer
+threshold without regressing shorter decode.

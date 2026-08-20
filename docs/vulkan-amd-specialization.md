@@ -19,6 +19,89 @@ Raw local evidence is retained under `target/amd-baseline/` and is intentionally
 ignored by Git. Values below are promoted only after checking the tuple and raw
 record.
 
+## Post-freeze continuation
+
+The AMD program was requalified on 2026-08-20 from the common portable-Vulkan
+freeze `609110982c92a2a31b2955ed5b809a85887480af`, on branch
+`perf/amd-hardware-specialization-phase2`. This continuation does not treat the
+older campaign as qualification of a different source tree: it rebuilds both
+the old AMD tip and the freeze, measures them in the same session, checks the
+current long-context capacity paths, and reruns current numeric and quality
+gates on the RX 6750 XT.
+
+The authenticated 3B artifact remained 2,147,023,008 bytes with SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+Both binaries used release mode, Vulkan, all-GPU placement, F16 KV, context
+32,768, exact-length repeated `" a"` prompts, 32 requested tokens, one warm-up,
+and three measured repetitions. TTFT is milliseconds and decode is tokens per
+second.
+
+| Workload | `f768fab` TTFT (CV) | freeze TTFT (CV) | Delta | `f768fab` decode (CV) | freeze decode (CV) | Delta |
+|---|---:|---:|---:|---:|---:|---:|
+| 3B / 128 | 222.06 (.0003) | 222.19 (.0004) | +0.06% | 79.34 (.0181) | 78.69 (.0034) | -0.82% |
+| 3B / 2K | 4,159.43 (.0038) | 4,157.05 (.0021) | -0.06% | 77.25 (.0051) | 77.17 (.0031) | -0.10% |
+| 3B / 8K | 24,697.85 (.0019) | 24,651.33 (.0004) | -0.19% | 68.33 (.0018) | 67.92 (.0062) | -0.60% |
+
+The 128 row ended after 32 old-tip and 31 freeze deltas, so its decode value is
+a control bounded by its observed variation, not a sequence-identical A/B
+claim. The 2K and 8K rows both produced 32 deltas. Every TTFT difference is
+below 0.2%; every decode difference is below 1% and below the combined observed
+variation. The runtime changes between the old tip and the freeze are therefore
+performance-neutral on the short, medium, and long 3B paths.
+
+Single exact-length capacity rows were then run directly on the freeze. These
+are compared to the previously qualified final AMD checkpoints, not presented
+as same-session A/B measurements:
+
+| Workload | Previous final | Freeze | Delta | Capacity result |
+|---|---:|---:|---:|---|
+| 3B / 28K TTFT | 191,055.22 ms | 190,890.71 ms | -0.09% | completes at the 128-row AMD bound |
+| 8B / 28K TTFT | 352,347 ms | 350,622.74 ms | -0.49% | completes at the 64-row AMD bound, 81% VRAM |
+
+Both rows completed without a device reset while the shader clock remained
+2,630 MHz. The 8B row exercises the exact 32-layer/16K policy boundary that
+reset with 128 rows in the original investigation. The current policy test also
+proves that AMD's 128/64-row bounds take precedence even when the new portable
+Matrix2-wide predicate is true.
+
+An isolated timestamp profile from rebuilt `f768fab` is applicable because the
+8K A/B above proves end-to-end neutrality and the retained AMD shaders are
+byte-identical at the freeze. It accounts for 99.47% of 3B/8K prefill GPU time:
+
+| Family | GPU share | Terminal evidence |
+|---|---:|---|
+| tiled causal attention | 41.58% | grouped GQA regressed; Q16 reached only 4.66% total |
+| Q4 MMQ projections | 29.59% | 16-row tile regressed; retained 8-row tile is the measured floor |
+| exact Q6 projections | 27.56% | exact staging reached 2.15%; lossy packed dot failed quality |
+
+This reproduces the old 40.18% / 31.87% / 26.71% ranking closely enough that
+no previously rejected family acquires a new end-to-end bound above the 5%
+retention gate. No new production candidate was introduced: reopening those
+same implementations would repeat falsified experiments, while a persistent
+or changed-precision representation remains outside the approved hardware-only
+numeric contract.
+
+Current qualification is green:
+
+- the AMD Q4 MMQ tail oracle, F16/INT8 causal attention parity, route/resource
+  gates, and 128/64-row policy gate pass on the physical AMD device;
+- pinned llama.cpp `13f2b28b098623391b1aacfd27995e1c8b7de9a9`
+  teacher qualification passes 3B, 8B, and 14B Instruct with identical prompt
+  IDs and all 16 local IDs equal to the oracle IDs;
+- pure Vulkan passes root 166, engine 156/5 ignored, family 5/1 ignored, and
+  semantic 12/1 ignored;
+- Vulkan-hybrid passes root 166, engine 229/4 ignored, family 6/1 ignored, and
+  semantic 12/1 ignored;
+- warning-denied Clippy passes both profiles; rustfmt and `git diff --check`
+  pass.
+
+**AMD POST-FREEZE REQUALIFICATION COMPLETE.** The common freeze preserves the
+qualified AMD execution paths and their measured practical floor. The largest
+remaining bottleneck is still long prefill, but every in-contract AMD candidate
+family remains below the retention threshold, regressional, or numerically
+unqualified. This continuation changes documentation only; the production tree
+is identical to the common portable baseline.
+
 ## Immutable start
 
 | Item | Value |

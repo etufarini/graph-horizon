@@ -17,7 +17,7 @@ use crate::kv_cache::{
 const SEGMENTED_CONTEXT: u32 = 512;
 const PARALLEL_CONTEXT: u32 = 1024;
 #[cfg(feature = "metal")]
-const GQA_PARTS: u64 = 4;
+const GQA_PARTS: u64 = 8;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn encode_decode(
@@ -42,7 +42,7 @@ pub(crate) fn encode_decode(
             && kv.head_dim == 128
             && kv.kv_heads.checked_mul(4) == Some(qh as usize)
             && split.width == 32
-            && split.max_threads >= 512
+            && split.max_threads >= 256
             && split.threadgroup_memory == 16 * 1024
             && reduce.width == 32
             && reduce.max_threads >= 32
@@ -67,8 +67,8 @@ pub(crate) fn encode_decode(
                 Kernel::AttentionGqaSplit,
                 &[q, &kv.k, &kv.v, &partial, &state],
                 &c,
-                [kv.kv_heads, 1, 1],
-                512,
+                [kv.kv_heads, 4, 1],
+                256,
             )?;
             return dispatch::encode_threadgroups(
                 e,

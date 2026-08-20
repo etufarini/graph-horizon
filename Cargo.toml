@@ -14,7 +14,6 @@ cpu = ["graph_horizon_engine/cpu"]
 vulkan = ["graph_horizon_engine/vulkan"]
 vulkan-hybrid = ["graph_horizon_engine/vulkan-hybrid"]
 metal = ["graph_horizon_engine/metal"]
-metal-profile = ["metal", "graph_horizon_engine/metal-profile"]
 metal-hybrid = ["graph_horizon_engine/metal-hybrid"]
 
 # Maximum-performance build profile, used by `support/install.sh --profile fast`.

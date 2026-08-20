@@ -203,7 +203,11 @@ fn source_structure() {
 #[test]
 fn hybrid_numeric_dispatch_uses_effective_placement() {
     let metal = manifest().join("src/backend/metal");
-    for relative in ["kernels/matmul.rs", "kernels/attention.rs"] {
+    for relative in [
+        "kernels/matmul.rs",
+        "kernels/attention/decode.rs",
+        "kernels/attention/prefill.rs",
+    ] {
         let source = fs::read_to_string(metal.join(relative)).expect("Metal dispatcher source");
         assert!(
             !source.contains("feature = \"metal-hybrid\""),

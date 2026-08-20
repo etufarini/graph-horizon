@@ -709,6 +709,22 @@ rejection, matrix layout transposition, causal-edge indexing, and FP16
 probability error. The existing 64-row serial oracle gates a 2K screen; a gain
 below 10% closes the mechanism without a long run.
 
+The completed candidate made `kernels/attention.rs` 223 productive lines, which
+the structural test rejects. The local, behavior-preserving correction is to
+express the now-real decode/prefill domain split as a folder before final
+retention:
+
+```text
+crates/graph_horizon_engine/src/backend/metal/kernels/attention/
+├── mod.rs                      (~25 productive lines)
+├── decode.rs                   (~75 productive lines)
+└── prefill.rs                 (~145 productive lines, excluding tests)
+```
+
+`mod.rs` owns only shared constant packing and the unchanged exports; decode
+and prefill each own their narrow dispatch policy. All orchestration files are
+again below 200 productive lines, and callers retain the same module surface.
+
 ## Current next action
 
 Implement and numerically qualify P09, screen it at 2K, and run longer contexts

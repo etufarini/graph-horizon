@@ -37,9 +37,12 @@ pub(crate) fn encode(
     {
         let matrix = p.get(Kernel::AttentionPrefillMatrix);
         if matrix.width == 32
-            && matrix.max_threads >= 1024
+            && matrix.max_threads >= 128
             && matrix.threadgroup_memory <= 28 * 1024
         {
+            let groups = (rows as usize / 8)
+                .checked_mul(qh as usize)
+                .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
             c.extend(0_u32.to_ne_bytes());
             return dispatch::encode_threadgroups(
                 e,
@@ -47,8 +50,8 @@ pub(crate) fn encode(
                 Kernel::AttentionPrefillMatrix,
                 &[q, &kv.k, &kv.v, out],
                 &c,
-                [kv.kv_heads, 1, 1],
-                1024,
+                [groups, 1, 1],
+                128,
             );
         }
     }

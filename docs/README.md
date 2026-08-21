@@ -47,6 +47,7 @@ belong in the [validation register](../VALIDATION.md).
 | [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Active Apple Metal long-context decode investigation and candidate ledger |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 | [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
+| [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |
 
 ## Reviewed Evidence
 

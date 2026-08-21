@@ -30,7 +30,8 @@ impl Phase {
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
 pub(super) enum Category {
-    Attention,
+    AttentionScan,
+    AttentionReduce,
     ProjectionQ,
     ProjectionK,
     ProjectionV,
@@ -41,16 +42,18 @@ pub(super) enum Category {
     Normalization,
     Rope,
     KvCache,
-    Elementwise,
+    Activation,
+    Residual,
     Embedding,
     Logits,
     Reduction,
 }
 
 impl Category {
-    pub(super) const COUNT: usize = 15;
+    pub(super) const COUNT: usize = 17;
     pub(super) const ALL: [Self; Self::COUNT] = [
-        Self::Attention,
+        Self::AttentionScan,
+        Self::AttentionReduce,
         Self::ProjectionQ,
         Self::ProjectionK,
         Self::ProjectionV,
@@ -61,7 +64,8 @@ impl Category {
         Self::Normalization,
         Self::Rope,
         Self::KvCache,
-        Self::Elementwise,
+        Self::Activation,
+        Self::Residual,
         Self::Embedding,
         Self::Logits,
         Self::Reduction,
@@ -69,7 +73,8 @@ impl Category {
 
     pub(super) const fn name(self) -> &'static str {
         match self {
-            Self::Attention => "attention",
+            Self::AttentionScan => "attention_scan",
+            Self::AttentionReduce => "attention_reduce",
             Self::ProjectionQ => "projection_q",
             Self::ProjectionK => "projection_k",
             Self::ProjectionV => "projection_v",
@@ -80,7 +85,8 @@ impl Category {
             Self::Normalization => "normalization",
             Self::Rope => "rope",
             Self::KvCache => "kv_cache",
-            Self::Elementwise => "elementwise",
+            Self::Activation => "activation",
+            Self::Residual => "residual",
             Self::Embedding => "embedding",
             Self::Logits => "logits",
             Self::Reduction => "reduction",
@@ -119,18 +125,21 @@ pub(super) fn classify(
             };
             (category, Some(phase))
         }
-        Kernel::Attention => (Category::Attention, None),
+        Kernel::Attention => (Category::AttentionScan, None),
         #[cfg(feature = "metal")]
-        Kernel::AttentionGqaDecode | Kernel::AttentionGqaSplit | Kernel::AttentionGqaReduce => {
-            (Category::Attention, Some(Phase::Decode))
+        Kernel::AttentionGqaDecode | Kernel::AttentionGqaSplit => {
+            (Category::AttentionScan, Some(Phase::Decode))
         }
         #[cfg(feature = "metal")]
-        Kernel::AttentionPrefillMatrix => (Category::Attention, Some(Phase::Prefill)),
+        Kernel::AttentionGqaReduce => (Category::AttentionReduce, Some(Phase::Decode)),
+        #[cfg(feature = "metal")]
+        Kernel::AttentionPrefillMatrix => (Category::AttentionScan, Some(Phase::Prefill)),
         Kernel::Embedding => (Category::Embedding, None),
         Kernel::Rmsnorm => (Category::Normalization, None),
         Kernel::Rope => (Category::Rope, None),
         Kernel::KvWrite => (Category::KvCache, None),
-        Kernel::SiluMul | Kernel::ResidualAdd => (Category::Elementwise, None),
+        Kernel::SiluMul => (Category::Activation, None),
+        Kernel::ResidualAdd => (Category::Residual, None),
         Kernel::Argmax | Kernel::Topk => (Category::Reduction, Some(Phase::Sampling)),
     }
 }
@@ -166,5 +175,28 @@ mod tests {
             "logits"
         );
         assert_eq!(slot, 7);
+    }
+
+    #[test]
+    fn fused_categories_keep_distinct_measured_boundaries() {
+        let mut slot = 0;
+        assert_eq!(
+            classify(Kernel::AttentionGqaSplit, &[], &mut slot).0.name(),
+            "attention_scan"
+        );
+        assert_eq!(
+            classify(Kernel::AttentionGqaReduce, &[], &mut slot)
+                .0
+                .name(),
+            "attention_reduce"
+        );
+        assert_eq!(
+            classify(Kernel::SiluMul, &[], &mut slot).0.name(),
+            "activation"
+        );
+        assert_eq!(
+            classify(Kernel::ResidualAdd, &[], &mut slot).0.name(),
+            "residual"
+        );
     }
 }

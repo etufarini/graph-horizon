@@ -23,6 +23,7 @@ pub(crate) use plan::{BackendBytes, HybridMode, HybridPlan};
 pub(crate) struct HybridRuntime<G> {
     pub(crate) plan: HybridPlan,
     pub(crate) backends: HybridBackends<G>,
+    pub(crate) gpu_prefill_rows: usize,
 }
 
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]

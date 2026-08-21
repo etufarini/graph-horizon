@@ -80,30 +80,42 @@ pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
     } else {
         (None, None)
     };
-    let thirds = if d >= 6 {
-        let third = d / 3;
-        let segment = |start: usize, end: usize| {
-            rate((end - start - 1) as f64, offsets[end - 1] - offsets[start])
-        };
+
+    let segment = |start: usize, end: usize| {
+        (end > start + 1)
+            .then(|| rate((end - start - 1) as f64, offsets[end - 1] - offsets[start]))?
+    };
+    let (tg_begin, tg_middle, tg_end) = if d >= 6 {
+        let first = d / 3;
+        let second = 2 * d / 3;
         (
-            segment(0, third),
-            segment(third, third * 2),
-            segment(third * 2, d),
+            segment(0, first),
+            segment(first, second),
+            segment(second, d),
         )
     } else {
         (None, None, None)
     };
+    let delta_intervals = offsets
+        .windows(2)
+        .filter_map(|pair| {
+            let duration = pair[1] - pair[0];
+            (duration.is_finite() && duration > 0.0).then_some(duration)
+        })
+        .collect();
 
     RepSample {
         deltas: d,
         ttft_s,
         prompt_tps,
         tg,
+        model_tg: None,
         tg_first,
         tg_last,
-        tg_begin_third: thirds.0,
-        tg_middle_third: thirds.1,
-        tg_end_third: thirds.2,
+        tg_begin,
+        tg_middle,
+        tg_end,
+        delta_intervals,
     }
 }
 
@@ -169,22 +181,26 @@ mod tests {
                 ttft_s: Some(0.1),
                 prompt_tps: Some(10.0),
                 tg: None,
+                model_tg: None,
                 tg_first: None,
                 tg_last: None,
-                tg_begin_third: None,
-                tg_middle_third: None,
-                tg_end_third: None,
+                tg_begin: None,
+                tg_middle: None,
+                tg_end: None,
+                delta_intervals: Vec::new(),
             },
             RepSample {
                 deltas: 1,
                 ttft_s: Some(0.2),
                 prompt_tps: Some(5.0),
                 tg: None,
+                model_tg: None,
                 tg_first: None,
                 tg_last: None,
-                tg_begin_third: None,
-                tg_middle_third: None,
-                tg_end_third: None,
+                tg_begin: None,
+                tg_middle: None,
+                tg_end: None,
+                delta_intervals: Vec::new(),
             },
         ];
         assert!(aggregate(&samples, |s| s.tg).is_none());
@@ -202,7 +218,6 @@ mod tests {
         assert!(r.tg.is_none());
         assert!(r.tg_first.is_none());
         assert!(r.tg_last.is_none());
-        assert!(r.tg_begin_third.is_none());
     }
 
     #[test]
@@ -212,7 +227,6 @@ mod tests {
         approx(r.tg.unwrap(), 1.0);
         assert!(r.tg_first.is_none());
         assert!(r.tg_last.is_none());
-        assert!(r.tg_begin_third.is_none());
     }
 
     #[test]
@@ -228,11 +242,12 @@ mod tests {
     }
 
     #[test]
-    fn rep_metrics_thirds_are_non_overlapping() {
-        let r = rep_metrics(&[1.0, 2.0, 4.0, 8.0, 16.0, 32.0], 100);
-        approx(r.tg_begin_third.unwrap(), 1.0);
-        approx(r.tg_middle_third.unwrap(), 0.25);
-        approx(r.tg_end_third.unwrap(), 0.0625);
+    fn rep_metrics_reports_transition_dispersion_and_thirds() {
+        let r = rep_metrics(&[1.0, 2.0, 3.0, 5.0, 7.0, 10.0], 100);
+        assert_eq!(r.delta_intervals, [1.0, 1.0, 2.0, 2.0, 3.0]);
+        approx(r.tg_begin.unwrap(), 1.0);
+        approx(r.tg_middle.unwrap(), 0.5);
+        approx(r.tg_end.unwrap(), 1.0 / 3.0);
     }
 
     #[test]

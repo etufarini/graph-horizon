@@ -146,16 +146,34 @@ fn run() -> Result<(), BenchFailure> {
     )?;
     let decode = report.tg.ok_or(INVALID_MEASUREMENT)?;
     let [d_mean, d_median, d_sd, d_cv] = metric(decode.mean, decode.median, decode.stddev, 1.0)?;
+    let model_decode = report.model_tg.ok_or(INVALID_MEASUREMENT)?;
+    let [m_mean, m_median, m_sd, m_cv] = metric(
+        model_decode.mean,
+        model_decode.median,
+        model_decode.stddev,
+        1.0,
+    )?;
+    let intervals = report.delta_interval_seconds.ok_or(INVALID_MEASUREMENT)?;
+    let [i_mean, i_median, i_sd, i_cv] =
+        metric(intervals.mean, intervals.median, intervals.stddev, 1000.0)?;
     let segment = |value: Option<&throughput::Stat>| {
-        value.map_or_else(|| "n/a".into(), |stat| format!("{:.2}", stat.mean))
+        value.map_or_else(
+            || Ok("n/a".to_string()),
+            |value| {
+                (value.mean.is_finite() && value.mean > 0.0)
+                    .then(|| format!("{:.2}", value.mean))
+                    .ok_or(INVALID_MEASUREMENT)
+            },
+        )
     };
-    let d_begin = segment(report.tg_begin_third.as_ref());
-    let d_middle = segment(report.tg_middle_third.as_ref());
-    let d_end = segment(report.tg_end_third.as_ref());
+    let begin_tps = segment(report.tg_begin_segment.as_ref())?;
+    let middle_tps = segment(report.tg_middle_segment.as_ref())?;
+    let end_tps = segment(report.tg_end_segment.as_ref())?;
     let prompt_tokens = report.n_prompt;
+    let completion_tokens = report.completion_tokens;
     let decoded_tokens = report.decoded_tokens;
     println!(
-        "prompt_tokens={prompt_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_median={p_median} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_median={t_median} ttft_ms_stddev={t_sd} ttft_cv={t_cv} decode_tps_mean={d_mean} decode_tps_median={d_median} decode_tps_stddev={d_sd} decode_tps_cv={d_cv} decode_begin_tps={d_begin} decode_middle_tps={d_middle} decode_end_tps={d_end}"
+        "prompt_tokens={prompt_tokens} completion_tokens={completion_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_median={p_median} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_median={t_median} ttft_ms_stddev={t_sd} ttft_cv={t_cv} model_decode_tps_mean={m_mean} model_decode_tps_median={m_median} model_decode_tps_stddev={m_sd} model_decode_tps_cv={m_cv} decode_tps_mean={d_mean} decode_tps_median={d_median} decode_tps_stddev={d_sd} decode_tps_cv={d_cv} delta_interval_ms_mean={i_mean} delta_interval_ms_median={i_median} delta_interval_ms_stddev={i_sd} delta_interval_ms_cv={i_cv} decode_begin_tps={begin_tps} decode_middle_tps={middle_tps} decode_end_tps={end_tps}"
     );
     Ok(())
 }

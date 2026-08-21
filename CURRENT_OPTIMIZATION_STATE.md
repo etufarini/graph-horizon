@@ -23,6 +23,7 @@ The authenticated 3B artifact used throughout the investigation was
 | Path | Eligibility | Fallback | Measured effect |
 |---|---|---|---|
 | Direct Q4 Matrix2 prefill with FP16 accumulation | NVIDIA Matrix2, Q4_K, qualified shapes | staged cooperative/scalar Q4 | 8B/128 TTFT 228.12 → 150.66 ms; 8B/28K 69.246 → 51.937 s |
+| Hybrid NVIDIA Matrix2 prefill batches | NVIDIA family plus Matrix2 Q4/Q64 pipelines and all-GPU capacity | established 32-row all-GPU plan, then generic hybrid placement | 14B/15K TTFT 230.888 → 33.549 s; decode unchanged at about 51.3 ms/token |
 | 14B Matrix2 routing | legal 5,120/16,384/4,096/1,024 dimensions | existing Q4/Q6 batch kernels | 14B/128 prefill 4.390 s → 249.32 ms across the full program |
 | Per-8 Q8/DP4A Q4 decode | DP4A, Q4_K, scratch and shape contract | exact float Q4 decode | 8B/128 decode 26.64 → 35.06 tok/s across the full program |
 | Vectorized GQA decode | exact GQA relation and device limits | generic attention decode | retained after focused parity and six-model qualification |
@@ -147,6 +148,15 @@ whole-request gain. Their detailed evidence is retained in Git history rather
 than in the working documentation.
 
 ## Remaining Limit
+
+Fresh RTX 3060 long-context profiling is recorded in
+[the NVIDIA decode checkpoint](docs/vulkan-nvidia-long-context-decode.md).
+At 14B/15K, decode is 51.334 ms/token rather than the stale 220 ms symptom;
+exact attention has only 0.94 ms of practical traffic headroom and the best
+completed Q6 candidate predicts 1.83 ms (3.69% whole-token gain), below its
+quality-sensitive gate. The remaining llama.cpp gap is KV-independent. Hybrid
+prefill was the larger removable request cost and now uses the qualified
+capacity-accounted Matrix2 batch without changing decode or fallback behavior.
 
 The largest remaining bottleneck is 8B/28K prefill. The final profile attributes
 about 42% to direct Q4 Matrix2, 39% to attention, 16% to staged Q6 Matrix2, and

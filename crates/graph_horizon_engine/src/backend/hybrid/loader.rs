@@ -35,7 +35,18 @@ pub(crate) fn load<G: HybridDevice>(
         bail!("hybrid placement layer count mismatch");
     }
     let mut device = acquire_device::<G>(weights_percent)?;
-    let plan = select_plan::<G>(
+    let default_gpu_prefill_rows = shape.gpu_prefill_rows;
+    let mut gpu_prefill_rows = device
+        .as_ref()
+        .map(|device| G::prefill_rows(device, shape.block_count, context, shape.gpu_prefill_rows))
+        .unwrap_or(shape.gpu_prefill_rows);
+    // Invariant: placement accounts for at least the all-GPU batch capacity
+    // that the request session later allocates and dispatches.
+    let mut shape = RuntimeShape {
+        gpu_prefill_rows,
+        ..shape
+    };
+    let mut plan = select_plan::<G>(
         source,
         shape,
         context,
@@ -45,6 +56,29 @@ pub(crate) fn load<G: HybridDevice>(
         G::host_available()?,
         device.as_ref().map(G::budget).transpose()?,
     )?;
+    if gpu_prefill_rows != default_gpu_prefill_rows && plan.mode != HybridMode::AllGpu {
+        let fallback_shape = RuntimeShape {
+            gpu_prefill_rows: default_gpu_prefill_rows,
+            ..shape
+        };
+        let fallback = select_plan::<G>(
+            source,
+            fallback_shape,
+            context,
+            scheme,
+            weights_percent,
+            reserve_mib,
+            G::host_available()?,
+            device.as_ref().map(G::budget).transpose()?,
+        )?;
+        // Preserve full residency when only the larger optional batch exceeds
+        // capacity; mixed placement would cost every subsequent decode token.
+        if fallback.mode == HybridMode::AllGpu {
+            shape = fallback_shape;
+            plan = fallback;
+            gpu_prefill_rows = default_gpu_prefill_rows;
+        }
+    }
     let backends = match plan.mode {
         HybridMode::AllGpu => HybridBackends::AllGpu(G::load_selected(
             device.take().expect("validated all-GPU plan has a device"),
@@ -84,6 +118,10 @@ pub(crate) fn load<G: HybridDevice>(
             &WeightSelection::full(plan.block_count),
         )?),
     };
+    if let HybridBackends::AllGpu(gpu) = &backends {
+        gpu_prefill_rows =
+            G::active_prefill_rows(gpu, shape.block_count, context, gpu_prefill_rows);
+    }
     eprintln!(
         "hybrid: mode={} cpu_layers={} gpu_layers={} cpu_bytes={} gpu_bytes={}",
         plan.mode.name_for(G::all_mode_name()),
@@ -92,7 +130,11 @@ pub(crate) fn load<G: HybridDevice>(
         plan.cpu.total,
         plan.gpu.total
     );
-    Ok(HybridRuntime { plan, backends })
+    Ok(HybridRuntime {
+        plan,
+        backends,
+        gpu_prefill_rows,
+    })
 }
 
 fn weight_percentage<G: HybridDevice>(value: Option<u8>) -> Result<u8> {

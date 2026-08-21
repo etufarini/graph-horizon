@@ -13,7 +13,6 @@ use crate::kv_cache::{Kv, scheme::KvQuant};
 
 const SEGMENTED_CONTEXT: u32 = 512;
 const PARALLEL_CONTEXT: u32 = 1024;
-const GROUPED_PREFILL_CONTEXT: u32 = 8192;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn encode(
@@ -35,7 +34,6 @@ pub(crate) fn encode(
         && kv.scheme == KvQuant::F16
         && kv.head_dim == 128
         && kv.kv_heads.checked_mul(4) == Some(qh as usize)
-        && base < GROUPED_PREFILL_CONTEXT
     {
         let matrix = p.get(Kernel::AttentionPrefillMatrix);
         if matrix.width == 32 && matrix.max_threads >= 128 && matrix.threadgroup_memory <= 28 * 1024

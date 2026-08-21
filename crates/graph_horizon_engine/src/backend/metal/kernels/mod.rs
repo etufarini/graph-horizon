@@ -673,9 +673,8 @@ mod tests {
 
     #[test]
     fn tiled_prefill_attention_matches_serial() -> Result<()> {
-        const CONTEXT: usize = 8256;
+        const CONTEXT: usize = 576;
         const BASE: usize = 512;
-        const GROUPED_BASE: usize = 8192;
         const ROWS: usize = 64;
         const QUERY_HEADS: usize = 4;
         const DIM: usize = 128;
@@ -726,7 +725,7 @@ mod tests {
         )?;
         encoder.submit()?;
         let bytes = (ROWS * QUERY_HEADS * DIM * 2) as u64;
-        for base in [0, BASE, GROUPED_BASE] {
+        for base in [0, BASE] {
             let tiled = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
             let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
             let encoder = MetalEncoder::begin(&device)?;

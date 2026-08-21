@@ -405,3 +405,36 @@ candidate `743e4a9` was removed by `726201a`; the retained M04 binary and F16
 scratch contract are restored.
 
 Final matrices and reproduction commands follow after global reranking.
+
+### M07 — Metal 4 cooperative-tensor projection: planned experiment
+
+Current llama.cpp selects its `GGML_METAL_HAS_TENSOR` matrix path on the M4.
+That path dequantizes one 64-by-K32 weight tile into about 4 KiB of threadgroup
+memory, reads the activation tensor directly from device memory, and lets Metal
+Performance Primitives own the cooperative destination. The retained Graph
+Horizon path stages both weights and activations and feeds legacy 8-by-8 SIMD
+matrices. M06 showed that removing only the result tile is worth 1.4%; M07 tests
+the different matrix architecture that remains behind the comparator floor.
+
+For 3B/2K, `T=7.961 s`, the affected matrix fraction is `f=6.828/7.961=0.858`,
+and the practical comparator floor is 4.970 s. Thus `S_local=1.374`, removable
+time is 1.858 s, predicted final time is 6.103 s, and predicted whole-workload
+improvement is 23.3%. Recoverable competitive gap is the smaller of 1.858 s
+and the 2.770 s endpoint gap: 1.858 s.
+
+The experiment keeps canonical Q4_K/Q6_K weights and the F16 output boundary.
+No file or directory is added. The approved local structure is:
+
+```text
+crates/graph_horizon_engine/src/backend/metal/shaders/matmul.metal
+  (category K; one projection operation, no line limit)
+crates/graph_horizon_engine/src/backend/metal/kernels/matmul.rs
+  (~165 productive lines; projection dispatch, below 200)
+crates/graph_horizon_engine/src/backend/metal/pipeline.rs
+  (~180 productive lines excluding tests; pipeline registry, below 200)
+```
+
+The invariant is exact canonical dequantization, FP32 accumulation, and one
+final FP16 store. The smallest experiment replaces only the existing qualified
+64-row wide kernel and its thread count. Main risks are compiler/device support,
+cooperative-tensor bounds at 64 prompt rows, and numerical ordering.

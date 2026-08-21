@@ -1,0 +1,65 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+
+// AGENTS deroga K: kernel numerico della sola riduzione attention prefill GQA.
+
+// Merges eight exact online-softmax partials for one query row and head. The
+// split kernel stores unnormalized FP32 accumulators plus (max, sum), allowing
+// the same stable rescaling used by a serial online-softmax scan.
+layout(local_size_x = 128) in;
+
+layout(std430, binding = 0) writeonly buffer O { float16_t o[]; };
+layout(std430, binding = 1) readonly buffer Partial { float partial[]; };
+layout(std430, binding = 2) readonly buffer State { float state[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint SPLITS = 8u;
+const uint HEAD_DIM = 128u;
+shared float sh_scale[SPLITS];
+shared float sh_denom;
+
+void main() {
+    uint qh = gl_WorkGroupID.x;
+    uint row = gl_WorkGroupID.y;
+    if (qh >= p.q_heads || row >= p.n) return;
+    uint first_slot = (row * p.q_heads + qh) * SPLITS;
+
+    if (gl_LocalInvocationID.x == 0u) {
+        float global_m = -3.402823e38;
+        for (uint split = 0u; split < SPLITS; split++) {
+            uint slot = first_slot + split;
+            if (state[slot * 2u + 1u] > 0.0) {
+                global_m = max(global_m, state[slot * 2u]);
+            }
+        }
+        float denom = 0.0;
+        for (uint split = 0u; split < SPLITS; split++) {
+            uint slot = first_slot + split;
+            float local_l = state[slot * 2u + 1u];
+            float factor = local_l > 0.0 ? exp(state[slot * 2u] - global_m) : 0.0;
+            sh_scale[split] = factor;
+            denom += local_l * factor;
+        }
+        sh_denom = denom;
+    }
+    barrier();
+
+    uint d = gl_LocalInvocationID.x;
+    float sum = 0.0;
+    for (uint split = 0u; split < SPLITS; split++) {
+        uint slot = first_slot + split;
+        sum += partial[slot * HEAD_DIM + d] * sh_scale[split];
+    }
+    o[(row * p.q_heads + qh) * HEAD_DIM + d] = float16_t(sum / sh_denom);
+}

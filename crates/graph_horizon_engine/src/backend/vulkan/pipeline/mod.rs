@@ -41,6 +41,7 @@ impl PipelineRegistry {
             matrix2,
             matrix2_attention_q64,
             attention_1024,
+            gqa_prefill_required_wave32,
             gqa_decode,
             gqa_decode_required_wave32,
             gqa_decode_wave64,
@@ -105,6 +106,14 @@ impl PipelineRegistry {
                     Kernel::AttentionDecode1024,
                     compiler::build(dev, cache, Kernel::AttentionDecode1024)?,
                 );
+            }
+            if gqa_prefill_required_wave32 {
+                for k in [
+                    Kernel::AttentionPrefillGqaSplit,
+                    Kernel::AttentionPrefillGqaReduce,
+                ] {
+                    map.insert(k, compiler::build_wave32(dev, cache, k)?);
+                }
             }
             if gqa_decode {
                 for k in [

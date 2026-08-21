@@ -13,6 +13,8 @@ use crate::backend::vulkan::device::AMD_VENDOR_ID;
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
+const GQA_PREFILL_SHARED_BYTES: u32 =
+    64 * 128 * 2 + 8 * 4 * 128 * 2 + 8 * 4 * 64 * 4 + 8 * 4 * 3 * 4;
 const COOP_QK_ATTENTION_SHARED_BYTES: u32 =
     64 * 128 * 2 + 16 * 128 * 2 + 16 * 64 * 2 + 16 * 64 * 4 + 16 * 3 * 4;
 const MATRIX2_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 64 * 2 + 32 * 3 * 4;
@@ -26,6 +28,24 @@ fn supports_wide_attention(invocations: u32, size_x: u32, shared_bytes: u32) -> 
 
 fn supports_attention_1024(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
     invocations >= 1024 && size_x >= 1024 && shared_bytes >= ATTENTION_1024_SHARED_BYTES
+}
+
+fn supports_gqa_prefill(
+    invocations: u32,
+    size_x: u32,
+    shared_bytes: u32,
+    subgroup_size: u32,
+    wave32_control: bool,
+    amd: bool,
+    amd_dp4a: bool,
+) -> bool {
+    invocations >= 1024
+        && size_x >= 1024
+        && shared_bytes >= GQA_PREFILL_SHARED_BYTES
+        && subgroup_size == 64
+        && wave32_control
+        && amd
+        && amd_dp4a
 }
 
 fn supports_gqa_decode_resources(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
@@ -103,6 +123,7 @@ pub(super) struct PipelineCaps {
     pub matrix2: bool,
     pub matrix2_attention_q64: bool,
     pub attention_1024: bool,
+    pub gqa_prefill_required_wave32: bool,
     pub gqa_decode: bool,
     pub gqa_decode_required_wave32: bool,
     pub gqa_decode_wave64: bool,
@@ -155,6 +176,15 @@ pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
             dev.coopmat2.attention_q64_wg128,
         ),
         attention_1024: supports_attention_1024(available.0, available.1, available.2),
+        gqa_prefill_required_wave32: supports_gqa_prefill(
+            available.0,
+            available.1,
+            available.2,
+            subgroup,
+            dev.wave32_control,
+            dev.vendor_id == AMD_VENDOR_ID,
+            dev.dp4a,
+        ),
         gqa_decode: supports_gqa_decode(gqa, subgroup),
         gqa_decode_required_wave32: supports_gqa_decode_required_wave32(
             gqa,
@@ -218,6 +248,55 @@ mod tests {
             1024,
             1024,
             ATTENTION_1024_SHARED_BYTES - 1
+        ));
+    }
+
+    #[test]
+    fn gqa_prefill_requires_qualified_amd_wave32_resources() {
+        assert!(supports_gqa_prefill(
+            1024,
+            1024,
+            GQA_PREFILL_SHARED_BYTES,
+            64,
+            true,
+            true,
+            true,
+        ));
+        assert!(!supports_gqa_prefill(
+            1024,
+            1024,
+            GQA_PREFILL_SHARED_BYTES,
+            32,
+            true,
+            true,
+            true,
+        ));
+        assert!(!supports_gqa_prefill(
+            1024,
+            1024,
+            GQA_PREFILL_SHARED_BYTES,
+            64,
+            false,
+            true,
+            true,
+        ));
+        assert!(!supports_gqa_prefill(
+            1024,
+            1024,
+            GQA_PREFILL_SHARED_BYTES,
+            64,
+            true,
+            false,
+            true,
+        ));
+        assert!(!supports_gqa_prefill(
+            1024,
+            1024,
+            GQA_PREFILL_SHARED_BYTES,
+            64,
+            true,
+            true,
+            false,
         ));
     }
 

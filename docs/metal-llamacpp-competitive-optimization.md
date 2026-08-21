@@ -406,49 +406,52 @@ scratch contract are restored.
 
 Final matrices and reproduction commands follow after global reranking.
 
-### M07 — Metal 4 cooperative-tensor projection: planned experiment
+### M07 — Metal 4 cooperative-tensor projection: KEEP
 
-Current llama.cpp selects its `GGML_METAL_HAS_TENSOR` matrix path on the M4.
-That path dequantizes one 64-by-K32 weight tile into about 4 KiB of threadgroup
-memory, reads the activation tensor directly from device memory, and lets Metal
-Performance Primitives own the cooperative destination. The retained Graph
-Horizon path stages both weights and activations and feeds legacy 8-by-8 SIMD
-matrices. M06 showed that removing only the result tile is worth 1.4%; M07 tests
-the different matrix architecture that remains behind the comparator floor.
+The current llama.cpp source contains a `GGML_METAL_HAS_TENSOR` matrix path,
+but deliberately disables it by default on pre-M5/pre-A19 hardware because its
+FP32-destination implementation is not faster there. The structural reference
+was still decisive: dequantize only one 64-by-K32 weight tile into about 4 KiB
+of threadgroup memory, read activations directly from device memory, and let
+Metal Performance Primitives own the cooperative destination. Graph Horizon's
+F16 projection boundary makes a direct half destination profitable on this M4.
 
-For 3B/2K, `T=7.961 s`, the affected matrix fraction is `f=6.828/7.961=0.858`,
-and the practical comparator floor is 4.970 s. Thus `S_local=1.374`, removable
-time is 1.858 s, predicted final time is 6.103 s, and predicted whole-workload
-improvement is 23.3%. Recoverable competitive gap is the smaller of 1.858 s
-and the 2.770 s endpoint gap: 1.858 s.
+For 3B/2K, the pre-experiment bound was `T=7.961 s`, affected matrix fraction
+`f=6.828/7.961=0.858`, and practical comparator floor 4.970 s. Therefore
+`S_local=1.374`, realistically removable time was 1.858 s, predicted final time
+was 6.103 s, and predicted whole-workload improvement was 23.3%.
 
-The experiment keeps canonical Q4_K/Q6_K weights and the F16 output boundary.
-No file or directory is added. The approved local structure is:
+M07 keeps canonical Q4_K/Q6_K weights and the request-local F16 scratch layout.
+One 128-thread group dequantizes a complete 64-by-K32 weight tile, then a Metal
+4 cooperative matmul reads token activations directly and stores its F16
+destination. The qualified route is exact rows=64, aligned Q4/Q6 shapes, pure
+Metal placement, and runtime Metal 4 family support. The retained legacy SIMD
+wide kernel is the fallback; unsupported devices never create the tensor
+pipeline. No file, dependency, persistent representation, or public API is
+added.
 
-```text
-crates/graph_horizon_engine/src/backend/metal/shaders/matmul.metal
-  (category K; one projection operation, no line limit)
-crates/graph_horizon_engine/src/backend/metal/kernels/matmul.rs
-  (~165 productive lines; projection dispatch, below 200)
-crates/graph_horizon_engine/src/backend/metal/pipeline.rs
-  (~180 productive lines excluding tests; pipeline registry, below 200)
-```
+| Diagnostics-free tuple | M04 A | M07 | M04 bookend | M07 vs control mean | M07 CV |
+|---|---:|---:|---:|---:|---:|
+| 3B/512 TTFT | 1,827.32 ms | 1,366.73 ms | 1,827.41 ms | -25.21% | 0.07% |
+| 3B/2K TTFT | 7,947.47 ms | 6,111.52 ms | 7,954.20 ms | -23.14% | 0.02% |
 
-The invariant is exact canonical dequantization, FP32 accumulation, and one
-final FP16 store. The smallest experiment replaces only the existing qualified
-64-row wide kernel and its thread count. Main risks are compiler/device support,
-cooperative-tensor bounds at 64 prompt rows, and numerical ordering.
+The 2K endpoint is within 8.5 ms of its Amdahl prediction. Required reprofiling
+measures the seven matrices at 4,960.32 ms versus M04's 6,828.21 ms, a 27.36%
+local reduction and effectively the 4,970 ms practical floor. Attention is
+unchanged at 910.27 ms versus 910.64 ms. Profiled total GPU time falls from
+8,148.40 to 6,295.15 ms. At 512, the seven matrices total 1,261.38 ms and total
+GPU time is 1,477.21 ms; the diagnostic path remains excluded from endpoints.
 
-The performance prototype proved that a direct F16 cooperative destination is
-supported and clears the gate, but production routing revealed one additional
-local requirement: Metal 4 tensor support is a distinct runtime GPU-family
-capability. Before retention, the existing legacy wide kernel remains the
-fallback and the registry skips tensor-pipeline creation on unsupported devices.
-This adds no file; the amended local structure also touches:
+The cooperative destination changes accumulation ordering/precision, so it was
+gated as a numerical candidate. Against the sequential FP32-accumulation/F16
+oracle, maximum absolute projection differences are 0.00586 for Q4_K and
+0.00195 for Q6_K, inside the unchanged 0.05 limit. Authenticated 3B teacher rows
+with both F16 and INT8 KV produce all 16 exact oracle token IDs and pass the
+teacher-forced top-two/lifecycle/sequential-request gates.
 
-```text
-crates/graph_horizon_engine/src/backend/metal/device.rs
-  (~115 productive lines excluding tests; device capabilities, below 200)
-crates/graph_horizon_engine/src/backend/metal/pipeline.rs
-  (~195 productive lines excluding tests; optional tensor pipeline, below 200)
-```
+Complete qualification passes: pure Metal has 139 unit tests with 2 ignored,
+5 family tests with 1 ignored, and 12 semantic tests with 1 ignored;
+Metal-hybrid has 203 unit tests with the same integration counts and ignores.
+Pure-Metal clippy passes with warnings denied. Hybrid retains two pre-existing
+unused-`simd` warnings in CPU attention. The production implementation is
+`bcefc59`; diagnostics were removed by `6322e33`.

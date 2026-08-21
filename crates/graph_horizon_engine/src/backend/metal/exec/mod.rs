@@ -5,4 +5,6 @@
 
 pub(crate) mod dispatch;
 pub(crate) mod encoder;
+#[cfg(feature = "metal-profile")]
+pub(crate) mod profile;
 pub(crate) mod readback;

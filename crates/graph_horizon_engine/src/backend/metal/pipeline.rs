@@ -21,7 +21,7 @@ use super::Device;
 #[cfg(feature = "metal")]
 const GQA_DECODE_THREADGROUP_MEMORY: usize = 20_544;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 #[repr(usize)]
 pub(crate) enum Kernel {
     Embedding,

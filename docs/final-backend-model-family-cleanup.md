@@ -451,6 +451,26 @@ Vulkan runs execute the available RTX 3060 numeric/lifecycle kernel coverage.
 Real-artifact, quality, performance, and cross-hardware qualification are
 recorded separately below after the candidate is frozen.
 
+### Validation-runner correction
+
+The first full matrix run exposed one in-scope issue that static inspection
+could not prove: `parity-check.sh` attempted to compile Metal on Linux, then
+classified the expected platform compiler rejection as a parity failure. This
+contradicted the runner's documented rule that an unavailable backend remains
+external verification. The local, reversible correction changes only the
+existing runner:
+
+```text
+support/testing/parity-check.sh      (~160 productive lines, +1 platform gate)
+src/support_scripts.rs               (test fixture only, excluded from limit)
+```
+
+The invariant is that Metal and Metal-hybrid real rows execute only on macOS
+arm64; every other platform reports a bounded external-verification result
+before oracle startup. CPU and Vulkan behavior is unchanged. The main risk is
+masking a real Metal failure on a supported host, avoided by gating on the exact
+platform pair accepted by the installer rather than on build output text.
+
 ## Final Complexity and Validation
 
 Pending cleanup implementation, final same-session performance comparison,

@@ -25,6 +25,14 @@ AMD long-context prefill (`8e2f8cc`), and Metal long-context prefill
 is also in this ancestry. This is the one authoritative cleanup branch; it will
 not be pushed without explicit authorization.
 
+```text
+runtime cleanup candidate: 1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd
+```
+
+The final evidence-only report commit follows that runtime candidate and changes
+no executable source. Physical qualification must use the exact runtime SHA
+above; a code fix requires a new candidate and renewed affected qualification.
+
 The cleanup host is Linux x86_64 with an Intel i5-9600K and NVIDIA RTX 3060
 12 GiB, driver 595.84, Vulkan 1.4.329. AMD and Apple Metal execution are
 external qualification requirements for the final candidate.
@@ -473,17 +481,201 @@ platform pair accepted by the installer rather than on build output text.
 
 ## Final Complexity and Validation
 
-Pending cleanup implementation, final same-session performance comparison,
-line-by-line diff audit, and identical-candidate hardware qualification.
+### Scope and removals
+
+The audit covered the complete model/family layer, shared runtime and graph,
+CPU/Vulkan/Metal backends, hybrid placement, weight and KV representations,
+capability/routing state, every registered kernel/shader, public examples,
+support runners, and their tests. The retained architecture remains the one
+inventoried above.
+
+| Removed item | Count | Result |
+|---|---:|---|
+| Production files | 1 | Campaign-only `examples/decode.rs`. |
+| Production functions | 5 | Example entry, parsing, generation, and statistics only. |
+| Types | 1 | Example-local `Summary`. |
+| Benchmark fields | 4 | Two public report fields and two internal sample fields. |
+| Benchmark calculation branches | 1 | Superseded first/last-half split. |
+| Obsolete benchmark tests | 1 | Half-segment arithmetic test. |
+| Inference representations/buffers/resources | 0 | Every retained owner has a reachable consumer. |
+| Inference routes/kernels/shaders/features/flags | 0 | Every retained specialization and fallback remains necessary. |
+| Dependencies | 0 | No dependency or feature change. |
+
+The support runner adds one three-line platform gate and test coverage. There
+is no model-family metadata refactor because the audit found one canonical
+`MistralConfig`, one tensor mapper, and no duplicate runtime model identity.
+There is no backend refactor because the retained specialization boundaries are
+already capability/shape/format based and their low-level implementations are
+genuinely different.
+
+### Before/after complexity
+
+| Metric | Baseline | Candidate | Delta |
+|---|---:|---:|---:|
+| Tracked Rust/shader/shell source files | 314 | 313 | -1 |
+| Engine Rust files | 171 | 171 | 0 |
+| Engine Rust physical lines | 30,831 | 30,777 | -54 |
+| Examples | 5 | 4 | -1 |
+| Engine functions, including tests | 1,279 | 1,278 | -1 |
+| Engine visibility-qualified struct fields | 371 | 367 | -4 |
+| Engine structs / enums / traits | 109 / 28 / 7 | unchanged | 0 |
+| Shader files / physical lines | 54 / 4,664 | 54 / 4,664 | 0 |
+| Backend features | 5 | 5 | 0 |
+| Vulkan / full Metal pipeline variants | 48 / 17 | 48 / 17 | 0 |
+| Engine constants | 117 | 117 | 0 |
+
+Across the affected runtime/example/support files, physical source decreases by
+250 lines: engine -54, the removed example -199, and the runner +3. Test-fixture
+growth and this report are excluded from productive-line accounting. No
+orchestration file crosses the 200-productive-line limit; existing category-K
+and category-I declarations are unchanged.
+
+### Static and real-model validation
+
+All commands below passed on runtime candidate `1bfe337` unless explicitly
+listed as external:
+
+- `cargo fmt --all -- --check` and `git diff --check`;
+- Bash syntax for installer, profiling, and test runners;
+- warning-denied workspace/all-target Clippy for `cpu`, `vulkan`, and
+  `vulkan-hybrid`;
+- workspace/all-target tests for the same three profiles, including CPU numeric
+  references, Vulkan physical numeric/lifecycle tests, hybrid placement and
+  crossing tests, documentation contracts, model metadata, tokenizer/template,
+  tensor mapping, KV layout/bit parity, routing boundaries, resource failure
+  paths, and support-runner contracts;
+- frontend Svelte check with zero warnings, 119/119 Node tests, and production
+  Vite build;
+- fresh catalog authentication of all six Q4_K_M artifacts by byte count and
+  SHA-256;
+- the pinned-oracle 74-row family matrix: 36 pass, 38 external verification,
+  zero failure. Every executable CPU, pure Vulkan, and Vulkan-hybrid row matched
+  all 16 oracle token IDs for F16 and INT8 KV. The 100% all-GPU and 0% CPU-only
+  hybrid endpoints matched their homogeneous controls exactly.
+
+The 38 matrix externals are explicit and independent: six absent negative Q8_0
+artifacts, 28 Metal/Metal-hybrid rows unavailable on Linux, and four 14B 25%
+mixed rows exceeding local combined memory. All eight 14B standalone CPU/Vulkan
+rows for each profile and KV scheme passed, so the mixed result is a placement
+capacity limit rather than a hidden correctness fallback.
+
+Metal source cannot be compiled or executed by the repository's supported build
+contract on this Linux x86_64 host. Its static necessity, entry-point registry,
+fallbacks, and previously integrated evidence were audited, but current Metal
+compilation and physical correctness remain part of the mandatory external run.
+The same distinction applies to current AMD physical execution; common Vulkan
+compilation and route tests pass locally, but they do not replace AMD hardware.
+
+### Model-family and quality result
+
+The real Reasoning gate used context 4096, F16 KV, Vulkan-hybrid all-GPU,
+temperature 0.7, seed 0, and the exact nine-case corpus with no retries.
+
+| Artifact | Critical | Semantic | Reasoning format | Status |
+|---|---:|---:|---:|---|
+| 3B Instruct | 4/4 | 8/9 preserved | not applicable | qualified |
+| 3B Reasoning | 4/4 | 8/9 | 9/9 | qualified |
+| 8B Instruct | 4/4 | 8/9 preserved | not applicable | qualified |
+| 8B Reasoning | 4/4 | 9/9 | 9/9 | qualified |
+| 14B Instruct | 4/4 | 9/9 preserved | not applicable | qualified |
+| 14B Reasoning | 4/4 | 9/9 | 9/9 | qualified |
+
+The 3B Reasoning miss is S10's understandable but non-idiomatic Italian phrase
+`su la tavola`; execution, stop classification, marker completeness, critical
+cases, and the aggregate semantic gate all pass. The runner summary is six
+qualified, zero not-qualified, zero external. This current result does not
+silently rewrite the release record's historical support status; release policy
+still belongs to `VALIDATION.md` and requires its own final qualification.
+
+### Performance preservation
+
+All rows are release, F16 KV, greedy, 32 requested tokens, one warm-up, three
+repetitions, and the exact baseline prompt construction. Vulkan-hybrid is 100%
+all-GPU at context 4096. Positive throughput deltas and negative TTFT deltas are
+improvements.
+
+| Backend/model/workload | Baseline prompt tok/s | Candidate prompt tok/s | Delta | Baseline TTFT | Candidate TTFT | Delta | Baseline model decode tok/s | Candidate model decode tok/s | Delta | Candidate TTFT CV |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Vulkan-hybrid 3B, prompt 128 | 1590.55 | 1622.75 | +2.02% | 80.48 ms | 78.88 ms | -1.99% | 75.35 | 76.19 | +1.11% | 0.92% |
+| Vulkan-hybrid 8B, prompt 128 | 812.66 | 819.08 | +0.79% | 157.52 ms | 156.28 ms | -0.79% | 35.48 | 36.20 | +2.03% | 0.90% |
+| Vulkan-hybrid 14B, prompt 128 | 507.13 | 508.76 | +0.32% | 252.40 ms | 251.60 ms | -0.32% | 24.37 | 24.48 | +0.45% | 0.54% |
+| Vulkan-hybrid 8B, prompt 2048 | 944.76 | 950.01 | +0.56% | 2167.76 ms | 2155.77 ms | -0.55% | 34.85 | 34.99 | +0.40% | 0.01% |
+| CPU 3B, prompt 128, idle confirmation | 24.85 | 25.19 | +1.37% | 5151.13 ms | 5081.40 ms | -1.35% | 7.38 | 7.53 | +2.03% | 0.93% |
+
+The CPU tuple's first post-cleanup run measured 24.23 prompt tok/s and 7.27
+decode tok/s, 2.5% and 1.5% below baseline despite no CPU inference-code change.
+The immediately repeated idle run shown above reversed the difference with low
+CV, proving the apparent regression was not reproducible. No mature tuple has a
+reproducible slowdown; small improvements are measurement side effects, not a
+cleanup objective.
+
+### Remaining intentional special cases
+
+| Condition | Reason and structural invariant |
+|---|---|
+| `mistral3` architecture and exact Reasoning profile names | True family/chat semantics established before backend allocation. |
+| Missing output tensor on 3B | Authenticated tied-embedding identity; larger artifacts own a dedicated output tensor. |
+| Q4/Q6/compatible Q5 tensor dispatch | Quantization-derived format behavior; loader shape/byte validation precedes kernels. |
+| Matrix2 exact dimension allow-list | Measured shape/format qualification, never a model-name or filename check. |
+| 32 query / 8 KV heads, head dimension 128 | Canonical model shape drives GQA eligibility and retains generic fallback. |
+| AMD long-context/depth boundary | Submission-duration and wave32 safety policy derived from graph depth/context. |
+| Reasoning default system prompt | Versioned release semantic, stored once in the family layer. |
+
+### Remaining intentional hardware specialization
+
+| Path | Backend/family | Eligibility | Fallback |
+|---|---|---|---|
+| AVX2/F16C matmul and GQA reuse | x86_64 CPU | Runtime ISA plus operation shape | Scalar per-format implementation. |
+| Matrix2 Q4/Q6 and Q64 attention | NVIDIA Vulkan | Extension, exact cooperative shape/resources, datatype/rows | Cooperative or portable batch/tiled/wide kernels. |
+| DP4A MMVQ/MMQ, split GQA, required wave32 | AMD Vulkan | Integer-dot/subgroup control, shape, rows/context | Float Q4, portable batch, tiled/wide/generic attention. |
+| Cooperative/tensor matmul and grouped attention | Apple Metal | Pipeline limits, Apple9/unified memory, optional Metal4 | Wide/per-row projection and segmented/serial attention. |
+
+### Remaining complexity
+
+| Component | Why it must remain |
+|---|---|
+| CPU, generic Vulkan, and generic Metal operations | Correctness baselines and required fallbacks when specialization is unavailable. |
+| Canonical plus Q8 activation scratch representations | Canonical weights serve every path; bounded Q8 scratch is consumed by qualified DP4A routes. |
+| Pure and partitioned sessions | Homogeneous keyed reuse and immutable hybrid CPU-prefix/device-suffix ownership are different lifecycle contracts. |
+| Capability registries and optional pipelines | They prevent illegal device creation/dispatch while preserving operation-local fallbacks. |
+| Per-format category-K kernels | Q4/Q5/Q6 encodings require distinct numeric decoding without orchestration or duplicate resource ownership. |
+| Historical campaign reports | Evidence records only; current production comments and interfaces no longer depend on their phase labels. |
+
+The final line-by-line diff audit found no production delta with an unknown
+purpose. The suspicious-pattern pass found only legitimate profiling tools,
+test-only capability probes/failure instrumentation, placement candidates,
+sampling candidates, current phase events, and bounded diagnostics. No
+production environment override, diagnostic buffer, rejected representation,
+ablation branch, phase-named route, orphan capability, consumerless shader, or
+model/artifact-name execution hack remains.
 
 ## Physical Qualification
 
 | Backend | Candidate SHA | Device | Status |
 |---|---|---|---|
-| AMD Vulkan | pending | qualified AMD device required | pending external run |
-| NVIDIA Vulkan | pending | RTX 3060 available locally | pending final candidate |
-| Apple Metal | pending | Apple M4/macOS host required | pending external run |
+| AMD Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | qualified AMD device required | pending external run |
+| NVIDIA Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | RTX 3060 12 GiB, driver 595.84 | PASS locally: routes/build/tests/parity/quality/performance |
+| Apple Metal | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | Apple M4/macOS host required | pending external run |
+
+For the NVIDIA run, physical Vulkan numeric/lifecycle tests passed, all six
+artifacts across both KV schemes passed on standalone Vulkan, 3B
+mixed/all-GPU/CPU-only endpoints matched their controls, all three Reasoning
+models qualified, and every
+representative performance guard remained stable. Integrated capability policy
+and route-boundary tests cover Matrix2, Q64, DP4A, generic fallback, and hybrid
+row selection on the physical device.
+
+## Final Assessment
+
+The runtime candidate is locally PR-ready and its worktree was clean before the
+evidence-only report update. Every remaining model-family special case is a
+semantic or structural property; every retained hardware path is reached by
+explicit capability, shape, datatype, and quantization eligibility with a valid
+fallback. Every remaining production-code difference is necessary for the
+bounded cleanup or the validation contract.
 
 Global completion remains prohibited until all three materially supported
 physical backends pass on the identical final candidate SHA, or the project
-explicitly accepts a documented external blocker.
+explicitly accepts a documented external blocker. NVIDIA is complete; AMD
+Vulkan and Apple Metal are the two current external blockers. No push, tag,
+release, or external mutation has been performed.

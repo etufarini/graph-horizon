@@ -15,7 +15,7 @@ defines no runtime API or backend support contract.
 | Metal competitive baseline | `8deb73464d34d6da0bea9dce7a0c3fb6dcfaeaa3` |
 | Starting branch | `perf/metal-vulkan-parity` |
 | Experiment branch | `perf/metal-llamacpp-competitive` |
-| Final tested retained state | `aa6f176` (M10 reverted; production equals M07) |
+| Final tested retained state | `aa6f176` (M10 reverted; M07 behavior retained) |
 | Initial worktree | clean |
 | llama.cpp reference | `2b63e0610bbc2be990ae1360d5256efcdc3f9efb` (build 10237) |
 | Push state | nothing pushed |
@@ -700,7 +700,7 @@ requests in an A/B/A sequence:
 M10's 10.51 tok/s is equal to or slightly below the 10.515 tok/s control
 mean. Removing the runtime format bodies therefore does not improve register
 allocation or instruction scheduling on this compiler. Candidate `81f0737`
-was removed by `aa6f176`; production again exactly matches M07.
+was removed by `aa6f176`; production again has M07 behavior.
 
 The trace also closes an ambiguity in the projection bound. The seven layer
 projections read 7,301,529,600 weight bytes per token and sustain about 98.5
@@ -807,8 +807,9 @@ recoverable end-to-end value, even though literal llama.cpp parity has not
 been achieved.
 
 Final retained production is M01 `2cd6043`, M04 `01a0c45`, and M07 `bcefc59`.
-The tested retained state is `aa6f176`, whose production tree equals M07 after
-the ordinary M10 revert. The diagnostics-free binary remains
+The tested retained state is `aa6f176`, whose production behavior equals M07
+after the ordinary M10 revert (apart from a formatting-only source change).
+The diagnostics-free binary remains
 `a166863382875d596f5cc71406c2d6782b8b15b95c58427350bfb951f7122c1c`.
 No profiler, rejected shader, alternate routing, dependency, or public API
 survives, and nothing was pushed.

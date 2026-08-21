@@ -95,6 +95,7 @@ const fn direct(kernel: Kernel) -> Category {
         | Kernel::AttentionDecodeWide
         | Kernel::AttentionDecode1024
         | Kernel::AttentionDecodeGqaSplit
+        | Kernel::AttentionDecodeGqaInt8Split
         | Kernel::AttentionDecodeGqaWave64Split
         | Kernel::AttentionDecodeGqaReduce
         | Kernel::AttentionDecodeGqaWave64Reduce

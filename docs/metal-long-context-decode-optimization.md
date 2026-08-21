@@ -444,7 +444,7 @@ those totals, so traffic amplification is 1x.
 | Down | 2.320 GB | 22.65 ms | 102.4 GB/s |
 | Logits | 0.551 GB | 5.36 ms | 102.7 GB/s |
 
-Input/output activation traffic is below 0.01% of the 7.852 GB packed-weight
+Input/output activation traffic is about 0.10% of the 7.852 GB packed-weight
 stream. The refined 15K trace totals 79.43 ms at 98.9 GB/s; the fastest
 individual rows reach about 103 GB/s, giving a 76.2 ms practical aggregate
 floor. The 65.43 ms 120-GB/s bound is
@@ -453,22 +453,23 @@ llama.cpp's two-row Q4_K/Q6_K arithmetic and two-SIMD-group geometry. Earlier
 per-format specialization was flat, so fusion that only removes activation or
 dispatch traffic cannot meet the 5% whole-token gate.
 
-The complete `M=1` inventory follows. `Metadata` is part of packed bytes:
+The complete `M=1` inventory follows, ordered by plausible removable time.
+`Metadata` is part of packed bytes:
 Q4_K uses 128 payload + 16 metadata bytes per 256 weights; Q6_K uses 192 + 18.
-Activation is the logical F16 input plus output traffic, except logits output is
-FP32. Every layer role has 40 dispatches/token; logits has one. Reduction is
-one SIMD sum per output row after lanes share input blocks.
+Activation is the logical F16 input traffic; output is F16 except FP32 logits.
+Every layer role has 40 dispatches/token; logits has one. Reduction is one SIMD
+sum per output row after lanes share input blocks.
 
-| Role | M/N/K | Quantization | Packed bytes | Metadata | Activation + output | Dispatches | GPU time |
-|---|---|---|---:|---:|---:|---:|---:|
-| Q | 1 / 4,096 / 5,120 | Q4_K | 471.859 MB | 52.429 MB | 18.432 KB | 40 | 5.09 ms |
-| K | 1 / 1,024 / 5,120 | Q4_K | 117.965 MB | 13.107 MB | 12.288 KB | 40 | 1.42 ms |
-| V | 1 / 1,024 / 5,120 | 20 Q4_K + 20 Q6_K | 144.998 MB | 13.926 MB | 12.288 KB | 40 | 1.75 ms |
-| O | 1 / 5,120 / 4,096 | Q4_K | 471.859 MB | 52.429 MB | 18.432 KB | 40 | 5.28 ms |
-| Gate | 1 / 16,384 / 5,120 | Q4_K | 1,887.437 MB | 209.715 MB | 43.008 KB | 40 | 19.45 ms |
-| Up | 1 / 16,384 / 5,120 | Q4_K | 1,887.437 MB | 209.715 MB | 43.008 KB | 40 | 18.43 ms |
-| Down | 1 / 5,120 / 16,384 | 20 Q4_K + 20 Q6_K | 2,319.974 MB | 222.822 MB | 43.008 KB | 40 | 22.65 ms |
-| Logits | 1 / 131,072 / 5,120 | Q6_K | 550.502 MB | 47.186 MB | 534.528 KB | 1 | 5.36 ms |
+| Role | M/N/K | Quantization | Packed bytes | Metadata | Activation | Output | Dispatches | GPU time |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| Gate | 1 / 16,384 / 5,120 | Q4_K | 1,887.437 MB | 209.715 MB | 409.600 KB | 1.311 MB | 40 | 19.45 ms |
+| O | 1 / 5,120 / 4,096 | Q4_K | 471.859 MB | 52.429 MB | 327.680 KB | 409.600 KB | 40 | 5.28 ms |
+| Q | 1 / 4,096 / 5,120 | Q4_K | 471.859 MB | 52.429 MB | 409.600 KB | 327.680 KB | 40 | 5.09 ms |
+| V | 1 / 1,024 / 5,120 | 20 Q4_K + 20 Q6_K | 144.998 MB | 13.926 MB | 409.600 KB | 81.920 KB | 40 | 1.75 ms |
+| K | 1 / 1,024 / 5,120 | Q4_K | 117.965 MB | 13.107 MB | 409.600 KB | 81.920 KB | 40 | 1.42 ms |
+| Down | 1 / 5,120 / 16,384 | 20 Q4_K + 20 Q6_K | 2,319.974 MB | 222.822 MB | 1.311 MB | 409.600 KB | 40 | 22.65 ms |
+| Up | 1 / 16,384 / 5,120 | Q4_K | 1,887.437 MB | 209.715 MB | 409.600 KB | 1.311 MB | 40 | 18.43 ms |
+| Logits | 1 / 131,072 / 5,120 | Q6_K | 550.502 MB | 47.186 MB | 10.240 KB | 524.288 KB | 1 | 5.36 ms |
 
 Source-required packed traffic equals the mathematical packed minimum for every
 row: 1.00x logical amplification. Hardware transaction counters are
@@ -479,13 +480,13 @@ about 3.2 ms/token total.
 
 | Role | Minimum / actual | Amplification | Measured | 120-GB/s physical floor | 103-GB/s practical floor |
 |---|---:|---:|---:|---:|---:|
-| Q | 0.472 / 0.472 GB | 1.00x | 5.09 ms | 3.93 ms | 4.58 ms |
-| K | 0.118 / 0.118 GB | 1.00x | 1.42 ms | 0.98 ms | 1.15 ms |
-| V | 0.145 / 0.145 GB | 1.00x | 1.75 ms | 1.21 ms | 1.41 ms |
-| O | 0.472 / 0.472 GB | 1.00x | 5.28 ms | 3.93 ms | 4.58 ms |
 | Gate | 1.887 / 1.887 GB | 1.00x | 19.45 ms | 15.73 ms | 18.32 ms |
-| Up | 1.887 / 1.887 GB | 1.00x | 18.43 ms | 15.73 ms | 18.32 ms |
+| O | 0.472 / 0.472 GB | 1.00x | 5.28 ms | 3.93 ms | 4.58 ms |
+| Q | 0.472 / 0.472 GB | 1.00x | 5.09 ms | 3.93 ms | 4.58 ms |
+| V | 0.145 / 0.145 GB | 1.00x | 1.75 ms | 1.21 ms | 1.41 ms |
+| K | 0.118 / 0.118 GB | 1.00x | 1.42 ms | 0.98 ms | 1.15 ms |
 | Down | 2.320 / 2.320 GB | 1.00x | 22.65 ms | 19.33 ms | 22.52 ms |
+| Up | 1.887 / 1.887 GB | 1.00x | 18.43 ms | 15.73 ms | 18.32 ms |
 | Logits | 0.551 / 0.551 GB | 1.00x | 5.36 ms | 4.59 ms | 5.34 ms |
 
 ### Independent Q4_K and Q6_K audit

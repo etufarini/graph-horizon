@@ -36,7 +36,7 @@ pub(crate) fn encode(
         && kv.kv_heads.checked_mul(4) == Some(qh as usize)
     {
         let matrix = p.get(Kernel::AttentionPrefillMatrix);
-        if matrix.width == 32 && matrix.max_threads >= 128 && matrix.threadgroup_memory <= 28 * 1024
+        if matrix.width == 32 && matrix.max_threads >= 256 && matrix.threadgroup_memory <= 28 * 1024
         {
             let groups = (rows as usize / 8)
                 .checked_mul(qh as usize)
@@ -49,7 +49,7 @@ pub(crate) fn encode(
                 &[q, &kv.k, &kv.v, out],
                 &c,
                 [groups, 1, 1],
-                128,
+                256,
             );
         }
     }

@@ -18,12 +18,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::Device;
 
+#[cfg(feature = "metal")]
+const GQA_DECODE_THREADGROUP_MEMORY: usize = 20_544;
+
 #[derive(Clone, Copy)]
 #[repr(usize)]
 pub(crate) enum Kernel {
     Embedding,
     Matmul,
     MatmulBatched,
+    MatmulBatchedWide,
     Rmsnorm,
     Rope,
     SiluMul,
@@ -32,12 +36,22 @@ pub(crate) enum Kernel {
     Attention,
     Argmax,
     Topk,
+    #[cfg(feature = "metal")]
+    AttentionGqaDecode,
+    #[cfg(feature = "metal")]
+    AttentionGqaSplit,
+    #[cfg(feature = "metal")]
+    AttentionGqaReduce,
+    #[cfg(feature = "metal")]
+    AttentionPrefillMatrix,
+    MatmulBatchedTensor,
 }
 
-const KERNELS: [Kernel; 11] = [
+const KERNELS: &[Kernel] = &[
     Kernel::Embedding,
     Kernel::Matmul,
     Kernel::MatmulBatched,
+    Kernel::MatmulBatchedWide,
     Kernel::Rmsnorm,
     Kernel::Rope,
     Kernel::SiluMul,
@@ -46,6 +60,15 @@ const KERNELS: [Kernel; 11] = [
     Kernel::Attention,
     Kernel::Argmax,
     Kernel::Topk,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaDecode,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaSplit,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionGqaReduce,
+    #[cfg(feature = "metal")]
+    Kernel::AttentionPrefillMatrix,
+    Kernel::MatmulBatchedTensor,
 ];
 
 impl Kernel {
@@ -54,6 +77,7 @@ impl Kernel {
             Self::Embedding => "metal_embedding",
             Self::Matmul => "metal_matmul",
             Self::MatmulBatched => "metal_matmul_batched",
+            Self::MatmulBatchedWide => "metal_matmul_batched_wide",
             Self::Rmsnorm => "metal_rmsnorm",
             Self::Rope => "metal_rope",
             Self::SiluMul => "metal_silu_mul",
@@ -62,6 +86,15 @@ impl Kernel {
             Self::Attention => "metal_attention",
             Self::Argmax => "metal_argmax",
             Self::Topk => "metal_topk",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaDecode => "metal_attention_gqa_decode",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaSplit => "metal_attention_gqa_split",
+            #[cfg(feature = "metal")]
+            Self::AttentionGqaReduce => "metal_attention_gqa_reduce",
+            #[cfg(feature = "metal")]
+            Self::AttentionPrefillMatrix => "metal_attention_prefill_matrix",
+            Self::MatmulBatchedTensor => "metal_matmul_batched_tensor",
         }
     }
 }
@@ -70,6 +103,8 @@ pub(crate) struct Pipeline {
     pub(crate) raw: Retained<ProtocolObject<dyn MTLComputePipelineState>>,
     pub(crate) width: usize,
     pub(crate) max_threads: usize,
+    #[cfg(feature = "metal")]
+    pub(crate) threadgroup_memory: usize,
     #[cfg(test)]
     drops: Arc<AtomicUsize>,
 }
@@ -114,7 +149,10 @@ impl PipelineRegistry {
             .newLibraryWithData_error(&data)
             .map_err(|_| eyre!("metal: pipeline library load failed"))?;
         let mut values = Vec::with_capacity(KERNELS.len());
-        for kernel in KERNELS {
+        for &kernel in KERNELS {
+            if matches!(kernel, Kernel::MatmulBatchedTensor) && !device.supports_metal4() {
+                continue;
+            }
             #[cfg(test)]
             if fail_at == Some(values.len()) {
                 return Err(eyre!("metal: pipeline creation failed"));
@@ -127,9 +165,31 @@ impl PipelineRegistry {
                 .raw
                 .newComputePipelineStateWithFunction_error(&function)
                 .map_err(|_| eyre!("metal: pipeline creation failed"))?;
+            #[cfg(feature = "metal")]
+            if matches!(kernel, Kernel::MatmulBatchedWide)
+                && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 256)
+            {
+                return Err(eyre!("metal: wide prefill pipeline is unavailable"));
+            }
+            if matches!(kernel, Kernel::MatmulBatchedTensor)
+                && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 128)
+            {
+                return Err(eyre!("metal: tensor prefill pipeline is unavailable"));
+            }
+            #[cfg(feature = "metal")]
+            if matches!(kernel, Kernel::AttentionGqaDecode)
+                && (raw.threadExecutionWidth() != 32
+                    || raw.maxTotalThreadsPerThreadgroup() < 256
+                    || raw.staticThreadgroupMemoryLength() != GQA_DECODE_THREADGROUP_MEMORY
+                    || GQA_DECODE_THREADGROUP_MEMORY > device.raw.maxThreadgroupMemoryLength())
+            {
+                return Err(eyre!("metal: grouped decode pipeline is unavailable"));
+            }
             values.push(Pipeline {
                 width: raw.threadExecutionWidth(),
                 max_threads: raw.maxTotalThreadsPerThreadgroup(),
+                #[cfg(feature = "metal")]
+                threadgroup_memory: raw.staticThreadgroupMemoryLength(),
                 raw,
                 #[cfg(test)]
                 drops: drops.clone(),
@@ -145,6 +205,10 @@ impl PipelineRegistry {
     pub(crate) fn get(&self, kernel: Kernel) -> &Pipeline {
         &self.values[kernel as usize]
     }
+
+    pub(crate) fn supports_tensor_matmul(&self) -> bool {
+        self.values.len() == KERNELS.len()
+    }
 }
 
 #[cfg(test)]
@@ -155,7 +219,7 @@ mod tests {
     fn loads_every_embedded_pipeline_on_the_qualified_device() -> Result<()> {
         let device = Device::acquire()?;
         let registry = PipelineRegistry::load(&device)?;
-        for kernel in KERNELS {
+        for &kernel in KERNELS {
             let pipeline = registry.get(kernel);
             assert!(pipeline.width > 0);
             assert!(pipeline.max_threads >= pipeline.width);

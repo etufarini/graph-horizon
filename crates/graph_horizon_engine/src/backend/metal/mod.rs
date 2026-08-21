@@ -23,6 +23,11 @@ pub(crate) use mem::buffer::{MetalBuffer, MetalFormat};
 
 use crate::backend::buffers::Buffers;
 
+#[cfg(feature = "metal")]
+// Standalone session capacity and preflight accounting must use this same value;
+// hybrid Metal retains the neutral 32-row shape policy.
+pub(crate) const PREFILL_ROWS: usize = 64;
+
 pub(crate) struct MetalBackend {
     mixed_placement: bool,
     pub(crate) device: Device,

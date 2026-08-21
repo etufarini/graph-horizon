@@ -30,7 +30,7 @@ impl MemoryPlan {
         context: usize,
         scheme: KvQuant,
     ) -> Result<Self> {
-        let runtime = RuntimeBytes::new(shape, context, scheme, shape.gpu_prefill_rows)
+        let runtime = RuntimeBytes::new(shape, context, scheme, super::super::PREFILL_ROWS)
             .map_err(|_| arithmetic())?;
         let mut weights = 0u64;
         let mut staging = STAGING_BYTES;

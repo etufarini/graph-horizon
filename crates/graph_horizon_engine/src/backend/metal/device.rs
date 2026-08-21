@@ -13,6 +13,10 @@ use objc2_metal::{MTLCommandQueue, MTLCreateSystemDefaultDevice, MTLDevice, MTLG
 
 const REQUIRED_THREADS: usize = 128;
 const REQUIRED_THREADGROUP_MEMORY: usize = 16 * 1024;
+#[cfg(any(test, feature = "metal"))]
+const WIDE_REQUIRED_THREADS: usize = 256;
+#[cfg(any(test, feature = "metal"))]
+const WIDE_REQUIRED_THREADGROUP_MEMORY: usize = 24 * 1024;
 
 pub(crate) struct Device {
     pub(crate) raw: Retained<ProtocolObject<dyn MTLDevice>>,
@@ -28,11 +32,21 @@ unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
 impl Device {
+    pub(crate) fn supports_metal4(&self) -> bool {
+        self.raw.supportsFamily(MTLGPUFamily(5002))
+    }
+
     #[cfg(any(test, feature = "metal"))]
     pub(crate) fn acquire() -> Result<Self> {
         let raw =
             MTLCreateSystemDefaultDevice().ok_or_else(|| eyre!("Metal backend is unavailable"))?;
-        if !Self::qualified(&raw) {
+        if !Self::qualified(&raw)
+            || Self::validate_wide_requirements(
+                raw.maxThreadsPerThreadgroup().width,
+                raw.maxThreadgroupMemoryLength(),
+            )
+            .is_err()
+        {
             bail!("Metal device does not satisfy the required capabilities");
         }
         let recommended_max = raw.recommendedMaxWorkingSetSize();
@@ -101,6 +115,19 @@ impl Device {
             ))
         }
     }
+
+    #[cfg(any(test, feature = "metal"))]
+    fn validate_wide_requirements(threads: usize, threadgroup_memory: usize) -> Result<()> {
+        if threads >= WIDE_REQUIRED_THREADS
+            && threadgroup_memory >= WIDE_REQUIRED_THREADGROUP_MEMORY
+        {
+            Ok(())
+        } else {
+            Err(eyre!(
+                "Metal device does not satisfy the required capabilities"
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -140,6 +167,19 @@ mod tests {
                     .to_string(),
                 "Metal device does not satisfy the required capabilities"
             );
+        }
+        assert!(
+            Device::validate_wide_requirements(
+                WIDE_REQUIRED_THREADS,
+                WIDE_REQUIRED_THREADGROUP_MEMORY
+            )
+            .is_ok()
+        );
+        for row in [
+            (WIDE_REQUIRED_THREADS - 1, WIDE_REQUIRED_THREADGROUP_MEMORY),
+            (WIDE_REQUIRED_THREADS, WIDE_REQUIRED_THREADGROUP_MEMORY - 1),
+        ] {
+            assert!(Device::validate_wide_requirements(row.0, row.1).is_err());
         }
     }
 }

@@ -5,7 +5,7 @@
  * terminal event.
  */
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 mod cache;
 #[cfg(test)]
 pub(crate) mod tests;
@@ -14,24 +14,24 @@ use color_eyre::eyre::Result;
 
 use super::RuntimeModel;
 use super::decode::TextDecoder;
-#[cfg(not(feature = "vulkan"))]
+#[cfg(not(any(feature = "vulkan", feature = "metal")))]
 use super::graph::MistralGraph;
 use super::template;
 use crate::api::event::{GenerationPhase, GenerationStats, Terminal};
 use crate::api::request::{EventSink, Request};
-#[cfg(not(feature = "vulkan"))]
+#[cfg(not(any(feature = "vulkan", feature = "metal")))]
 use crate::backend::selection;
 use crate::runtime::RuntimeSession;
 use crate::sampling::{self, Rng};
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 pub(super) use cache::{SessionCache, free_cache};
 
 pub(crate) fn generate(model: &RuntimeModel, request: Request, sink: &mut dyn EventSink) {
     let mut terminal = Terminal::new(sink);
-    #[cfg(feature = "vulkan")]
+    #[cfg(any(feature = "vulkan", feature = "metal"))]
     let outcome = cache::execute(model, &request, None, &mut terminal);
-    #[cfg(not(feature = "vulkan"))]
+    #[cfg(not(any(feature = "vulkan", feature = "metal")))]
     let outcome = execute(model, &request, &mut terminal);
     match outcome {
         Ok(Some(stats)) => terminal.finish(stats),
@@ -40,7 +40,7 @@ pub(crate) fn generate(model: &RuntimeModel, request: Request, sink: &mut dyn Ev
     }
 }
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 pub(crate) fn generate_cached(
     model: &RuntimeModel,
     cache_key: [u8; 16],
@@ -55,7 +55,7 @@ pub(crate) fn generate_cached(
     }
 }
 
-#[cfg(not(feature = "vulkan"))]
+#[cfg(not(any(feature = "vulkan", feature = "metal")))]
 fn execute(
     model: &RuntimeModel,
     request: &Request,

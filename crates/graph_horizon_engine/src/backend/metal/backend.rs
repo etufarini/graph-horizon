@@ -240,7 +240,7 @@ impl Backend for MetalBackend {
         position: u32,
         layer: u32,
     ) {
-        let _ = kernels::attention::encode(
+        let _ = kernels::attention::encode_decode(
             encoder,
             &self.pipelines,
             out,
@@ -248,9 +248,9 @@ impl Backend for MetalBackend {
             kv,
             q_heads,
             position,
-            1,
             layer,
             self.mixed_placement,
+            &self.buffers.logits,
         );
     }
 

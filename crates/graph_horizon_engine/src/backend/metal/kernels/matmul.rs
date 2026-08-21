@@ -91,19 +91,32 @@ pub(crate) fn encode_batched(
     // The cooperative path is retained only where its A/B control passed;
     // an effective Mixed suffix keeps the stable per-row execution order.
     if cooperative(mixed_placement, rows, input, output, format) {
-        // Four SIMD-groups share K32 tiles and compute 64 adjacent output
-        // columns without changing any group's FP32 accumulation.
-        if p.get(Kernel::MatmulBatched).width != 32 {
+        // The separate wide pipeline preserves the 32-row route's 14 KiB
+        // threadgroup footprint while reusing each weight tile for 64 rows.
+        let kernel = if rows > 32 && p.supports_tensor_matmul() {
+            Kernel::MatmulBatchedTensor
+        } else if rows > 32 {
+            Kernel::MatmulBatchedWide
+        } else {
+            Kernel::MatmulBatched
+        };
+        if p.get(kernel).width != 32 {
             return Err(eyre!("metal: batched projection requires 32 threads"));
         }
         return dispatch::encode_threadgroups(
             e,
             p,
-            Kernel::MatmulBatched,
+            kernel,
             &[a, w, out],
             &super::u32s(&[input, output, format, rows]),
             [(output as usize).div_ceil(64), 1, 1],
-            128,
+            if matches!(kernel, Kernel::MatmulBatchedTensor) {
+                128
+            } else if rows > 32 {
+                256
+            } else {
+                128
+            },
         );
     }
 
@@ -130,7 +143,7 @@ pub(crate) fn encode_batched(
 fn cooperative(mixed_placement: bool, rows: u32, input: u32, output: u32, format: u32) -> bool {
     !mixed_placement
         && rows > 1
-        && rows <= 32
+        && rows <= 64
         && input.is_multiple_of(256)
         && output.is_multiple_of(32)
         && format != 0
@@ -143,8 +156,10 @@ mod tests {
     #[test]
     fn metal_matmul_route_depends_on_effective_placement_not_feature() {
         assert!(cooperative(false, 2, 256, 32, 1));
+        assert!(cooperative(false, 64, 256, 32, 1));
         assert!(!cooperative(true, 2, 256, 32, 1));
         for args in [
+            (65, 256, 32, 1),
             (1, 256, 32, 1),
             (2, 255, 32, 1),
             (2, 256, 31, 1),

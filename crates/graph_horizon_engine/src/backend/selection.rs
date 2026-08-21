@@ -6,7 +6,7 @@
 
 use color_eyre::eyre::Result;
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 use super::Backend;
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use super::hybrid::HybridPlan;
@@ -34,7 +34,7 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "vulkan")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::homogeneous::HomogeneousSession<'a, super::vulkan::VulkanBackend, G>;
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 pub(crate) type CachedState = crate::kv_cache::Kv<<SelectedBackend as Backend>::Buffer>;
 #[cfg(feature = "vulkan-hybrid")]
 pub(crate) type SelectedSession<'a, G> =
@@ -116,7 +116,7 @@ pub(crate) fn session<'a, G: LayeredGraph>(
         #[cfg(feature = "vulkan")]
         let row_capacity = backend.prefill_rows(shape.block_count, context);
         #[cfg(feature = "metal")]
-        let row_capacity = shape.gpu_prefill_rows;
+        let row_capacity = super::metal::PREFILL_ROWS;
         crate::runtime::homogeneous::HomogeneousSession::new(
             backend,
             config,
@@ -134,7 +134,7 @@ pub(crate) fn session<'a, G: LayeredGraph>(
     }
 }
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 pub(crate) fn cached_session<'a, G: LayeredGraph>(
     backend: &'a SelectedBackend,
     config: &'a G::Config,
@@ -143,18 +143,22 @@ pub(crate) fn cached_session<'a, G: LayeredGraph>(
     scheme: KvQuant,
     state: Option<CachedState>,
 ) -> Result<SelectedSession<'a, G>> {
+    #[cfg(feature = "vulkan")]
+    let row_capacity = backend.prefill_rows(shape.block_count, context);
+    #[cfg(feature = "metal")]
+    let row_capacity = super::metal::PREFILL_ROWS;
     crate::runtime::homogeneous::HomogeneousSession::with_state(
         backend,
         config,
         shape,
-        backend.prefill_rows(shape.block_count, context),
+        row_capacity,
         context,
         scheme,
         state,
     )
 }
 
-#[cfg(feature = "vulkan")]
+#[cfg(any(feature = "vulkan", feature = "metal"))]
 pub(crate) fn free_cached_state(backend: &SelectedBackend, state: CachedState) {
     crate::kv_cache::free(backend, state);
 }

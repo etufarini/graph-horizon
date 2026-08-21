@@ -1,18 +1,15 @@
 /*
- * graph_horizon_engine — Metal causal attention dispatch
- * Binds decode/prefill geometry and selects F16 or int8 KV once per operation.
- * Features control availability; shape, context and effective placement select
- * serial, per-head SIMD or long-context segmented execution.
+ * graph_horizon_engine — Metal causal-attention prefill dispatch
+ * Selects matrix, tiled, segmented, or serial geometry from shape, placement,
+ * format, and compiled pipeline capabilities.
  */
-use super::super::exec::dispatch;
-use super::super::{
+use super::super::super::{
     MetalBuffer, MetalEncoder,
+    exec::dispatch,
     pipeline::{Kernel, PipelineRegistry},
 };
-use crate::kv_cache::{
-    Kv,
-    scheme::{KvQuant, KvRole},
-};
+use super::constants;
+use crate::kv_cache::{Kv, scheme::KvQuant};
 
 const SEGMENTED_CONTEXT: u32 = 512;
 const PARALLEL_CONTEXT: u32 = 1024;
@@ -30,23 +27,51 @@ pub(crate) fn encode(
     layer: u32,
     mixed_placement: bool,
 ) -> color_eyre::eyre::Result<()> {
-    let mut c = super::u32s(&[
-        kv.head_dim as u32,
-        kv.kv_heads as u32,
-        qh,
-        base,
-        rows,
-        layer,
-        kv.context as u32,
-        u32::from(kv.scheme == KvQuant::Int8),
-    ]);
-    for n in [
-        kv.meta_base_for(KvRole::Key),
-        kv.meta_base_for(KvRole::Value),
-    ] {
-        c.extend(n.to_ne_bytes());
+    let mut c = constants(kv, qh, base, rows, layer);
+    #[cfg(feature = "metal")]
+    if !mixed_placement
+        && rows == 64
+        && kv.scheme == KvQuant::F16
+        && kv.head_dim == 128
+        && kv.kv_heads.checked_mul(4) == Some(qh as usize)
+    {
+        let matrix = p.get(Kernel::AttentionPrefillMatrix);
+        if matrix.width == 32 && matrix.max_threads >= 128 && matrix.threadgroup_memory <= 28 * 1024
+        {
+            let groups = (rows as usize / 8)
+                .checked_mul(qh as usize)
+                .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
+            c.extend(0_u32.to_ne_bytes());
+            return dispatch::encode_threadgroups(
+                e,
+                p,
+                Kernel::AttentionPrefillMatrix,
+                &[q, &kv.k, &kv.v, out],
+                &c,
+                [groups, 1, 1],
+                128,
+            );
+        }
     }
-    c.extend((1.0f32 / (kv.head_dim as f32).sqrt()).to_ne_bytes());
+    #[cfg(feature = "metal")]
+    if !mixed_placement
+        && rows == 1
+        && base >= PARALLEL_CONTEXT - 1
+        && kv.scheme == KvQuant::F16
+        && kv.head_dim == 128
+        && kv.kv_heads.checked_mul(4) == Some(qh as usize)
+    {
+        c.extend(0_u32.to_ne_bytes());
+        return dispatch::encode_threadgroups(
+            e,
+            p,
+            Kernel::AttentionGqaDecode,
+            &[q, &kv.k, &kv.v, out],
+            &c,
+            [kv.kv_heads, 1, 1],
+            256,
+        );
+    }
     let width = p.get(Kernel::Attention).width;
     let (mode, grid, group_threads) = geometry(
         mixed_placement,
@@ -93,8 +118,8 @@ fn geometry(
         Ok((0, heads, 0))
     } else {
         let qualified = dim == 128 && width == 32;
-        if f16 && qualified && rows == 32 && kvh.checked_mul(4) == Some(qh) {
-            let grid = 8usize
+        if f16 && qualified && matches!(rows, 32 | 64) && kvh.checked_mul(4) == Some(qh) {
+            let grid = (rows as usize / 4)
                 .checked_mul(kvh as usize)
                 .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
             return Ok((4, grid, width * 4));
@@ -139,6 +164,10 @@ mod tests {
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 0, 32, true).unwrap(),
             (4, 8, 128)
+        );
+        assert_eq!(
+            geometry(false, 64, 4, 1, 128, 0, 32, true).unwrap(),
+            (4, 16, 128)
         );
         assert_eq!(
             geometry(false, 32, 4, 1, 128, 512, 32, false).unwrap(),

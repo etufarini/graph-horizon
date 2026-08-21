@@ -308,7 +308,7 @@ mod tests {
         const OUTPUT: usize = 96;
         let device = Device::acquire()?;
         let pipelines = PipelineRegistry::load(&device)?;
-        for rows in [3usize, 32] {
+        for rows in [3usize, 32, 64] {
             let source: Vec<f32> = (0..rows * INPUT)
                 .map(|index| ((index * 7) % 41) as f32 / 16. - 20. / 16.)
                 .collect();
@@ -575,10 +575,107 @@ mod tests {
     }
 
     #[test]
+    fn grouped_gqa_decode_matches_serial() -> Result<()> {
+        const DIM: usize = 128;
+        const QUERY_HEADS: usize = 4;
+
+        let device = Device::acquire()?;
+        let pipelines = PipelineRegistry::load(&device)?;
+        let queries: Vec<f32> = (0..QUERY_HEADS * DIM)
+            .map(|index| ((index * 7 % 19) as f32 - 9.0) / 16.0)
+            .collect();
+        let query = buffer(&device, &queries, MetalFormat::F16)?;
+
+        for context in [1024, 2048] {
+            let keys: Vec<f32> = (0..context * DIM)
+                .map(|index| ((index * 17 % 31) as f32 - 15.0) / 32.0)
+                .collect();
+            let values: Vec<f32> = (0..context * DIM)
+                .map(|index| ((index * 11 % 29) as f32 - 14.0) / 24.0)
+                .collect();
+            let key_input = buffer(&device, &keys, MetalFormat::F16)?;
+            let value_input = buffer(&device, &values, MetalFormat::F16)?;
+            let kv = Kv {
+                k: MetalBuffer::allocate(
+                    &device,
+                    layout::buffer_bytes(KvQuant::F16, KvRole::Key, 1, context, 1, DIM),
+                    MetalFormat::Raw,
+                )?,
+                v: MetalBuffer::allocate(
+                    &device,
+                    layout::buffer_bytes(KvQuant::F16, KvRole::Value, 1, context, 1, DIM),
+                    MetalFormat::Raw,
+                )?,
+                scheme: KvQuant::F16,
+                block_count: 1,
+                context,
+                kv_heads: 1,
+                head_dim: DIM,
+                value_dim: DIM,
+            };
+            let bytes = (QUERY_HEADS * DIM * 2) as u64;
+            let grouped = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+            let serial = MetalBuffer::allocate(&device, bytes, MetalFormat::F16)?;
+            let scratch = MetalBuffer::allocate(&device, 128 * 1024, MetalFormat::Raw)?;
+            let encoder = MetalEncoder::begin(&device)?;
+            kv_write::encode(
+                &encoder,
+                &pipelines,
+                &kv,
+                &key_input,
+                &value_input,
+                0,
+                0,
+                kv.meta_base_for(KvRole::Key),
+                kv.meta_base_for(KvRole::Value),
+                context as u32,
+            )?;
+            attention::encode_decode(
+                &encoder,
+                &pipelines,
+                &grouped,
+                &query,
+                &kv,
+                QUERY_HEADS as u32,
+                (context - 1) as u32,
+                0,
+                false,
+                &scratch,
+            )?;
+            attention::encode(
+                &encoder,
+                &pipelines,
+                &serial,
+                &query,
+                &kv,
+                QUERY_HEADS as u32,
+                (context - 1) as u32,
+                1,
+                0,
+                true,
+            )?;
+            encoder.submit()?;
+
+            for (index, (got, want)) in halfs(&grouped, QUERY_HEADS * DIM)?
+                .into_iter()
+                .zip(halfs(&serial, QUERY_HEADS * DIM)?)
+                .enumerate()
+            {
+                assert!(got.is_finite());
+                assert!(
+                    (got - want).abs() <= 0.02,
+                    "grouped context {context} value {index}: got {got}, want {want}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn tiled_prefill_attention_matches_serial() -> Result<()> {
-        const CONTEXT: usize = 544;
+        const CONTEXT: usize = 576;
         const BASE: usize = 512;
-        const ROWS: usize = 32;
+        const ROWS: usize = 64;
         const QUERY_HEADS: usize = 4;
         const DIM: usize = 128;
         let device = Device::acquire()?;

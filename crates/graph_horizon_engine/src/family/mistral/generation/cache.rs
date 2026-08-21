@@ -1,5 +1,5 @@
 /*
- * graph_horizon_engine — single-slot Vulkan request-session cache
+ * graph_horizon_engine — single-slot homogeneous GPU request-session cache
  * Retains one KV allocation between serialized requests and optionally reuses a
  * caller-keyed token prefix. It owns cache replacement and failure invalidation;
  * the shared generation driver continues to own prefill, decode, and terminal data.

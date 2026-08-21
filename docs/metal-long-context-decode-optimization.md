@@ -107,6 +107,7 @@ lossy KV representation.
 |---|---|---|---|
 | SIMD-matrix 8x8 grouped decode, four history splits | GPU-oracle checks passed at 1K and 2K within 0.02 | 8K A/B/A: candidate 7.26 tok/s versus 7.07 mean baseline, +2.8% | Reverted: below the 5% retention gate and adds reduction-order complexity |
 | 64-position shared-memory tile | GPU-oracle checks passed at 1K and 2K | 8K A/B: 6.78 versus 7.25 tok/s, -6.5% | Reverted: 32 KiB threadgroup memory reduced occupancy more than fewer barriers helped |
+| Four-position block online softmax | GPU-oracle checks passed at 1K and 2K within 0.02; all 144 engine tests passed | 8K hot boundaries: candidate end 7.36 vs next baseline begin 7.46 tok/s; baseline end 6.98 vs next candidate begin 6.92 tok/s | Reverted: reciprocal transition evidence is about -1%; lower arithmetic was offset by added register state |
 
 Historical results also close the obvious alternatives: a grouped kernel without
 history splits regressed 16% at 2K; eight splits gained 2.5% at 8K and regressed
@@ -115,13 +116,17 @@ residency hints regressed the comparator by 3.6%.
 
 ## Current Decision
 
-Attention is still the largest context-sensitive opportunity, but two local
-kernel tweaks failed the retention gate and exact K/V traffic is already minimal.
-The next bounded candidate is therefore a structural comparison with llama.cpp's
-vector flash-attention decode path: thread geometry, online-softmax ownership,
-partial-result layout, and reduction frequency. A production experiment should
-only follow if that comparison identifies a concrete difference with an
-estimated end-to-end gain above 5% at 8K and a larger expected gain at 15K--28K.
+Attention is still the largest context-sensitive opportunity, but three local
+kernel changes failed the retention gate and exact K/V traffic is already minimal.
+The structural comparison with llama.cpp's vector flash-attention path found
+that llama.cpp uses 32 workgroups per query head, one to four SIMD groups per
+workgroup, a 32-position block softmax, and a second global reduction. That
+layout reloads shared GQA K/V for each query head, whereas this backend uses
+four workgroups per KV head and stages each tile once for its four query heads.
+The tested block-softmax transfer did not improve the grouped kernel because its
+extra score and weight arrays increased register state. More history splits and
+larger tiles are already closed by measured regressions, so the exact F16
+attention-kernel frontier currently has no candidate above the economic gate.
 
 After attention, weight streaming is the dominant fixed floor. Any projection
 candidate must remove material weight reads or whole passes; dispatch-only or

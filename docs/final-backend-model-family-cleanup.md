@@ -665,6 +665,166 @@ representative performance guard remained stable. Integrated capability policy
 and route-boundary tests cover Matrix2, Q64, DP4A, generic fallback, and hybrid
 row selection on the physical device.
 
+### Dedicated external qualification packets
+
+These are the authoritative prompts/checklists for the two pending machines.
+They authorize evidence collection only: do not edit source, amend commits,
+change a tuple after seeing its result, or substitute a model, KV scheme,
+placement, device, or backend. Use two clean worktrees with separate Cargo
+target directories, one detached at baseline `6e514c1eaba02b8dcb6d7202bfd13fcee0317f36`
+and one detached at candidate `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd`.
+Before work, record `git rev-parse HEAD`, `git status --porcelain`, and
+`git diff --exit-code`; the first output must be the intended SHA and the other
+two must be empty. The candidate worktree must remain clean throughout.
+
+Common inputs are the six Q4_K_M files authenticated by `support/models.tsv`
+and the executable `llama-server` from llama.cpp revision
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Keep the machine on AC power,
+close competing GPU work, record thermal or throttling warnings, and use the
+same driver/runtime, model bytes, power state, and environment for baseline and
+candidate. A missing prerequisite is `external-verification`, never a pass or
+a reason to substitute another tuple.
+
+For each candidate profile, run formatting, warning-denied Clippy, and the
+complete workspace/all-target suite exactly as follows, replacing `PROFILE`
+with each profile named by the hardware packet:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets --no-default-features \
+  --features PROFILE -- -D warnings
+cargo test --locked --workspace --all-targets --no-default-features \
+  --features PROFILE
+```
+
+Then run the full authenticated matrix from the candidate worktree:
+
+```sh
+support/testing/matrix-check.sh \
+  --models-dir <models-directory> --reference-server <llama-server>
+```
+
+The full matrix must have zero failures. Capacity or unavailable foreign
+backend rows may remain explicitly external, but every standalone row for the
+physical backend must pass for all six artifacts and both KV schemes. The 3B
+hybrid mixed, all-device, and CPU-only endpoints must also pass for F16 and
+INT8 and match their homogeneous controls. Record every larger-model hybrid
+capacity result without retrying at a different percentage.
+
+For same-session A/B measurements, build the unmodified `examples/bench.rs` in
+each worktree with the packet's standalone backend. Every row uses an Instruct
+artifact, greedy sampling, 32 requested tokens, one warm-up, three measured
+repetitions, and a prompt made from exactly `N - 3` copies of the one-token
+string `" a"`; verify the emitted `prompt_tokens=N`. The command shape is:
+
+```sh
+cargo build --locked --release --no-default-features \
+  --features BACKEND --example bench
+target/release/examples/bench MODEL --context CONTEXT --kv KV \
+  --prompt "<N - 3 copies of ' a'>" --max-tokens 32 --warmup 1 --reps 3
+```
+
+Run the complete baseline tuple set and then the complete candidate tuple set
+without other machine work. Record prompt throughput, TTFT, model decode
+throughput, all three CVs, and `candidate / baseline - 1` for each throughput
+metric and TTFT. If any CV exceeds 5%, or a mature metric appears to regress by
+more than 1%, permit exactly one complete A/B rerun; do not rerun a favorable
+row alone. A reproducible throughput loss greater than 1%, reproducible TTFT
+increase greater than 1%, any correctness failure, or any required physical
+row that cannot execute is not a PASS.
+
+#### AMD Vulkan packet
+
+Use the qualified AMD family tuple: Radeon RX 6750 XT / RDNA2 (`gfx1031`), or a
+project-accepted equivalent AMD qualification device, with a current RADV
+Vulkan driver. Record GPU, PCI ID, VRAM, Mesa/RADV and loader versions,
+reported Vulkan API, subgroup size, subgroup-size control, FP16, integer-dot,
+workgroup/shared-memory limits, and whether cooperative matrix is exposed.
+The candidate SHA remains fixed even if the installed driver is newer than the
+historical Mesa 26.0.3 tuple.
+
+- Run the common build/test commands for `vulkan` and `vulkan-hybrid`.
+- Run the ignored physical long-context numeric oracle below. It covers F16 and
+  INT8 at 2K, 8K, and 28K, including the 64/32-row specialized boundaries and
+  the 16-row fallback.
+- Run the full matrix and `support/testing/semantic-check.sh --models-dir
+  <models-directory>`. The semantic summary must be six qualified, zero
+  not-qualified, zero external; this is the packet's current model-family
+  quality gate.
+- Treat successful physical pipeline construction plus the capability-policy,
+  route-boundary, numeric, lifecycle, and real-model tests as routing evidence.
+  Record that the long rows satisfy the AMD wave32/split-history predicates;
+  do not claim an instrumented runtime trace.
+
+```sh
+cargo test --locked --release -p graph_horizon_engine \
+  --no-default-features --features vulkan \
+  vulkan_prefill_attention_long_context_numeric_qualification \
+  -- --ignored --nocapture
+```
+
+Run these baseline/candidate performance guards with standalone `vulkan`:
+
+| Artifact | Prompt N | Context | KV | Guard |
+|---|---:|---:|---|---|
+| 3B Instruct | 128 | 4,096 | F16 | short generic/control route |
+| 8B Instruct | 2,048 | 32,768 | F16 | AMD split-history prefill crossover |
+| 8B Instruct | 15,435 | 32,768 | F16 | deep-model 64-row long prefill plus long decode |
+| 3B Instruct | 15,435 | 32,768 | INT8 | integer-dot/fallback prefill plus split INT8 decode |
+| 14B Instruct | 128 | 4,096 | F16 | largest-family projection/decode guard |
+
+AMD PASS requires the exact candidate SHA, both profile suites, the ignored
+numeric oracle, required physical matrix rows, current semantic gate, all five
+A/B guards, bounded CV/noise assessment, and no device loss, validation error,
+or unacknowledged fallback.
+
+#### Apple Metal packet
+
+Use the qualified Apple tuple: Apple M4 with 10 GPU cores and 24 GB unified
+memory on macOS arm64 with Metal 4, or a project-accepted equivalent Apple
+qualification device. Record Mac model, chip/GPU cores, unified memory, macOS
+build, Xcode/Metal toolchain, supported GPU families, maximum buffer length,
+recommended working set, SIMD width, maximum threads, threadgroup memory,
+Metal 4 availability, power state, swap/page-fault state, and thermal warnings.
+
+- Run the common build/test commands for `metal` and `metal-hybrid`; successful
+  compilation is the current Metal shader-compilation gate.
+- Run the full matrix. All 12 standalone Metal rows and the required
+  Metal-hybrid endpoints must pass exactly as specified by the common packet.
+- Treat successful physical pipeline construction plus Metal route-boundary,
+  numeric, lifecycle, placement, and all-artifact parity tests as routing
+  evidence. Record which workload predicates cover Metal 4 tensor matmul,
+  grouped F16 attention, and generic INT8/mixed fallbacks; do not claim an
+  instrumented runtime trace.
+- Do not run or relabel `semantic-check.sh`: its frozen qualification contract
+  is Vulkan all-GPU. Model-family semantics and its nine-case gate are unchanged
+  between baseline and candidate and already pass on the exact candidate;
+  Metal-specific quality evidence is exact all-six-artifact parity in both KV
+  schemes plus the shared family/semantic test suite.
+
+Run these baseline/candidate performance guards with standalone `metal`:
+
+| Artifact | Prompt N | Context | KV | Guard |
+|---|---:|---:|---|---|
+| 3B Instruct | 128 | 4,096 | F16 | Metal 4 batched projection and short decode control |
+| 3B Instruct | 2,048 | 32,768 | F16 | grouped split/reduce attention crossover |
+| 3B Instruct | 15,435 | 32,768 | F16 | long-context grouped attention and sustained decode |
+| 3B Instruct | 15,435 | 32,768 | INT8 | generic non-grouped KV fallback |
+| 8B Instruct | 128 | 4,096 | F16 | middle-family projection/decode guard |
+| 14B Instruct | 128 | 4,096 | F16 | largest-family projection/decode guard |
+
+Metal PASS requires the exact candidate SHA, both profile suites, shader
+compilation, required physical matrix rows, shared semantic/quality evidence,
+all six A/B guards, bounded CV/noise assessment, and no GPU recovery, validation
+error, unexpected placement, or unacknowledged fallback.
+
+Each returned packet must end with one table containing candidate SHA, device,
+backend/profile, routing evidence, build/tests, correctness/quality, prefill
+guards, decode guards, baseline, candidate, delta, CV/noise decision, external
+rows, and `PASS` or `FAIL`. Attach raw command output or stable evidence paths;
+a prose-only PASS is insufficient. Any real failure returns to this one cleanup
+branch, produces one new candidate SHA, and invalidates affected prior passes.
+
 ## Final Assessment
 
 The runtime candidate is locally PR-ready and its worktree was clean before the

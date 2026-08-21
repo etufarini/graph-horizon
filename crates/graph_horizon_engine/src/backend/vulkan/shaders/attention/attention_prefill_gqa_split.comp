@@ -1,0 +1,183 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico della sola attention prefill GQA split.
+
+// Exact causal F16 attention partials for eight rows and one four-head GQA
+// group. Eight history splits restore workgroup parallelism while one wave32
+// owns each (query row, query head), so every K/V tile is shared by 32 queries.
+// The complete partial accumulator and online-softmax state are written to the
+// backend's reusable Q8 scratch for the following reduction dispatch.
+layout(local_size_x = 1024) in;
+
+layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };
+layout(std430, binding = 1) readonly buffer KC { float16_t kc[]; };
+layout(std430, binding = 2) readonly buffer VC { float16_t vc[]; };
+layout(std430, binding = 3) writeonly buffer Partial { float partial[]; };
+layout(std430, binding = 4) writeonly buffer State { float state[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint base;
+    uint n;
+    uint layer;
+    uint context;
+    float scale;
+} p;
+
+const uint SPLITS = 8u;
+const uint QUERY_TILE = 8u;
+const uint GQA = 4u;
+const uint PAIRS = QUERY_TILE * GQA;
+const uint KV_TILE = 64u;
+const uint HEAD_DIM = 128u;
+const uint OUTPUT_DPL = 4u;
+
+shared float16_t sh_kv[KV_TILE * HEAD_DIM];
+shared float16_t sh_q[PAIRS * HEAD_DIM];
+shared float sh_score[PAIRS * KV_TILE];
+shared float sh_m[PAIRS];
+shared float sh_l[PAIRS];
+shared float sh_alpha[PAIRS];
+
+void main() {
+    uint packed_group = gl_WorkGroupID.x;
+    uint kvh = packed_group / SPLITS;
+    uint split = packed_group % SPLITS;
+    uint first = gl_WorkGroupID.y * QUERY_TILE;
+    if (kvh >= p.kv_heads || first >= p.n) return;
+
+    uint pair = gl_SubgroupID;
+    uint lane = gl_SubgroupInvocationID;
+    uint query = pair / GQA;
+    uint head_local = pair % GQA;
+    uint rows = min(QUERY_TILE, p.n - first);
+    bool valid_query = query < rows;
+    uint query_row = first + min(query, rows - 1u);
+    uint qh = kvh * GQA + head_local;
+    uint pos = p.base + query_row;
+    uint last_pos = p.base + first + rows - 1u;
+    uint total = last_pos + 1u;
+    // Public contexts are bounded well below the u32 product limit.
+    uint split_begin = (total * split) / SPLITS;
+    uint split_end = (total * (split + 1u)) / SPLITS;
+
+    for (uint index = gl_LocalInvocationIndex; index < PAIRS * HEAD_DIM; index += 1024u) {
+        uint owner = index / HEAD_DIM;
+        uint d = index & (HEAD_DIM - 1u);
+        uint owner_query = min(owner / GQA, rows - 1u);
+        uint owner_head = kvh * GQA + owner % GQA;
+        sh_q[index] = q[((first + owner_query) * p.q_heads + owner_head) * HEAD_DIM + d];
+    }
+    if (gl_LocalInvocationIndex < PAIRS) {
+        sh_m[gl_LocalInvocationIndex] = -3.402823e38;
+        sh_l[gl_LocalInvocationIndex] = 0.0;
+        sh_alpha[gl_LocalInvocationIndex] = 1.0;
+    }
+    barrier();
+
+    float acc[OUTPUT_DPL];
+    for (uint j = 0u; j < OUTPUT_DPL; j++) acc[j] = 0.0;
+
+    for (uint tile = split_begin; tile < split_end; tile += KV_TILE) {
+        uint count = min(KV_TILE, split_end - tile);
+        uint elements = count * HEAD_DIM;
+        for (uint index = gl_LocalInvocationIndex; index < elements; index += 1024u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * HEAD_DIM + d;
+            sh_kv[index] = kc[cache];
+        }
+        barrier();
+
+        bool live_pair = valid_query && tile <= pos;
+        bool full_tile = live_pair && tile + count - 1u <= pos;
+        if (live_pair) {
+            for (uint key = 0u; key < count; key++) {
+                float product = 0.0;
+                for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                    uint d = lane + j * gl_SubgroupSize;
+                    product += float(sh_q[pair * HEAD_DIM + d])
+                             * float(sh_kv[key * HEAD_DIM + d]);
+                }
+                float score = subgroupAdd(product) * p.scale;
+                if (subgroupElect()) {
+                    sh_score[pair * KV_TILE + key] =
+                        full_tile || tile + key <= pos ? score : -3.402823e38;
+                }
+            }
+        }
+        barrier();
+
+        if (live_pair) {
+            float lane_m = -3.402823e38;
+            for (uint key = lane; key < count; key += gl_SubgroupSize) {
+                lane_m = max(lane_m, sh_score[pair * KV_TILE + key]);
+            }
+            float tile_m = subgroupMax(lane_m);
+            float m_new = max(sh_m[pair], tile_m);
+            float lane_l = 0.0;
+            for (uint key = lane; key < count; key += gl_SubgroupSize) {
+                float weight = exp(sh_score[pair * KV_TILE + key] - m_new);
+                sh_score[pair * KV_TILE + key] = weight;
+                lane_l += weight;
+            }
+            float tile_l = subgroupAdd(lane_l);
+            float alpha = exp(sh_m[pair] - m_new);
+            if (subgroupElect()) {
+                sh_alpha[pair] = alpha;
+                sh_l[pair] = sh_l[pair] * alpha + tile_l;
+                sh_m[pair] = m_new;
+            }
+        }
+
+        for (uint index = gl_LocalInvocationIndex; index < elements; index += 1024u) {
+            uint key = index >> 7u;
+            uint d = index & (HEAD_DIM - 1u);
+            uint cache = ((p.layer * p.context + tile + key) * p.kv_heads + kvh)
+                       * HEAD_DIM + d;
+            sh_kv[index] = vc[cache];
+        }
+        barrier();
+
+        if (live_pair) {
+            for (uint j = 0u; j < OUTPUT_DPL; j++) {
+                uint d = lane + j * gl_SubgroupSize;
+                float sum0 = 0.0;
+                float sum1 = 0.0;
+                float sum2 = 0.0;
+                float sum3 = 0.0;
+                for (uint key = 0u; key < count; key += 4u) {
+                    sum0 += sh_score[pair * KV_TILE + key]
+                          * float(sh_kv[key * HEAD_DIM + d]);
+                    if (key + 1u < count) sum1 += sh_score[pair * KV_TILE + key + 1u]
+                        * float(sh_kv[(key + 1u) * HEAD_DIM + d]);
+                    if (key + 2u < count) sum2 += sh_score[pair * KV_TILE + key + 2u]
+                        * float(sh_kv[(key + 2u) * HEAD_DIM + d]);
+                    if (key + 3u < count) sum3 += sh_score[pair * KV_TILE + key + 3u]
+                        * float(sh_kv[(key + 3u) * HEAD_DIM + d]);
+                }
+                acc[j] = acc[j] * sh_alpha[pair] + (sum0 + sum1) + (sum2 + sum3);
+            }
+        }
+        barrier();
+    }
+
+    if (valid_query) {
+        uint slot = ((query_row * p.q_heads + qh) * SPLITS + split);
+        for (uint j = 0u; j < OUTPUT_DPL; j++) {
+            uint d = lane + j * gl_SubgroupSize;
+            partial[slot * HEAD_DIM + d] = acc[j];
+        }
+        if (subgroupElect()) {
+            state[slot * 2u] = sh_m[pair];
+            state[slot * 2u + 1u] = sh_l[pair];
+        }
+    }
+}

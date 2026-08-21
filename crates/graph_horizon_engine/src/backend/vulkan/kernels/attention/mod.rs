@@ -14,6 +14,7 @@ pub(crate) const GQA_DECODE_WAVE64_WORKGROUPS: u32 = 4;
 pub(crate) const GQA_DECODE_WAVE64_PARTS: u32 = 16;
 pub(crate) const GQA_DECODE_PARTIAL_BYTES: u64 = 32 * GQA_DECODE_WAVE64_PARTS as u64 * 128 * 4;
 pub(crate) const GQA_DECODE_STATE_BYTES: u64 = 32 * GQA_DECODE_WAVE64_PARTS as u64 * 2 * 4;
+const GQA_PREFILL_SPLITS: u32 = 8;
 
 pub(crate) use decode::{f16 as attention_decode, int8 as attention_decode_int8};
 pub(crate) use write::{kv_write, kv_write_int8};
@@ -73,6 +74,8 @@ pub(crate) fn attention_prefill(
     q: &GpuBuffer,
     kc: &GpuBuffer,
     vc: &GpuBuffer,
+    partial: &GpuBuffer,
+    state: &GpuBuffer,
     head_dim: u32,
     kv_heads: u32,
     q_heads: u32,
@@ -91,6 +94,8 @@ pub(crate) fn attention_prefill(
     // the final resource-capability signal and absence always selects a fallback.
     let pipelines = policy::Pipelines {
         nvidia_q64: reg.contains(Kernel::AttentionPrefillMatrix2Q64),
+        amd_gqa_split: reg.contains(Kernel::AttentionPrefillGqaSplit)
+            && reg.contains(Kernel::AttentionPrefillGqaReduce),
         matrix2_q32: reg.contains(Kernel::AttentionPrefillMatrix2),
         coop_qk: reg.contains(Kernel::AttentionPrefillTiledCoopQk),
         tiled: reg.contains(Kernel::AttentionPrefillTiled),
@@ -101,10 +106,45 @@ pub(crate) fn attention_prefill(
         kv_heads,
         q_heads,
         rows: n,
+        base,
     };
     let (route, rows) = policy::select(shape, pipelines);
+    if route == policy::Route::AmdGqaSplit {
+        dispatch_2d(
+            dev,
+            reg,
+            cmd,
+            Kernel::AttentionPrefillGqaSplit,
+            &[
+                (q.buffer, q.offset, q.size),
+                (kc.buffer, kc.offset, kc.size),
+                (vc.buffer, vc.offset, vc.size),
+                (partial.buffer, partial.offset, partial.size),
+                (state.buffer, state.offset, state.size),
+            ],
+            &push,
+            kv_heads * GQA_PREFILL_SPLITS,
+            rows,
+        );
+        dispatch_2d(
+            dev,
+            reg,
+            cmd,
+            Kernel::AttentionPrefillGqaReduce,
+            &[
+                (out.buffer, out.offset, out.size),
+                (partial.buffer, partial.offset, partial.size),
+                (state.buffer, state.offset, state.size),
+            ],
+            &push,
+            q_heads,
+            n,
+        );
+        return;
+    }
     let kernel = match route {
         policy::Route::NvidiaQ64 => Kernel::AttentionPrefillMatrix2Q64,
+        policy::Route::AmdGqaSplit => unreachable!("split route returned above"),
         policy::Route::Matrix2Q32 => Kernel::AttentionPrefillMatrix2,
         policy::Route::CoopQk => Kernel::AttentionPrefillTiledCoopQk,
         policy::Route::Tiled => Kernel::AttentionPrefillTiled,

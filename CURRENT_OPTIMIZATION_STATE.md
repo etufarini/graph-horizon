@@ -30,6 +30,7 @@ The authenticated 3B artifact used throughout the investigation was
 | Tiled and Matrix2 attention | qualified subgroup, shared-memory, and shape caps | wide/generic attention | improves short and long prefill without changing the public contract |
 | AMD Q4 MMQ prefill | AMD, accelerated integer dot, Q4_K, aligned shape and bounded scratch | portable Q4 batch kernel | RX 6750 XT 3B/128 TTFT 624.35 → 223.07 ms |
 | AMD bounded prefill submissions | AMD vendor plus graph depth/context | existing 256-row Vulkan capacity elsewhere | 3B/28K reset → 191.055 s at 128 rows; 8B/28K reset → 352.347 s at 64 rows |
+| AMD split-history GQA prefill attention | AMD DP4A/wave32 resources, F16 KV, head 128, exact 4:1 GQA, rows <=64, ending position >=2K | existing tiled/Matrix2/portable attention | 8B/15K TTFT 134.843 → 117.022 s; 8B/28K 350.907 → 273.108 s |
 | AMD required-wave32 Q6 decode/logits | AMD plus Vulkan subgroup-size control | default-subgroup pipeline | adds 6.3--6.5% at 3B KV128/2K on top of GQA |
 | AMD required-wave32 4:1 GQA decode | AMD, required subgroup 32, F16 KV, head 128, exact 4:1 GQA | exact wave64 or generic decode | 3B/28K 16.144 → 49.398 tok/s; 8B/28K 18.868 fallback → 28.374 tok/s |
 | Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
@@ -91,7 +92,8 @@ the pinned llama.cpp Vulkan build `9bebfcb4b`.
 | 3B prefill / 28K | 191.055 s | 56.226 s | 3.40x |
 | 3B decode / 2K | 74.907 tok/s | 40.215 tok/s | 0.54x latency |
 | 3B decode / 28K | 49.398 tok/s | 59.826 tok/s | 1.21x latency |
-| 8B prefill / 28K | 352.347 s | 87.818 s | 4.01x |
+| 8B prefill / 15K | 117.022 s | 36.483 s | 3.21x |
+| 8B prefill / 28K | 273.108 s | 90.776 s | 3.01x |
 | 8B decode / 28K | 28.374 tok/s | 37.766 tok/s | 1.33x latency |
 | 14B prefill / 8K | 75.383 s | 23.831 s | 3.16x |
 | 14B decode / 8K | 21.840 tok/s | 36.715 tok/s | 1.68x latency |
@@ -173,13 +175,15 @@ about 42% to direct Q4 Matrix2, 39% to attention, 16% to staged Q6 Matrix2, and
 to the 1.7x target; doing so would require a separately approved model-adaptation
 and quality-validation effort.
 
-On the RX 6750 XT, the largest remaining prefill shares are tiled attention,
-retained Q4 MMQ projections, and portable exact Q6_K. Grouped-prefill GQA
-regressed, Q16 attention gained only 4.66% total, larger Q4 tiles regressed, exact
-Q6 gained 2.15%, and lossy Q6 failed quality. Long decode now retains wave32
-GQA/Q6 and meets the historical envelope on 3B/8B; larger-model short decode is
-weight/Q6 dominated and further large gains require a separately approved
-numeric or persistent-representation contract.
+On the RX 6750 XT, exact split-history F16 GQA attention is now retained after
+reducing 8B TTFT by 13.22% at 15K and 22.17% at 28K. At 15K the causally
+re-attributed shares are exact Q6_K 34.44%, attention 33.08%, Q4 31.71%, and
+other work 0.77%. Four history splits regressed about 39%, larger Q4/Q6 tiles
+regressed, exact Q6 staging gained only 2.15% historically, and lossy Q6 failed
+quality. The detailed route, Amdahl model, thermal tradeoff, model controls, and
+stop decision are in
+[the AMD prefill checkpoint](docs/vulkan-amd-long-context-prefill.md). Long
+decode retains wave32 GQA/Q6 and remains guarded through KV depth 28K.
 
 CPU prefill remains dominated by attention and quantized matrix multiplication;
 the next material designs require new packed-GEMM or query-tiled-attention

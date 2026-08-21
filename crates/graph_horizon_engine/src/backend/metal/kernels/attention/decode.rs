@@ -34,6 +34,7 @@ pub(crate) fn encode_decode(
     #[cfg(feature = "metal")]
     {
         let split = p.get(Kernel::AttentionGqaSplit);
+        let matrix = p.get(Kernel::AttentionGqaMatrixSplit);
         let reduce = p.get(Kernel::AttentionGqaReduce);
         let qualified = !mixed_placement
             && base >= PARALLEL_CONTEXT - 1
@@ -59,15 +60,23 @@ pub(crate) fn encode_decode(
             let partial = scratch.view(0, partial_bytes)?;
             let state = scratch.view(partial_bytes, state_bytes)?;
             let mut c = constants(kv, qh, base, 1, layer);
-            c.extend(0_u32.to_ne_bytes());
+            let matrix_qualified = kv.context.is_multiple_of(64)
+                && matrix.width == 32
+                && matrix.max_threads >= 128
+                && matrix.threadgroup_memory <= 12 * 1024;
+            c.extend(if matrix_qualified { 4_u32 } else { 0 }.to_ne_bytes());
             dispatch::encode_threadgroups(
                 e,
                 p,
-                Kernel::AttentionGqaSplit,
+                if matrix_qualified {
+                    Kernel::AttentionGqaMatrixSplit
+                } else {
+                    Kernel::AttentionGqaSplit
+                },
                 &[q, &kv.k, &kv.v, &partial, &state],
                 &c,
                 [kv.kv_heads, 4, 1],
-                256,
+                if matrix_qualified { 128 } else { 256 },
             )?;
             return dispatch::encode_threadgroups(
                 e,

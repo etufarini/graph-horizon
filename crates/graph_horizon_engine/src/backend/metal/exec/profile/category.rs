@@ -121,9 +121,10 @@ pub(super) fn classify(
         }
         Kernel::Attention => (Category::Attention, None),
         #[cfg(feature = "metal")]
-        Kernel::AttentionGqaDecode | Kernel::AttentionGqaSplit | Kernel::AttentionGqaReduce => {
-            (Category::Attention, Some(Phase::Decode))
-        }
+        Kernel::AttentionGqaDecode
+        | Kernel::AttentionGqaSplit
+        | Kernel::AttentionGqaReduce
+        | Kernel::AttentionGqaMatrixSplit => (Category::Attention, Some(Phase::Decode)),
         #[cfg(feature = "metal")]
         Kernel::AttentionPrefillMatrix => (Category::Attention, Some(Phase::Prefill)),
         Kernel::Embedding => (Category::Embedding, None),

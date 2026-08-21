@@ -15,6 +15,7 @@ defines no runtime API or backend support contract.
 | Metal competitive baseline | `8deb73464d34d6da0bea9dce7a0c3fb6dcfaeaa3` |
 | Starting branch | `perf/metal-vulkan-parity` |
 | Experiment branch | `perf/metal-llamacpp-competitive` |
+| Final tested retained state | `aa6f176` (M10 reverted; production equals M07) |
 | Initial worktree | clean |
 | llama.cpp reference | `2b63e0610bbc2be990ae1360d5256efcdc3f9efb` (build 10237) |
 | Push state | nothing pushed |
@@ -498,26 +499,26 @@ It contains retained M01, M04, and M07 and no diagnostics or rejected
 production code. Ratios and gaps use the same llama.cpp measurements from the
 fresh baseline session.
 
-| Model | Workload | Final ours | llama.cpp | Ratio | Absolute gap | Ours vs initial |
-|---|---|---:|---:|---:|---:|---:|
-| 3B | prefill 128 | 342.46 ms | 290.42 ms | 1.18x | 52.04 ms | -29.65% |
-| 3B | prefill 512 | 1,399.19 ms | 1,196.05 ms | 1.17x | 203.14 ms | -29.36% |
-| 3B | prefill 2K | 6,262.51 ms | 5,190.83 ms | 1.21x | 1,071.68 ms | -28.65% |
-| 3B | prefill 8K | 38,749.78 ms | 28,862.63 ms | 1.34x | 9,887.15 ms | -20.68% |
-| 3B | prefill 28K | 372,482.44 ms | 173,509.39 ms | 2.15x | 198,973.05 ms | +11.18%* |
-| 8B | prefill 128 | 907.79 ms | 684.07 ms | 1.33x | 223.72 ms | -25.29% |
-| 8B | prefill 2K | 16,067.86 ms | 12,144.89 ms | 1.32x | 3,922.97 ms | -23.11% |
-| 14B | prefill 128 | 1,672.76 ms | 1,234.37 ms | 1.36x | 438.40 ms | -15.24% |
-| 14B | prefill 2K | 27,085.42 ms | 22,634.22 ms | 1.20x | 4,451.20 ms | -23.79% |
-| 3B | decode KV128 | 34.28 ms/token | 23.67 ms/token | 1.45x | 10.62 ms/token | +1.92% |
-| 3B | decode KV512 | 40.92 ms/token | 25.34 ms/token | 1.61x | 15.57 ms/token | +2.29% |
-| 3B | decode KV2K | 28.84 ms/token | 26.44 ms/token | 1.09x | 2.39 ms/token | +2.71% |
-| 3B | decode KV8K | 40.95 ms/token | 31.51 ms/token | 1.30x | 9.44 ms/token | +4.05% |
-| 3B | decode KV28K | 104.71 ms/token | 53.58 ms/token | 1.95x | 51.13 ms/token | +35.92%* |
-| 8B | decode KV128 | 65.45 ms/token | 48.76 ms/token | 1.34x | 16.69 ms/token | +2.42% |
-| 8B | decode KV2K | 59.49 ms/token | 51.67 ms/token | 1.15x | 7.82 ms/token | +2.26% |
-| 14B | decode KV128 | 98.33 ms/token | 76.66 ms/token | 1.28x | 21.67 ms/token | +2.36% |
-| 14B | decode KV2K | 95.24 ms/token | 81.24 ms/token | 1.17x | 14.00 ms/token | +3.33% |
+| Model | Workload | Final ours | llama.cpp | Ratio | Parity contract | Status | Absolute gap | Ours vs initial |
+|---|---|---:|---:|---:|---:|---|---:|---:|
+| 3B | prefill 128 | 342.46 ms | 290.42 ms | 1.18x | <=1.00x | GAP | 52.04 ms | -29.65% |
+| 3B | prefill 512 | 1,399.19 ms | 1,196.05 ms | 1.17x | <=1.00x | GAP | 203.14 ms | -29.36% |
+| 3B | prefill 2K | 6,262.51 ms | 5,190.83 ms | 1.21x | <=1.00x | GAP | 1,071.68 ms | -28.65% |
+| 3B | prefill 8K | 38,749.78 ms | 28,862.63 ms | 1.34x | <=1.00x | GAP | 9,887.15 ms | -20.68% |
+| 3B | prefill 28K | 372,482.44 ms | 173,509.39 ms | 2.15x | <=1.00x | THERMAL GAP* | 198,973.05 ms | +11.18%* |
+| 8B | prefill 128 | 907.79 ms | 684.07 ms | 1.33x | <=1.00x | GAP | 223.72 ms | -25.29% |
+| 8B | prefill 2K | 16,067.86 ms | 12,144.89 ms | 1.32x | <=1.00x | GAP | 3,922.97 ms | -23.11% |
+| 14B | prefill 128 | 1,672.76 ms | 1,234.37 ms | 1.36x | <=1.00x | GAP | 438.40 ms | -15.24% |
+| 14B | prefill 2K | 27,085.42 ms | 22,634.22 ms | 1.20x | <=1.00x | GAP | 4,451.20 ms | -23.79% |
+| 3B | decode KV128 | 34.28 ms/token | 23.67 ms/token | 1.45x | <=1.00x | GAP | 10.62 ms/token | +1.92% |
+| 3B | decode KV512 | 40.92 ms/token | 25.34 ms/token | 1.61x | <=1.00x | GAP | 15.57 ms/token | +2.29% |
+| 3B | decode KV2K | 28.84 ms/token | 26.44 ms/token | 1.09x | <=1.00x | NEAR | 2.39 ms/token | +2.71% |
+| 3B | decode KV8K | 40.95 ms/token | 31.51 ms/token | 1.30x | <=1.00x | GAP | 9.44 ms/token | +4.05% |
+| 3B | decode KV28K | 104.71 ms/token | 53.58 ms/token | 1.95x | <=1.00x | THERMAL GAP* | 51.13 ms/token | +35.92%* |
+| 8B | decode KV128 | 65.45 ms/token | 48.76 ms/token | 1.34x | <=1.00x | GAP | 16.69 ms/token | +2.42% |
+| 8B | decode KV2K | 59.49 ms/token | 51.67 ms/token | 1.15x | <=1.00x | GAP | 7.82 ms/token | +2.26% |
+| 14B | decode KV128 | 98.33 ms/token | 76.66 ms/token | 1.28x | <=1.00x | GAP | 21.67 ms/token | +2.36% |
+| 14B | decode KV2K | 95.24 ms/token | 81.24 ms/token | 1.17x | <=1.00x | GAP | 14.00 ms/token | +3.33% |
 
 Final prefill dispersion was:
 
@@ -683,3 +684,131 @@ predicted whole-token improvement = 5.59%
 The practical candidate floor reflects only an 8% compiler-specialization
 gain, not the entire parity budget. M10 is a small, Apple-family-wide route and
 clears the 5% moderate gate at that realistic bound.
+
+### M10 result — per-format decode GEMV specialization: REJECT
+
+The Q4_K/Q6_K scalar oracle and source-structure tests passed. The candidate
+was then measured diagnostics-free at 14B/KV128 with one warm-up and three
+requests in an A/B/A sequence:
+
+| Position | TTFT | Decode | Decode CV |
+|---|---:|---:|---:|
+| M07 control A1 | 1,225.69 ms | 10.51 tok/s | 0.17% |
+| M10 specialized entries | 1,227.66 ms | 10.51 tok/s | 0.07% |
+| M07 control A2 | 1,227.95 ms | 10.52 tok/s | 0.10% |
+
+M10's 10.51 tok/s is equal to or slightly below the 10.515 tok/s control
+mean. Removing the runtime format bodies therefore does not improve register
+allocation or instruction scheduling on this compiler. Candidate `81f0737`
+was removed by `aa6f176`; production again exactly matches M07.
+
+The trace also closes an ambiguity in the projection bound. The seven layer
+projections read 7,301,529,600 weight bytes per token and sustain about 98.5
+GB/s at 74.15 ms/token. Including the dedicated 550,502,400-byte logits matrix,
+the decode weight stream is 7,852,032,000 bytes and sustains about 98.7 GB/s.
+The nominal 120 GB/s device limit gives a non-achievable all-weight-only bound
+of 65.43 ms/token; it excludes attention, graph state, cache traffic, and
+sampling. Current llama.cpp's complete 76.66 ms/token endpoint leaves only
+2.90 ms/token between Graph Horizon's measured projection-plus-logits time and
+the comparator's entire token. Current source inspection finds the same
+canonical Q4_K/Q6_K blocks, two SIMD groups, and four output rows in both
+decode GEMV kernels. A new local arithmetic variant therefore has less than a
+3% realistically recoverable endpoint envelope unless it changes the durable
+weight representation.
+
+### M11 — Metal residency policy: REJECT
+
+Current llama.cpp requests Metal residency for its model buffers and exposes
+`GGML_METAL_NO_RESIDENCY` as an exact policy control. Graph Horizon does not
+create residency sets. Before adding a new resource owner, the policy was
+isolated inside the pinned comparator at 14B/KV126, F16 KV, flash attention,
+full GPU offload, and 32 generated tokens. Each position loaded a fresh server
+and used one warm-up plus three measured requests:
+
+| Position | Prompt mean | Decode mean | Decode CV |
+|---|---:|---:|---:|
+| residency enabled A1 | 1,129.73 ms | 82.58 ms/token | 0.09% |
+| residency disabled | 1,140.13 ms | 79.68 ms/token | 0.75% |
+| residency enabled A2 | 1,146.22 ms | 82.65 ms/token | 0.26% |
+
+Disabling residency improved decode by 3.55% against the 82.62 ms/token
+bookend mean; prompt evaluation changed by only 0.19% against its control mean.
+Residency sets are therefore not a missing llama.cpp advantage on this M4 and
+would add lifetime machinery with the wrong measured sign. No Graph Horizon
+production edit was made.
+
+## Final gap attribution
+
+Times below are diagnostics-free workload times where available; individual
+components come from the adjacent-boundary diagnostic traces and are marked as
+such. A practical floor is the best measured member of the qualified design
+space, not the hardware-only ideal.
+
+| Workload | Component | Current time | llama.cpp equivalent | Practical floor | Realistically removable | Reason to close |
+|---|---|---:|---:|---:|---:|---|
+| 3B prefill 2K | seven projections | 4,960.32 ms diagnostic | about 4,970 ms linear fit | 4,960 ms | about 0 ms | M07 reached the comparator-derived floor |
+| 3B prefill 2K | attention | 910.27 ms diagnostic | about 565 ms quadratic fit | 910 ms | about 0 ms | M04 is the measured winner; M02/M08/M09 falsified the available ownership variants |
+| 3B prefill 2K | other kernels and residual | 424.56 ms diagnostic | unknown | not isolated | below 1,071.68 ms competitive gap | no dominant unaccounted stage; record/submit is not critical |
+| 3B prefill 12K | attention | 38,423.44 ms diagnostic | about 20,360 ms quadratic fit | 38,423 ms | 0 ms with a viable mechanism | theoretical 18.06 s envelope remains, but every feasible ownership/occupancy mechanism is retained or slower |
+| 14B decode KV128 | seven projections | 74.15 ms/token diagnostic | unknown | 74.15 ms/token | about 0 ms | same canonical geometry as llama.cpp; M10 is flat at the endpoint |
+| 14B decode KV128 | logits | 5.40 ms/token diagnostic | unknown | about 5.40 ms/token | below 1 ms/token | already part of the same 98.7 GB/s weight stream |
+| 14B decode KV128 | attention | 12.93 ms/token diagnostic | unknown | about 12.93 ms/token | about 0 ms | short grouped-GQA candidate P05a was flat |
+| 14B decode KV128 | other kernels plus measured residual | 10.28 ms/token diagnostic | unknown | at least 9.14 ms/token | at most 1.14 ms/token | CPU record is only 1.14 ms/token; residency has the wrong sign |
+| 3B decode KV28K | retained split attention | 51.78 ms/token diagnostic | unknown | about 51.78 ms/token | about 0 ms | doubling history splits regressed 1.29% at 28K; final endpoint is thermally non-comparable |
+
+The 12K prefill row is the largest known theoretical envelope. It is retained
+as an explicit gap, not converted into a claim of parity. Global closure rests
+on the absence of a viable Metal-native mechanism with realistically
+recoverable value, not on pretending that this theoretical envelope vanished.
+
+## Remaining candidates and global ranking
+
+| Candidate / design space | Predicted whole-workload gain | Quality risk | Memory cost | Engineering cost | Decision |
+|---|---:|---|---|---|---|
+| alternate Q4/Q6 decode entry points | 5.59% before test; 0.00% measured | none | none | low | REJECT M10; compiler already specializes effectively |
+| new packed decode weight representation | less than 3% realistic short-decode envelope | medium: durable format conversion | second representation or load-time repack | high | NOT PURSUED; canonical llama.cpp geometry is already matched and M10 is flat |
+| Metal tensor decode at M=1 | at most 0% on this M4 | medium accumulation change | pipeline/state only | high | NOT PURSUED; current llama.cpp disables its tensor route on pre-M5 and M07's gain depends on 64-row reuse |
+| short grouped-GQA attention | about 0% measured at KV128 | low | scratch/state | medium | REJECT P05a; 29.04 versus 29.01 tok/s |
+| more long-decode history splits | -1.29% at KV28K; best screen +2.51% at KV8K | low | doubled reduction scratch | medium | REJECT P05e; below gate and context-inconsistent |
+| wider/split long-prefill attention | -12.14% GPU for M08; -0.51% endpoint for M09 | medium softmax/reduction | threadgroup state at 32 KiB boundary | high | REJECT; C128 cannot fit and MPP would materialize nonlinear state |
+| command fusion / indirect command recording | at most 1.16% from CPU record bound | low | command metadata | high | NOT PURSUED; GPU wait dominates and one buffer/encoder already spans a token |
+| Metal residency sets | -3.55% comparator decode effect | none | residency objects and renewal thread | medium | REJECT M11; measured sign is wrong |
+| private weight buffers | about 0% | none | model-load blit / duplicate lifetime policy | medium | NOT PURSUED; llama.cpp also selects shared buffers on unified M4 |
+| INT8 KV as F16 replacement | negative: 2.64x slower prefill at 2K, 4.80x at 28K | high numerical-policy change | lower KV bytes, extra quantization state | high | REJECT as competitive route; existing correct fallback remains |
+| approximate softmax or model adaptation | unbounded without a new quality contract | high | model/validation artifacts | very high | NOT PURSUED; changes the agreed output-quality boundary |
+
+No remaining candidate clears the 5% moderate-change gate with positive
+measured evidence. The only untested theoretical envelope above that gate is a
+new long-prefill attention architecture, but the concrete Metal-native forms
+are either resource-infeasible or already falsified by M02, M04, M08, and M09.
+The matrix, attention, decode, KV, representation, dataflow, resource lifetime,
+orchestration, numerical-policy, and Apple-family-specialization spaces have
+therefore all been explicitly ranked.
+
+## Global stop and completion answer
+
+The parity contract is not universally met: the stable final rows range from
+1.09x to 1.61x, while thermally stressed 28K results are worse. Nevertheless,
+the realistically recoverable Metal performance gap has been substantially
+exhausted on the important qualified workloads. Retained M01/M04/M07 reduce
+stable prefill by 23.11--29.65% on the principal matrix and bring stable
+prefill ratios to 1.17--1.33x except the 14B/128 1.36x row. M07 lands within
+0.2% of its 3B/2K Amdahl prediction and at the inferred projection floor.
+
+The remaining short-decode gap is not an unprofiled projection hypothesis:
+79.56 ms/token of projection-plus-logits work already streams 7.85 GB at about
+98.7 GB/s, M10 measures no endpoint gain, short GQA reuse is flat, CPU record
+can recover at most 1.16%, and residency is counterproductive. Long attention
+still has a theoretical comparator gap, but every feasible current ownership,
+split, occupancy, and tile mechanism has been retained or rejected with direct
+measurements. This satisfies the second GLOBAL STOP condition: no remaining
+identified Metal-native candidate contains sufficient *realistically*
+recoverable end-to-end value, even though literal llama.cpp parity has not
+been achieved.
+
+Final retained production is M01 `2cd6043`, M04 `01a0c45`, and M07 `bcefc59`.
+The tested retained state is `aa6f176`, whose production tree equals M07 after
+the ordinary M10 revert. The diagnostics-free binary remains
+`a166863382875d596f5cc71406c2d6782b8b15b95c58427350bfb951f7122c1c`.
+No profiler, rejected shader, alternate routing, dependency, or public API
+survives, and nothing was pushed.

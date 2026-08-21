@@ -44,6 +44,7 @@ belong in the [validation register](../VALIDATION.md).
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Current Metal performance comparison and optimization checkpoint against llama.cpp Metal |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
+| [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 
 ## Reviewed Evidence
 

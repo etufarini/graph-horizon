@@ -95,7 +95,10 @@ pub(super) fn classify(
 ) -> (Category, Option<Phase>) {
     match kernel {
         Kernel::Matmul if fp32_output(constants) => (Category::Logits, None),
-        Kernel::Matmul | Kernel::MatmulBatched | Kernel::MatmulBatchedWide => {
+        Kernel::Matmul
+        | Kernel::MatmulBatched
+        | Kernel::MatmulBatchedWide
+        | Kernel::MatmulBatchedTensor => {
             let category = match *matmul_slot % 7 {
                 0 => Category::ProjectionQ,
                 1 => Category::ProjectionK,
@@ -106,7 +109,10 @@ pub(super) fn classify(
                 _ => Category::MlpDown,
             };
             *matmul_slot += 1;
-            let phase = if matches!(kernel, Kernel::MatmulBatched | Kernel::MatmulBatchedWide) {
+            let phase = if matches!(
+                kernel,
+                Kernel::MatmulBatched | Kernel::MatmulBatchedWide | Kernel::MatmulBatchedTensor
+            ) {
                 Phase::Prefill
             } else {
                 Phase::Decode
@@ -115,7 +121,11 @@ pub(super) fn classify(
         }
         Kernel::Attention => (Category::Attention, None),
         #[cfg(feature = "metal")]
-        Kernel::AttentionGqaDecode => (Category::Attention, Some(Phase::Decode)),
+        Kernel::AttentionGqaDecode | Kernel::AttentionGqaSplit | Kernel::AttentionGqaReduce => {
+            (Category::Attention, Some(Phase::Decode))
+        }
+        #[cfg(feature = "metal")]
+        Kernel::AttentionPrefillMatrix => (Category::Attention, Some(Phase::Prefill)),
         Kernel::Embedding => (Category::Embedding, None),
         Kernel::Rmsnorm => (Category::Normalization, None),
         Kernel::Rope => (Category::Rope, None),

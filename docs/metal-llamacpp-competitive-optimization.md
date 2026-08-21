@@ -438,3 +438,17 @@ The invariant is exact canonical dequantization, FP32 accumulation, and one
 final FP16 store. The smallest experiment replaces only the existing qualified
 64-row wide kernel and its thread count. Main risks are compiler/device support,
 cooperative-tensor bounds at 64 prompt rows, and numerical ordering.
+
+The performance prototype proved that a direct F16 cooperative destination is
+supported and clears the gate, but production routing revealed one additional
+local requirement: Metal 4 tensor support is a distinct runtime GPU-family
+capability. Before retention, the existing legacy wide kernel remains the
+fallback and the registry skips tensor-pipeline creation on unsupported devices.
+This adds no file; the amended local structure also touches:
+
+```text
+crates/graph_horizon_engine/src/backend/metal/device.rs
+  (~115 productive lines excluding tests; device capabilities, below 200)
+crates/graph_horizon_engine/src/backend/metal/pipeline.rs
+  (~195 productive lines excluding tests; optional tensor pipeline, below 200)
+```

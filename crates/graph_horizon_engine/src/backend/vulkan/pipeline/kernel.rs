@@ -23,6 +23,7 @@ pub(crate) enum Kernel {
     AttentionDecodeWide,
     AttentionDecode1024,
     AttentionDecodeGqaSplit,
+    AttentionDecodeGqaInt8Split,
     AttentionDecodeGqaWave64Split,
     AttentionDecodeGqaReduce,
     AttentionDecodeGqaWave64Reduce,
@@ -80,7 +81,6 @@ pub(super) const BASE: &[Kernel] = &[
     Kernel::MatmulQ4KBatchF16Out,
     Kernel::MatmulQ6KBatchF16Out,
 ];
-
 // SPIR-V bytes, storage-buffer binding count, and push-constant bytes.
 pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
     macro_rules! spv {
@@ -109,6 +109,7 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::AttentionDecodeWide => (spv!("attention_decode_wide"), 4, 32),
         Kernel::AttentionDecode1024 => (spv!("attention_decode_1024"), 4, 32),
         Kernel::AttentionDecodeGqaSplit => (spv!("attention_decode_gqa_split"), 5, 28),
+        Kernel::AttentionDecodeGqaInt8Split => (spv!("attention_decode_gqa_int8_split"), 5, 32),
         Kernel::AttentionDecodeGqaWave64Split => (spv!("attention_decode_gqa_wave64_split"), 5, 32),
         Kernel::AttentionDecodeGqaReduce => (spv!("attention_decode_gqa_reduce"), 3, 28),
         Kernel::AttentionDecodeGqaWave64Reduce => {

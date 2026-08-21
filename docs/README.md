@@ -46,6 +46,7 @@ belong in the [validation register](../VALIDATION.md).
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Current Metal performance comparison and optimization checkpoint against llama.cpp Metal |
 | [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Active Apple Metal long-context decode investigation and candidate ledger |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
+| [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 
 ## Reviewed Evidence
 

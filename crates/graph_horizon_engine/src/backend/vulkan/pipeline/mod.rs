@@ -107,20 +107,24 @@ impl PipelineRegistry {
                 );
             }
             if gqa_decode {
-                map.insert(
+                for k in [
                     Kernel::AttentionDecodeGqaSplit,
-                    compiler::build(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
-                );
+                    Kernel::AttentionDecodeGqaInt8Split,
+                ] {
+                    map.insert(k, compiler::build(dev, cache, k)?);
+                }
                 map.insert(
                     Kernel::AttentionDecodeGqaReduce,
                     compiler::build(dev, cache, Kernel::AttentionDecodeGqaReduce)?,
                 );
             }
             if gqa_decode_required_wave32 {
-                map.insert(
+                for k in [
                     Kernel::AttentionDecodeGqaSplit,
-                    compiler::build_wave32(dev, cache, Kernel::AttentionDecodeGqaSplit)?,
-                );
+                    Kernel::AttentionDecodeGqaInt8Split,
+                ] {
+                    map.insert(k, compiler::build_wave32(dev, cache, k)?);
+                }
                 map.insert(
                     Kernel::AttentionDecodeGqaReduce,
                     compiler::build_wave32(dev, cache, Kernel::AttentionDecodeGqaReduce)?,

@@ -127,6 +127,25 @@ represented as a fabricated throughput number.
 The F16 dispatch and arithmetic are unchanged. The small shifts are session and
 clock variance; there is no reproducible regression.
 
+Fresh baseline dispersion (milliseconds/model-token) was:
+
+| KV | mean | median | sample stddev | CV |
+|---:|---:|---:|---:|---:|
+| 128 | 11.9625 | 12.0000 | 0.0677 | 0.566% |
+| 2,048 | 12.5687 | 12.5625 | 0.0342 | 0.272% |
+| 8,192 | 14.0813 | 14.0625 | 0.0280 | 0.199% |
+| 15,434 | 16.0188 | 16.0312 | 0.0356 | 0.222% |
+| 28,000 | 19.6000 | 19.5938 | 0.0867 | 0.442% |
+
+F16 prefill guards also remained within ordinary session noise:
+
+| prompt tokens | baseline ms | final ms | delta |
+|---:|---:|---:|---:|
+| 128 | 247 | 248 | +0.4% |
+| 2,048 | 4,232 | 4,242 | +0.2% |
+| 8,192 | 24,795 | 24,789 | -0.0% |
+| 28,000 | 192,856 | 191,239 | -0.8% |
+
 ## Decode scaling
 
 Least-squares fits use model-token latency in milliseconds and cache depth `N`:
@@ -250,6 +269,17 @@ shows stable residency, about 99% GPU busy at long F16 depths, stable clocks,
 and no migration or allocation churn. At 15K the measured board power was about
 190 W, junction about 97 C, and VRAM about 53 C.
 
+| KV | samples | busy mean | peak VRAM bytes | SCLK MHz | power W | edge/junction/memory C |
+|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 4 | 74.00% | 6,486,429,696 | 2,098 | 116.0 | 54.5 / 68.3 / 53.5 |
+| 2,048 | 8 | 96.12% | 6,542,159,872 | 2,630 | 164.6 | 58.8 / 83.6 / 55.0 |
+| 8,192 | 29 | 93.62% | 6,570,381,312 | 2,478 | 191.8 | 62.1 / 98.1 / 55.2 |
+| 15,434 | 73 | 98.79% | 6,567,194,624 | 2,625 | 189.9 | 58.7 / 97.1 / 53.9 |
+| 28,000 | 198 | 98.81% | 6,585,610,240 | 2,630 | 182.2 | 55.5 / 93.1 / 51.0 |
+
+The lower 128/8K utilization means include load/idle samples because the sysfs
+sampler spans the complete prime. Long steady-state samples saturate the GPU.
+
 Resource lifetimes are: pipelines/weights/full KV/persistent scratch per model;
 KV contents per caller session; command buffer and fence per submission; pushed
 descriptors and small host vectors per dispatch; one four-byte sampling copy,
@@ -351,6 +381,21 @@ measured removal    = 135.46 ms/token
 
 The extra gain comes from bounding the history into eight wave32 splits and
 restoring parallelism, not traffic reuse alone.
+
+Every current non-trivial prototype was screened with the same F16 `T=16.019`
+ms and Q6 affected fraction `f=0.380` before implementation:
+
+| candidate | realistic local speedup | predicted removable ms | predicted final ms / tok/s | measured KV128 verdict |
+|---|---:|---:|---:|---|
+| Q6 two-lane ownership | 1.50x | 2.03 | 13.99 / 71.5 | +2.77% latency, reject |
+| Q6 subgroup-shuffle sharing | 1.20x | 1.02 | 15.00 / 66.7 | +1.99%, reject |
+| Q6 per-row LDS staging | 1.30x | 1.41 | 14.61 / 68.4 | +1.88%, reject |
+
+Q+K+V or gate+up fusion cannot eliminate their weight streams. All Q4
+activation quantizers together cost only 0.201 ms/token, so even eliminating
+that entire bucket caps whole-token gain at 1.3%; activation/intermediate bytes
+are tens of KiB against gigabytes of weights. Fusion is below the 5% gate before
+accounting for added register state and routing complexity.
 
 After reprofile, remaining decode candidates rank as follows:
 

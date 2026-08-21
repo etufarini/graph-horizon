@@ -42,6 +42,7 @@ belong in the [validation register](../VALIDATION.md).
 | [kv-quant-mistral-validation.md](kv-quant-mistral-validation.md) | Ministral f16/int8 KV comparison contract |
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
+| [vulkan-nvidia-long-context-prefill.md](vulkan-nvidia-long-context-prefill.md) | NVIDIA Vulkan long-context prefill attribution, routing fix, and quantitative stop checkpoint |
 | [vulkan-nvidia-long-context-decode.md](vulkan-nvidia-long-context-decode.md) | NVIDIA Vulkan long-context decode attribution and final routing checkpoint |
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Current Metal performance comparison and optimization checkpoint against llama.cpp Metal |
 | [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Active Apple Metal long-context decode investigation and candidate ledger |

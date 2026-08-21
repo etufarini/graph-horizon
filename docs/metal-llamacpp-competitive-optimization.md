@@ -549,7 +549,7 @@ the roughly 2--4% decode movement through 8K is session drift rather than a
 claimed regression. The raw thermally stressed 28K decode row has the same
 qualification warning as its TTFT.
 
-## Final attribution and global stop
+## Post-M07 attribution and attention local stop
 
 M07 reaches the comparator-derived projection floor at 2K: its seven matrices
 take 4,960.32 ms, versus the 4,970 ms practical linear floor inferred from
@@ -581,21 +581,11 @@ materialization and has no comparator or measured evidence for a 10% request
 gain. This is an explicit mechanism boundary, not a claim that quadratic
 causal attention is inherently optimal.
 
-Decode's largest thermally qualified gap is 21.67 ms/token at 14B/128. The
-acquired Metal investigation already measured native grouped decode ownership
-and one-, two-, four-, and eight-split history equivalents; four splits is the
-winner and eight regresses at 28K. No remaining decode component has a fresh
-attribution-backed candidate above the economic gate.
+Attention reaches a local stop: every identified ownership/occupancy mechanism
+was retained or falsified, and another local tile/split variant has no evidence
+above its economic gate. This does not close the global mission.
 
-The global stop condition is therefore met: projection reached its practical
-comparator floor, every identified attention ownership/occupancy mechanism was
-retained or falsified, orchestration is outside the critical path, and no
-remaining distinct candidate has evidence for at least a 5% moderate or 10%
-complex end-to-end gain. The largest residual is long-prefill attention; a
-future restart requires a genuinely new mechanism or new hardware evidence,
-not another local tile/split variant.
-
-## Reproduction and final state
+## M07 checkpoint reproduction and state
 
 Build the diagnostics-free Graph Horizon endpoint with:
 
@@ -628,3 +618,68 @@ temporary profilers are removed by ordinary revert commits. Complete pure
 Metal and Metal-hybrid suites, the focused Q4/Q6 and attention oracles,
 authenticated F16/INT8 llama.cpp parity, pure-Metal clippy with warnings
 denied, formatting, and `git diff --check` pass. Nothing was pushed.
+
+## Completion audit: decode gap reopened
+
+The full mission audit rejected the earlier global-stop claim. A fresh
+route-equivalent `metal-profile` trace on final M07 source measured 14B/KV128
+decode over 31 timed token transitions:
+
+| Decode component | GPU total | Per token | Share of GPU interval |
+|---|---:|---:|---:|
+| Q/K/V/O projections | 411.75 ms | 13.28 ms | 12.92% |
+| gate/up/down projections | 1,886.94 ms | 60.87 ms | 59.23% |
+| all seven quantized projections | 2,298.69 ms | 74.15 ms | 72.15% |
+| attention | 400.79 ms | 12.93 ms | 12.58% |
+| logits | 167.55 ms | 5.40 ms | 5.26% |
+| norm/RoPE/KV/elementwise/embedding | 76.10 ms | 2.45 ms | 2.39% |
+| measured command residual | 242.78 ms | 7.83 ms | 7.62% |
+| complete GPU interval | 3,185.90 ms | 102.77 ms | 100.00% |
+
+CPU record and submit total only 35.74 ms across all 31 transitions; wait is
+3,199.00 ms. Decode is GPU-critical. The diagnostics-free endpoint is 98.33
+ms/token versus llama.cpp's 76.66 ms/token, a 21.67 ms/token competitive gap.
+The profiler is attribution evidence only and was removed after capture.
+
+### M10 structure checkpoint: per-format decode GEMV specialization
+
+Current Q4_K/Q6_K arithmetic and two-SIMD/four-output-row geometry are nearly
+identical to current llama.cpp. The structural difference is compilation:
+llama.cpp has separate Q4_K and Q6_K entry points, while Graph Horizon's single
+`metal_matmul` retains runtime Q4/Q6/F16/Q5 and output-precision branches. M10
+tests only whether removing unrelated format bodies reduces instruction and
+register pressure. Canonical weights, half activation/output boundaries, FP32
+accumulation, geometry, traffic, and mixed-placement fallback remain unchanged.
+
+```text
+crates/graph_horizon_engine/src/backend/metal/
+├── shaders/matmul.metal       (category K, no line limit)
+├── pipeline.rs                (~200 productive lines, excluding tests)
+└── kernels/matmul.rs          (~170 productive lines, excluding tests)
+```
+
+No new file, dependency, representation, buffer, or public API is warranted.
+The two specialized pipeline entries are one operation and stay in the current
+registry. The invariant is that format-specific dispatch accepts exactly its
+canonical block layout and writes the same FP16/FP32 boundary. Main risks are
+pipeline-index ordering, fallback drift, and numerical reordering; existing
+Q4/Q6 scalar oracles gate the performance screen.
+
+For 14B/KV128 diagnostics-free decode:
+
+```text
+T = 98.328 ms/token
+component = 74.151 ms/token
+f = 0.754
+realistic S_local = 1.08x
+theoretical parity budget for the component = 52.484 ms/token
+practical candidate floor = 68.658 ms/token
+realistically removable = 5.493 ms/token
+recoverable competitive gap = min(5.493, 21.667) = 5.493 ms/token
+predicted final = 92.835 ms/token
+predicted whole-token improvement = 5.59%
+```
+
+The practical candidate floor reflects only an 8% compiler-specialization
+gain, not the entire parity budget. M10 is a small, Apple-family-wide route and
+clears the 5% moderate gate at that realistic bound.

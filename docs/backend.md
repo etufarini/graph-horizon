@@ -35,12 +35,26 @@ a compute target follows the
 `Request` contains text messages, sampling parameters, and `max_tokens`.
 `Engine::generate` sends only these events to the sink:
 
+- `Phase(Prefill)` immediately before prompt evaluation;
+- `Phase(Decode)` immediately before autoregressive generation;
 - `TextDelta(String)` for incremental text;
 - `Finished(GenerationStats)` for completion and metrics;
 - `Error("generation failed")` as the normalized terminal error.
 
+The two phase events are ordered and occur at most once. `GenerationStats`
+contains prompt, actually-prefilled, and completion token counts plus separate
+prefill and decode durations. Cached prompt tokens remain part of
+`prompt_tokens` but not `prefill_tokens`, so prefill throughput is not inflated.
 Each generation has exactly one terminal event. If the sink cancels the request,
 decoding stops and no further events are emitted.
+
+After a successful load, `Engine::model_name()` exposes only the bounded,
+control-free `general.name` display value when present; it never derives an
+identity from the model path. `Engine::backend_name()` reports the statically
+selected profile. `Engine::memory()` reports retained model weights and the
+full-context KV capacity for every profile; these immutable planned bytes are
+not process RSS or live allocator telemetry. `Engine::placement()` remains the
+source of effective hybrid ownership and its complete allocation breakdown.
 
 ## Build Backends
 
@@ -174,7 +188,7 @@ device, allocation, pipeline, command, and readback failures remain errors.
 Sampling supports greedy/argmax and the public parameters defined by
 `SamplingParams`. Application surfaces may expose only a subset. The server and
 Web wrapper keep Instruct greedy and select the Reasoning sampling policy
-recorded in the current semantic campaign, with `temperature=0.7`; request
+defined by the qualification protocol, with `temperature=0.7`; request
 sampling fields remain ignored.
 
 Internal kernel numeric formats do not automatically expand the accepted GGUF

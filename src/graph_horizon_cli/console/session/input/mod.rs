@@ -11,7 +11,9 @@ use super::super::scroll::{ViewportState, handle_scroll_events};
 use super::super::{INPUT_POLL_INTERVAL, bump};
 use crate::graph_horizon_cli::plugins::attachments::FileAuthority;
 use crate::graph_horizon_cli::plugins::{attachments, command};
-use crate::graph_horizon_cli::runtime::{CapacityError, ContextBudget};
+use crate::graph_horizon_cli::runtime::{
+    CapacityError, ContextBudget, GenerationStats, RuntimeInfo,
+};
 use color_eyre::eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::DefaultTerminal;
@@ -47,7 +49,9 @@ pub(super) fn read_prompt(
     initial: String,
     committed_characters: Option<usize>,
     budget: ContextBudget,
+    runtime: Option<&RuntimeInfo>,
     duration: Option<std::time::Duration>,
+    stats: Option<GenerationStats>,
     capacity_error: &mut Option<CapacityError>,
     files: &FileAuthority,
 ) -> Result<Option<String>> {
@@ -87,7 +91,9 @@ pub(super) fn read_prompt(
             &suggestions,
             suggestion_scroll,
             usage,
+            runtime,
             duration,
+            stats,
             *capacity_error,
         );
         draw_viewport(terminal, document, *content_revision, &content, viewport)?;

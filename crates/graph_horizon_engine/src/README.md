@@ -11,13 +11,13 @@ Ogni dominio possiede un confine stretto.
 - `family/mistral/detect.rs`: gate architettura e Q4_K_M prima delle
   allocazioni backend.
 - `family/mistral/config.rs`: metadati e dimensioni derivate.
-- `family/mistral/version.rs`: valori di release Ministral 3
-  Instruct/Reasoning 2512 e System prompt Reasoning fissato; non esegue dispatch.
+- `family/mistral/version.rs`: valori Ministral 3 Instruct/Reasoning 2512 e
+  System prompt Reasoning fissato; non esegue dispatch.
 - `family/mistral/tensors.rs`: nomi, shape e dtype Q4_K_M ammessi.
 - `family/mistral/tokenizer/profile.rs`: selezione privata della policy chat
   dai tre nomi Reasoning esatti, senza autenticare il GGUF.
 - `family/mistral/tokenizer/reasoning.rs`: encoding dei soli marker del System
-  prompt Reasoning posseduto dalla release.
+  prompt Reasoning interno.
 - `family/mistral/tokenizer/`: BPE e pre-tokenizzazione Tekken incorporati nel GGUF.
 - `family/mistral/template.rs`: sequenza chat, System implicito/esplicito e
   renderer fisso senza eseguire Jinja.

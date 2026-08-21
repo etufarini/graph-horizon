@@ -1,7 +1,7 @@
 /*
  * Pure transcript boundary: validates and hydrates alternating transcripts,
- * projects wire/prior context, and appends, reads, replaces, or removes the
- * final pair. Lifecycle, storage, transport, and presentation remain outside.
+ * projects wire context, and appends, locates, replaces, truncates, or removes
+ * complete turns. Lifecycle, storage, transport, and presentation remain outside.
  */
 import type { ChatMessage, TranscriptMessage, WireMessage } from './types';
 
@@ -66,26 +66,33 @@ export function finalPair(messages: ChatMessage[]): [ChatMessage, ChatMessage] |
     : null;
 }
 
-export function replaceFinalPair(
+export function findTurn(
+  messages: ChatMessage[],
+  userId: string
+): { index: number; user: ChatMessage; assistant: ChatMessage } | null {
+  const index = messages.findIndex(message => message.id === userId);
+  const user = messages[index];
+  const assistant = messages[index + 1];
+  return index >= 0 && index % 2 === 0 &&
+    user?.role === 'user' && assistant?.role === 'assistant'
+    ? { index, user, assistant }
+    : null;
+}
+
+export function replaceFromTurn(
   messages: ChatMessage[],
   userId: string,
-  assistantId: string,
   userContent: string,
   assistantContent: string
 ): ChatMessage[] {
-  const pair = finalPair(messages);
-  if (!pair || pair[0].id !== userId || pair[1].id !== assistantId) {
-    return messages;
-  }
+  const turn = findTurn(messages, userId);
+  if (!turn) return messages;
+  // A revised prompt invalidates its old answer and every causal successor.
   return [
-    ...messages.slice(0, -2),
-    { ...pair[0], content: userContent },
-    { ...pair[1], content: assistantContent }
+    ...messages.slice(0, turn.index),
+    { ...turn.user, content: userContent },
+    { ...turn.assistant, content: assistantContent }
   ];
-}
-
-export function beforeFinalPair(messages: ChatMessage[]): ChatMessage[] {
-  return finalPair(messages) ? messages.slice(0, -2) : messages;
 }
 
 export function removeTrailingTurn(

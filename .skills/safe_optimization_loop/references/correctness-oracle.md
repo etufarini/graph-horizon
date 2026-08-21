@@ -10,14 +10,14 @@ cargo test -p graph_horizon_engine --no-default-features --features vulkan error
 cargo test -p graph_horizon_engine --no-default-features --features vulkan-hybrid error_matrix
 ```
 
-I test sintetici coprono dimensioni 3B/8B/14B, profili Q8_0/Q4_K_M, KV
-f16/int8 e formati backend interni.
+I test sintetici coprono dimensioni 3B/8B/14B, rifiuto Q8_0, profilo Q4_K_M,
+KV f16/int8 e formati backend interni.
 
 ## Gate reale
 
-Usa soltanto gli artefatti 3B alla revisione, size e SHA fissati in
-`plans/01-mistral-chat-only/README.md`. Un file capability-compatible ma non
-corrispondente resta `compatible/unverified`.
+Usa soltanto gli artefatti Q4_K_M con dimensione e SHA fissati in
+`support/models.tsv`. Un file capability-compatible ma non corrispondente resta
+`compatible/unverified`.
 
 `support/testing/parity-check.sh` invoca i test ignorati con:
 
@@ -38,8 +38,9 @@ support/testing/parity-check.sh \
 
 Ripeti per f16/int8 quando il candidato tocca la KV. Ripeti per entrambi i
 profili quando tocca formati o dispatch. Per Vulkan, E15 è un risultato atteso
-se il file non entra; non è autorizzazione a cambiare backend. La riga hybrid
-mixed obbligatoria è Q8_0, contesto 4096, 25%.
+se il file non entra; non è autorizzazione a cambiare backend. Una riga hybrid
+mixed usa lo stesso Q4_K_M autenticato, contesto esplicito, 25% e richiede layer
+positivi su entrambi i lati.
 
 ## Determinismo
 

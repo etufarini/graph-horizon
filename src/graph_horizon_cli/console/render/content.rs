@@ -7,7 +7,9 @@
 use std::time::Duration;
 
 use super::ChatTurn;
-use crate::graph_horizon_cli::runtime::{CapacityError, ContextUsage};
+use crate::graph_horizon_cli::runtime::{
+    CapacityError, ContextUsage, GenerationPhase, GenerationStats, RuntimeInfo,
+};
 
 // Snapshot of content to be rendered in a single frame.
 pub(crate) struct RenderContent<'a> {
@@ -20,9 +22,13 @@ pub(crate) struct RenderContent<'a> {
     pub(crate) suggestions: &'a [String],
     pub(crate) suggestion_scroll: usize,
     pub(crate) resp: &'a str,
+    pub(super) runtime: Option<&'a RuntimeInfo>,
     pub(super) loading: bool,
     pub(super) usage: ContextUsage,
     pub(super) duration: Option<Duration>,
+    pub(super) phase: Option<GenerationPhase>,
+    pub(super) phase_duration: Option<Duration>,
+    pub(super) stats: Option<GenerationStats>,
     pub(super) capacity_error: Option<CapacityError>,
 }
 
@@ -37,7 +43,9 @@ impl<'a> RenderContent<'a> {
         suggestions: &'a [String],
         suggestion_scroll: usize,
         usage: ContextUsage,
+        runtime: Option<&'a RuntimeInfo>,
         duration: Option<Duration>,
+        stats: Option<GenerationStats>,
         capacity_error: Option<CapacityError>,
     ) -> Self {
         Self {
@@ -48,9 +56,13 @@ impl<'a> RenderContent<'a> {
             suggestions,
             suggestion_scroll,
             resp: "",
+            runtime,
             loading: false,
             usage,
             duration,
+            phase: None,
+            phase_duration: None,
+            stats,
             capacity_error,
         }
     }
@@ -61,7 +73,9 @@ impl<'a> RenderContent<'a> {
         prompt: &'a str,
         resp: &'a str,
         usage: ContextUsage,
-        duration: Duration,
+        runtime: Option<&'a RuntimeInfo>,
+        phase: Option<GenerationPhase>,
+        phase_duration: Duration,
     ) -> Self {
         Self {
             history,
@@ -71,9 +85,15 @@ impl<'a> RenderContent<'a> {
             suggestions: &[],
             suggestion_scroll: 0,
             resp,
+            runtime,
             loading: resp.is_empty(),
             usage,
-            duration: Some(duration),
+            // Streaming status is phase-local; total time is retained only for
+            // providers that finish without Graph Horizon metrics.
+            duration: None,
+            phase,
+            phase_duration: Some(phase_duration),
+            stats: None,
             capacity_error: None,
         }
     }

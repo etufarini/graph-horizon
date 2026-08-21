@@ -32,7 +32,7 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-export function renderMarkdown(source: string): string {
+export function renderMarkdown(source: string, documentPreview = false): string {
   if (source === '') {
     return '';
   }
@@ -40,6 +40,17 @@ export function renderMarkdown(source: string): string {
     const html = marked.parse(source, { async: false }) as string;
     // Untrusted model output: DOMPurify (default config) strips scripts
     // and disallowed tags before the HTML can reach the DOM.
+    if (documentPreview) {
+      // Previewing a local document must not start remote loads or expose active controls.
+      return DOMPurify.sanitize(html, {
+        USE_PROFILES: { html: true },
+        FORBID_TAGS: [
+          'img', 'audio', 'video', 'source', 'track', 'iframe', 'object', 'embed',
+          'form', 'input', 'button', 'select', 'option', 'textarea'
+        ],
+        FORBID_ATTR: ['style', 'src', 'srcset', 'ping']
+      });
+    }
     return DOMPurify.sanitize(html);
   } catch {
     // Never propagate parser/highlighter exceptions to the UI.

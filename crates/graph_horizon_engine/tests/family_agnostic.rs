@@ -344,8 +344,8 @@ fn docs_contract() {
 
     for required in [
         "only Ministral 3 2512 `Q4_K_M` GGUF files",
-        "qualified artifacts are the Q4_K_M 3B/8B/14B Instruct models",
-        "Q4_K_M 8B Reasoning artifact is explicitly `NOT SUPPORTED`",
+        "Five exact artifacts passed that candidate",
+        "Q4_K_M 8B Reasoning artifact was `NOT SUPPORTED`",
         "A Q8 profile is rejected before backend allocation",
         "maximum possible contiguous GPU suffix",
         "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",
@@ -403,7 +403,9 @@ fn docs_contract() {
     assert!(kv.contains("non dichiara superate prove che non sono state eseguite"));
     assert!(engine_flat.contains("`general.name`. The latter selects only the chat policy"));
     assert!(engine_flat.contains("`tokenizer.chat_template` is not executed"));
-    assert!(engine_flat.contains("an explicit `System` message, even an empty one, replaces it"));
+    assert!(engine_flat.contains(
+        "Non-empty content from an initial `System` message follows it after a blank line"
+    ));
     assert!(
         engine_flat
             .contains("remain raw text in `TextDelta`, without a new public event or channel")
@@ -433,21 +435,14 @@ fn docs_contract() {
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    assert!(
-        validation.contains("summary: qualified=5 not_qualified=1 external_verification=0 total=6")
-    );
-    assert!(validation.contains("summary: pass=1 external_verification=73 failure=0 total=74"));
-    for model in ["3b-reasoning", "14b-reasoning"] {
-        assert!(
-            validation.contains(&format!(
-                "model_id={model} profile=reasoning evidence=current status=qualified"
-            )),
-            "validation register missing current Reasoning row: {model}"
-        );
-    }
+    assert!(validation.contains("Graph Horizon `v0.1.0` non è ancora stato rilasciato"));
+    assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
+    assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
+    assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
     assert!(validation.contains(
-        "model_id=8b-reasoning profile=reasoning evidence=current status=not-qualified reason=incomplete-generation"
+        "| 8B Reasoning | 9/9, 9/9, 8/9; byte divergenti | 16/16 due volte | NOT SUPPORTED |"
     ));
+    assert!(validation.contains("tag annotato immutabile `v0.1.0`"));
     let production_args = args.split("#[cfg(test)]").next().unwrap();
     assert!(
         !production_args.contains("--think"),
@@ -472,6 +467,11 @@ fn assert_local_markdown_links(root: &Path) {
     assert!(output.status.success());
     for relative in String::from_utf8(output.stdout).unwrap().lines() {
         let path = root.join(relative);
+        if !path.exists() {
+            // An unstaged documentation deletion remains in `git ls-files`
+            // until commit; only files present in the reviewed tree have links.
+            continue;
+        }
         let text = fs::read_to_string(&path).expect("read Markdown");
         let mut rest = text.as_str();
         while let Some(start) = rest.find("](") {

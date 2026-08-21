@@ -60,8 +60,8 @@ The body reads only:
 and non-string content receive `400`. Unknown fields such as `model`,
 `temperature`, and `stream` are ignored to tolerate existing OpenAI clients and
 do not change execution. Sampling is selected from the loaded model profile:
-Instruct is greedy, while Reasoning uses the sampling policy recorded in the
-current semantic campaign, with `temperature=0.7`.
+Instruct is greedy, while Reasoning uses the sampling policy defined by the
+qualification protocol, with `temperature=0.7`.
 
 When `max_tokens` is absent, the server uses `--max-tokens`, whose server default
 is `1024`. A positive value in the request is retained even when it exceeds that
@@ -80,15 +80,19 @@ validation boundary for direct calls.
 A successful response uses `Content-Type: text/event-stream` and produces:
 
 1. zero or more `chat.completion.chunk` frames with `delta.content`;
-2. a `usage` frame with numeric `prompt_tokens`, `completion_tokens`,
-   `prefill_ms`, and `decode_ms`;
-3. a frame with `finish_reason: "stop"`;
-4. `data: [DONE]`.
+2. ordered namespaced frames
+   `{"graph_horizon":{"phase":"prefill"}}` and
+   `{"graph_horizon":{"phase":"decode"}}` around the corresponding work;
+3. a `usage` frame with numeric `prompt_tokens`, `prefill_tokens`,
+   `completion_tokens`, `prefill_ms`, and `decode_ms`;
+4. a frame with `finish_reason: "stop"`;
+5. `data: [DONE]`.
 
+Phase frames are a Graph Horizon extension and contain no assistant content.
 There is no `delta.reasoning_content`. If the engine fails after opening the
 stream, the server sends a generic error and `[DONE]`, without usage or internal
-details. The CLI and browser measure total client-perceived duration
-independently; removing rate presentation does not change these SSE fields.
+details. Durations in `usage` are engine measurements; a surface may also use a
+monotonic local timer solely to animate the current phase.
 
 ## Concurrency And Cancellation
 

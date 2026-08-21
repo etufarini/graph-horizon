@@ -1,6 +1,6 @@
 <!--
-Turn.svelte presents one complete user/assistant pair through Bubble, owns only
-the final-prompt edit draft and delete confirmation, and emits typed intents.
+Turn.svelte presents one complete user/assistant pair through Bubble, owns its
+prompt edit draft and final-turn delete confirmation, and emits typed intents.
 Transcript mutation, transport, persistence, and chat navigation are excluded.
 -->
 <script lang="ts">
@@ -15,7 +15,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
-    edit: string;
+    edit: { userId: string; text: string };
     delete: void;
   }>();
   let editing = false;
@@ -34,7 +34,10 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   function save(): void {
     if (!streaming && validDraft) {
-      dispatch('edit', draft);
+      if (!final && !confirm(
+        'Modificare questo messaggio? Le risposte e i messaggi successivi verranno rimossi e la chat ripartirà da qui.'
+      )) return;
+      dispatch('edit', { userId: user.id, text: draft });
       editing = false;
     }
   }
@@ -55,23 +58,23 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
 <div class="turn">
   <div class="message message-user">
-    {#if final && editing}
+    {#if editing}
       <article class="editor">
         <label for={`turn-${user.id}`}>Tu</label>
         <textarea id={`turn-${user.id}`} bind:value={draft} disabled={streaming} on:keydown={keydown}></textarea>
         <div class="actions">
-          <button type="button" disabled={streaming || !validDraft} on:click={save}>Salva e rigenera</button>
+          <button type="button" disabled={streaming || !validDraft} on:click={save}>{final ? 'Salva e rigenera' : 'Salva e riparti'}</button>
           <button type="button" disabled={streaming} on:click={cancel}>Annulla</button>
         </div>
       </article>
     {:else}
       <Bubble message={user} />
-      {#if final}
-        <div class="actions actions-user">
-          <button type="button" disabled={streaming} on:click={edit}>Modifica</button>
+      <div class="actions actions-user">
+        <button type="button" disabled={streaming} on:click={edit}>Modifica</button>
+        {#if final}
           <button class="destructive" type="button" disabled={streaming} on:click={remove}>Elimina</button>
-        </div>
-      {/if}
+        {/if}
+      </div>
     {/if}
   </div>
 

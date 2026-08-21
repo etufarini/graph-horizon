@@ -1,27 +1,34 @@
 <!--
-This report owns v0.1.0 release provenance, qualification results, and the final
-determination. VALIDATION.md remains the authoritative support registry.
+This report preserves the preliminary v0.1.0 qualification campaign and the
+remaining final-release gates. VALIDATION.md remains the authoritative support
+registry.
 -->
 
-# Ministral 3 v0.1.0 release qualification
+# Ministral 3 v0.1.0 preliminary qualification
+
+> **Status:** superseded as a final release decision. No `v0.1.0` tag or GitHub
+> release exists, and later runtime changes require qualification on a new final
+> commit. The measurements below remain historical evidence for their recorded
+> revisions only.
 
 ## Release identity
 
 | Field | Value |
 |---|---|
-| Version / tag | `0.1.0` / annotated `v0.1.0` |
+| Version / tag | `0.1.0` / planned annotated `v0.1.0` |
 | Initial main | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
 | Qualified inference RC | `d1bf18f034fd44df5b8e81931e7feea32edeb47f` |
 | Packaging RC | `c59ea4eebdd77cfe2712b64bc11245fe4dd12440` |
 | Final pre-tag candidate | `fe7a46aec1e1b5904413082d95946a45ce70d8d2` |
-| Final source | the sole commit referenced by `v0.1.0` |
+| Final source | pending |
 | Qualification date | 2026-08-19 |
-| Determination | `RELEASE READY` for local immutable tagging/publication |
+| Determination | `REQUALIFICATION REQUIRED` |
 
-Final metadata commits do not change inference code. Model evidence from the
-qualified inference RC is reused under the explicit unrelated-change policy;
-build, packaging, installation, version, and smoke gates are rerun from the
-final tag. `git rev-list -n 1 v0.1.0` is the tag-to-source mapping.
+At the time of this campaign, changes after the qualified inference RC were
+classified as packaging or documentation changes. The repository has since
+received runtime changes, so that reuse policy no longer establishes a final
+v0.1.0 result. The eventual release must record one final commit and bind it to
+the immutable tag; `git rev-list -n 1 v0.1.0` will then provide the mapping.
 
 ## Environment and inputs
 
@@ -38,15 +45,15 @@ final tag. `git rev-list -n 1 v0.1.0` is the tag-to-source mapping.
 All six local files matched the catalog before qualification. Different bytes
 are a different qualification target.
 
-## Model qualification
+## Historical model qualification
 
 | Model | Semantic generation | Teacher-forced | Repetition | Final |
 |---|---|---|---|---|
-| 3B Instruct | preserved Plan 05, 8/9 | current 16/16 top-1 | current server smoke | QUALIFIED |
+| 3B Instruct | preserved Plan 05, 8/9 | RC 16/16 top-1 | RC server smoke | QUALIFIED |
 | 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | 3 fresh processes | QUALIFIED |
-| 8B Instruct | preserved Plan 05, 8/9 | current 16/16 top-1 | current parity | QUALIFIED |
+| 8B Instruct | preserved Plan 05, 8/9 | RC 16/16 top-1 | RC parity | QUALIFIED |
 | 8B Reasoning | 9/9, 9/9, 8/9 | 16/16 twice | divergent bytes/lengths | NOT SUPPORTED |
-| 14B Instruct | preserved Plan 05, 9/9 | current 16/16 top-1 | current parity | QUALIFIED |
+| 14B Instruct | preserved Plan 05, 9/9 | RC 16/16 top-1 | RC parity | QUALIFIED |
 | 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 twice | 3 fresh processes | QUALIFIED |
 
 The oracle is llama.cpp commit
@@ -64,10 +71,10 @@ floor but S08 lengths were 330, 883, and 3,324 tokens and most response bytes
 differed. Two greedy S01 controls were identical and teacher-forced passed.
 The sampler and prompt/KV setup are controlled; small backend numerical
 differences cross deterministic sampling thresholds and amplify the sequence.
-The precise reduction/race/state source was not isolated because this release
-excludes the model. Final status: `NOT SUPPORTED`.
+The precise reduction/race/state source was not isolated because the candidate
+excluded the model. Final campaign status: `NOT SUPPORTED`.
 
-## Backend and platform contract
+## Historical backend and platform contract
 
 | Backend / placement | Platform/device | Build | Runtime | Quality | Release status |
 |---|---|---|---|---|---|
@@ -79,7 +86,8 @@ excludes the model. Final status: `NOT SUPPORTED`.
 | Vulkan AMD/other NVIDIA | unavailable devices | capability code only | UNAVAILABLE | UNAVAILABLE | EXPERIMENTAL |
 
 Backend selection is compile-time. Only the first row with the five qualified
-models forms the supported v0.1.0 runtime contract.
+models formed the proposed v0.1.0 contract for this candidate; it is not a
+qualification of the current source tree.
 
 ## Serving and failure paths
 
@@ -92,7 +100,7 @@ Missing and invalid GGUF files, invalid KV/placement values, and unknown flags
 returned nonzero with bounded errors. Inspected stderr exposed no developer
 path, backtrace, or panic.
 
-## Build and test qualification
+## Historical build and test qualification
 
 The clean final candidate passed formatting and all shell syntax checks. CPU,
 Vulkan, and Vulkan-hybrid each passed locked workspace tests, warnings-denied
@@ -104,14 +112,14 @@ passed 92/92 tests, Svelte check with zero errors/warnings, production build,
 and npm audit with zero known vulnerabilities. The documentation contract and
 bootstrap rejection/forwarding tests passed.
 
-## Installer and artifact integrity
+## Installer and artifact design
 
-The bootstrap downloads only `graph-horizon-0.1.0.tar.gz` from the immutable
-v0.1.0 release URL and a strict same-name `.sha256` record, verifies SHA-256
-before extraction, rejects unsafe/incomplete archives and symlinks, then
-delegates locally. Models are never downloaded. The archive and checksum are
-generated from the annotated tag; publication must upload both without moving
-the tag.
+The bootstrap is designed to download only `graph-horizon-0.1.0.tar.gz` from
+the immutable v0.1.0 release URL and a strict same-name `.sha256` record,
+verify SHA-256 before extraction, reject unsafe or incomplete archives and
+symlinks, then delegate locally. Models are never downloaded. The tag and
+assets do not exist yet; final qualification must generate and test them from
+the selected release commit.
 
 ## Performance smoke
 
@@ -129,7 +137,7 @@ This is a catastrophic-regression characterization, not an optimization or
 cross-SHA performance claim. All values are finite and no major regression was
 observed.
 
-## Clean installation gate
+## Historical clean installation gate
 
 An archive made with `git archive`, the release root prefix, and deterministic
 gzip was extracted into a new temporary directory with no build tree. The local
@@ -141,7 +149,7 @@ bootstrap's immutable URLs, checksum mismatch rejection, archive validation,
 argument forwarding, and cleanup are covered by focused tests; anonymous
 network retrieval can only be repeated after the two release assets exist.
 
-## Known limitations
+## Candidate limitations
 
 - 8B Reasoning is not supported.
 - Support is limited to five exact model byte sequences and one physical tuple.
@@ -157,10 +165,18 @@ Investigate 8B variation; broaden physical qualification; treat concurrent
 scheduling, runtime backend selection, packaging, and performance as separate
 programs.
 
-## Final determination
+## Final release gates
 
-`RELEASE READY`. All P0/P1 blockers are resolved for the narrow 5/6 contract.
-Create the annotated local `v0.1.0` tag at the final release commit, generate
-the source archive and `.sha256` from that tag, verify the mapping and installed
-version, and publish only with explicit authorization. The tag must never move;
-any later defect requires v0.1.1.
+The current source is not yet release-qualified. Before publishing v0.1.0:
+
+1. select and record one clean final commit;
+2. rerun the applicable build, lint, frontend, runtime, semantic, parity,
+   serving, failure-path, and documentation gates on that source;
+3. create the annotated local `v0.1.0` tag on that exact commit;
+4. generate the deterministic source archive and `.sha256` from the tag;
+5. perform a clean-prefix installation, version check, and inference smoke from
+   the generated archive;
+6. publish the tag and both assets only with explicit authorization, then test
+   the anonymous bootstrap if the repository is public.
+
+The tag must never move. A defect found after publication requires v0.1.1.

@@ -1,7 +1,7 @@
 <!--
 This document owns the model-neutral application map, request flows, and Web
-persistence boundary. Detailed surface contracts and family-specific engine
-behavior belong to linked documents.
+chat/Markdown-file persistence boundaries. Detailed surface contracts and
+family-specific engine behavior belong to linked documents.
 -->
 
 # Architecture
@@ -98,12 +98,16 @@ monotonic timer. Direct external API clients retain the server's existing chat
 contract and receive no new server-side capacity gate. There are no workspace,
 tool, or command-confirmation routes.
 
-Browser conversation ownership remains entirely in the frontend:
+Browser conversation and Markdown-file ownership remain entirely in the frontend:
 
 ```text
 transfer -----> transcript <----- state -----> client -----> HTTP/SSE
                                   |
                                   +----------> persistence -----> localStorage
+
+files/context <----- files/state <----------> IndexedDB
+                       |
+                       +---- validated active files ----> outgoing user copy
 ```
 
 `transcript` owns the pure complete-pair invariant shared by file transfer and
@@ -116,6 +120,14 @@ separate versioned formats despite sharing transcript validation.
 No server route, engine component, or CLI path reads or writes the saved Web
 conversation; there is no server-side or CLI persistence and no cross-tab
 coordination.
+
+Validated UTF-8 Markdown files use a separate origin-scoped IndexedDB store and
+belong to exactly one private chat UUID. The active collection remains version
+3 in `localStorage`; file contents never inflate that record. On each generation
+the browser frames the active files as untrusted reference data in the current
+outgoing user-message copy. The visible and durable transcript retains only the
+raw prompt, matching the TUI attachment invariant. No multipart upload, file
+route, filesystem authority, embedding service, or vector index is introduced.
 
 The engine and server expose raw Reasoning markers only as ordinary
 `delta.content` text; neither creates a structured Reasoning field. The browser

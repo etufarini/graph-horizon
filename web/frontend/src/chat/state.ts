@@ -5,6 +5,7 @@
  */
 import { get, writable } from 'svelte/store';
 import { createGeneration } from './generation.ts';
+import { markdownFiles } from './files/state.ts';
 import { loadChats, saveChats } from './persistence.ts';
 import {
   activeChat,
@@ -19,6 +20,7 @@ import {
 import { finalPair, hydrateTranscript, removeTrailingTurn } from './transcript.ts';
 import { parseChatFile } from './transfer.ts';
 import type { ChatCollection, ChatSnapshot, RuntimeContext } from './types.ts';
+import type { MarkdownFileRecord } from './files/record.ts';
 
 export { wireMessages } from './transcript.ts';
 
@@ -29,8 +31,7 @@ function initialSnapshot(): ChatSnapshot {
     status: 'idle',
     error: null,
     persistenceWarning: restored.warning,
-    generationStartedAt: null,
-    generationMs: null
+    telemetry: null
   };
 }
 
@@ -38,30 +39,45 @@ function createChatState() {
   const store = writable<ChatSnapshot>(initialSnapshot());
   const generation = createGeneration(store, checkpoint);
 
-  async function send(text: string, context: RuntimeContext): Promise<void> {
-    await generation.send(text, context);
+  async function send(
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    if (get(markdownFiles).busy) return;
+    await generation.send(text, context, files);
   }
 
   function stop(): void {
     generation.stop();
   }
 
-  async function regenerate(context: RuntimeContext): Promise<void> {
-    await generation.regenerate(context);
+  async function regenerate(
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    if (get(markdownFiles).busy) return;
+    await generation.regenerate(context, files);
   }
 
-  async function editLastPrompt(text: string, context: RuntimeContext): Promise<void> {
-    await generation.editLastPrompt(text, context);
+  async function editPrompt(
+    userId: string,
+    text: string,
+    context: RuntimeContext,
+    files: MarkdownFileRecord[] = []
+  ): Promise<void> {
+    if (get(markdownFiles).busy) return;
+    await generation.editPrompt(userId, text, context, files);
   }
 
   function deleteLastTurn(): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const chat = activeChat(current.collection);
     const pair = finalPair(chat.messages);
     if (!pair) return;
     const messages = removeTrailingTurn(chat.messages, pair[0].id, pair[1].id);
-    applyStable(replaceActiveTranscript(current.collection, messages));
+    applyStable(replaceActiveTranscript(current.collection, messages), false);
   }
 
   function newChat(): void {
@@ -75,7 +91,8 @@ function createChatState() {
   function renameChat(id: string, requestedTitle: string): boolean {
     const current = get(store);
     const title = requestedTitle.trim();
-    if (current.status === 'streaming' || !title || Array.from(title).length > 80 ||
+    if (current.status === 'streaming' || get(markdownFiles).busy ||
+        !title || Array.from(title).length > 80 ||
         !current.collection.chats.some(chat => chat.id === id)) {
       return false;
     }
@@ -86,12 +103,18 @@ function createChatState() {
   }
 
   function deleteChat(id: string): void {
+    const current = get(store);
+    if (current.status === 'streaming' || get(markdownFiles).busy ||
+        !current.collection.chats.some(chat => chat.id === id)) {
+      return;
+    }
     mutate(collection => deleteSession(collection, id));
+    void markdownFiles.removeChat(id);
   }
 
   function importChat(text: string): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const result = parseChatFile(text);
     if (!result.ok) {
       const error = result.error === 'invalid-json'
@@ -110,8 +133,7 @@ function createChatState() {
       collection,
       status: 'idle',
       error: null,
-      generationStartedAt: null,
-      generationMs: null
+      telemetry: null
     });
     persist(collection);
   }
@@ -119,7 +141,7 @@ function createChatState() {
   function setSystemPrompt(text: string): void {
     const current = get(store);
     // Persisting during streaming would checkpoint a partial assistant response.
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const collection = replaceActiveSystemPrompt(current.collection, text);
     if (collection === current.collection) return;
     store.set({ ...current, collection });
@@ -128,7 +150,7 @@ function createChatState() {
 
   function mutate(change: (collection: ChatCollection) => ChatCollection): void {
     const current = get(store);
-    if (current.status === 'streaming') return;
+    if (current.status === 'streaming' || get(markdownFiles).busy) return;
     const collection = change(current.collection);
     if (collection === current.collection) return;
     store.set({
@@ -136,8 +158,7 @@ function createChatState() {
       collection,
       status: 'idle',
       error: null,
-      generationStartedAt: null,
-      generationMs: null
+      telemetry: null
     });
     persist(collection);
   }
@@ -146,12 +167,18 @@ function createChatState() {
     const current = get(store);
     if (current.collection.activeChatId !== chatId) return;
     const messages = activeChat(current.collection).messages;
-    applyStable(replaceActiveTranscript(current.collection, messages));
+    applyStable(replaceActiveTranscript(current.collection, messages), true);
   }
 
-  function applyStable(collection: ChatCollection): void {
+  function applyStable(collection: ChatCollection, keepTelemetry: boolean): void {
     const current = get(store);
-    store.set({ ...current, collection, status: 'idle', error: null });
+    store.set({
+      ...current,
+      collection,
+      status: 'idle',
+      error: null,
+      telemetry: keepTelemetry ? current.telemetry : null
+    });
     persist(collection);
   }
 
@@ -162,7 +189,7 @@ function createChatState() {
 
   return {
     subscribe: store.subscribe,
-    send, stop, regenerate, editLastPrompt, deleteLastTurn,
+    send, stop, regenerate, editPrompt, deleteLastTurn,
     newChat, selectChat, renameChat, deleteChat, importChat, setSystemPrompt
   };
 }

@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 
 import {
   appendAssistant,
-  beforeFinalPair,
+  findTurn,
   finalPair,
   hydrateTranscript,
   removeTrailingTurn,
-  replaceFinalPair,
+  replaceFromTurn,
   validateTranscript,
   wireMessages
 } from './transcript.ts';
@@ -117,7 +117,7 @@ test('rollback removes only the expected trailing pair', () => {
   assert.equal(removeTrailingTurn(messages, active[0].id, 'wrong'), messages);
 });
 
-test('final-pair operations preserve IDs, Unicode, and immutability', () => {
+test('turn lookup and replacement preserve IDs while truncating causal successors', () => {
   const earlier = hydrateTranscript(plain);
   const active = hydrateTranscript([
     { role: 'user', content: 'ultima 🧠' },
@@ -126,33 +126,36 @@ test('final-pair operations preserve IDs, Unicode, and immutability', () => {
   const messages = [...earlier, ...active];
 
   assert.deepEqual(finalPair(messages), active);
-  assert.deepEqual(beforeFinalPair(messages), earlier);
-  assert.notEqual(beforeFinalPair(messages), messages);
+  assert.deepEqual(findTurn(messages, earlier[0].id), {
+    index: 0,
+    user: earlier[0],
+    assistant: earlier[1]
+  });
 
-  const replaced = replaceFinalPair(
+  const replaced = replaceFromTurn(
     messages,
-    active[0].id,
-    active[1].id,
+    earlier[0].id,
     'nuova domanda π',
     '[THINK]✓[/THINK]'
   );
   assert.notEqual(replaced, messages);
-  assert.equal(replaced.at(-2)?.id, active[0].id);
-  assert.equal(replaced.at(-1)?.id, active[1].id);
+  assert.equal(replaced.length, 2);
+  assert.equal(replaced.at(-2)?.id, earlier[0].id);
+  assert.equal(replaced.at(-1)?.id, earlier[1].id);
   assert.equal(replaced.at(-2)?.content, 'nuova domanda π');
   assert.equal(replaced.at(-1)?.content, '[THINK]✓[/THINK]');
-  assert.equal(messages.at(-2)?.content, 'ultima 🧠');
-  assert.equal(messages.at(-1)?.content, '');
+  assert.equal(messages.length, 4);
+  assert.equal(messages[0].content, plain[0].content);
 });
 
-test('final-pair transformations reject failed preconditions without allocation', () => {
+test('turn transformations reject failed preconditions without allocation', () => {
   const messages = hydrateTranscript(plain);
   const userOnly = messages.slice(0, 1);
 
   assert.equal(finalPair([]), null);
   assert.equal(finalPair(userOnly), null);
-  assert.equal(beforeFinalPair(userOnly), userOnly);
-  assert.equal(replaceFinalPair(messages, 'wrong', messages[1].id, 'x', 'y'), messages);
-  assert.equal(replaceFinalPair(messages, messages[0].id, 'wrong', 'x', 'y'), messages);
+  assert.equal(findTurn(messages, 'wrong'), null);
+  assert.equal(findTurn(messages, messages[1].id), null);
+  assert.equal(replaceFromTurn(messages, 'wrong', 'x', 'y'), messages);
   assert.equal(removeTrailingTurn(userOnly, userOnly[0].id, 'missing'), userOnly);
 });

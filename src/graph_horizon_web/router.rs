@@ -1,7 +1,8 @@
 /*
  * Graph Horizon web router
  * Single responsibility: route static assets and delegate exact chat and
- * `/props` requests to shared headless-server boundaries.
+ * `/props` requests to shared headless-server boundaries and expose immutable
+ * Web-only runtime information without widening the headless API.
  */
 
 use std::convert::Infallible;
@@ -20,6 +21,7 @@ use super::assets::{AssetFile, Assets};
 enum SharedRoute {
     ChatCompletions,
     Properties,
+    Runtime,
     MethodNotAllowed,
     None,
 }
@@ -37,6 +39,15 @@ pub(super) async fn handle(
             chat.chat.context_limit(),
             chat.config.max_tokens,
         ),
+        SharedRoute::Runtime => {
+            let bytes = serde_json::to_vec(&super::runtime::payload(&chat.chat))
+                .unwrap_or_else(|_| b"{}".to_vec());
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(full(bytes))
+                .expect("runtime properties use fixed response metadata")
+        }
         SharedRoute::MethodNotAllowed => {
             error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
         }
@@ -57,6 +68,8 @@ fn shared_route(method: &Method, path: &str) -> SharedRoute {
         (_, "/v1/chat/completions") => SharedRoute::MethodNotAllowed,
         (&Method::GET, "/props") => SharedRoute::Properties,
         (_, "/props") => SharedRoute::MethodNotAllowed,
+        (&Method::GET, "/runtime") => SharedRoute::Runtime,
+        (_, "/runtime") => SharedRoute::MethodNotAllowed,
         _ => SharedRoute::None,
     }
 }
@@ -109,5 +122,15 @@ mod tests {
             shared_route(&Method::GET, "/assets/props.js"),
             SharedRoute::None
         );
+    }
+
+    #[test]
+    fn runtime_route_is_web_only_and_get_only() {
+        assert_eq!(shared_route(&Method::GET, "/runtime"), SharedRoute::Runtime);
+        assert_eq!(
+            shared_route(&Method::POST, "/runtime"),
+            SharedRoute::MethodNotAllowed
+        );
+        assert_eq!(shared_route(&Method::GET, "/runtime/"), SharedRoute::None);
     }
 }

@@ -94,6 +94,7 @@ impl EventSink for ServerSink {
 
     fn emit(&mut self, event: Event) -> bool {
         match &event {
+            Event::Phase(phase) => self.tx.blocking_send(api::chat::phase_line(*phase)).is_ok(),
             // A terminal event closes this sink after its final SSE frames.
             Event::Error(_) => {
                 if let Some(line) = api::chat::event_line(&event) {

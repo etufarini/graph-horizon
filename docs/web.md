@@ -1,8 +1,8 @@
 <!--
 This document owns the current local browser UI, static routes, multi-chat
-history, last-turn controls, browser persistence, Reasoning presentation, and
-transfer format. It does not own server or model policy or describe removed
-tool/workspace capabilities.
+history, Markdown files, turn controls, browser persistence, Reasoning
+presentation, and transfer format. It does not own server or model policy or
+describe removed tool/workspace capabilities.
 -->
 
 # Local Web UI
@@ -33,8 +33,8 @@ With `cargo run`, assets must already exist in `web/frontend/dist`. If
 `index.html` is missing, startup terminates with `web frontend build missing`.
 
 `npm run dev`, `npm run check`, `npm test`, and `npm run build` are available
-for frontend development. `npm test` runs every direct `src/chat/*.test.ts`
-suite with Node's TypeScript stripping.
+for frontend development. `npm test` runs the direct `src/chat/*.test.ts` and
+nested `src/chat/files/*.test.ts` suites with Node's TypeScript stripping.
 
 ## Routes
 
@@ -44,11 +44,13 @@ suite with Node's TypeScript stripping.
 | `GET /index.html` | Serves `index.html` |
 | `GET /assets/*` | Serves a built asset |
 | `GET /props` | Returns positive context and generation limits |
+| `GET /runtime` | Returns bounded model, backend, placement, and planned memory data |
 | `POST /v1/chat/completions` | Streams chat with SSE |
 
-There is no SPA fallback for other paths and there are no workspace, tool, or
-confirmation routes. Asset paths are percent-decoded and accept only normal
-relative components; traversal, absolute paths, and invalid UTF-8 receive `404`.
+There is no SPA fallback for other paths and there are no upload, workspace,
+tool, or confirmation routes. Asset paths are percent-decoded and accept only
+normal relative components; traversal, absolute paths, and invalid UTF-8
+receive `404`.
 
 ## Browser Chat
 
@@ -71,20 +73,24 @@ its lifetime. On the Vulkan profile, the server retains one KV allocation and
 reuses only an exact rendered-token prefix with the same key. Another page may
 replace that slot; requests without the header keep the uncached behavior.
 
-On page initialization the browser requests exact `/props` with a three-second
-timeout. Send remains disabled until `n_ctx` and `max_tokens` are equal positive
-safe integers whose 90% prompt budget is non-zero. A failed, timed-out,
-malformed, unequal, non-integer, unsafe, or non-positive response shows
-`Configurazione del contesto non disponibile`.
+On page initialization the browser requests exact `/props` and `/runtime`, each
+with a three-second timeout. Send remains disabled until `n_ctx` and
+`max_tokens` are equal positive safe integers whose 90% prompt budget is
+non-zero. A failed, timed-out, malformed, unequal, non-integer, unsafe, or
+non-positive context response shows `Configurazione del contesto non
+disponibile`. Runtime metadata is informational and is omitted when unavailable;
+it does not weaken the capacity gate.
 
-The browser consumes only non-empty string `delta.content` and requires `[DONE]`
-for successful completion. It stops reading immediately at that sentinel. Usage
-and final-stop frames are tolerated but do not drive presentation. Invalid JSON,
-server error objects, `reasoning_content`, and tool frames interrupt the response
-without exposing payload details. A five-minute inactivity watchdog starts before
-the request and resets on every non-empty body chunk; it is not a total generation
-timeout. The stop button aborts voluntarily and retains the active
-pair, including partial raw text, to preserve alternating history.
+The browser consumes only non-empty string `delta.content`, ordered Graph
+Horizon prefill/decode frames, and one complete usage frame before `[DONE]`.
+Usage must contain exact non-negative prompt, prefill, completion, prefill-time,
+and decode-time values; prefill tokens cannot exceed prompt tokens. Data after
+usage, invalid JSON, server error objects, `reasoning_content`, and tool frames
+interrupt the response without exposing payload details. A five-minute
+inactivity watchdog starts before the request and resets on every non-empty body
+chunk; it is not a total generation timeout. The stop button aborts voluntarily
+and retains the active pair, including partial raw text, to preserve alternating
+history.
 
 The composer remains editable while a response is streaming, so the next
 message can be prepared without starting a concurrent request. Send stays
@@ -96,10 +102,10 @@ newer draft has been entered.
 `--provider` and `--max-tokens` are ignored. `--context-tokens`, KV, threads, and
 placement configure the local engine. The Web wrapper publishes the loaded
 engine's `n_ctx` as both capacity fields.
-The browser sends `max_tokens` equal to `n_ctx`.
+The browser sends `max_tokens` equal to `n_ctx`. Before `fetch`, it also rejects
+an assembled UTF-8 JSON body above the server's 4 MiB limit.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
-sampling policy recorded in the current semantic campaign, with
-`temperature=0.7`.
+sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Saved Chat Persistence
 
@@ -143,11 +149,11 @@ una nuova chat`; a cleanup, acquisition, read, or write failure shows
 `Persistenza non disponibile: le chat resteranno solo in memoria`.
 
 The archive stores each system prompt with its chat. It excludes drafts, status,
-errors, generation timing, context settings, and presentation-only Reasoning
-state.
+errors, generation timing, context settings, presentation-only Reasoning state,
+and Markdown files. Files use a separate IndexedDB store.
 
 Stable transcript checkpoints are successful `[DONE]`, settled Stop,
-regenerate, edit-and-regenerate, and deletion of the final turn. They update
+regenerate, edit-and-restart, and deletion of the final turn. They update
 that chat's `updatedAt` and save the complete collection once after idle state.
 Creating, selecting, renaming, or deleting a chat and importing a chat also
 save immediately. System-prompt edits save immediately but, like selection and
@@ -158,8 +164,69 @@ A failed stable save keeps the in-memory result and preserves the previous
 stored value. Reload may therefore restore the older archive; this is not a
 recovery merge. A later successful checkpoint clears the warning. There is no
 `storage` listener or cross-tab merge: the last successful stable writer wins.
-The CLI and server have no corresponding persistence, database, filesystem
-write, or HTTP route.
+The CLI and server have no corresponding Web persistence, database, filesystem
+write, or HTTP file route.
+
+### Markdown Files
+
+Every chat owns zero or more Markdown reference files. The desktop surface shows
+them in a right panel; at 1180 CSS pixels or narrower that panel becomes a fixed
+right drawer over the shared backdrop. `FILE · N` toggles it from the chat
+header. The panel accepts multiple native picker selections and drag-and-drop,
+lists stored names and UTF-8 sizes, and provides a sanitized rendered preview,
+download, and confirmed irreversible deletion. Panel open state and preview
+selection are presentation-only and are not persisted.
+
+Files are copied into the origin-scoped IndexedDB database `graph-horizon`,
+object store `markdownFiles`, under an application UUID and their owning private
+chat UUID. Each exact record contains `id`, `chatId`, `name`, `content`,
+`utf8Bytes`, and `addedAt`; extra or malformed fields are invalid. The active
+chat's records finish loading before Send is enabled. Startup reconciliation
+removes records whose chat no longer exists, and deleting a chat removes every
+file it owns. Changing scheme, host, or port therefore selects a different file
+store just as it selects a different chat archive.
+
+The first accepted addition makes a best-effort request for persistent browser
+storage. Browser storage remains a local copy, not a backup: browser site-data
+controls can remove it. Acquisition, read, write, delete, quota, or persistence
+failures do not expose details. The active in-memory files remain usable and the
+UI reports `Persistenza file non disponibile: i file aggiunti resteranno solo in
+memoria`. Individually malformed, duplicate, excess, or oversized durable rows
+are removed and report the invalid-file-archive warning.
+
+Picker `accept` values are only hints. Admission requires a trimmed 4–255-code-
+point name ending case-insensitively in `.md`, with no slash, backslash, NUL, or
+control character; non-empty strictly decoded UTF-8; at most 1 MiB per file, 10
+files and 2 MiB per chat. Multiple selected files cannot share an exact name.
+Adding an existing exact name asks before atomically replacing that record. The
+full candidate framing plus the current chat must also fit the current safe
+prompt budget.
+
+On send, regenerate, or edit-and-restart, current files are ordered by insertion
+time and UUID and framed before the raw request inside the outgoing user message:
+
+```text
+untrusted-reference notice
+### File: <validated name>
+<dynamic Markdown fence>
+<complete stored content>
+<dynamic Markdown fence>
+### Richiesta dell'utente
+<raw prompt>
+```
+
+The fence is longer than every backtick run in its content, so file text cannot
+close it. Files never receive system-role priority. Only the expanded request
+copy reaches admission and transport; the visible transcript, private chat
+archive, and public export retain the raw prompt. File changes affect later
+operations only, so regenerating an old turn deliberately uses the files active
+at regeneration time.
+
+Preview uses the existing Marked, highlight.js, and DOMPurify pipeline plus a
+document policy that removes active controls, inline styles, embedded objects,
+and automatically loaded media. Download returns the stored Markdown text as
+`text/markdown;charset=utf-8`, not sanitized HTML. There is no extraction,
+chunking, embedding, retrieval, RAG, server upload, or server-side file copy.
 
 ### Legacy Conversation Migration
 
@@ -197,36 +264,42 @@ confirmation. Deleting the active chat selects the most recently updated
 remaining chat; deleting the only chat creates one empty active replacement.
 Deleting a final turn does not reset an already derived title.
 
-History creation, selection, rename, and deletion are disabled during
-streaming. Import and all final-turn controls are disabled at the same time;
-Stop remains available.
+History creation, selection, rename, deletion, file addition, replacement, and
+file deletion are disabled during streaming. Import and all turn controls are
+disabled at the same time; file preview/download and Stop remain available.
 
-### Last-Turn Controls
+### Turn Controls
 
-Only the final complete pair exposes controls: `MODIFICA` and `ELIMINA` below
-the user message, and `RIGENERA` below the assistant response. Earlier turns
-cannot be edited. Edit uses the current prompt as a local multiline draft;
-empty trimmed edits cannot be saved, and cancel or Escape discards the draft.
-Deletion asks `Eliminare l’ultimo turno? Il messaggio e la risposta verranno
-rimossi.` and removes the entire pair after confirmation.
+Every complete user message exposes `MODIFICA`. Only the final pair also exposes
+`ELIMINA` below the user message and `RIGENERA` below the assistant response.
+Edit uses the current prompt as a local multiline draft; empty trimmed edits
+cannot be saved, and cancel or Escape discards the draft. Saving an earlier
+prompt asks for confirmation because its old assistant response and every later
+turn will be removed. Saving the final prompt requires no additional
+confirmation. Deletion asks `Eliminare l’ultimo turno? Il messaggio e la
+risposta verranno rimossi.` and removes the entire final pair after confirmation.
 
 Regenerate sends the unchanged final user prompt with the system prompt and all
 messages before the final pair; the previous assistant response is excluded.
-Edit-and-regenerate substitutes the trimmed edited prompt. Capacity admission
-runs against that candidate and prior context before fetch or visible mutation.
-A rejected candidate leaves the stable transcript and archive unchanged.
+Edit-and-restart sends the trimmed edited prompt with only the messages before
+its selected pair. At generation start the selected pair keeps its runtime IDs,
+receives the edited prompt and an empty assistant response, and all causal
+successors are removed. Capacity admission runs against that candidate and
+prior context before fetch or visible mutation. A rejected or stale candidate
+leaves the stable transcript and archive unchanged.
 
 A new-send transport failure removes its uncommitted appended pair. A failed
-regenerate or edit-and-regenerate instead restores the exact prior user and
-assistant pair. An unsuccessful or bodyless HTTP response shows `Richiesta non
-riuscita`; timeout, missing `[DONE]`, or protocol/transport failure shows
-`Risposta interrotta`. Stop commits the candidate prompt and current replacement
-response, including an empty assistant response, clears final timing, updates
-recency, and saves once after abort settles. Stream deltas are never persisted.
+regenerate or edit-and-restart instead restores the exact complete transcript,
+including every removed successor. An unsuccessful or bodyless HTTP response
+shows `Richiesta non riuscita`; timeout, missing `[DONE]`, or protocol/transport
+failure shows `Risposta interrotta`. Stop commits the candidate prompt and
+current replacement response, including an empty assistant response, clears
+final timing, updates recency, and saves once after abort settles. Stream deltas
+are never persisted.
 
-### Responsive Chat History
+### Responsive Panels
 
-Above 720 CSS pixels, the bounded 1320-pixel application shows a collapsible
+Above 720 CSS pixels, the bounded application shows a collapsible
 264-pixel history column beside the chat surface; closing it lets the chat use
 the released width. At 720 pixels or narrower, history starts closed and opens
 as a fixed left drawer over a backdrop. Selection, backdrop activation, and
@@ -234,7 +307,14 @@ Escape close the mobile drawer and return focus to the accessible history
 toggle. The chat list and transcript scroll independently while the document
 body and composer remain fixed in the viewport. Collapse state is not stored.
 
-All history and final-turn controls are keyboard reachable, use visible focus
+The application maximum is 1640 pixels so a wide viewport can retain the
+history, chat, and 304-pixel file panel without shrinking the former chat
+surface. At 1180 pixels or narrower files start closed in the fixed right
+drawer. Opening one overlay closes the other when necessary; backdrop and
+Escape close the file drawer and return focus to its toggle. File list, preview,
+history, and transcript own independent bounded scrolling.
+
+All history, file, and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
 
 ## Context And Generation Status
@@ -242,29 +322,50 @@ treatment, and remain visible when eligible rather than depending on hover.
 The canonical estimate and capacity gate are defined in
 [context.md](context.md). The browser compares estimated prompt occupancy alone
 with the 90% safe prompt budget and sends the full context limit as request
-`max_tokens`. Idle occupancy includes the
-trimmed system prompt, every committed raw message, and the trimmed draft.
-Streaming occupancy includes the submitted user message and current partial raw
-assistant response.
+`max_tokens`. Idle occupancy includes the trimmed system prompt, every committed
+raw message, and the trimmed draft. Streaming occupancy includes the submitted
+user message and current partial raw assistant response. Both also include
+exactly one complete current Markdown-file framing and request heading when
+files exist.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
 chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
 the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
-Whenever configuration is valid, `Contesto N%` appears above a horizontal
-progress bar. The visible percentage is not capped. The fill is normal below
-80%, warning from 80% through 99%, and error at 100% or above; its width and
-ARIA current value are capped at 100. The element exposes `role="progressbar"`,
-minimum 0, maximum 100, and the accessible name `Occupazione del contesto`.
+Whenever configuration is valid, `Contesto ≈N / M token · P%` appears above a
+horizontal progress bar, where `N` is the estimated current occupancy and `M`
+is the immutable context limit. The approximation marker distinguishes this
+live capacity estimate from exact post-generation engine metrics. The visible
+percentage is not capped. The fill is normal below 80%, warning from 80% through
+99%, and error at 100% or above; its width and ARIA current value are capped at
+100. The element exposes `role="progressbar"`, minimum 0, maximum 100, and the
+accessible name `Occupazione del contesto`.
 
-An admitted request starts a `performance.now()` timer immediately before chat
-transport. `Generazione N.Ns` refreshes every 250 ms and measures connection
-wait, prefill, transport, and decode. Successful `[DONE]` completion freezes the
-exact elapsed duration. Stop, inactivity, missing `[DONE]`, or failure clears
-timing without publishing a final value; a capacity rejection preserves the
-previous final duration because no generation started. Errors render in addition
-to a valid context bar.
+The header keeps immutable runtime identity separate from per-request status. It
+shows the loaded GGUF `general.name` when safe, otherwise `Modello locale`, then
+the compile-time backend, retained model weights, full-context KV capacity, and
+effective placement. The weight/KV summary is present for every backend and
+uses exact decimal bytes on the wire plus IEC units in the UI. It describes
+load-time planning rather than process RSS or live allocator state. Hybrid
+profiles additionally expose layer counts and a collapsed budget breakdown
+split by CPU and accelerator owner: weights, KV, scratch, fixed, staging,
+crossing, reserve, and totals. The budget label is deliberate because its total
+includes capacity withheld from allocation. Model paths, device names, and physical or available
+memory are never published. Homogeneous profiles omit only the owner breakdown
+because no placement report exists.
+
+An admitted request first shows `Attesa`, then the engine-emitted `Prefill` and
+`Decode` phases. A monotonic display timer refreshes every 250 ms for the active
+phase only. After exact usage arrives, the live phase is replaced by four compact
+cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
+tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
+cached prompt reuse is visible because prefill tokens may be lower than prompt
+tokens. Stop, inactivity, missing usage or `[DONE]`, invalid ordering, and
+failure clear request telemetry. A capacity rejection preserves the previous
+successful metrics because no generation started. Runtime identity and
+generation telemetry are operational state and are never written to chat
+history, `localStorage`, import, or export.
 
 ## Reasoning Presentation
 
@@ -321,17 +422,21 @@ Export serializes only the active chat. Unlike the private version-3 browser
 archive, the public file remains version 1 and includes `systemPrompt`; private
 chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
 share complete-pair transcript validation, but neither is the JSON array used by
-TUI `/export` and `/import`.
+TUI `/export` and `/import`. Markdown files are excluded from chat import/export;
+each file has its own download action.
 
 ## Errors And Limits
 
 The HTTP chat body and the separate browser conversation record are each
-limited to 4 MiB under their respective contracts. HTTP and stream errors
-become short UI messages; parser, engine, storage, and filesystem details are
-not shown. The Web gate rejects over-budget requests before transport.
+limited to 4 MiB under their respective contracts. Markdown files have the
+smaller per-file and per-chat limits above. HTTP and stream errors become short
+UI messages; parser, engine, browser storage, and filesystem details are not
+shown. The Web gate rejects over-budget or oversized requests before transport.
 
 The Web UI has no server persistence, accounts, authentication, account or
-cross-tab synchronization/merge, response-version history, earlier-turn
-editing, chat search, pins, archive folders, bulk deletion, or model selection
-for regenerate. It also has no API-key flow, tool calling, workspace, separate
+cross-tab synchronization/merge, response-version or branch history, chat
+search, pins, archive folders, bulk deletion, or model selection for
+regenerate. It also has no API-key flow, tool calling, workspace, separate
 Reasoning protocol/state channel, or advanced sampling controls.
+Markdown files are full-context references, not a general document library or
+retrieval system.

@@ -81,60 +81,6 @@ pub(super) const BASE: &[Kernel] = &[
     Kernel::MatmulQ4KBatchF16Out,
     Kernel::MatmulQ6KBatchF16Out,
 ];
-#[cfg(feature = "vulkan-profile")]
-impl Kernel {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::MatmulF16 => "matmul_f16",
-            Self::MatmulQ4KTiled => "matmul_q4k_tiled",
-            Self::MatmulQ5K => "matmul_q5k",
-            Self::MatmulQ6K => "matmul_q6k",
-            Self::Logits => "logits_f16",
-            Self::LogitsQ4K => "logits_q4k",
-            Self::LogitsQ5K => "logits_q5k",
-            Self::LogitsQ6K => "logits_q6k",
-            Self::EmbedF16 => "embed_f16",
-            Self::EmbedQ4K => "embed_q4k",
-            Self::EmbedQ5K => "embed_q5k",
-            Self::EmbedQ6K => "embed_q6k",
-            Self::RmsNormX => "rmsnorm_x",
-            Self::Rope => "rope",
-            Self::Residual => "residual",
-            Self::KvWrite => "kv_write_f16",
-            Self::AttentionDecode => "attention_decode",
-            Self::AttentionDecodeWide => "attention_decode_wide",
-            Self::AttentionDecode1024 => "attention_decode_1024",
-            Self::AttentionDecodeGqaSplit => "attention_decode_gqa_split8_q4_vec4_wg256",
-            Self::AttentionDecodeGqaInt8Split => "attention_decode_gqa_int8_split8_q4_vec4_wg256",
-            Self::AttentionDecodeGqaWave64Split => "attention_decode_gqa_split4_q4_wave64_wg256",
-            Self::AttentionDecodeGqaReduce => "attention_decode_gqa_reduce_q4_vec4",
-            Self::AttentionDecodeGqaWave64Reduce => "attention_decode_gqa_reduce16_q4_wave64",
-            Self::AttentionPrefill => "attention_prefill",
-            Self::AttentionPrefillWide => "attention_prefill_wide",
-            Self::AttentionPrefillTiled => "attention_prefill_tiled_phased_q8_kv64",
-            Self::AttentionPrefillTiledCoopQk => "attention_prefill_tiled_fullmma_q16_kv64",
-            Self::AttentionPrefillMatrix2 => "attention_prefill_matrix2_wg256_q32_kv64",
-            Self::AttentionPrefillMatrix2Q64 => "attention_prefill_matrix2_wg128_q64_kv64",
-            Self::KvWriteInt8 => "kv_write_int8",
-            Self::AttentionDecodeInt8 => "attention_decode_int8",
-            Self::AttentionPrefillInt8 => "attention_prefill_int8",
-            Self::Argmax => "argmax",
-            Self::TopkPartial => "topk_partial",
-            Self::SiluMul => "silu_mul",
-            Self::MatmulQ4KBatchF16Out => "matmul_q4k_batch_f16",
-            Self::MatmulQ6KBatchF16Out => "matmul_q6k_batch_f16",
-            Self::MatmulQ4KCoopmatF16Out => "matmul_q4k_coopmat_f16",
-            Self::MatmulQ4KCoopmatMetadataF16Out => "matmul_q4k_coopmat_metadata_f16",
-            Self::MatmulQ4KMatrix2F16Out => "matmul_q4k_matrix2_wg256_m128_n32_k128",
-            Self::MatmulQ6KCoopmatF16Out => "matmul_q6k_coopmat_f16",
-            Self::MatmulQ6KMatrix2F16Out => "matmul_q6k_matrix2_wg256_m64_n32_k128",
-            Self::QuantAQ8F16 => "quant_a_q8_f16",
-            Self::MatmulQ4KMmvqF16Out => "matmul_q4k_mmvq_f16",
-            Self::MatmulQ4KMmqBatchF16Out => "matmul_q4k_mmq_batch_f16",
-        }
-    }
-}
-
 // SPIR-V bytes, storage-buffer binding count, and push-constant bytes.
 pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
     macro_rules! spv {

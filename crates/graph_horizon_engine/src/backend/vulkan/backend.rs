@@ -368,6 +368,8 @@ impl Backend for VulkanBackend {
                 q,
                 &kv.k,
                 &kv.v,
+                &self.reduce,
+                &self.mmvq_ds,
                 kv.head_dim as u32,
                 kv.kv_heads as u32,
                 q_heads,

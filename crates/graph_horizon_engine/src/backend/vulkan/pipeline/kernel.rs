@@ -23,6 +23,7 @@ pub(crate) enum Kernel {
     AttentionDecodeWide,
     AttentionDecode1024,
     AttentionDecodeGqaSplit,
+    AttentionDecodeGqaInt8Split,
     AttentionDecodeGqaWave64Split,
     AttentionDecodeGqaReduce,
     AttentionDecodeGqaWave64Reduce,
@@ -104,6 +105,7 @@ impl Kernel {
             Self::AttentionDecodeWide => "attention_decode_wide",
             Self::AttentionDecode1024 => "attention_decode_1024",
             Self::AttentionDecodeGqaSplit => "attention_decode_gqa_split8_q4_vec4_wg256",
+            Self::AttentionDecodeGqaInt8Split => "attention_decode_gqa_int8_split8_q4_vec4_wg256",
             Self::AttentionDecodeGqaWave64Split => "attention_decode_gqa_split4_q4_wave64_wg256",
             Self::AttentionDecodeGqaReduce => "attention_decode_gqa_reduce_q4_vec4",
             Self::AttentionDecodeGqaWave64Reduce => "attention_decode_gqa_reduce16_q4_wave64",
@@ -161,6 +163,7 @@ pub(super) fn spec(kernel: Kernel) -> (&'static [u8], u32, u32) {
         Kernel::AttentionDecodeWide => (spv!("attention_decode_wide"), 4, 32),
         Kernel::AttentionDecode1024 => (spv!("attention_decode_1024"), 4, 32),
         Kernel::AttentionDecodeGqaSplit => (spv!("attention_decode_gqa_split"), 5, 28),
+        Kernel::AttentionDecodeGqaInt8Split => (spv!("attention_decode_gqa_int8_split"), 5, 32),
         Kernel::AttentionDecodeGqaWave64Split => (spv!("attention_decode_gqa_wave64_split"), 5, 32),
         Kernel::AttentionDecodeGqaReduce => (spv!("attention_decode_gqa_reduce"), 3, 28),
         Kernel::AttentionDecodeGqaWave64Reduce => {

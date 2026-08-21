@@ -1,18 +1,17 @@
 /*
- * Vulkan decode-attention dispatch: routes exact-shape F16 GQA through the
- * split/reduce kernels and keeps the established F16/INT8 fallbacks explicit.
+ * Vulkan F16 decode-attention dispatch: routes exact-shape GQA through the
+ * split/reduce kernels and keeps the established portable fallback explicit.
  */
-
-#![allow(clippy::too_many_arguments)]
 
 use ash::vk;
 
-use super::{GQA_DECODE_SPLITS, GQA_DECODE_WAVE64_PARTS, GQA_DECODE_WAVE64_WORKGROUPS};
+use super::super::{GQA_DECODE_SPLITS, GQA_DECODE_WAVE64_PARTS, GQA_DECODE_WAVE64_WORKGROUPS};
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
 
-pub(crate) fn f16(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run(
     dev: &Device,
     reg: &PipelineRegistry,
     cmd: vk::CommandBuffer,
@@ -107,43 +106,6 @@ pub(crate) fn f16(
         reg,
         cmd,
         kernel,
-        &[
-            (q.buffer, q.offset, q.size),
-            (kc.buffer, kc.offset, kc.size),
-            (vc.buffer, vc.offset, vc.size),
-            (out.buffer, out.offset, out.size),
-        ],
-        &push,
-        q_heads,
-    );
-}
-
-pub(crate) fn int8(
-    dev: &Device,
-    reg: &PipelineRegistry,
-    cmd: vk::CommandBuffer,
-    out: &GpuBuffer,
-    q: &GpuBuffer,
-    kc: &GpuBuffer,
-    vc: &GpuBuffer,
-    head_dim: u32,
-    kv_heads: u32,
-    q_heads: u32,
-    pos: u32,
-    layer: u32,
-    context: u32,
-    meta_base: u32,
-) {
-    let mut push = Vec::with_capacity(32);
-    for value in [head_dim, kv_heads, q_heads, pos, layer, context, meta_base] {
-        push.extend_from_slice(&value.to_le_bytes());
-    }
-    push.extend_from_slice(&(1.0f32 / (head_dim as f32).sqrt()).to_le_bytes());
-    dispatch(
-        dev,
-        reg,
-        cmd,
-        Kernel::AttentionDecodeInt8,
         &[
             (q.buffer, q.offset, q.size),
             (kc.buffer, kc.offset, kc.size),

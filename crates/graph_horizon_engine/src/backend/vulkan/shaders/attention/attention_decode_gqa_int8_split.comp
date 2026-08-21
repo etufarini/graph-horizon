@@ -1,0 +1,121 @@
+#version 450
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+
+// AGENTS deroga K: kernel numerico split-KV della sola attention decode INT8 GQA.
+
+// One workgroup owns one history split for one KV head. Each packed INT8 K/V
+// word and metadata pair is dequantized once and reused by all four query heads
+// in the 4:1 GQA group. The existing exact FP32 split reducer consumes the
+// unnormalized online-softmax state emitted here.
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer Q { f16vec4 q[]; };
+layout(std430, binding = 1) readonly buffer KC { uint kc[]; };
+layout(std430, binding = 2) readonly buffer VC { uint vc[]; };
+layout(std430, binding = 3) writeonly buffer Partial { vec4 partial[]; };
+layout(std430, binding = 4) writeonly buffer State { float state[]; };
+
+layout(push_constant) uniform P {
+    uint head_dim;
+    uint kv_heads;
+    uint q_heads;
+    uint pos;
+    uint layer;
+    uint context;
+    uint meta_base;
+    float scale;
+} p;
+
+const uint Q_GROUP = 4u;
+const uint SPLITS = 8u;
+const uint MAX_G = 8u;
+
+shared float sh_m[MAX_G];
+shared float sh_l[MAX_G];
+shared vec4 sh_acc[MAX_G * 32u];
+
+vec2 meta_at(bool is_k, uint vec_idx) {
+    uint word_idx = (p.meta_base + vec_idx * 4u) >> 2u;
+    uint m = is_k ? kc[word_idx] : vc[word_idx];
+    return vec2(float(uint16BitsToFloat16(uint16_t(m & 0xFFFFu))),
+                float(uint16BitsToFloat16(uint16_t(m >> 16u))));
+}
+
+vec4 decode_word(uint word, vec2 meta) {
+    vec4 codes = vec4(float(word & 0xFFu),
+                      float((word >> 8u) & 0xFFu),
+                      float((word >> 16u) & 0xFFu),
+                      float(word >> 24u));
+    return vec4(meta.x) + codes * meta.y;
+}
+
+void main() {
+    uint kvh = gl_WorkGroupID.x;
+    uint split = gl_WorkGroupID.y;
+    uint G = gl_NumSubgroups;
+    uint g = gl_SubgroupID;
+    uint l = gl_SubgroupInvocationID;
+    uint h0 = kvh * Q_GROUP;
+    uint head_vecs = p.head_dim / 4u;
+
+    vec4 qd[Q_GROUP];
+    vec4 acc[Q_GROUP];
+    vec4 m_g = vec4(-1e30);
+    vec4 l_g = vec4(0.0);
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        qd[h] = vec4(q[(h0 + h) * head_vecs + l]);
+        acc[h] = vec4(0.0);
+    }
+
+    for (uint t = split * G + g; t <= p.pos; t += SPLITS * G) {
+        uint vec_idx = (p.layer * p.context + t) * p.kv_heads + kvh;
+        uint word_idx = (vec_idx * p.head_dim + l * 4u) >> 2u;
+        vec4 kd = decode_word(kc[word_idx], meta_at(true, vec_idx));
+        vec4 vd = decode_word(vc[word_idx], meta_at(false, vec_idx));
+        vec4 prod;
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            prod[h] = dot(qd[h], kd);
+        }
+        vec4 score = subgroupAdd(prod) * p.scale;
+        vec4 m_new = max(m_g, score);
+        vec4 alpha = exp(m_g - m_new);
+        vec4 pw = exp(score - m_new);
+        l_g = l_g * alpha + pw;
+        m_g = m_new;
+        for (uint h = 0u; h < Q_GROUP; h++) {
+            acc[h] = acc[h] * alpha[h] + pw[h] * vd;
+        }
+    }
+
+    for (uint h = 0u; h < Q_GROUP; h++) {
+        if (subgroupElect()) {
+            sh_m[g] = m_g[h];
+            sh_l[g] = l_g[h];
+        }
+        sh_acc[g * head_vecs + l] = acc[h];
+        barrier();
+        if (g == 0u) {
+            float m_split = -1e30;
+            for (uint gg = 0u; gg < G; gg++) m_split = max(m_split, sh_m[gg]);
+            float l_split = 0.0;
+            for (uint gg = 0u; gg < G; gg++) {
+                l_split += sh_l[gg] * exp(sh_m[gg] - m_split);
+            }
+            uint part = (split * p.kv_heads + kvh) * Q_GROUP + h;
+            if (subgroupElect()) {
+                state[part * 2u] = m_split;
+                state[part * 2u + 1u] = l_split;
+            }
+            vec4 num = vec4(0.0);
+            for (uint gg = 0u; gg < G; gg++) {
+                num += sh_acc[gg * head_vecs + l] * exp(sh_m[gg] - m_split);
+            }
+            partial[part * head_vecs + l] = num;
+        }
+        barrier();
+    }
+}

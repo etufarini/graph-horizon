@@ -20,6 +20,10 @@ fn main() -> Result<()> {
     let model = args.next().ok_or_else(usage)?;
     let depth = parse(&args.next().ok_or_else(usage)?, "depth")?;
     let context = parse(&args.next().ok_or_else(usage)?, "context")?;
+    let kv = args
+        .next()
+        .and_then(|value| KvQuant::parse(&value))
+        .ok_or_else(usage)?;
     let tokens = parse(&args.next().ok_or_else(usage)?, "tokens")?;
     let reps = parse(&args.next().ok_or_else(usage)?, "reps")?;
     if depth < 4 || depth + tokens > context || tokens < 2 || reps == 0 || args.next().is_some() {
@@ -30,14 +34,16 @@ fn main() -> Result<()> {
         Path::new(&model),
         EngineConfig {
             context_tokens: Some(context),
-            kv_quant: KvQuant::F16,
+            kv_quant: kv,
             ..EngineConfig::default()
         },
     )?;
     let memory = engine.memory();
     println!(
-        "depth={depth} context={context} weight_bytes={} kv_bytes={}",
-        memory.weights, memory.kv
+        "depth={depth} context={context} kv={} weight_bytes={} kv_bytes={}",
+        kv.name(),
+        memory.weights,
+        memory.kv
     );
 
     // Ministral's no-system chat template contributes exactly BOS, INST, and
@@ -113,7 +119,7 @@ fn main() -> Result<()> {
 }
 
 fn usage() -> color_eyre::Report {
-    eyre!("usage: decode <model.gguf> <depth> <context> <tokens> <reps>")
+    eyre!("usage: decode <model.gguf> <depth> <context> <f16|int8> <tokens> <reps>")
 }
 
 fn parse(value: &str, field: &str) -> Result<usize> {

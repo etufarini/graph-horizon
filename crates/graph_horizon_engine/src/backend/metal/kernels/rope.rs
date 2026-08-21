@@ -33,8 +33,16 @@ pub(crate) fn encode(
     ] {
         c.extend(value.to_ne_bytes());
     }
+    let items = (heads as usize)
+        .checked_mul(dim as usize)
+        .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?;
+    c.extend(u32::from(x.len() == items.checked_mul(4).ok_or_else(arithmetic)?).to_ne_bytes());
     let grid = heads
         .checked_mul(rope / 2)
         .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?;
     dispatch::encode(e, p, Kernel::Rope, &[x], &c, [grid as usize, 1, 1])
+}
+
+fn arithmetic() -> color_eyre::Report {
+    eyre!("metal: buffer arithmetic overflow")
 }

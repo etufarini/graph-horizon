@@ -55,6 +55,12 @@ pub(crate) trait Backend: Sized {
     // and has no such constraint, so it returns `1`.
     fn min_buffer_offset_alignment(&self) -> u64;
 
+    // Byte width of request-local prefill projection outputs. Backends may
+    // widen storage only when every consumer preserves the FP16 graph boundary.
+    fn prefill_matmul_output_bytes(&self) -> usize {
+        2
+    }
+
     // Write the current token's k/v into the caches (`vectors` vectors of
     // `kv.head_dim` values each), quantizing per `kv.scheme`. KV quantization is
     // selected at load via `Kv::scheme`; backends branch once per call (I2).

@@ -27,7 +27,27 @@ pub(crate) fn encode(
     layer: u32,
     mixed_placement: bool,
 ) -> color_eyre::eyre::Result<()> {
-    let mut c = constants(kv, qh, base, rows, layer);
+    let q_items = (rows as usize)
+        .checked_mul(qh as usize)
+        .and_then(|items| items.checked_mul(kv.head_dim))
+        .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
+    let q32 = q.len()
+        == q_items
+            .checked_mul(4)
+            .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
+    if !q32
+        && q.len()
+            != q_items
+                .checked_mul(2)
+                .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?
+    {
+        return Err(color_eyre::eyre::eyre!(
+            "metal: attention query buffer has invalid length"
+        ));
+    }
+    // Widened projection storage is consumed through the original half-rounded
+    // query value, preserving the model graph's established numeric boundary.
+    let mut c = constants(kv, qh, base, rows, layer, q32);
     #[cfg(feature = "metal")]
     if !mixed_placement
         && rows == 64
@@ -36,9 +56,7 @@ pub(crate) fn encode(
         && kv.kv_heads.checked_mul(4) == Some(qh as usize)
     {
         let matrix = p.get(Kernel::AttentionPrefillMatrix);
-        if matrix.width == 32
-            && matrix.max_threads >= 128
-            && matrix.threadgroup_memory <= 28 * 1024
+        if matrix.width == 32 && matrix.max_threads >= 128 && matrix.threadgroup_memory <= 28 * 1024
         {
             let groups = (rows as usize / 8)
                 .checked_mul(qh as usize)

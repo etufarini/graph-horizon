@@ -5,12 +5,13 @@
 // AGENTS deroga K: varianti coese della sola operazione causal attention.
 #include <metal_stdlib>
 using namespace metal;
-struct P{uint dim;uint kvh;uint qh;uint base;uint rows;uint layer;uint context;uint scheme;ulong kmeta;ulong vmeta;float scale;uint mode;};
+struct P{uint dim;uint kvh;uint qh;uint base;uint rows;uint layer;uint context;uint scheme;ulong kmeta;ulong vmeta;float scale;uint q32;uint mode;};
 inline float hv(device const uchar*c,ulong i){return float(((device const half*)c)[i]);}
 inline float qv(device const uchar*c,ulong i,ulong meta,uint vec){ulong m=meta+ulong(vec)*4;ushort mb=ushort(uint(c[m])|(uint(c[m+1])<<8)),sb=ushort(uint(c[m+2])|(uint(c[m+3])<<8));return float(as_type<half>(mb))+float(c[i])*float(as_type<half>(sb));}
-kernel void metal_attention_prefill_matrix(device const half*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint id[[threadgroup_position_in_grid]],uint local[[thread_index_in_threadgroup]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
+inline float qf(device const uchar*c,ulong i,uint fp32){return fp32?float(half(((device const float*)c)[i])):float(((device const half*)c)[i]);}
+kernel void metal_attention_prefill_matrix(device const uchar*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint id[[threadgroup_position_in_grid]],uint local[[thread_index_in_threadgroup]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
  threadgroup half tq[8*128],prob[8*64];threadgroup float score[8*64],scale[8*8],result[8*128];
- uint first=(id/p.qh)*8,h=id%p.qh,kh=h/4;for(uint index=local;index<8*128;index+=128){uint row=index/128,d=index%128;tq[index]=q[((first+row)*p.qh+h)*128+d];}float m[2]={-INFINITY,-INFINITY},l[2]={0.0f,0.0f};simdgroup_float8x8 acc[4];for(uint part=0;part<4;part++)acc[part]=make_filled_simdgroup_matrix<float,8>(0.0f);threadgroup_barrier(mem_flags::mem_threadgroup);
+ uint first=(id/p.qh)*8,h=id%p.qh,kh=h/4;for(uint index=local;index<8*128;index+=128){uint row=index/128,d=index%128;tq[index]=half(qf(q,((first+row)*p.qh+h)*128+d,p.q32));}float m[2]={-INFINITY,-INFINITY},l[2]={0.0f,0.0f};simdgroup_float8x8 acc[4];for(uint part=0;part<4;part++)acc[part]=make_filled_simdgroup_matrix<float,8>(0.0f);threadgroup_barrier(mem_flags::mem_threadgroup);
  // Four SIMD groups cooperatively form a C64 score tile. Each owns two query
  // rows for online softmax and 32 output dimensions for the PV accumulation.
  for(uint tile=0;tile<=p.base+first+7;tile+=64){
@@ -25,13 +26,13 @@ kernel void metal_attention_prefill_matrix(device const half*q[[buffer(0)]],devi
  for(uint part=0;part<4;part++){simdgroup_float8x8 normalized;simdgroup_multiply(normalized,norm,acc[part]);simdgroup_store(normalized,result+group*32+part*8,128,0,false);}threadgroup_barrier(mem_flags::mem_threadgroup);
  for(uint index=local;index<8*128;index+=128){uint row=index/128,d=index%128;out[((first+row)*p.qh+h)*128+d]=half(result[index]);}
 }
-kernel void metal_attention_gqa_split(device const half*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device float*partial[[buffer(3)]],device float*state[[buffer(4)]],constant P&p[[buffer(5)]],uint2 id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
+kernel void metal_attention_gqa_split(device const uchar*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device float*partial[[buffer(3)]],device float*state[[buffer(4)]],constant P&p[[buffer(5)]],uint2 id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
  threadgroup half tk[32*128],tv[32*128];uint local=group*32+lane,kh=id.x,split=id.y,slot=group>>1,band=group&1,h=kh*4+slot,segment=band*4+(lane>>3),sub=lane&7,qb=h*128;float m=-INFINITY,l=0.0f,acc[16];
  for(uint part=0;part<16;part++)acc[part]=0.0f;
  for(uint tile=split*32;tile<=p.base;tile+=4*32){
   for(uint index=local;index<32*128;index+=256){uint t=tile+index/128,d=index%128;if(t<p.context){ulong b=(ulong(p.layer)*p.context*p.kvh+ulong(t)*p.kvh+kh)*128+d;tk[index]=k[b];tv[index]=v[b];}else{tk[index]=half(0.0h);tv[index]=half(0.0h);}}
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  for(uint offset=segment;offset<32&&tile+offset<=p.base;offset+=8){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=float(q[qb+d])*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
+  for(uint offset=segment;offset<32&&tile+offset<=p.base;offset+=8){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=qf(q,qb+d,p.q32)*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
   threadgroup_barrier(mem_flags::mem_threadgroup);
  }
  float m0=simd_shuffle(m,0),m1=simd_shuffle(m,8),m2=simd_shuffle(m,16),m3=simd_shuffle(m,24),gm=max(max(m0,m1),max(m2,m3));float r0=exp(m0-gm),r1=exp(m1-gm),r2=exp(m2-gm),r3=exp(m3-gm),gl=simd_shuffle(l,0)*r0+simd_shuffle(l,8)*r1+simd_shuffle(l,16)*r2+simd_shuffle(l,24)*r3,merged;uint part_id=h*8+split*2+band;
@@ -40,13 +41,13 @@ kernel void metal_attention_gqa_split(device const half*q[[buffer(0)]],device co
 kernel void metal_attention_gqa_reduce(device const float*partial[[buffer(0)]],device const float*state[[buffer(1)]],device half*out[[buffer(2)]],constant P&p[[buffer(3)]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_threadgroup]]){
  uint first=id*8;float top=-INFINITY;for(uint split=0;split<8;split++)top=max(top,state[(first+split)*2]);float scales[8],den=0.0f;for(uint split=0;split<8;split++){scales[split]=exp(state[(first+split)*2]-top);den+=state[(first+split)*2+1]*scales[split];}for(uint part=0;part<4;part++){uint d=lane+part*32;float num=0.0f;for(uint split=0;split<8;split++)num+=partial[(first+split)*128+d]*scales[split];out[id*128+d]=half(num/den);}
 }
-kernel void metal_attention_gqa_decode(device const half*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
+kernel void metal_attention_gqa_decode(device const uchar*q[[buffer(0)]],device const half*k[[buffer(1)]],device const half*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
  threadgroup half tk[32*128],tv[32*128];threadgroup float pm[8],pl[8],pa[8*128];uint local=group*32+lane,kh=id,pair=group>>1,side=group&1,h=kh*4+pair,segment=side*4+(lane>>3),sub=lane&7,qb=h*128;float m=-INFINITY,l=0.0f,acc[16];
  for(uint part=0;part<16;part++)acc[part]=0.0f;
  for(uint tile=0;tile<=p.base;tile+=32){
   for(uint index=local;index<32*128;index+=256){uint t=tile+index/128,d=index%128;if(t<p.context){ulong b=(ulong(p.layer)*p.context*p.kvh+ulong(t)*p.kvh+kh)*128+d;tk[index]=k[b];tv[index]=v[b];}else{tk[index]=half(0.0h);tv[index]=half(0.0h);}}
   threadgroup_barrier(mem_flags::mem_threadgroup);
-  for(uint offset=segment;offset<32&&tile+offset<=p.base;offset+=8){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=float(q[qb+d])*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
+  for(uint offset=segment;offset<32&&tile+offset<=p.base;offset+=8){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=qf(q,qb+d,p.q32)*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
   threadgroup_barrier(mem_flags::mem_threadgroup);
  }
  float m0=simd_shuffle(m,0),m1=simd_shuffle(m,8),m2=simd_shuffle(m,16),m3=simd_shuffle(m,24),gm=max(max(m0,m1),max(m2,m3));float r0=exp(m0-gm),r1=exp(m1-gm),r2=exp(m2-gm),r3=exp(m3-gm),gl=simd_shuffle(l,0)*r0+simd_shuffle(l,8)*r1+simd_shuffle(l,16)*r2+simd_shuffle(l,24)*r3;
@@ -54,12 +55,12 @@ kernel void metal_attention_gqa_decode(device const half*q[[buffer(0)]],device c
  threadgroup_barrier(mem_flags::mem_threadgroup);
  if(side==0&&(lane>>3)==0){float top=max(pm[group],pm[group+1]),s0=exp(pm[group]-top),s1=exp(pm[group+1]-top),den=pl[group]*s0+pl[group+1]*s1;for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half((pa[group*128+d]*s0+pa[(group+1)*128+d]*s1)/den);}}
 }
-kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*k[[buffer(1)]],device const uchar*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint tid[[thread_position_in_grid]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint lanes[[threads_per_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
+kernel void metal_attention(device const uchar*q[[buffer(0)]],device const uchar*k[[buffer(1)]],device const uchar*v[[buffer(2)]],device half*out[[buffer(3)]],constant P&p[[buffer(4)]],uint tid[[thread_position_in_grid]],uint id[[threadgroup_position_in_grid]],uint lane[[thread_index_in_simdgroup]],uint lanes[[threads_per_simdgroup]],uint group[[simdgroup_index_in_threadgroup]]){
  uint total=p.rows*p.qh;
  if(p.mode==0){
   if(tid>=total)return;uint row=tid/p.qh,h=tid%p.qh,pos=p.base+row,kh=h/(p.qh/p.kvh),qb=(row*p.qh+h)*p.dim;float m=-INFINITY,l=0.0f;float acc[256];
   for(uint d=0;d<p.dim;d++)acc[d]=0.0f;
-  for(uint t=0;t<=pos;t++){uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;for(uint d=0;d<p.dim;d++)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;for(uint d=0;d<p.dim;d++)acc[d]=acc[d]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));m=nm;}
+  for(uint t=0;t<=pos;t++){uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;for(uint d=0;d<p.dim;d++)dot+=qf(q,qb+d,p.q32)*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;for(uint d=0;d<p.dim;d++)acc[d]=acc[d]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));m=nm;}
   for(uint d=0;d<p.dim;d++)out[qb+d]=half(acc[d]/l);return;
  }
  if(p.mode==4){
@@ -70,7 +71,7 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   for(uint tile=0;tile<=p.base+row0+3;tile+=32){
    for(uint index=local;index<32*128;index+=128){uint t=tile+index/128,d=index%128;if(t<p.context){uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*128+d;tk[index]=((device const half*)k)[b];tv[index]=((device const half*)v)[b];}else{tk[index]=half(0.0h);tv[index]=half(0.0h);}}
    threadgroup_barrier(mem_flags::mem_threadgroup);
-   for(uint offset=0;offset<32&&tile+offset<=pos;offset++){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=float(q[qb+d])*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
+   for(uint offset=0;offset<32&&tile+offset<=pos;offset++){float dot=0.0f;for(uint part=0;part<16;part++){uint d=sub+part*8;dot+=qf(q,qb+d,p.q32)*float(tk[offset*128+d]);}dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),weight=exp(score-nm);l=l*a+weight;for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+weight*float(tv[offset*128+d]);}m=nm;}
    threadgroup_barrier(mem_flags::mem_threadgroup);
   }
   for(uint part=0;part<16;part++){uint d=sub+part*8;out[qb+d]=half(acc[part]/l);}return;
@@ -83,7 +84,7 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   for(uint part=0;part<16;part++)acc[part]=0.0f;
   for(uint t=segment;t<=pos;t+=groups*4){
    uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;
-   for(uint d=sub;d<128;d+=8)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
+   for(uint d=sub;d<128;d+=8)dot+=qf(q,qb+d,p.q32)*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
    dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);
    float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;
    for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));}m=nm;
@@ -105,7 +106,7 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
   for(uint part=0;part<16;part++)acc[part]=0.0f;
   for(uint t=segment;t<=pos;t+=4){
    uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;
-   for(uint d=sub;d<128;d+=8)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
+   for(uint d=sub;d<128;d+=8)dot+=qf(q,qb+d,p.q32)*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
    dot+=simd_shuffle_xor(dot,4);dot+=simd_shuffle_xor(dot,2);dot+=simd_shuffle_xor(dot,1);
    float score=dot*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;
    for(uint part=0;part<16;part++){uint d=sub+part*8;acc[part]=acc[part]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));}m=nm;
@@ -121,7 +122,7 @@ kernel void metal_attention(device const half*q[[buffer(0)]],device const uchar*
  for(uint part=0;part<parts;part++)acc[part]=0.0f;
  for(uint t=0;t<=pos;t++){
   uint vec=(p.layer*p.context+t)*p.kvh+kh;ulong b=ulong(vec)*p.dim;float dot=0.0f;
-  for(uint d=lane;d<p.dim;d+=lanes)dot+=float(q[qb+d])*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
+  for(uint d=lane;d<p.dim;d+=lanes)dot+=qf(q,qb+d,p.q32)*(p.scheme==0?hv(k,b+d):qv(k,b+d,p.kmeta,vec));
   float score=simd_sum(dot)*p.scale,nm=max(m,score),a=exp(m-nm),w=exp(score-nm);l=l*a+w;
   for(uint part=0;part<parts;part++){uint d=lane+part*lanes;if(d<p.dim)acc[part]=acc[part]*a+w*(p.scheme==0?hv(v,b+d):qv(v,b+d,p.vmeta,vec));}
   m=nm;

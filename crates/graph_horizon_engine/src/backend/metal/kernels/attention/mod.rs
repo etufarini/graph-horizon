@@ -15,7 +15,14 @@ use crate::kv_cache::{
     scheme::{KvQuant, KvRole},
 };
 
-fn constants(kv: &Kv<MetalBuffer>, qh: u32, base: u32, rows: u32, layer: u32) -> Vec<u8> {
+fn constants(
+    kv: &Kv<MetalBuffer>,
+    qh: u32,
+    base: u32,
+    rows: u32,
+    layer: u32,
+    q32: bool,
+) -> Vec<u8> {
     let mut bytes = super::u32s(&[
         kv.head_dim as u32,
         kv.kv_heads as u32,
@@ -29,5 +36,6 @@ fn constants(kv: &Kv<MetalBuffer>, qh: u32, base: u32, rows: u32, layer: u32) ->
     bytes.extend(kv.meta_base_for(KvRole::Key).to_ne_bytes());
     bytes.extend(kv.meta_base_for(KvRole::Value).to_ne_bytes());
     bytes.extend((1.0f32 / (kv.head_dim as f32).sqrt()).to_ne_bytes());
+    bytes.extend(u32::from(q32).to_ne_bytes());
     bytes
 }

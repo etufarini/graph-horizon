@@ -43,6 +43,7 @@ belong in the [validation register](../VALIDATION.md).
 | [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
 | [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Current Metal performance comparison and optimization checkpoint against llama.cpp Metal |
+| [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Active Apple Metal long-context decode investigation and candidate ledger |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 
 ## Reviewed Evidence

@@ -146,10 +146,16 @@ fn run() -> Result<(), BenchFailure> {
     )?;
     let decode = report.tg.ok_or(INVALID_MEASUREMENT)?;
     let [d_mean, d_median, d_sd, d_cv] = metric(decode.mean, decode.median, decode.stddev, 1.0)?;
+    let segment = |value: Option<&throughput::Stat>| {
+        value.map_or_else(|| "n/a".into(), |stat| format!("{:.2}", stat.mean))
+    };
+    let d_begin = segment(report.tg_begin_third.as_ref());
+    let d_middle = segment(report.tg_middle_third.as_ref());
+    let d_end = segment(report.tg_end_third.as_ref());
     let prompt_tokens = report.n_prompt;
     let decoded_tokens = report.decoded_tokens;
     println!(
-        "prompt_tokens={prompt_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_median={p_median} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_median={t_median} ttft_ms_stddev={t_sd} ttft_cv={t_cv} decode_tps_mean={d_mean} decode_tps_median={d_median} decode_tps_stddev={d_sd} decode_tps_cv={d_cv}"
+        "prompt_tokens={prompt_tokens} decoded_tokens={decoded_tokens} prompt_tps_mean={p_mean} prompt_tps_median={p_median} prompt_tps_stddev={p_sd} prompt_tps_cv={p_cv} ttft_ms_mean={t_mean} ttft_ms_median={t_median} ttft_ms_stddev={t_sd} ttft_cv={t_cv} decode_tps_mean={d_mean} decode_tps_median={d_median} decode_tps_stddev={d_sd} decode_tps_cv={d_cv} decode_begin_tps={d_begin} decode_middle_tps={d_middle} decode_end_tps={d_end}"
     );
     Ok(())
 }

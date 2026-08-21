@@ -80,6 +80,19 @@ pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
     } else {
         (None, None)
     };
+    let thirds = if d >= 6 {
+        let third = d / 3;
+        let segment = |start: usize, end: usize| {
+            rate((end - start - 1) as f64, offsets[end - 1] - offsets[start])
+        };
+        (
+            segment(0, third),
+            segment(third, third * 2),
+            segment(third * 2, d),
+        )
+    } else {
+        (None, None, None)
+    };
 
     RepSample {
         deltas: d,
@@ -88,6 +101,9 @@ pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
         tg,
         tg_first,
         tg_last,
+        tg_begin_third: thirds.0,
+        tg_middle_third: thirds.1,
+        tg_end_third: thirds.2,
     }
 }
 
@@ -155,6 +171,9 @@ mod tests {
                 tg: None,
                 tg_first: None,
                 tg_last: None,
+                tg_begin_third: None,
+                tg_middle_third: None,
+                tg_end_third: None,
             },
             RepSample {
                 deltas: 1,
@@ -163,6 +182,9 @@ mod tests {
                 tg: None,
                 tg_first: None,
                 tg_last: None,
+                tg_begin_third: None,
+                tg_middle_third: None,
+                tg_end_third: None,
             },
         ];
         assert!(aggregate(&samples, |s| s.tg).is_none());
@@ -180,6 +202,7 @@ mod tests {
         assert!(r.tg.is_none());
         assert!(r.tg_first.is_none());
         assert!(r.tg_last.is_none());
+        assert!(r.tg_begin_third.is_none());
     }
 
     #[test]
@@ -189,6 +212,7 @@ mod tests {
         approx(r.tg.unwrap(), 1.0);
         assert!(r.tg_first.is_none());
         assert!(r.tg_last.is_none());
+        assert!(r.tg_begin_third.is_none());
     }
 
     #[test]
@@ -201,6 +225,14 @@ mod tests {
         approx(r.tg.unwrap(), 3.0 / 7.0);
         approx(r.tg_first.unwrap(), 1.0);
         approx(r.tg_last.unwrap(), 0.25);
+    }
+
+    #[test]
+    fn rep_metrics_thirds_are_non_overlapping() {
+        let r = rep_metrics(&[1.0, 2.0, 4.0, 8.0, 16.0, 32.0], 100);
+        approx(r.tg_begin_third.unwrap(), 1.0);
+        approx(r.tg_middle_third.unwrap(), 0.25);
+        approx(r.tg_end_third.unwrap(), 0.0625);
     }
 
     #[test]

@@ -101,7 +101,7 @@ A successful invocation writes exactly one newline-terminated stdout record in
 this field order:
 
 ```text
-prompt_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_median=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_median=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_median=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a>
+prompt_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_median=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_median=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_median=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a> decode_begin_tps=<fixed-2|n/a> decode_middle_tps=<fixed-2|n/a> decode_end_tps=<fixed-2|n/a>
 ```
 
 `fixed-2` has exactly two decimal places. `fixed-4` has exactly four decimal

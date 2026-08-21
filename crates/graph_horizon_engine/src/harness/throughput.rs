@@ -42,6 +42,9 @@ pub struct ThroughputReport {
     pub tg: Option<Stat>,
     pub tg_first_segment: Option<Stat>,
     pub tg_last_segment: Option<Stat>,
+    pub tg_begin_third: Option<Stat>,
+    pub tg_middle_third: Option<Stat>,
+    pub tg_end_third: Option<Stat>,
     pub decoded_tokens: usize,
 }
 
@@ -52,6 +55,9 @@ pub(super) struct RepSample {
     pub(super) tg: Option<f64>,
     pub(super) tg_first: Option<f64>,
     pub(super) tg_last: Option<f64>,
+    pub(super) tg_begin_third: Option<f64>,
+    pub(super) tg_middle_third: Option<f64>,
+    pub(super) tg_end_third: Option<f64>,
 }
 
 pub fn run(engine: &Engine, cfg: &BenchConfig) -> Result<ThroughputReport> {
@@ -83,6 +89,9 @@ pub fn run(engine: &Engine, cfg: &BenchConfig) -> Result<ThroughputReport> {
         tg: aggregate(&samples, |sample| sample.tg),
         tg_first_segment: aggregate(&samples, |sample| sample.tg_first),
         tg_last_segment: aggregate(&samples, |sample| sample.tg_last),
+        tg_begin_third: aggregate(&samples, |sample| sample.tg_begin_third),
+        tg_middle_third: aggregate(&samples, |sample| sample.tg_middle_third),
+        tg_end_third: aggregate(&samples, |sample| sample.tg_end_third),
         decoded_tokens,
     })
 }

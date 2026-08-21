@@ -150,7 +150,16 @@ than in the working documentation.
 ## Remaining Limit
 
 Fresh RTX 3060 long-context profiling is recorded in
+[the NVIDIA prefill checkpoint](docs/vulkan-nvidia-long-context-prefill.md) and
 [the NVIDIA decode checkpoint](docs/vulkan-nvidia-long-context-decode.md).
+The motivating 15,435-token prefill symptom no longer reproduces: fresh 8B
+all-GPU hybrid TTFT is 22.062 s at 699.63 tok/s, and the matching 14B/16K
+capacity row is 33.945 s. Current 512-row timestamps attribute 8B/28K prefill
+as 40.5% exact attention, 56.8% projections/MLP, and 2.7% support/control.
+The remaining optimistic exact-attention removal is 3.70 s, or 7.64% of whole
+prefill, below the complex-redesign gate; acquired Q4/Q6 alternatives remain
+closed by performance or unchanged numerical qualification.
+
 At 14B/15K, decode is 51.334 ms/token rather than the stale 220 ms symptom;
 exact attention has only 0.94 ms of practical traffic headroom and the best
 completed Q6 candidate predicts 1.83 ms (3.69% whole-token gain), below its

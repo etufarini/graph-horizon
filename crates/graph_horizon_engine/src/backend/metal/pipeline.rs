@@ -26,8 +26,6 @@ const GQA_DECODE_THREADGROUP_MEMORY: usize = 20_544;
 pub(crate) enum Kernel {
     Embedding,
     Matmul,
-    MatmulQ4,
-    MatmulQ6,
     MatmulBatched,
     MatmulBatchedWide,
     Rmsnorm,
@@ -52,8 +50,6 @@ pub(crate) enum Kernel {
 const KERNELS: &[Kernel] = &[
     Kernel::Embedding,
     Kernel::Matmul,
-    Kernel::MatmulQ4,
-    Kernel::MatmulQ6,
     Kernel::MatmulBatched,
     Kernel::MatmulBatchedWide,
     Kernel::Rmsnorm,
@@ -80,8 +76,6 @@ impl Kernel {
         match self {
             Self::Embedding => "metal_embedding",
             Self::Matmul => "metal_matmul",
-            Self::MatmulQ4 => "metal_matmul_q4",
-            Self::MatmulQ6 => "metal_matmul_q6",
             Self::MatmulBatched => "metal_matmul_batched",
             Self::MatmulBatchedWide => "metal_matmul_batched_wide",
             Self::Rmsnorm => "metal_rmsnorm",

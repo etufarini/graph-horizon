@@ -31,22 +31,17 @@ pub(crate) fn encode(
         other => return Err(eyre!("metal: unsupported weight format '{other:?}'")),
     };
     if matches!(format, 1 | 3) {
-        let kernel = if format == 1 {
-            Kernel::MatmulQ4
-        } else {
-            Kernel::MatmulQ6
-        };
         // Two independent SIMD-groups share one threadgroup. Each still owns
         // exactly two output rows. Mixed placement retains its qualified
         // single-group route because its CPU-dominant control regresses here.
-        if p.get(kernel).width != 32 {
+        if p.get(Kernel::Matmul).width != 32 {
             return Err(eyre!("metal: quantized projection requires 32 threads"));
         }
         if !mixed_placement {
             return dispatch::encode_threadgroups(
                 e,
                 p,
-                kernel,
+                Kernel::Matmul,
                 &[a, w, out],
                 &super::u32s(&[input, output, format, u32::from(fp32)]),
                 [(output as usize).div_ceil(4), 1, 1],
@@ -60,7 +55,7 @@ pub(crate) fn encode(
         return dispatch::encode(
             e,
             p,
-            kernel,
+            Kernel::Matmul,
             &[a, w, out],
             &super::u32s(&[input, output, format, u32::from(fp32)]),
             [threads, 1, 1],

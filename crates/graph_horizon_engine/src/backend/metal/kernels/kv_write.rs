@@ -33,8 +33,6 @@ pub(crate) fn encode(
         vectors,
         kv.head_dim as u32,
         u32::from(kv.scheme == KvQuant::Int8),
-        kv.context as u32,
-        kv.kv_heads as u32,
     ]));
     dispatch::encode(
         e,

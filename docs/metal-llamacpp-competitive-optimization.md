@@ -455,3 +455,176 @@ Metal-hybrid has 203 unit tests with the same integration counts and ignores.
 Pure-Metal clippy passes with warnings denied. Hybrid retains two pre-existing
 unused-`simd` warnings in CPU attention. The production implementation is
 `bcefc59`; diagnostics were removed by `6322e33`.
+
+### M08 — grouped-attention long-context crossover: REJECT
+
+M08 tested whether the pre-M04 grouped kernel should return above 8K. The old
+kernel loads each K/V tile once per KV head and shares it across four query
+heads; M04 instead spends fourfold logical K/V traffic to expose one workgroup
+per eight query rows and query head. Both kernels were already present, so the
+candidate was one dispatch guard plus an extension of the serial attention
+oracle to base 8,192. The oracle passed.
+
+A back-to-back 3B/12K component trace rejected the crossover. Keeping M04 for
+the whole prompt used 38,423.44 ms of attention and 76,409.14 ms total GPU
+time. Switching only chunks whose base was at least 8,192 to grouped attention
+used 52,544.54 ms of attention and 85,686.05 ms total GPU time: +36.75% in the
+target component and +12.14% on the GPU interval. The control ran second, when
+non-attention kernels were 12--15% slower from heat, yet its attention was
+still 14.12 seconds faster. Increased occupancy is therefore worth more than
+four-head K/V sharing on this M4. Exact candidate `fa1d6af` was removed by
+`be0bbbc`; temporary profiling was removed by `a8b0f5f`.
+
+### M09 — eight-group C64 attention: REJECT
+
+M09 tested the last comparator-derived occupancy variant on the retained M04
+kernel. Eight SIMD groups formed the same C64 score tile; each group owned one
+softmax row and 16 output dimensions instead of two rows and 32 dimensions.
+Traffic, arithmetic, FP32 online state, FP16 boundaries, dispatch count, and
+9.3 KiB threadgroup allocation were unchanged. The serial oracle passed.
+
+The diagnostics-free 3B/2K A/B/A TTFT was 6,261.90 ms for M07, 6,309.03 ms for
+M09, and 6,292.25 ms for the M07 bookend. M09 regressed 0.51% against the
+control mean; candidate CV was 0.07%. Decode was unchanged. Because the same
+256-thread resource geometry applies to every history tile, there is no
+evidence-based long-context crossover. Exact candidate `f0ed961` was removed
+by `918b208`.
+
+## Final diagnostics-free matrix
+
+The final binary is SHA-256
+`a166863382875d596f5cc71406c2d6782b8b15b95c58427350bfb951f7122c1c`.
+It contains retained M01, M04, and M07 and no diagnostics or rejected
+production code. Ratios and gaps use the same llama.cpp measurements from the
+fresh baseline session.
+
+| Model | Workload | Final ours | llama.cpp | Ratio | Absolute gap | Ours vs initial |
+|---|---|---:|---:|---:|---:|---:|
+| 3B | prefill 128 | 342.46 ms | 290.42 ms | 1.18x | 52.04 ms | -29.65% |
+| 3B | prefill 512 | 1,399.19 ms | 1,196.05 ms | 1.17x | 203.14 ms | -29.36% |
+| 3B | prefill 2K | 6,262.51 ms | 5,190.83 ms | 1.21x | 1,071.68 ms | -28.65% |
+| 3B | prefill 8K | 38,749.78 ms | 28,862.63 ms | 1.34x | 9,887.15 ms | -20.68% |
+| 3B | prefill 28K | 372,482.44 ms | 173,509.39 ms | 2.15x | 198,973.05 ms | +11.18%* |
+| 8B | prefill 128 | 907.79 ms | 684.07 ms | 1.33x | 223.72 ms | -25.29% |
+| 8B | prefill 2K | 16,067.86 ms | 12,144.89 ms | 1.32x | 3,922.97 ms | -23.11% |
+| 14B | prefill 128 | 1,672.76 ms | 1,234.37 ms | 1.36x | 438.40 ms | -15.24% |
+| 14B | prefill 2K | 27,085.42 ms | 22,634.22 ms | 1.20x | 4,451.20 ms | -23.79% |
+| 3B | decode KV128 | 34.28 ms/token | 23.67 ms/token | 1.45x | 10.62 ms/token | +1.92% |
+| 3B | decode KV512 | 40.92 ms/token | 25.34 ms/token | 1.61x | 15.57 ms/token | +2.29% |
+| 3B | decode KV2K | 28.84 ms/token | 26.44 ms/token | 1.09x | 2.39 ms/token | +2.71% |
+| 3B | decode KV8K | 40.95 ms/token | 31.51 ms/token | 1.30x | 9.44 ms/token | +4.05% |
+| 3B | decode KV28K | 104.71 ms/token | 53.58 ms/token | 1.95x | 51.13 ms/token | +35.92%* |
+| 8B | decode KV128 | 65.45 ms/token | 48.76 ms/token | 1.34x | 16.69 ms/token | +2.42% |
+| 8B | decode KV2K | 59.49 ms/token | 51.67 ms/token | 1.15x | 7.82 ms/token | +2.26% |
+| 14B | decode KV128 | 98.33 ms/token | 76.66 ms/token | 1.28x | 21.67 ms/token | +2.36% |
+| 14B | decode KV2K | 95.24 ms/token | 81.24 ms/token | 1.17x | 14.00 ms/token | +3.33% |
+
+Final prefill dispersion was:
+
+| Model/workload | Mean / median / SD / CV (ms) |
+|---|---:|
+| 3B/128 | 342.46 / 342.35 / 0.26 / 0.07% |
+| 3B/512 | 1,399.19 / 1,399.40 / 1.84 / 0.13% |
+| 3B/2K | 6,262.51 / 6,261.23 / 3.96 / 0.06% |
+| 3B/8K | 38,749.78 / 38,018.14 / 3,261.56 / 8.42% |
+| 3B/28K | 372,482.44 / 372,568.54 / 1,709.53 / 0.46%* |
+| 8B/128 | 907.79 / 919.96 / 24.55 / 2.70% |
+| 8B/2K | 16,067.86 / 16,133.18 / 595.52 / 3.71% |
+| 14B/128 | 1,672.76 / 1,673.35 / 9.27 / 0.55% |
+| 14B/2K | 27,085.42 / 27,256.16 / 1,049.36 / 3.87% |
+
+`*` The 28K final run started after the complete model/context matrix and took
+more than 22 minutes for warm-up plus three repetitions. Its low within-run CV
+describes a stable throttled state, not cross-run comparability: it is 11.2%
+slower than the initial binary even though M07 changes only projection prefill,
+reduces the seven measured matrices by 27.36% at 2K, and leaves attention and
+decode source unchanged. It is retained exactly as observed, but is not used
+to infer a code regression or retained speedup. The 8K point is also thermally
+noisy; a nominally cooled repeat was 42,181.82 ms with 13.35% CV. Both 8K runs
+agree on direction versus the initial 48,851.51 ms but not on a precise gain.
+
+At stable 3B points through 2K, the competitive prefill gap fell from
+1.66--1.69x to 1.17--1.21x. The retained projection changes are prefill-only;
+the roughly 2--4% decode movement through 8K is session drift rather than a
+claimed regression. The raw thermally stressed 28K decode row has the same
+qualification warning as its TTFT.
+
+## Final attribution and global stop
+
+M07 reaches the comparator-derived projection floor at 2K: its seven matrices
+take 4,960.32 ms, versus the 4,970 ms practical linear floor inferred from
+llama.cpp. Attention is then 910.27 ms and 14.46% of the 6,295.15 ms GPU
+interval. Even halving that component could remove only 7.2% of the request,
+below the 10% complex-redesign gate.
+
+Long prefill remains the largest bottleneck. In the post-M07 12K all-M04 trace,
+attention is 38,423.44 ms, 50.97% of accounted kernel time. The llama.cpp fit
+assigns about 20.36 seconds to quadratic work at the same length, leaving a
+theoretical 18.07-second attention envelope. This is not treated as an
+implementation floor. The concrete mechanisms that could plausibly reach it
+were tested:
+
+- split query-head history and merge (M02): at most 3.08% at stable 2K and no
+  qualified 8K win;
+- four-group query-head C64 SIMD-matrix attention (M04): retained, -22.57%
+  locally at 2K and -5.44% at the qualified 4K endpoint;
+- grouped four-head K/V reuse above 8K (M08): +36.75% local attention time at
+  12K, rejected;
+- eight-group C64 occupancy (M09): +0.51% end-to-end at 2K, rejected.
+
+Larger C tiles cannot keep score/probability, scaling, K/V, and FP32 online
+output state within the 32 KiB M4 threadgroup contract. Current llama.cpp flash
+attention also uses SIMD-group matrices rather than the Metal tensor path.
+MPP cooperative matmul cannot retain its destination across the intervening
+online-softmax nonlinearity; using it would require extra tile/state
+materialization and has no comparator or measured evidence for a 10% request
+gain. This is an explicit mechanism boundary, not a claim that quadratic
+causal attention is inherently optimal.
+
+Decode's largest thermally qualified gap is 21.67 ms/token at 14B/128. The
+acquired Metal investigation already measured native grouped decode ownership
+and one-, two-, four-, and eight-split history equivalents; four splits is the
+winner and eight regresses at 28K. No remaining decode component has a fresh
+attribution-backed candidate above the economic gate.
+
+The global stop condition is therefore met: projection reached its practical
+comparator floor, every identified attention ownership/occupancy mechanism was
+retained or falsified, orchestration is outside the critical path, and no
+remaining distinct candidate has evidence for at least a 5% moderate or 10%
+complex end-to-end gain. The largest residual is long-prefill attention; a
+future restart requires a genuinely new mechanism or new hardware evidence,
+not another local tile/split variant.
+
+## Reproduction and final state
+
+Build the diagnostics-free Graph Horizon endpoint with:
+
+```sh
+cargo build --locked --release --no-default-features --features metal \
+  --example bench
+```
+
+For a requested prompt length `N`, the synthetic input is `"a "` repeated
+`N - 4` times. For example, the exact 2K command is:
+
+```sh
+prompt=$(printf 'a %.0s' {1..2044})
+target/release/examples/bench \
+  /Users/emanuele/Documents/models/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
+  --context 32768 --kv f16 --prompt "$prompt" \
+  --max-tokens 32 --warmup 1 --reps 3
+```
+
+The llama.cpp reference was built at
+`2b63e0610bbc2be990ae1360d5256efcdc3f9efb` with Metal enabled and run as a
+fresh server for each model with full GPU offload, context 32,768, F16 K/V,
+flash attention, batch/microbatch 64, greedy sampling, no prompt-cache reuse,
+and the same generated text. The exact token IDs are recorded under
+"Qualified tuple" so a tokenizer-level reproduction can verify equivalence.
+
+The final source tree contains only retained M01/M04/M07 production changes,
+tests, and this report. M02/M03/M05/M06/M08/M09 production candidates and all
+temporary profilers are removed by ordinary revert commits. Complete pure
+Metal and Metal-hybrid suites, the focused Q4/Q6 and attention oracles,
+authenticated F16/INT8 llama.cpp parity, pure-Metal clippy with warnings
+denied, formatting, and `git diff --check` pass. Nothing was pushed.

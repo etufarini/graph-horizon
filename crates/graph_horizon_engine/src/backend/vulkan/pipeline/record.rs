@@ -4,6 +4,9 @@
  * a 1D/2D grid, and records the trailing compute barrier.
  */
 
+#[cfg(feature = "vulkan-profile")]
+use std::time::Instant;
+
 use ash::vk;
 
 use super::{Kernel, PipelineRegistry};
@@ -66,6 +69,10 @@ fn record(
                 .buffer_info(std::slice::from_ref(info))
         })
         .collect();
+    #[cfg(feature = "vulkan-profile")]
+    let stamp = dev
+        .profile
+        .begin_kernel(&dev.device, cmd, k, groups_x, groups_y);
     // SAFETY: `cmd` is recording; `p`'s pipeline/layout are live and built for this device;
     // `writes` (and `push`) outlive the calls and bind exactly the kernel's declared
     // descriptors/push range before the dispatch.
@@ -73,6 +80,8 @@ fn record(
         dev.device
             .cmd_bind_pipeline(cmd, vk::PipelineBindPoint::COMPUTE, p.pipeline);
     }
+    #[cfg(feature = "vulkan-profile")]
+    let descriptor_started = Instant::now();
     // SAFETY: the command and pipeline layout are live; `writes` outlives the call.
     unsafe {
         dev.push_desc.cmd_push_descriptor_set(
@@ -91,6 +100,13 @@ fn record(
         }
         dev.device.cmd_dispatch(cmd, groups_x, groups_y, 1);
     }
+    #[cfg(feature = "vulkan-profile")]
+    dev.profile.end_kernel(
+        &dev.device,
+        cmd,
+        stamp,
+        descriptor_started.elapsed().as_secs_f64() * 1000.0,
+    );
     if !dev
         .skip_next_barrier
         .swap(false, std::sync::atomic::Ordering::Relaxed)

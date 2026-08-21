@@ -395,6 +395,11 @@ INT8 attention maximum absolute delta is 1.526e-5 under unchanged tolerances.
 It covers causal attention, GQA, F16, INT8 coding, Q4_K/Q6_K projections,
 logits, prefill/decode equivalence and long-context KV behavior.
 
+Post-change multi-model smoke rows also completed on the local 8B and 14B
+Instruct Q4_K_M artifacts with INT8 KV at depth 128/context 2K: 24.719 and
+41.781 ms/model-token respectively. The 8B route exercises the supported GQA
+shape; shapes outside the exact 4:1 predicate retain the portable fallback.
+
 The final 15,434-prompt/256-output INT8 public request measured:
 
 | metric | result |

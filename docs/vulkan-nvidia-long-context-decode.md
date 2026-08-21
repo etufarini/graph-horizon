@@ -246,6 +246,13 @@ The retained 512-row batch costs 81,592,320 bytes (77.81 MiB). CPU ownership
 is 551,026,688 bytes: 550,502,400 bytes of bounded staging plus 524,288 fixed,
 not resident layers. There are no CPU/GPU copies/token.
 
+The capacity fallback was exercised directly. At capacities 19,500 and 19,750,
+the 512-row plan exceeds the available budget but the loader keeps all 40 GPU
+layers with the accounted 32-row plan (12,055,019,520 and 12,095,979,520 bytes).
+At 20,000, the 32-row plan also no longer fits and ordinary one-layer mixed
+placement begins. Optional scratch therefore never causes an avoidable decode
+residency regression.
+
 For the 3B 32,768-capacity matrix, weights are 2.139 GB and reserved F16 KV is
 3.490 GB. Logical KV occupancy is:
 
@@ -346,6 +353,7 @@ Qualification passes:
 - exact greedy output equality between hybrid and pure Vulkan at 128 and 2K;
 - F16 and INT8 8K passkey recovery through the public API;
 - 14B 1,156-token generation with no within-run decay or placement change;
+- 14B near-capacity fallback preserving all-GPU residency at 19,500/19,750;
 - pure Vulkan compilation and generic fallback preservation.
 
 Temporary probes and profiling variants are not production files. The next

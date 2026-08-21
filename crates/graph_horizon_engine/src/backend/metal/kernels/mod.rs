@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn q4_and_q6_batched_projection_matches_sequential_rows() -> Result<()> {
         const INPUT: usize = 512;
-        const OUTPUT: usize = 128;
+        const OUTPUT: usize = 96;
         let device = Device::acquire()?;
         let pipelines = PipelineRegistry::load(&device)?;
         for rows in [3usize, 32, 64] {
@@ -318,16 +318,8 @@ mod tests {
                 let bytes = quant_fixture(format, OUTPUT, INPUT);
                 let weights = MetalBuffer::allocate(&device, bytes.len() as u64, format)?;
                 weights.write(&bytes)?;
-                let wide = rows == 64;
-                let batched = MetalBuffer::allocate(
-                    &device,
-                    (rows * OUTPUT * if wide { 4 } else { 2 }) as u64,
-                    if wide {
-                        MetalFormat::F32
-                    } else {
-                        MetalFormat::F16
-                    },
-                )?;
+                let batched =
+                    MetalBuffer::allocate(&device, (rows * OUTPUT * 2) as u64, MetalFormat::F16)?;
                 let sequential =
                     MetalBuffer::allocate(&device, (rows * OUTPUT * 2) as u64, MetalFormat::F16)?;
 
@@ -361,14 +353,7 @@ mod tests {
                 }
                 encoder.submit()?;
 
-                let batched = if wide {
-                    crate::backend::metal::exec::readback::logits(&batched, rows * OUTPUT)?
-                        .into_iter()
-                        .map(|value| f16_to_f32(f32_to_f16(value)))
-                        .collect()
-                } else {
-                    halfs(&batched, rows * OUTPUT)?
-                };
+                let batched = halfs(&batched, rows * OUTPUT)?;
                 let sequential = halfs(&sequential, rows * OUTPUT)?;
                 for (index, (got, want)) in batched.into_iter().zip(sequential).enumerate() {
                     assert!(got.is_finite());

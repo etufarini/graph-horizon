@@ -58,7 +58,7 @@ pub(crate) fn encode_decode(
         if qualified && total_bytes <= scratch.len() as u64 {
             let partial = scratch.view(0, partial_bytes)?;
             let state = scratch.view(partial_bytes, state_bytes)?;
-            let mut c = constants(kv, qh, base, 1, layer, false);
+            let mut c = constants(kv, qh, base, 1, layer);
             c.extend(0_u32.to_ne_bytes());
             dispatch::encode_threadgroups(
                 e,

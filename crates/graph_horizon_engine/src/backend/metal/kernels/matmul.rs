@@ -88,22 +88,16 @@ pub(crate) fn encode_batched(
         MetalFormat::Q6K => 3,
         _ => 0,
     };
-    let items = (rows as usize)
-        .checked_mul(output as usize)
-        .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?;
-    let fp32 = out.len() == items.checked_mul(4).ok_or_else(arithmetic)?;
-    if !fp32 && out.len() != items.checked_mul(2).ok_or_else(arithmetic)? {
-        return Err(arithmetic());
-    }
-    // Pure-Metal prefill stores the complete FP32 accumulator directly. The
-    // exact Q64 tile avoids bounds staging; every consumer restores the graph's
-    // FP16 boundary before use. Hybrid and partial rows retain existing paths.
-    if fp32
-        && rows == 64
-        && output.is_multiple_of(64)
-        && cooperative(mixed_placement, rows, input, output, format)
-    {
-        let kernel = Kernel::MatmulBatchedWide;
+    // The cooperative path is retained only where its A/B control passed;
+    // an effective Mixed suffix keeps the stable per-row execution order.
+    if cooperative(mixed_placement, rows, input, output, format) {
+        // The separate wide pipeline preserves the 32-row route's 14 KiB
+        // threadgroup footprint while reusing each weight tile for 64 rows.
+        let kernel = if rows > 32 {
+            Kernel::MatmulBatchedWide
+        } else {
+            Kernel::MatmulBatched
+        };
         if p.get(kernel).width != 32 {
             return Err(eyre!("metal: batched projection requires 32 threads"));
         }
@@ -114,23 +108,12 @@ pub(crate) fn encode_batched(
             &[a, w, out],
             &super::u32s(&[input, output, format, rows]),
             [(output as usize).div_ceil(64), 1, 1],
-            256,
-        );
-    }
-    if !fp32 && rows <= 32 && cooperative(mixed_placement, rows, input, output, format) {
-        return dispatch::encode_threadgroups(
-            e,
-            p,
-            Kernel::MatmulBatched,
-            &[a, w, out],
-            &super::u32s(&[input, output, format, rows]),
-            [(output as usize).div_ceil(64), 1, 1],
-            128,
+            if rows > 32 { 256 } else { 128 },
         );
     }
 
     let input_stride = u64::from(input) * 2;
-    let output_stride = u64::from(output) * if fp32 { 4 } else { 2 };
+    let output_stride = u64::from(output) * 2;
     for row in 0..u64::from(rows) {
         let input_row = a.view(row * input_stride, input_stride)?;
         let output_row = out.view(row * output_stride, output_stride)?;
@@ -142,15 +125,11 @@ pub(crate) fn encode_batched(
             w,
             input,
             output,
-            fp32,
+            false,
             mixed_placement,
         )?;
     }
     Ok(())
-}
-
-fn arithmetic() -> color_eyre::Report {
-    eyre!("metal: buffer arithmetic overflow")
 }
 
 fn cooperative(mixed_placement: bool, rows: u32, input: u32, output: u32, format: u32) -> bool {

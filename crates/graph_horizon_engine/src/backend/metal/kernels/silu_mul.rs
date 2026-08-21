@@ -16,13 +16,12 @@ pub(crate) fn encode(
     u: &MetalBuffer,
     n: u32,
 ) -> Result<()> {
-    let fp32 = g.len() == (n as usize).checked_mul(4).unwrap_or(usize::MAX);
     dispatch::encode(
         e,
         p,
         Kernel::SiluMul,
         &[g, u, out],
-        &super::u32s(&[n, u32::from(fp32)]),
+        &n.to_ne_bytes(),
         [n as usize, 1, 1],
     )
 }

@@ -76,8 +76,8 @@ kernel void metal_matmul_batched(device const half*a[[buffer(0)]],device const u
  threadgroup_barrier(mem_flags::mem_threadgroup);
  for(uint index=tid;index<32*64;index+=128){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
 }
-kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device float*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
- threadgroup half weights[64*32],acts[64*32];
+kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
+ threadgroup half weights[64*32],acts[64*32];threadgroup float result[64*64];
  simdgroup_float8x8 acc[8];for(uint i=0;i<8;i++)acc[i]=make_filled_simdgroup_matrix<float,8>(0.0f);
  uint ns=p.input/256,group_out=group*64;
  for(uint base=0;base<p.input;base+=32){
@@ -103,5 +103,7 @@ kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device co
   threadgroup_barrier(mem_flags::mem_threadgroup);
  }
  uint out_tile=(sg&1)*32,token_tile=(sg>>1)*16;
- for(uint token=0;token<2;token++)for(uint column=0;column<4;column++)simdgroup_store(acc[token*4+column],out+(token_tile+token*8)*p.output+group_out+out_tile+column*8,p.output,0,false);
+ for(uint token=0;token<2;token++)for(uint column=0;column<4;column++)simdgroup_store(acc[token*4+column],result+(token_tile+token*8)*64+out_tile+column*8,64,0,false);
+ threadgroup_barrier(mem_flags::mem_threadgroup);
+ for(uint index=tid;index<64*64;index+=256){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
 }

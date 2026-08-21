@@ -34,19 +34,18 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
         if capacity == 0 {
             bail!("mistral prefill: zero batch capacity");
         }
-        let projected = backend.prefill_matmul_output_bytes();
         let widths = [
             (cfg.embedding_length, 4usize),
             (cfg.embedding_length, 2),
-            (cfg.q_width, projected),
-            (cfg.k_width, projected),
-            (cfg.v_width, projected),
+            (cfg.q_width, 2),
+            (cfg.k_width, 2),
+            (cfg.v_width, 2),
             (cfg.attention_width, 2),
-            (cfg.embedding_length, projected),
-            (cfg.feed_forward_length, projected),
-            (cfg.feed_forward_length, projected),
+            (cfg.embedding_length, 2),
             (cfg.feed_forward_length, 2),
-            (cfg.embedding_length, projected),
+            (cfg.feed_forward_length, 2),
+            (cfg.feed_forward_length, 2),
+            (cfg.embedding_length, 2),
         ];
         let align = backend.min_buffer_offset_alignment();
         let mut items = Vec::with_capacity(widths.len());
@@ -102,19 +101,18 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
     }
 
     pub(crate) fn scratch(&self, cfg: &MistralConfig, rows: usize) -> Scratch<B::Buffer> {
-        let projected = self.backend.prefill_matmul_output_bytes();
         Scratch {
             x: self.rows(X, rows, cfg.embedding_length, 4),
             normed: self.rows(NORMED, rows, cfg.embedding_length, 2),
-            q: self.rows(Q, rows, cfg.q_width, projected),
-            k: self.rows(K, rows, cfg.k_width, projected),
-            v: self.rows(V, rows, cfg.v_width, projected),
+            q: self.rows(Q, rows, cfg.q_width, 2),
+            k: self.rows(K, rows, cfg.k_width, 2),
+            v: self.rows(V, rows, cfg.v_width, 2),
             attn: self.rows(ATTN, rows, cfg.attention_width, 2),
-            proj: self.rows(PROJ, rows, cfg.embedding_length, projected),
-            gate: self.rows(GATE, rows, cfg.feed_forward_length, projected),
-            up: self.rows(UP, rows, cfg.feed_forward_length, projected),
+            proj: self.rows(PROJ, rows, cfg.embedding_length, 2),
+            gate: self.rows(GATE, rows, cfg.feed_forward_length, 2),
+            up: self.rows(UP, rows, cfg.feed_forward_length, 2),
             act: self.rows(ACT, rows, cfg.feed_forward_length, 2),
-            ffn_out: self.rows(FFN_OUT, rows, cfg.embedding_length, projected),
+            ffn_out: self.rows(FFN_OUT, rows, cfg.embedding_length, 2),
         }
     }
 }

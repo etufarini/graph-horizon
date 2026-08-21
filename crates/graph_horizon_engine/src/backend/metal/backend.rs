@@ -40,10 +40,6 @@ impl Backend for MetalBackend {
         4
     }
 
-    fn prefill_matmul_output_bytes(&self) -> usize {
-        if cfg!(feature = "metal") { 4 } else { 2 }
-    }
-
     fn begin(&self) -> Result<MetalEncoder> {
         MetalEncoder::begin(&self.device)
     }

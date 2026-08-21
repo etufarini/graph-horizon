@@ -33,13 +33,6 @@ pub(crate) fn encode(
         vectors,
         kv.head_dim as u32,
         u32::from(kv.scheme == KvQuant::Int8),
-        u32::from(
-            k.len()
-                == (vectors as usize)
-                    .checked_mul(kv.head_dim)
-                    .and_then(|items| items.checked_mul(4))
-                    .ok_or_else(|| eyre!("metal: buffer arithmetic overflow"))?,
-        ),
     ]));
     dispatch::encode(
         e,

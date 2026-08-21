@@ -30,6 +30,7 @@ pub(crate) struct PartitionedSession<'a, D: HybridDevice, G: LayeredGraph> {
     pub(super) config: &'a G::Config,
     pub(super) state: Option<KvState<D>>,
     pub(super) shape: RuntimeShape,
+    pub(super) gpu_prefill_rows: usize,
     graph: PhantomData<G>,
 }
 
@@ -115,6 +116,14 @@ mod tests {
 
         fn invalid_percentage_error() -> &'static str {
             "invalid test percentage"
+        }
+
+        fn prefill_rows(_: &Self::Device, _: usize, _: usize, default_rows: usize) -> usize {
+            default_rows
+        }
+
+        fn active_prefill_rows(&self, _: usize, _: usize, reserved_rows: usize) -> usize {
+            reserved_rows
         }
 
         fn fixed_bytes(_: &RuntimeShape) -> Result<DeviceFixedBytes> {
@@ -350,6 +359,7 @@ mod tests {
                 cpu: backend(8, true),
                 gpu: backend(gpu_x_bytes, false),
             },
+            gpu_prefill_rows: shape().gpu_prefill_rows,
         }
     }
 
@@ -368,6 +378,7 @@ mod tests {
         let all_gpu = HybridRuntime {
             plan: HybridPlan::new(0, 2, BackendBytes::default(), BackendBytes::default())?,
             backends: HybridBackends::AllGpu(backend(8, true)),
+            gpu_prefill_rows: 7,
         };
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&all_gpu, &(), shape(), 8, KvQuant::F16)?;
@@ -376,6 +387,7 @@ mod tests {
         let cpu_only = HybridRuntime {
             plan: HybridPlan::new(2, 2, BackendBytes::default(), BackendBytes::default())?,
             backends: HybridBackends::CpuOnly(backend(8, true)),
+            gpu_prefill_rows: shape().gpu_prefill_rows,
         };
         let session =
             PartitionedSession::<CpuBackend, Graph>::new(&cpu_only, &(), shape(), 8, KvQuant::F16)?;
@@ -387,7 +399,7 @@ mod tests {
         crate::backend::hybrid::crossing::reset_count();
         session.prefill(&[0, 1, 0], 0, &mut || Ok(()))?;
 
-        assert_eq!(PREFILL_ROWS.with(|seen| seen.borrow().clone()), [4, 3]);
+        assert_eq!(PREFILL_ROWS.with(|seen| seen.borrow().clone()), [7, 3]);
         assert_eq!(BATCH_ROWS.with(|seen| seen.borrow().clone()), [2, 2]);
         assert_eq!(crate::backend::hybrid::crossing::count(), 2);
         Ok(())
@@ -420,10 +432,12 @@ mod tests {
             HybridRuntime {
                 plan: HybridPlan::new(0, 2, BackendBytes::default(), BackendBytes::default())?,
                 backends: HybridBackends::AllGpu(backend(8, true)),
+                gpu_prefill_rows: shape().gpu_prefill_rows,
             },
             HybridRuntime {
                 plan: HybridPlan::new(2, 2, BackendBytes::default(), BackendBytes::default())?,
                 backends: HybridBackends::CpuOnly(backend(8, true)),
+                gpu_prefill_rows: shape().gpu_prefill_rows,
             },
         ] {
             let session = PartitionedSession::<CpuBackend, Graph>::new(

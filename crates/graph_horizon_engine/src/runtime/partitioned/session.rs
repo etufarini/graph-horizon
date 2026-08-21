@@ -59,6 +59,7 @@ impl<'a, D: HybridDevice, G: LayeredGraph> PartitionedSession<'a, D, G> {
             config,
             state: Some(state),
             shape,
+            gpu_prefill_rows: runtime.gpu_prefill_rows,
             graph: std::marker::PhantomData,
         })
     }

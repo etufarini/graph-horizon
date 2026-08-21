@@ -432,7 +432,7 @@ is now INT8 prefill, not decode.
 
 ## Correctness, quality and request impact
 
-The standard hybrid workspace suite passed: 178 root tests, 230 engine tests,
+The standard hybrid workspace suite passed: 178 root tests, 231 engine tests,
 the decode harness test, six family-contract tests and twelve semantic tests;
 only explicitly ignored authenticated/external rows were skipped. The explicit
 long-context GPU oracle passed F16 and INT8 at 2K, 8K and 28K. At 28K the new

@@ -82,18 +82,22 @@ The retained throughput harness aggregates public events:
 |---|---|---|
 | `prompt_tps_*` | Prompt-token count divided by time to first public text delta; includes first sampling | tokens/second |
 | `ttft_ms_*` | Time from `Engine::generate` entry to first public text delta | milliseconds |
+| `model_decode_tps_*` | Terminal model completion-token count divided by engine decode time | tokens/second |
 | `decode_tps_*` | Intervals between first and last public text deltas | deltas/second |
+| `delta_interval_ms_*` | Distribution of every positive adjacent public-delta interval | milliseconds |
+| `decode_begin_tps`, `decode_middle_tps`, `decode_end_tps` | Mean rate in the first, middle, and final third of each request | deltas/second |
 
-`prompt_tokens` comes from terminal `GenerationStats` after the engine's actual
-tokenization and template. `decoded_tokens` counts public `TextDelta` events.
+`prompt_tokens` and `completion_tokens` come from terminal `GenerationStats`
+after the engine's actual tokenization and generation. `decoded_tokens` counts public `TextDelta` events.
 It is not the model completion-token count: a model token that leaves an
 incomplete UTF-8 sequence produces no immediate public delta.
 
 Each family reports its arithmetic mean, median, sample standard deviation, and CV.
 CV is sample standard deviation divided by a positive mean and is printed as a
 fractional ratio. With one measured repetition, standard deviation and CV are
-`n/a`, never zero. The benchmark does not print the harness's first/last decode
-segment statistics.
+`n/a`, never zero. Third-segment rates are `n/a` when fewer than six public
+deltas make a stable three-way split impossible. Delta-interval dispersion is
+also model-token dispersion only when `decoded_tokens == completion_tokens`.
 
 ## Success Output
 
@@ -101,7 +105,7 @@ A successful invocation writes exactly one newline-terminated stdout record in
 this field order:
 
 ```text
-prompt_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_median=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_median=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_median=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a>
+prompt_tokens=<integer> completion_tokens=<integer> decoded_tokens=<integer> prompt_tps_mean=<fixed-2> prompt_tps_median=<fixed-2> prompt_tps_stddev=<fixed-2|n/a> prompt_tps_cv=<fixed-4|n/a> ttft_ms_mean=<fixed-2> ttft_ms_median=<fixed-2> ttft_ms_stddev=<fixed-2|n/a> ttft_cv=<fixed-4|n/a> model_decode_tps_mean=<fixed-2> model_decode_tps_median=<fixed-2> model_decode_tps_stddev=<fixed-2|n/a> model_decode_tps_cv=<fixed-4|n/a> decode_tps_mean=<fixed-2> decode_tps_median=<fixed-2> decode_tps_stddev=<fixed-2|n/a> decode_tps_cv=<fixed-4|n/a> delta_interval_ms_mean=<fixed-2> delta_interval_ms_median=<fixed-2> delta_interval_ms_stddev=<fixed-2> delta_interval_ms_cv=<fixed-4> decode_begin_tps=<fixed-2|n/a> decode_middle_tps=<fixed-2|n/a> decode_end_tps=<fixed-2|n/a>
 ```
 
 `fixed-2` has exactly two decimal places. `fixed-4` has exactly four decimal

@@ -42,7 +42,7 @@ pub(crate) fn encode_decode(
             && kv.kv_heads.checked_mul(4) == Some(qh as usize)
             && split.width == 32
             && split.max_threads >= 256
-            && split.threadgroup_memory == 16 * 1024
+            && split.threadgroup_memory == 32 * 1024
             && reduce.width == 32
             && reduce.max_threads >= 32
             && reduce.threadgroup_memory == 0;

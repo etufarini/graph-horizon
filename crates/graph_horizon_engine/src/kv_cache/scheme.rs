@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — runtime KV-cache scheme selection (the `--kv-quant` contract)
  * One `KvQuant` value chosen at load from the CLI, fixed BEFORE any alloc and
- * never changed for the engine's lifetime (I1). Branching on it is allowed only
+ * never changed for the engine's lifetime. Branching on it is allowed only
  * at op-dispatch level — once per `kv_write`/`attention_*` call — never per
  * token/element inside kernels.
  *
@@ -9,7 +9,7 @@
  * (token, kv_head), for K or for V. Each scheme fixes the payload bytes per
  * vector and the metadata bytes per role; the byte-region math over whole
  * buffers lives in `layout`, and the int8 quantization arithmetic lives in
- * `int8` (bit-identical CPU<->Vulkan, I3).
+ * `int8` and is bit-identical between CPU and Vulkan.
  *
  * Adding a scheme: a variant here (parse/name/sizing rows), the normative
  * scalar reference under `kv_cache`, one arm in each backend's per-call
@@ -39,8 +39,8 @@ impl KvQuant {
     pub const ALL: &'static [KvQuant] = &[KvQuant::F16, KvQuant::Int8];
 
     // Parses a CLI value. Case-sensitive by design: the flag vocabulary is
-    // lowercase like every other flag value (D8). `None` = invalid (the CLI
-    // emits the error listing `ALL`).
+    // lowercase like every other flag value. `None` means invalid; the CLI
+    // emits the error listing `ALL`.
     pub fn parse(s: &str) -> Option<KvQuant> {
         match s {
             "f16" => Some(KvQuant::F16),
@@ -89,7 +89,7 @@ mod tests {
 
     #[test]
     fn parse_is_case_sensitive_and_rejects_unknown() {
-        assert_eq!(KvQuant::parse("INT8"), None); // D8: lowercase only
+        assert_eq!(KvQuant::parse("INT8"), None); // Lowercase only.
         assert_eq!(KvQuant::parse("F16"), None);
         assert_eq!(KvQuant::parse(""), None);
         assert_eq!(KvQuant::parse("int9"), None);

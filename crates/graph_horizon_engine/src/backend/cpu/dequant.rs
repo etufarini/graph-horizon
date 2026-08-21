@@ -7,7 +7,7 @@
  * values) — and the F16 widening. Length validation lives HERE and only runs at
  * `load`: `dequant_row` returns `()` and assumes valid blocks, exactly like the
  * shaders. Values are produced in natural in-dimension order, so weight `i` pairs
- * with activation `a[i]`; the kernels (m1/m2) consume one row at a time, never
+ * with activation `a[i]`; matmul kernels consume one row at a time without
  * materializing the whole tensor in f32.
 */
 
@@ -43,7 +43,7 @@ pub(crate) fn validate(format: CpuFormat, byte_len: usize) -> Result<()> {
 // Dequantizes output row `row` (length `in_dim`) into `out[..in_dim]`, in natural
 // in-dimension order. A row is a whole number of contiguous blocks; the
 // exactness of that division is guaranteed by `validate` at load. Cannot fail:
-// block validity is established once, at load. Consumed by the kernels in m1.
+// block validity is established once at load.
 pub(crate) fn dequant_row(
     format: CpuFormat,
     bytes: &[u8],
@@ -442,7 +442,7 @@ mod tests {
     }
 
     // FP16-scale rounding tolerance: scales are FP16, so compare in f32 with a
-    // small relative tolerance (C-2). The golden inputs below use scales/quants
+    // small relative tolerance. The golden inputs below use scales/quants
     // chosen so every expected value is an exact small integer, but the assertion
     // stays tolerant per the spec.
     fn approx_eq(got: f32, want: f32) {

@@ -54,10 +54,8 @@ pub(super) fn rate(count: f64, duration: f64) -> Option<f64> {
 }
 
 // Derives one rep's metrics from the delta `offsets` (seconds since `t_start`,
-// monotonically non-decreasing) and `n_prompt`. Pure, so the segment math is unit
-// tested without a model. Segments split the generation positions into two
-// contiguous halves and reuse the already-collected timestamps:
-//   m = d/2; tg_first = (m − 1)/(t_m − t_1); tg_last = (d − m − 1)/(t_d − t_{m+1}).
+// monotonically non-decreasing) and `n_prompt`. Pure, so the segment math is
+// unit tested without a model.
 pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
     let d = offsets.len();
     let ttft_s = offsets.first().copied();
@@ -68,17 +66,6 @@ pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
         rate((d - 1) as f64, offsets[d - 1] - offsets[0])
     } else {
         None
-    };
-
-    // Segments need ≥ 4 deltas (≥ 2 per half). First half: positions 1..m; last
-    // half: positions m+1..d (1-based, as documented above).
-    let (tg_first, tg_last) = if d >= 4 {
-        let m = d / 2;
-        let first = rate((m - 1) as f64, offsets[m - 1] - offsets[0]);
-        let last = rate((d - m - 1) as f64, offsets[d - 1] - offsets[m]);
-        (first, last)
-    } else {
-        (None, None)
     };
 
     let segment = |start: usize, end: usize| {
@@ -110,8 +97,6 @@ pub(super) fn rep_metrics(offsets: &[f64], n_prompt: usize) -> RepSample {
         prompt_tps,
         tg,
         model_tg: None,
-        tg_first,
-        tg_last,
         tg_begin,
         tg_middle,
         tg_end,
@@ -182,8 +167,6 @@ mod tests {
                 prompt_tps: Some(10.0),
                 tg: None,
                 model_tg: None,
-                tg_first: None,
-                tg_last: None,
                 tg_begin: None,
                 tg_middle: None,
                 tg_end: None,
@@ -195,8 +178,6 @@ mod tests {
                 prompt_tps: Some(5.0),
                 tg: None,
                 model_tg: None,
-                tg_first: None,
-                tg_last: None,
                 tg_begin: None,
                 tg_middle: None,
                 tg_end: None,
@@ -216,29 +197,13 @@ mod tests {
         approx(r.ttft_s.unwrap(), 0.5);
         approx(r.prompt_tps.unwrap(), 20.0);
         assert!(r.tg.is_none());
-        assert!(r.tg_first.is_none());
-        assert!(r.tg_last.is_none());
     }
 
     #[test]
-    fn rep_metrics_two_deltas_tg_no_segments() {
-        // 2 deltas: tg = (2-1)/(t_last-t_first) = 1/1.0 = 1.0; segments need ≥4.
+    fn rep_metrics_two_deltas_tg() {
+        // 2 deltas: tg = (2-1)/(t_last-t_first) = 1/1.0 = 1.0.
         let r = rep_metrics(&[1.0, 2.0], 4);
         approx(r.tg.unwrap(), 1.0);
-        assert!(r.tg_first.is_none());
-        assert!(r.tg_last.is_none());
-    }
-
-    #[test]
-    fn rep_metrics_segments_split() {
-        // 4 deltas at 1,2,4,8. d=4, m=2.
-        //   tg       = (4-1)/(8-1)       = 3/7
-        //   tg_first = (m-1)/(t_2 - t_1) = (1)/(2-1)   = 1.0
-        //   tg_last  = (d-m-1)/(t_4-t_3) = (1)/(8-4)   = 0.25
-        let r = rep_metrics(&[1.0, 2.0, 4.0, 8.0], 100);
-        approx(r.tg.unwrap(), 3.0 / 7.0);
-        approx(r.tg_first.unwrap(), 1.0);
-        approx(r.tg_last.unwrap(), 0.25);
     }
 
     #[test]

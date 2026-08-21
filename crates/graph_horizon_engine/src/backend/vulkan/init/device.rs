@@ -1,21 +1,9 @@
 /*
  * graph_horizon_engine — Vulkan device
- * Owns the brought-up Vulkan device: the logical `ash::Device`, the compute queue,
- * the memory properties for device-local VRAM and host-visible coherent RAM, the
- * optional cooperative-matrix / dp4a / memory-budget capabilities,
- * the dedicated streaming transfer queues, a command pool and the barrier-elision
- * flag. `init()` here is the orchestrator: it creates the instance, then delegates
- * physical-device selection, requirement checks and logical-device creation to
- * `bootstrap`, and assembles the `Device`. Runtime helpers (submit, barrier, budget,
- * transfer-queue lookup) live in `commands`. Errors are explicit (no Vulkan, no
- * compute queue, no suitable device, missing host-visible memory) and carry no paths.
- *
- * Beyond the compute queue the `Device` can own up to two DEDICATED transfer queues
- * for the streamed-prefill copies (H2D weights, D2H KV): families exposing `TRANSFER`
- * WITHOUT `COMPUTE`/`GRAPHICS`, chosen deterministically in family-index order. Their
- * absence is not an error: uploads use the shared compute queue
- * queue, then the compute queue, so correctness never depends on the queue choice
- * (P10) — the fences/semaphores in `streaming.rs` provide ordering.
+ * Owns the Vulkan instance, logical device, compute queue, command pool, memory
+ * properties, immutable optional capabilities, and barrier-elision flag. `init()`
+ * creates the instance, delegates physical-device checks and logical-device
+ * creation, then assembles the owner. Errors are explicit and contain no paths.
 */
 
 use ash::vk;
@@ -51,7 +39,7 @@ pub(crate) struct Device {
     pub wave32_control: bool,
     // Required start alignment (bytes) for a storage-buffer binding offset. A
     // sub-view's byte offset must be a multiple of this or the binding is
-    // undefined; the prefill path (m3) validates row offsets against it before
+    // undefined; the graph prefill path validates row offsets against it before
     // constructing any view. Exposed here; not enforced at the buffer layer.
     pub min_storage_buffer_offset_alignment: u64,
     pub push_desc: ash::khr::push_descriptor::Device,

@@ -819,7 +819,7 @@ mod tests {
         assert_eq!(out.read_f16_as_f32(), ref_buf.read_f16_as_f32());
     }
 
-    // Bridge between the two kernels (invariant I1): a single-query prefill
+    // Bridge between the two kernels: a single-query prefill
     // (n = 1, base = pos) must produce exactly the decode output for that pos.
     // Both go through `attend` with the same f32 ops, so equality is bit-for-bit.
     // Uses GQA group 4 and layer 1 to exercise the widest path and layer offset.
@@ -856,7 +856,7 @@ mod tests {
         assert_eq!(dec.read_f16_as_f32(), pre.read_f16_as_f32());
     }
 
-    // Bit-identical parity across (row, head) units (invariant I2): with more units
+    // Bit-identical parity across (row, head) units: with more units
     // than a typical core count, the parallel prefill output must equal a plain
     // serial loop over rows and heads, byte for byte. Causal: each row i attends
     // only 0..=i. Uses GQA group 4 to exercise the widest reuse path.

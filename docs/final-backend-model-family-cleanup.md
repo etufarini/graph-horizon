@@ -380,6 +380,14 @@ Two cleanup candidates are proven before production editing:
    The associated invariants are real; the historical labels and nonexistent
    ownership description are not. Rewrite them as direct present-tense
    invariants without changing code.
+3. The public throughput report still exposes first/last-half decode rates and
+   the harness still computes them, although the maintained benchmark and its
+   documented output use the later begin/middle/end thirds plus interval
+   dispersion. Repository-wide consumer searches find the half fields only at
+   their definitions and aggregation sites. History confirms the thirds
+   superseded the half measurements. Remove this accidental benchmark-research
+   surface rather than preserving two segment schemes; no engine request,
+   backend, model, or documented benchmark contract changes.
 
 The smallest first change is deletion of the one unconsumed example and repair
 of stale comments in existing files. Main risk: accidentally removing a tool
@@ -398,6 +406,8 @@ crates/graph_horizon_engine/src/
   backend/cpu/...                   (comments only; no productive-line growth)
   backend/vulkan/...                (comments only; no productive-line growth)
   kv_cache/...                      (comments only; no productive-line growth)
+  harness/throughput.rs             (~130 productive lines before, reduced)
+  harness/stats.rs                  (~120 productive lines before, reduced)
 src/app/engine/config.rs            (comment only; no productive-line growth)
 docs/
   final-backend-model-family-cleanup.md
@@ -410,7 +420,36 @@ declared exemptions.
 
 ## Cleanup Decisions
 
-To be updated after each verified change.
+The accepted cleanup keeps every runtime route, capability gate, fallback,
+weight representation, resource owner, kernel, and shader unchanged. It makes
+three bounded reductions:
+
+1. Removed the 199-line campaign-only `examples/decode.rs`. No support script,
+   test, current benchmark document, or production caller consumed it. The AMD
+   campaign report now marks its invocation as historical and points to the
+   maintained `examples/bench.rs` interface.
+2. Removed the superseded first/last-half decode calculation: two public
+   `ThroughputReport` fields, two internal sample fields, their aggregation and
+   arithmetic, and one obsolete unit test. This is the only public API change;
+   it deliberately removes accidental benchmark-research surface with no
+   repository consumer or documented output contract. The maintained thirds,
+   interval dispersion, prompt/decode metrics, and benchmark output are intact.
+3. Replaced stale campaign identifiers and nonexistent Vulkan transfer-queue
+   ownership prose with direct present-tense invariants. This is comment-only
+   outside the two removals above.
+
+The main invariants remain: one compile-time backend, one canonical model
+configuration, immutable capability-based routing, exact Q4_K_M tensor identity,
+operation-local fallback, and exact-once resource release. The change reduces
+conceptual complexity: one executable and one redundant measurement scheme are
+gone, and no abstraction, dependency, resource state, dispatch branch, or
+production file was added.
+
+After these edits, formatting and warning-denied Clippy pass for CPU, Vulkan,
+and Vulkan-hybrid. Workspace all-target tests pass in all three profiles; the
+Vulkan runs execute the available RTX 3060 numeric/lifecycle kernel coverage.
+Real-artifact, quality, performance, and cross-hardware qualification are
+recorded separately below after the candidate is frozen.
 
 ## Final Complexity and Validation
 

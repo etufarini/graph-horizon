@@ -115,7 +115,7 @@ mod tests {
             .map(|c| f16_to_f32(u16::from_le_bytes([c[0], c[1]])))
             .collect();
 
-        // FP16 activation + FP16 result rounding ⇒ compare within the I2 tolerance.
+        // FP16 activation + FP16 result rounding require the established tolerance.
         for o in 0..out_dim {
             let (g, w) = (got[o], want[o]);
             let ok = (g - w).abs() <= 1e-2 || (g - w).abs() <= 1e-3 * w.abs().max(1.0);

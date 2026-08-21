@@ -44,6 +44,10 @@ target/release/examples/decode MODEL 15434 32768 int8 32 5
 target/release/examples/decode MODEL 15434 32768 f16 32 5
 ```
 
+The campaign-only `decode` executable was removed by the final production
+cleanup after these measurements were recorded. This command remains historical
+evidence; `examples/bench.rs` is the maintained benchmark interface.
+
 Arguments are `model depth context f16|int8 completion-tokens repetitions`.
 The harness primes one caller-keyed prefix, requires exact prefix reuse, rejects
 short completions, and reports engine model-token time independently from wall

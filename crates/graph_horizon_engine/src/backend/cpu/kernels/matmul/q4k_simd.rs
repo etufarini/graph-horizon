@@ -14,8 +14,8 @@
  * dequant::scale_min (single source of truth for the j>=4 6-bit recomposition);
  * only the 32-wide nibble→f32→FMA inner loop is vectorized. Accumulation is
  * reordered (8 lane-parallel partials, summed at the end), so the result is within
- * the quantized tolerance of the scalar kernel, not bit-identical (I1-2). Invariant
- * I1-3 is unaffected: this is a per-row function, rows stay independent.
+ * the quantized tolerance of the scalar kernel, not bit-identical. This remains a
+ * per-row function, so rows stay independent.
 */
 
 // AGENTS deroga K: kernel matmul Q4_K SIMD (AVX2), una sola operazione.

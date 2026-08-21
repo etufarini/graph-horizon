@@ -1,6 +1,6 @@
 /*
  * graph_horizon_engine — Tekken pre-tokenizer segmentation
- * Small dependency-free segmentation state machine for the M1 Tekken boundary.
+ * Small dependency-free segmentation state machine for the Tekken boundary.
  * It keeps `clean_spaces=false` behavior by preserving whitespace exactly and
  * treats every segment as ordinary bytes; control-token interpretation is left
  * exclusively to the chat renderer.

@@ -25,6 +25,18 @@ pub(crate) trait HybridDevice: Backend {
     fn topology() -> MemoryTopology;
     fn all_mode_name() -> &'static str;
     fn invalid_percentage_error() -> &'static str;
+    fn prefill_rows(
+        device: &Self::Device,
+        block_count: usize,
+        context: usize,
+        default_rows: usize,
+    ) -> usize;
+    fn active_prefill_rows(
+        &self,
+        block_count: usize,
+        context: usize,
+        reserved_rows: usize,
+    ) -> usize;
     fn fixed_bytes(shape: &RuntimeShape) -> Result<DeviceFixedBytes>;
     fn load_selected(
         device: Self::Device,

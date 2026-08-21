@@ -95,6 +95,14 @@ impl crate::backend::hybrid::contract::HybridDevice for MetalBackend {
         "invalid Metal weight percentage"
     }
 
+    fn prefill_rows(_: &Self::Device, _: usize, _: usize, default_rows: usize) -> usize {
+        default_rows
+    }
+
+    fn active_prefill_rows(&self, _: usize, _: usize, reserved_rows: usize) -> usize {
+        reserved_rows
+    }
+
     fn fixed_bytes(
         shape: &crate::backend::hybrid::weights::runtime::RuntimeShape,
     ) -> color_eyre::eyre::Result<crate::backend::hybrid::weights::runtime::DeviceFixedBytes> {

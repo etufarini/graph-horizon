@@ -24,7 +24,7 @@ pub(super) fn run<D: HybridDevice, G: LayeredGraph>(
             kv,
             prompt,
             base,
-            session.shape.gpu_prefill_rows,
+            session.gpu_prefill_rows,
             before_batch,
         ),
         (HybridBackends::CpuOnly(backend), Some(KvState::CpuOnly(kv))) => G::prefill(

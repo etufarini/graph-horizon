@@ -371,5 +371,37 @@ cliff that overwhelms the saved barriers and would also tighten device
 admission. Exact candidate `3a2d34d` was removed by `b02ae2a`; K32 and the 24
 KiB footprint remain production.
 
-Final matrices and reproduction commands will be appended as the investigation
-proceeds.
+### M06 — FP32-backed prefill projection scratch: REJECT
+
+M06 tested the largest remaining projection-occupancy hypothesis after M05.
+The wide kernel stored its FP32 SIMD-matrix accumulators directly to device
+memory, removing the 16 KiB threadgroup result tile and its final barrier. Pure
+Metal prefill projection scratch widened from two to four bytes per element;
+every RoPE, KV-write, attention, activation, and residual consumer explicitly
+cast the stored value through `half`, preserving the established graph boundary.
+Decode, hybrid placement, KV representation, weights, and attention output did
+not change.
+
+At 2K the current seven-matrix component is 6,828.21 ms. The comparator-linear
+practical floor is about 4,970 ms, so the full projection design space has an
+upper recoverable envelope of 1,858 ms, or 23.3% of the 7,961.28 ms workload.
+M06 addressed only result staging and the occupancy it consumed, not the
+dominant dequantization/matrix-feed work; it was tested as a prerequisite for
+lower-footprint projection mappings rather than assuming that full envelope.
+
+The focused oracle exercised the actual 64-row FP32 wide route for Q4_K and
+Q6_K and compared its values after half-rounding with sequential F16 output.
+It and all ten Metal kernel tests passed. The diagnostics-free screens were:
+
+| Tuple | M04 A | M06 | M04 bookend | M06 vs control mean | M06 CV |
+|---|---:|---:|---:|---:|---:|
+| 3B/512 TTFT | 1,826.47 ms | 1,798.38 ms | 1,824.48 ms | -1.48% | 0.17% |
+| 3B/2K TTFT | 7,933.81 ms | 7,838.91 ms | 7,965.07 ms | -1.39% | 0.07% |
+
+The gain is real but far below the 5% moderate-redesign gate and costs doubled
+projection scratch plus format-aware logic across 18 files. It is not an
+economically justified production change while a large gap remains. Exact
+candidate `743e4a9` was removed by `726201a`; the retained M04 binary and F16
+scratch contract are restored.
+
+Final matrices and reproduction commands follow after global reranking.

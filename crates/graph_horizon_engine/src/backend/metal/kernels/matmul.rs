@@ -93,7 +93,9 @@ pub(crate) fn encode_batched(
     if cooperative(mixed_placement, rows, input, output, format) {
         // The separate wide pipeline preserves the 32-row route's 14 KiB
         // threadgroup footprint while reusing each weight tile for 64 rows.
-        let kernel = if rows > 32 {
+        let kernel = if rows > 32 && p.supports_tensor_matmul() {
+            Kernel::MatmulBatchedTensor
+        } else if rows > 32 {
             Kernel::MatmulBatchedWide
         } else {
             Kernel::MatmulBatched
@@ -108,7 +110,13 @@ pub(crate) fn encode_batched(
             &[a, w, out],
             &super::u32s(&[input, output, format, rows]),
             [(output as usize).div_ceil(64), 1, 1],
-            if rows > 32 { 256 } else { 128 },
+            if matches!(kernel, Kernel::MatmulBatchedTensor) {
+                128
+            } else if rows > 32 {
+                256
+            } else {
+                128
+            },
         );
     }
 

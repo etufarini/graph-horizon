@@ -5,6 +5,8 @@
  */
 // AGENTS deroga K: varianti coese della sola operazione projection.
 #include <metal_stdlib>
+#include <metal_tensor>
+#include <MetalPerformancePrimitives/MetalPerformancePrimitives.h>
 using namespace metal;
 struct Params { uint input; uint output; uint format; uint fp32; };
 struct BatchParams { uint input; uint output; uint format; uint rows; };
@@ -106,4 +108,25 @@ kernel void metal_matmul_batched_wide(device const half*a[[buffer(0)]],device co
  for(uint token=0;token<2;token++)for(uint column=0;column<4;column++)simdgroup_store(acc[token*4+column],result+(token_tile+token*8)*64+out_tile+column*8,64,0,false);
  threadgroup_barrier(mem_flags::mem_threadgroup);
  for(uint index=tid;index<64*64;index+=256){uint token=index/64,column=index%64,dst_column=group_out+column;if(token<p.rows&&dst_column<p.output)out[token*p.output+dst_column]=half(result[index]);}
+}
+kernel void metal_matmul_batched_tensor(device const half*a[[buffer(0)]],device const uchar*w[[buffer(1)]],device half*out[[buffer(2)]],constant BatchParams&p[[buffer(3)]],uint group[[threadgroup_position_in_grid]],ushort tid[[thread_index_in_threadgroup]],ushort sg[[simdgroup_index_in_threadgroup]]){
+ (void)sg;constexpr int tile_out=64,tile_rows=64,tile_k=32,chunks=2,threads=128;threadgroup half weights[tile_out*tile_k];uint ns=p.input/256,group_out=group*tile_out;
+ auto weight_tensor=tensor(weights,dextents<int32_t,2>(tile_k,tile_out));
+ auto activation_tensor=tensor((device half*)a,dextents<int32_t,2>(int(p.input),int(p.rows)),array<int,2>({1,int(p.input)}));
+ mpp::tensor_ops::matmul2d<mpp::tensor_ops::matmul2d_descriptor(tile_rows,tile_out,tile_k,false,true,true,mpp::tensor_ops::matmul2d_descriptor::mode::multiply_accumulate),execution_simdgroups<4>> mm;
+ auto result=mm.get_destination_cooperative_tensor<decltype(activation_tensor),decltype(weight_tensor),half>();
+ for(uint base=0;base<p.input;base+=tile_k){
+  // Each thread owns one output row and one K16 half; together the 128
+  // threads publish the complete canonical K32 dequant tile before MPP reads.
+  uint row=tid/chunks,chunk=tid%chunks,column=group_out+row,k=base+chunk*16;half4x4 values;
+  if(column<p.output){uint block=(column*ns+k/256)*(p.format==1?144:210);if(p.format==1)q4x16(w,block,k&255,values);else q6x16(w,block,k&255,values);}
+  else for(uint i=0;i<16;i++)values[i/4][i%4]=half(0.0h);
+  for(uint i=0;i<16;i++)weights[row*tile_k+chunk*16+i]=values[i/4][i%4];
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+  auto weight_tile=weight_tensor.slice(0,0);auto activation_tile=activation_tensor.slice(int(base),0);mm.run(activation_tile,weight_tile,result);
+  threadgroup_barrier(mem_flags::mem_threadgroup);
+ }
+ // The cooperative F16 destination is the graph's established projection
+ // boundary; no widened activation or persistent execution representation leaks.
+ auto output_tensor=tensor(out,dextents<int32_t,2>(int(p.output),int(p.rows)),array<int,2>({1,int(p.output)}));result.store(output_tensor.slice(int(group_out),0));
 }

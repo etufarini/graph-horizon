@@ -32,6 +32,10 @@ unsafe impl Send for Device {}
 unsafe impl Sync for Device {}
 
 impl Device {
+    pub(crate) fn supports_metal4(&self) -> bool {
+        self.raw.supportsFamily(MTLGPUFamily(5002))
+    }
+
     #[cfg(any(test, feature = "metal"))]
     pub(crate) fn acquire() -> Result<Self> {
         let raw =

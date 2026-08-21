@@ -44,6 +44,7 @@ pub(crate) enum Kernel {
     AttentionGqaReduce,
     #[cfg(feature = "metal")]
     AttentionPrefillMatrix,
+    MatmulBatchedTensor,
 }
 
 const KERNELS: &[Kernel] = &[
@@ -67,6 +68,7 @@ const KERNELS: &[Kernel] = &[
     Kernel::AttentionGqaReduce,
     #[cfg(feature = "metal")]
     Kernel::AttentionPrefillMatrix,
+    Kernel::MatmulBatchedTensor,
 ];
 
 impl Kernel {
@@ -92,6 +94,7 @@ impl Kernel {
             Self::AttentionGqaReduce => "metal_attention_gqa_reduce",
             #[cfg(feature = "metal")]
             Self::AttentionPrefillMatrix => "metal_attention_prefill_matrix",
+            Self::MatmulBatchedTensor => "metal_matmul_batched_tensor",
         }
     }
 }
@@ -147,6 +150,9 @@ impl PipelineRegistry {
             .map_err(|_| eyre!("metal: pipeline library load failed"))?;
         let mut values = Vec::with_capacity(KERNELS.len());
         for &kernel in KERNELS {
+            if matches!(kernel, Kernel::MatmulBatchedTensor) && !device.supports_metal4() {
+                continue;
+            }
             #[cfg(test)]
             if fail_at == Some(values.len()) {
                 return Err(eyre!("metal: pipeline creation failed"));
@@ -164,6 +170,11 @@ impl PipelineRegistry {
                 && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 256)
             {
                 return Err(eyre!("metal: wide prefill pipeline is unavailable"));
+            }
+            if matches!(kernel, Kernel::MatmulBatchedTensor)
+                && (raw.threadExecutionWidth() != 32 || raw.maxTotalThreadsPerThreadgroup() < 128)
+            {
+                return Err(eyre!("metal: tensor prefill pipeline is unavailable"));
             }
             #[cfg(feature = "metal")]
             if matches!(kernel, Kernel::AttentionGqaDecode)
@@ -193,6 +204,10 @@ impl PipelineRegistry {
 
     pub(crate) fn get(&self, kernel: Kernel) -> &Pipeline {
         &self.values[kernel as usize]
+    }
+
+    pub(crate) fn supports_tensor_matmul(&self) -> bool {
+        self.values.len() == KERNELS.len()
     }
 }
 

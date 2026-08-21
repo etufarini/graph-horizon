@@ -43,8 +43,6 @@ pub(crate) enum Kernel {
     #[cfg(feature = "metal")]
     AttentionGqaReduce,
     #[cfg(feature = "metal")]
-    AttentionGqaMatrixSplit,
-    #[cfg(feature = "metal")]
     AttentionPrefillMatrix,
     MatmulBatchedTensor,
 }
@@ -68,8 +66,6 @@ const KERNELS: &[Kernel] = &[
     Kernel::AttentionGqaSplit,
     #[cfg(feature = "metal")]
     Kernel::AttentionGqaReduce,
-    #[cfg(feature = "metal")]
-    Kernel::AttentionGqaMatrixSplit,
     #[cfg(feature = "metal")]
     Kernel::AttentionPrefillMatrix,
     Kernel::MatmulBatchedTensor,
@@ -96,8 +92,6 @@ impl Kernel {
             Self::AttentionGqaSplit => "metal_attention_gqa_split",
             #[cfg(feature = "metal")]
             Self::AttentionGqaReduce => "metal_attention_gqa_reduce",
-            #[cfg(feature = "metal")]
-            Self::AttentionGqaMatrixSplit => "metal_attention_gqa_matrix_split",
             #[cfg(feature = "metal")]
             Self::AttentionPrefillMatrix => "metal_attention_prefill_matrix",
             Self::MatmulBatchedTensor => "metal_matmul_batched_tensor",

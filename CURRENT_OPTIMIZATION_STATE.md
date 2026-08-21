@@ -37,6 +37,7 @@ The authenticated 3B artifact used throughout the investigation was
 | CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
 | CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
 | Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |
+| Metal pipelined C64 attention QK | Metal matrix path, rows 64, F16 KV, head 128, exact 4:1 GQA | established tiled/segmented/serial Metal attention | 3B/15K TTFT 103.184 → 84.298 s; 28K 280.058 → 214.704 s |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
@@ -117,8 +118,10 @@ public-event boundary than llama.cpp prompt evaluation.
 
 | Workload | Metal final | llama.cpp | Final ratio |
 |---|---:|---:|---:|
-| 3B prefill / 128 | 677.26 ms | 323.55 ms | 2.09x |
-| 3B prefill / 2K | 11.449 s | 5.768 s | 1.99x |
+| 3B prefill / 128 | 331.65 ms | 299.18 ms | 1.11x |
+| 3B prefill / 2K | 5.694 s | 5.649 s | 1.01x |
+| 3B prefill / 15K | 84.298 s | 72.853 s | 1.16x |
+| 3B prefill / 28K | 214.704 s | 176.111 s | 1.22x |
 | 8B prefill / 2K | 26.685 s | 15.427 s | 1.73x |
 | 14B prefill / 2K | 45.329 s | 24.351 s | 1.86x |
 | 3B decode / 2K | 25.40 tok/s | 27.56 tok/s | 1.09x latency |
@@ -174,6 +177,9 @@ numeric or persistent-representation contract.
 
 CPU prefill remains dominated by attention and quantized matrix multiplication;
 the next material designs require new packed-GEMM or query-tiled-attention
-subsystems. Metal's largest remaining gap is tiled F16 long-context attention,
-with INT8 long prefill on a separate non-tiled route. These are new performance
-programs, not unfinished cleanup tasks.
+subsystems. Metal's retained pipelined C64 QK schedule removes 44.4% of 15K
+attention time; the complete evidence is in
+[the Metal prefill checkpoint](docs/metal-long-context-prefill-optimization.md).
+The remaining Metal gap is exact attention's quadratic term, but grouped GQA,
+wider/split ownership, PV pipelining, and head-major KV have the wrong measured
+sign or fail to reproduce. INT8 remains on its correct separate non-tiled route.

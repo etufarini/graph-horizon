@@ -6,14 +6,13 @@ supported model families and artifact profiles remain in the engine README.
 # Local Inference And Backends
 
 The `graph_horizon_engine` crate loads a supported GGUF read-only and exposes a
-synchronous facade for text generation. The local console, server, and web UI
+synchronous facade for text generation. The local console and Web UI
 share the same entry point; no surface imports a concrete backend directly.
 
 It is designed for one active chat generation at a time. This narrow execution
 model keeps KV state, cancellation, allocation lifetime, and error handling
 local to one request. Multi-request batching and serving throughput are outside
-the runtime contract; the HTTP surface exists to carry the same chat flow used
-by the console and Web UI.
+the runtime contract.
 
 ## Model Boundary
 
@@ -205,10 +204,9 @@ device, allocation, pipeline, command, and readback failures remain errors.
 - `int8`, a compact format with per-vector quantization metadata.
 
 Sampling supports greedy/argmax and the public parameters defined by
-`SamplingParams`. Application surfaces may expose only a subset. The server and
-Web wrapper keep Instruct greedy and select the Reasoning sampling policy
-defined by the qualification protocol, with `temperature=0.7`; request
-sampling fields remain ignored.
+`SamplingParams`. Application surfaces may expose only a subset. The Web UI
+keeps Instruct greedy and selects the Reasoning sampling policy defined by the
+qualification protocol, with `temperature=0.7`.
 
 Internal kernel numeric formats do not automatically expand the accepted GGUF
 contract. Technical support and numeric qualification must be recorded

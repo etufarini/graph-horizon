@@ -7,7 +7,7 @@ contract. Console and Web pages own presentation details and link back here.
 
 Graph Horizon applies the capacity gate to the complete assembled request before
 generation or HTTP transport. The dependency-free estimate is approximate, not
-a tokenizer or a replacement for engine and provider validation.
+a tokenizer or a replacement for engine request validation.
 
 ## Canonical Arithmetic
 

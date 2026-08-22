@@ -21,7 +21,7 @@ use super::{ChatMessage, ChunkStream, StreamEvent};
 
 // Builds the console generation closure. The shared Engine is loaded once;
 // every request contains only the text-chat fields the engine owns.
-pub(crate) fn provider(
+pub(crate) fn generation(
     engine: Arc<Engine>,
     max_tokens: usize,
 ) -> impl Fn(Vec<ChatMessage>) -> std::future::Ready<Result<ChunkStream>> {

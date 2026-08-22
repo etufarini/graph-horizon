@@ -2,7 +2,7 @@
  * graph_horizon_engine — test-only Reasoning qualification harness
  * Qualifies one authenticated Ministral Reasoning Q4_K_M artifact through the
  * configurable Rust API on Vulkan all-GPU. This file owns no production policy,
- * server behavior, retry path, or model whitelist; it emits bounded protocol
+ * product-surface behavior, retry path, or model whitelist; it emits bounded protocol
  * records and optional raw response evidence for the qualification runner.
  */
 

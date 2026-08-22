@@ -110,7 +110,7 @@ La release può essere dichiarata qualificata soltanto dopo avere:
 
 1. scelto e registrato un commit finale pulito;
 2. rieseguito sullo stesso commit i gate applicabili di build, lint, frontend,
-   runtime, parity, semantica, serving, failure path e documentazione;
+   runtime, parity, semantica, superfici di prodotto, failure path e documentazione;
 3. creato il tag annotato immutabile `v0.1.0` su quel commit;
 4. generato dal tag `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256`;
 5. verificato installazione pulita, versione e inferenza dall’archivio;

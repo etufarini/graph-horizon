@@ -176,7 +176,7 @@ The current source is not yet release-qualified. Before publishing v0.1.0:
 
 1. select and record one clean final commit;
 2. rerun the applicable build, lint, frontend, runtime, semantic, parity,
-   serving, failure-path, and documentation gates on that source;
+   product-surface, failure-path, and documentation gates on that source;
 3. create the annotated local `v0.1.0` tag on that exact commit;
 4. generate the deterministic source archive and `.sha256` from the tag;
 5. perform a clean-prefix installation, version check, and inference smoke from

@@ -3,9 +3,9 @@
  * CpuBuffer is the CPU counterpart of vulkan's GpuBuffer: host bytes instead of
  * GPU memory. It carries its own CpuFormat (like GpuBuffer.quant) so the kernels
  * pick how to interpret the bytes, and it uses RwLock because kernels write
- * through a shared `&CpuBuffer` reference and the async host (CLI/server) moves
+ * through a shared `&CpuBuffer` reference and the async host moves
  * `Arc<Engine>` across threads, forcing `Engine: Send + Sync` — which `RefCell`
- * (`!Sync`) cannot satisfy. Normal CLI/server generation is serialized; the lock
+ * (`!Sync`) cannot satisfy. Product generation is serialized; the lock
  * still makes shared storage access memory-safe at the type boundary. The only
  * f16<->f32 conversion of the CPU
  * module lives in the sibling `f16` module (scalar + F16C SIMD), re-exported here so

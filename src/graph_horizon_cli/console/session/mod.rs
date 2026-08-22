@@ -149,7 +149,7 @@ where
 {
     let prepared = prepared?;
     let characters = prepared.characters;
-    // The monotonic total starts immediately before provider-future creation.
+    // The monotonic total starts immediately before generation-future creation.
     let started = std::time::Instant::now();
     Ok((generate(prepared.messages), characters, started))
 }
@@ -172,7 +172,7 @@ mod tests {
     use std::cell::Cell;
 
     #[test]
-    fn over_budget_request_preserves_prompt_without_invoking_provider() {
+    fn over_budget_request_preserves_prompt_without_starting_generation() {
         let budget = ContextBudget::new(100, 10).unwrap();
         let prepared = request::assemble(None, &[], &"x".repeat(400), budget);
         let calls = Cell::new(0);

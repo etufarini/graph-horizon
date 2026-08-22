@@ -1,6 +1,6 @@
 /*
  * Graph Horizon CLI Modules - Runtime
- * Single responsibility: expose provider-neutral chat messages, context
+ * Single responsibility: expose local chat messages, context
  * admission values, and streamed generation to the CLI console.
 */
 

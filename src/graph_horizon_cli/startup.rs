@@ -41,7 +41,7 @@ pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
         memory: chat.memory(),
         placement: chat.placement(),
     };
-    let generate = local::provider(chat, max_tokens);
+    let generate = local::generation(chat, max_tokens);
     let mut terminal = ratatui::init();
     let result = terminal_user_interface(
         &mut terminal,

@@ -346,8 +346,8 @@ fn docs_contract() {
 
     for required in [
         "only Ministral 3 2512 `Q4_K_M` GGUF files",
-        "preliminary v0.1.0 candidate qualified five and excluded 8B Reasoning",
-        "later repaired runtime passed the technical matrix on all six artifacts",
+        "final v0.1.0 campaign authenticated all six entries",
+        "qualified all six artifacts in the semantic gate",
         "A Q8 profile is rejected before backend allocation",
         "maximum possible contiguous GPU suffix",
         "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",
@@ -436,7 +436,7 @@ fn docs_contract() {
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    assert!(validation.contains("Graph Horizon `v0.1.0` non è ancora stato rilasciato"));
+    assert!(validation.contains("Graph Horizon `v0.1.0` è stato rilasciato"));
     assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
     assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
     assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));

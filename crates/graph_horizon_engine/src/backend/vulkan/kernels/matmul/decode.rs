@@ -240,14 +240,14 @@ mod tests {
     }
 
     // The MMVQ Q4_K decode GEMV (quant A → per-8 int8 Q8, then DP4A) produces
-    // FINITE logits within tolerance of the CPU Q4_K/f32 oracle. Drives the two
-    // kernels directly (no forward) so it isolates the kernel from the integration.
+    // finite logits within tolerance of the CPU Q4_K/f32 oracle when its caller
+    // coalesces this projection's trailing barrier. The internal quantization
+    // dependency must remain ordered even though the following projection is
+    // independent.
     // Skips when no Vulkan device is present, OR when the device exposes no dp4a
     // (the kernels are then not built and decode keeps the float GEMV).
     #[test]
     fn mmvq_q4k_matches_cpu_oracle() {
-        use crate::backend::vulkan::pipeline::{Kernel, dispatch};
-
         let backend = match VulkanBackend::bare() {
             Ok(b) => b,
             Err(_) => {
@@ -255,12 +255,10 @@ mod tests {
                 return;
             }
         };
-        let dev = &backend.dev;
-        if !dev.dp4a {
+        if !backend.dev.dp4a {
             eprintln!("mmvq parity skipped: device has no integer dot product (dp4a)");
             return;
         }
-        let reg = &backend.reg;
         let in_dim = 512usize; // 2 Q4_K super-blocks per row, 64 Q8 blocks
         let out_dim = 70usize; // not a multiple of 32 → exercises the row boundary
 
@@ -296,47 +294,15 @@ mod tests {
         );
         let ain = backend.alloc_buffer((in_dim * 2) as u64).expect("ain");
         backend.upload_bytes(&ain, &a_bytes).expect("upload a");
-        let qs = backend.alloc_buffer(in_dim as u64).expect("qs"); // in_dim/4 uints = in_dim bytes
-        let nblocks = in_dim / 8;
-        let ds = backend.alloc_buffer((nblocks * 2 * 4) as u64).expect("ds");
         let mut w = GpuBuffer::alloc(&backend.dev, qbytes.len() as u64, false).expect("w");
         w.quant = WeightFormat::Q4K;
         backend.upload_bytes(&w, &qbytes).expect("upload w");
         let out = backend.alloc_buffer((out_dim * 2) as u64).expect("out");
 
-        let cmd = dev.begin_commands().expect("cmd");
-        let qpush = (in_dim as u32).to_le_bytes();
-        dispatch(
-            dev,
-            reg,
-            cmd,
-            Kernel::QuantAQ8F16,
-            &[
-                (ain.buffer, ain.offset, ain.size),
-                (qs.buffer, qs.offset, qs.size),
-                (ds.buffer, ds.offset, ds.size),
-            ],
-            &qpush,
-            (nblocks as u32).div_ceil(64),
-        );
-        let mut mpush = Vec::with_capacity(8);
-        mpush.extend_from_slice(&(in_dim as u32).to_le_bytes());
-        mpush.extend_from_slice(&(out_dim as u32).to_le_bytes());
-        dispatch(
-            dev,
-            reg,
-            cmd,
-            Kernel::MatmulQ4KMmvqF16Out,
-            &[
-                (qs.buffer, qs.offset, qs.size),
-                (ds.buffer, ds.offset, ds.size),
-                (w.buffer, w.offset, w.size),
-                (out.buffer, out.offset, out.size),
-            ],
-            &mpush,
-            (out_dim as u32).div_ceil(32),
-        );
-        dev.submit_wait(cmd).expect("submit");
+        let cmd = backend.begin().expect("cmd");
+        backend.no_barrier();
+        backend.matmul(&cmd, &out, &ain, &w, in_dim as u32, out_dim as u32);
+        backend.submit(cmd).expect("submit");
 
         let raw = backend.read_bytes(&out, out_dim * 2).expect("read");
         let got: Vec<f32> = raw
@@ -353,11 +319,9 @@ mod tests {
             let ok = (g - w).abs() <= 1.5e-1 || (g - w).abs() <= 3e-2 * w.abs().max(1.0);
             assert!(ok, "row {o}: got={g} want={w}");
         }
-        ain.destroy(dev);
-        qs.destroy(dev);
-        ds.destroy(dev);
-        w.destroy(dev);
-        out.destroy(dev);
+        ain.destroy(&backend.dev);
+        w.destroy(&backend.dev);
+        out.destroy(&backend.dev);
     }
 
     #[test]

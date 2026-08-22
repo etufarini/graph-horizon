@@ -50,6 +50,12 @@ pub(crate) fn dispatch_mmvq(
     if !applies(dev.dp4a, w.quant, in_dim) {
         return false; // out of scope: caller keeps the float GEMV
     }
+    // A caller may coalesce independent projections by skipping this logical
+    // operation's trailing barrier. Preserve that request for the final MMVQ
+    // dispatch: quantization and MMVQ share scratch and must stay ordered.
+    let skip_trailing = dev
+        .skip_next_barrier
+        .swap(false, std::sync::atomic::Ordering::Relaxed);
     // Quantize A → int8 Q8 (one invocation per 8-wide block). The trailing compute
     // barrier (in `record`) orders the quant ahead of the GEMV that reads its scratch.
     let nblocks = in_dim / 8;
@@ -67,6 +73,10 @@ pub(crate) fn dispatch_mmvq(
         &qpush,
         nblocks.div_ceil(64).min(MAX_GROUPS_X),
     );
+    if skip_trailing {
+        dev.skip_next_barrier
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     // DP4A Q4_K GEMV: eight lanes per output row, 32 rows per workgroup.
     let mut mpush = Vec::with_capacity(8);
     mpush.extend_from_slice(&in_dim.to_le_bytes());
@@ -114,6 +124,12 @@ pub(crate) fn dispatch_mmq_batched(
         return false;
     }
 
+    // Keep the internal quantization-to-MMQ scratch dependency even when the
+    // caller marks the complete projection independent of the next projection.
+    let skip_trailing = dev
+        .skip_next_barrier
+        .swap(false, std::sync::atomic::Ordering::Relaxed);
+
     let total = u32::try_from(elements).expect("bounded MMVQ scratch fits u32");
     dispatch(
         dev,
@@ -128,6 +144,10 @@ pub(crate) fn dispatch_mmq_batched(
         &total.to_le_bytes(),
         (total / 8).div_ceil(64).min(MAX_GROUPS_X),
     );
+    if skip_trailing {
+        dev.skip_next_barrier
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     let mut push = Vec::with_capacity(12);
     push.extend_from_slice(&in_dim.to_le_bytes());
     push.extend_from_slice(&out_dim.to_le_bytes());

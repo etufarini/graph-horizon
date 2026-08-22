@@ -31,9 +31,9 @@ The installer builds Graph Horizon from source. Before running it, install:
 The default installation directory is `$HOME/.local/bin`. The installer does
 not use `sudo`, modify shell configuration, or download a model.
 
-> The commands below become available when the repository, the `v0.1.0` tag,
-> and its release assets are public. They do not currently work anonymously
-> while the repository is private and the release is unpublished.
+> The `v0.1.0` tag and release assets are published, but the repository remains
+> private. The commands below therefore do not yet work as written for anonymous
+> users; use an authenticated checkout and the local installer instead.
 
 ### macOS
 
@@ -89,12 +89,10 @@ Download one of these exact files from Unsloth on Hugging Face:
 | 8B | Reasoning | [unsloth/Ministral-3-8B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-8B-Reasoning-2512-GGUF) | `Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf` |
 | 14B | Reasoning | [unsloth/Ministral-3-14B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-14B-Reasoning-2512-GGUF) | `Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf` |
 
-The loader recognizes all six entries. The preliminary v0.1.0 candidate
-qualified five and excluded 8B Reasoning under its strict three-process byte
-reproducibility gate. The later repaired runtime passed the technical matrix on
-all six artifacts and qualified all six in the semantic gate, but those results
-do not yet define the final release contract. See
-[validation evidence](docs/validation.md) for the exact SHAs and criteria.
+The final v0.1.0 campaign authenticated all six entries, exercised every locally
+available technical-matrix row without failure, and qualified all six artifacts
+in the semantic gate. See [validation evidence](docs/validation.md) for the exact
+SHAs, environment, external-verification boundaries, and criteria.
 
 A Q8 profile is rejected before backend allocation even though the parser can
 diagnose it.

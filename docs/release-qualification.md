@@ -8,21 +8,22 @@ support registry.
 
 > **Status:** the August 19 material remains historical evidence. The final
 > tag-derived campaign is recorded below and is authoritative only when the
-> local annotated `v0.1.0` tag resolves to the commit containing this report.
-> No push or GitHub Release is part of the local qualification.
+> annotated `v0.1.0` tag resolves to the commit containing this report. The
+> subsequent GitHub publication preserves that qualified tag and its assets;
+> it does not alter the local campaign results.
 
-## Release identity
+## Historical pre-tag release identity
 
 | Field | Value |
 |---|---|
-| Version / tag | `0.1.0` / planned annotated `v0.1.0` |
+| Version / tag | `0.1.0` / then-planned annotated `v0.1.0` |
 | Initial main | `a8b5a16d0c2197a7bcdc46a72546a71556aa5a2f` |
 | Qualified inference RC | `d1bf18f034fd44df5b8e81931e7feea32edeb47f` |
 | Packaging RC | `c59ea4eebdd77cfe2712b64bc11245fe4dd12440` |
 | Final pre-tag candidate | `fe7a46aec1e1b5904413082d95946a45ce70d8d2` |
-| Final source | pending; resolved canonically by immutable `v0.1.0^{commit}` |
+| Final source | then pending; now resolved canonically by immutable `v0.1.0^{commit}` |
 | Qualification date | 2026-08-19 |
-| Determination | `REQUALIFICATION REQUIRED` |
+| Determination | `REQUALIFICATION REQUIRED`; satisfied by the final campaign below |
 
 At the time of this campaign, changes after the qualified inference RC were
 classified as packaging or documentation changes. The repository has since
@@ -185,25 +186,27 @@ and GCC 15.2.0. Source identity is deliberately not copied here: it is exactly
 | Frontend | PASS; 119 tests, 0 Svelte diagnostics, production build, 0 audit findings |
 | ETXTBSY stress | PASS; 20 focused executions plus complete suites, no recurrence |
 | Six catalogued Q4_K_M artifacts | PASS; byte count, SHA-256, and structure 6/6 |
-| Real matrix | 36 PASS, 38 external verification, 0 failure, total 74 |
+| Real matrix | 37 PASS, 37 external verification, 0 failure, total 74 |
 | Terminal semantic gate | 6 qualified, 0 not-qualified, 0 external verification |
 | Tagged archive, checksum, clean-prefix install and installed-product smoke | PASS |
 
 The real matrix's external rows are explicit: six absent Q8_0 negative inputs,
-28 Metal rows unavailable on Linux, and four 14B Vulkan-hybrid mixed rows that
+28 Metal rows unavailable on Linux, and three 14B Vulkan-hybrid mixed rows that
 did not fit this host. All locally executable CPU and standalone Vulkan rows,
-3B/8B mixed rows, and four homogeneous Vulkan-hybrid 3B endpoints matched the
-pinned oracle in F16 and INT8. The current 3B, 8B, and 14B Reasoning rows each
-passed 4/4 critical, 9/9 semantic, and 9/9 complete-marker gates. Their total
-times were 657,926 ms, 418,786 ms, and 484,966 ms respectively, with no retry.
+the available 3B/8B and 14B Reasoning mixed rows, and four homogeneous
+Vulkan-hybrid 3B endpoints matched the pinned oracle in F16 and INT8. The
+current 3B, 8B, and 14B Reasoning rows each passed 4/4 critical, 9/9 semantic,
+and 9/9 complete-marker gates. Their total times were 657,926 ms, 418,786 ms,
+and 484,966 ms respectively, with no retry.
 
 The deterministic `graph-horizon-0.1.0.tar.gz` was generated from the annotated
 tag. `git get-tar-commit-id`, the tag target, the installed source, and this
 report identify the same commit. The canonical digest is only in
 `graph-horizon-0.1.0.tar.gz.sha256`. Installation used an extracted copy of that
 archive and a new prefix, never the working tree. The installed binary passed
-version, CLI/Web UI, and inference smoke checks. Tag and assets remain local;
-publication and the anonymous network bootstrap require separate authorization.
+version, CLI/Web UI, and inference smoke checks. The tag and both assets were
+subsequently published without changing their qualified identity. The anonymous
+network bootstrap remains unavailable while the repository is private.
 
 ## Post-v0.1.0 work
 
@@ -223,7 +226,7 @@ The local qualification remains valid only while all of these stay true:
    from the tag without duplicating its digest in mutable documentation;
 5. retain the clean-prefix installation, version, Web UI, and inference-smoke
    evidence from the generated archive;
-6. publish the tag and both assets only with explicit authorization, then test
-   the anonymous bootstrap if the repository is public.
+6. keep the published tag and both assets aligned with the qualified identity,
+   then test the anonymous bootstrap when the repository becomes public.
 
 The tag must never move. A defect found after publication requires v0.1.1.

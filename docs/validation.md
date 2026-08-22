@@ -8,18 +8,18 @@ log grezzi e decisioni sperimentali restano nella cronologia Git.
 
 ## Stato corrente
 
-Graph Horizon `v0.1.0` non è ancora stato rilasciato: non esistono il tag remoto,
-la GitHub Release o gli artefatti pubblici. La campagna del 19 agosto 2026
-qualifica il solo runtime `d1bf18f034fd44df5b8e81931e7feea32edeb47f`; le
-modifiche runtime successive impediscono di applicarne automaticamente gli
-esiti al commit finale ancora da scegliere.
+Graph Horizon `v0.1.0` è stato rilasciato dal tag annotato e immutabile
+`v0.1.0`. La GitHub Release contiene l'archivio sorgente
+`graph-horizon-0.1.0.tar.gz` e il relativo record SHA-256. Il repository resta
+privato, quindi il bootstrap remoto richiede accesso autenticato e non è ancora
+verificabile anonimamente.
 
-Il software dichiara versione Cargo/frontend `0.1.0`, ma resta non pubblicato.
-Senza il tag locale l'identità è `pending/unqualified`; con il tag, il commit
-finale è esclusivamente quello risolto da `v0.1.0^{commit}`. La correzione engine
-più recente qualificata prima della campagna finale è `e7edc83`, confluita in
-`main` con PR #41 (`24eac82`); l'evidenza precedente resta valida soltanto per le
-revisioni dichiarate.
+Le versioni Cargo e frontend sono `0.1.0`; l'identità finale è esclusivamente il
+commit risolto da `v0.1.0^{commit}`. La campagna finale su quella sorgente
+sostituisce, per il contratto di release, le campagne preliminari sui runtime
+`d1bf18f034fd44df5b8e81931e7feea32edeb47f` ed
+`e7edc8315d397f6eb34c5efb91a9ae20b9b59bc4`; l'evidenza precedente resta
+storica e valida soltanto per le revisioni dichiarate.
 
 La compatibilità tecnica, la correttezza numerica, la qualità semantica e le
 prestazioni sono claim distinti. Un file caricabile non è per questo
@@ -28,12 +28,10 @@ qualificato; un risultato storico non qualifica una sorgente successiva.
 ## Identità canonica della release
 
 Questo file è il registro canonico dello stato di qualifica, ma non duplica
-identità che possono divergere. Dopo il freeze, il commit sorgente esatto si
-ricava con `git rev-parse v0.1.0^{commit}`: il tag annotato immutabile è il
-riferimento autoritativo e deve puntare al commit che contiene questo registro.
-Prima della creazione del tag l'identità resta esplicitamente
-`pending/unqualified`; non viene pubblicato come definitivo alcun hash
-intermedio.
+identità che possono divergere. Il commit sorgente esatto si ricava con
+`git rev-parse v0.1.0^{commit}`: il tag annotato immutabile è il riferimento
+autoritativo e punta al commit che contiene questo registro. Nessun hash
+intermedio costituisce l'identità della release.
 
 L'artefatto canonico è `graph-horizon-0.1.0.tar.gz`, generato con `git archive`
 dal tag. Il solo valore SHA-256 autoritativo è il record affiancato
@@ -98,12 +96,12 @@ quattro endpoint Vulkan-hybrid 3B sono passati. Le tre righe Reasoning correnti
 hanno ottenuto 4/4 casi critici, 9/9 semantici e 9/9 marker completi; le tre
 righe Instruct mantengono l'evidenza preservata dichiarata dal protocollo.
 
-La qualifica locale include inoltre: tag e header Git dell'archivio risolti allo
-stesso commit; checksum affiancato verificato; installazione CPU in prefisso
-pulito eseguita dall'archivio estratto; versione, CLI/Web UI e inferenza smoke
-verificate sul binario installato. Il record `.sha256` e gli asset locali sono
-l'evidenza autoritativa di questi ultimi gate. Nessun push, GitHub Release o
-asset remoto è stato creato.
+La qualifica include inoltre: tag e header Git dell'archivio risolti allo stesso
+commit; checksum affiancato verificato; installazione CPU in prefisso pulito
+eseguita dall'archivio estratto; versione, CLI/Web UI e inferenza smoke
+verificate sul binario installato. Il record `.sha256` pubblicato con la GitHub
+Release coincide con il digest dell'archivio remoto. Il bootstrap anonimo resta
+un gate esterno finché il repository è privato.
 
 ## Artefatti autenticati
 
@@ -126,8 +124,8 @@ catalogo autentica l’evidenza, ma non è una whitelist letta dal runtime.
 
 ## Evidenza backend corrente
 
-Questa tabella descrive lo stato tecnico revisionato, non il contratto della
-futura release. Le misure, le tuple fisiche e i limiti sono riassunti in
+Questa tabella descrive lo stato tecnico revisionato oltre il contratto puntuale
+della release v0.1.0. Le misure, le tuple fisiche e i limiti sono riassunti in
 [`current-optimization-state.md`](current-optimization-state.md).
 
 | Profilo | Evidenza revisionata | Stato tecnico |
@@ -194,8 +192,8 @@ La qualifica sopra resta valida soltanto mantenendo questi invarianti:
 4. archivio `graph-horizon-0.1.0.tar.gz` e relativo `.sha256` derivano dal tag;
 5. checksum, header Git, installazione pulita, versione e inferenza sono verificati
    dall'archivio, non dalla working tree;
-6. pubblicato tag e asset solo con autorizzazione esplicita e verificato il
-   bootstrap anonimo se il repository è pubblico.
+6. tag remoto e asset pubblicati coincidono con l'identità qualificata; il
+   bootstrap anonimo deve essere verificato quando il repository diventa pubblico.
 
 I dettagli della campagna preliminare sono in
 [`release-qualification.md`](release-qualification.md). Le interfacce operative

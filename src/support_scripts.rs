@@ -175,6 +175,12 @@ printf '#!/bin/sh\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/target/$profile/graph-horizo
 "#,
     );
     write_executable(
+        &bin.join("rustc"),
+        br#"#!/usr/bin/env bash
+printf 'rustc %s (fixture)\n' "${GRAPH_HORIZON_TEST_RUST_VERSION:-1.88.0}"
+"#,
+    );
+    write_executable(
         &bin.join("xcrun"),
         br#"#!/usr/bin/env bash
 [[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
@@ -841,6 +847,33 @@ fn installer_reports_missing_prerequisite_before_build() {
 }
 
 #[test]
+fn installer_rejects_unsupported_rust_before_build() {
+    let (fixture, root, bin, log) = installer_fixture("installer Rust version");
+    for (version, diagnostic) in [
+        ("1.87.0", "Rust 1.88 or newer is required"),
+        ("invalid", "cannot determine Rust version"),
+    ] {
+        let prefix = fixture.join(format!("prefix {version}"));
+        let output = Command::new("/bin/bash")
+            .arg(root.join("support/install.sh"))
+            .args(["--backend", "cpu", "--prefix", prefix.to_str().unwrap()])
+            .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+            .env("HOME", fixture.join("home"))
+            .env("GRAPH_HORIZON_TEST_OS", "Linux")
+            .env("GRAPH_HORIZON_TEST_ARCH", "x86_64")
+            .env("GRAPH_HORIZON_TEST_LOG", &log)
+            .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
+            .env("GRAPH_HORIZON_TEST_RUST_VERSION", version)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains(diagnostic));
+        assert!(!log.exists());
+    }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
 fn installer_reports_missing_path_without_mutating_shells() {
     let (fixture, root, bin, log) = installer_fixture("installer path report");
     let home = fixture.join("home");
@@ -908,6 +941,10 @@ fn installer_requires_profile_and_preflights_metal() {
             b"#!/usr/bin/env bash\nprintf called > \"$GRAPH_HORIZON_MUTATION_LOG\"\n",
         );
     }
+    write_executable(
+        &bin.join("rustc"),
+        b"#!/usr/bin/env bash\nprintf 'rustc 1.88.0 (fixture)\\n'\n",
+    );
     let output = Command::new("/bin/bash")
         .arg(repository().join("support/install.sh"))
         .args(["--backend", "metal"])

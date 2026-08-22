@@ -22,7 +22,7 @@ Horizon; it is not part of the project name.
 
 The installer builds Graph Horizon from source. Before running it, install:
 
-- Rust and Cargo;
+- Rust and Cargo 1.88 or newer;
 - Node.js and npm 22.12 or newer;
 - `bash`, `curl`, `tar`, `find`, `awk`, `mktemp`, `uname`, `install`, and either
   `sha256sum` or `shasum`;

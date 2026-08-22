@@ -2,10 +2,14 @@
 members = [".", "crates/graph_horizon_engine"]
 resolver = "3"
 
+[workspace.package]
+rust-version = "1.88"
+
 [package]
 name = "graph-horizon"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
 
 [features]
 # Forward exactly one explicit backend profile to graph_horizon_engine. There is no

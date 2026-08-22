@@ -2,6 +2,7 @@
 name = "graph_horizon_engine"
 version = "0.1.0"
 edition = "2024"
+rust-version.workspace = true
 
 [package.metadata.cargo-machete]
 # cargo-machete does not inspect build.rs, where this dependency is consumed.

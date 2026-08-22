@@ -25,7 +25,7 @@ diversi.
 ## Prerequisiti
 
 - Bash, `curl`, `tar`, `mktemp` e `find` per il bootstrap pubblico;
-- Rust/Cargo, `uname`, `install` e dipendenze di build della piattaforma;
+- Rust/Cargo 1.88 o successivo, `uname`, `install` e dipendenze di build della piattaforma;
 - Node.js/npm 22.12 o successivo per `install.sh`;
 - loader/driver Vulkan per esecuzione Vulkan;
 - artefatti GGUF già acquisiti in sola lettura;

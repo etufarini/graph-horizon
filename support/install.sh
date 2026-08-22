@@ -72,9 +72,18 @@ while [[ "${prefix}" != "/" && "${prefix}" == */ ]]; do
 done
 [[ "${prefix}" != "/" ]] || fail "invalid install prefix"
 
-for prerequisite in bash uname install npm cargo; do
+for prerequisite in bash uname install npm cargo rustc; do
     command -v "${prerequisite}" >/dev/null 2>&1 || fail "${prerequisite} is required"
 done
+
+rust_version="$(rustc --version 2>/dev/null)" || fail "cannot determine Rust version"
+rust_version="${rust_version#rustc }"
+rust_version="${rust_version%% *}"
+IFS=. read -r rust_major rust_minor rust_patch <<< "${rust_version}"
+[[ "${rust_major}" =~ ^[0-9]+$ && "${rust_minor}" =~ ^[0-9]+$ && "${rust_patch}" =~ ^[0-9]+$ ]] \
+    || fail "cannot determine Rust version"
+((rust_major > 1 || (rust_major == 1 && rust_minor >= 88))) \
+    || fail "Rust 1.88 or newer is required"
 
 os="$(uname -s)"
 arch="$(uname -m)"

@@ -1,7 +1,7 @@
 <!--
 This report preserves the preliminary v0.1.0 qualification campaign and the
-remaining final-release gates. docs/validation.md remains the authoritative
-support registry.
+subsequent tag-derived release evidence. docs/validation.md remains the
+authoritative support registry.
 -->
 
 # Ministral 3 v0.1.0 preliminary qualification
@@ -205,8 +205,10 @@ report identify the same commit. The canonical digest is only in
 `graph-horizon-0.1.0.tar.gz.sha256`. Installation used an extracted copy of that
 archive and a new prefix, never the working tree. The installed binary passed
 version, CLI/Web UI, and inference smoke checks. The tag and both assets were
-subsequently published without changing their qualified identity. The anonymous
-network bootstrap remains unavailable while the repository is private.
+subsequently published without changing their qualified identity. After the
+repository became public, the anonymous network bootstrap downloaded and
+authenticated those assets, built the CPU release, installed it in a clean
+prefix, and returned `graph-horizon 0.1.0`.
 
 ## Post-v0.1.0 work
 
@@ -226,7 +228,7 @@ The local qualification remains valid only while all of these stay true:
    from the tag without duplicating its digest in mutable documentation;
 5. retain the clean-prefix installation, version, Web UI, and inference-smoke
    evidence from the generated archive;
-6. keep the published tag and both assets aligned with the qualified identity,
-   then test the anonymous bootstrap when the repository becomes public.
+6. keep the published tag and both assets aligned with the qualified identity
+   used by the verified anonymous bootstrap.
 
 The tag must never move. A defect found after publication requires v0.1.1.

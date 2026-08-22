@@ -10,9 +10,8 @@ log grezzi e decisioni sperimentali restano nella cronologia Git.
 
 Graph Horizon `v0.1.0` è stato rilasciato dal tag annotato e immutabile
 `v0.1.0`. La GitHub Release contiene l'archivio sorgente
-`graph-horizon-0.1.0.tar.gz` e il relativo record SHA-256. Il repository resta
-privato, quindi il bootstrap remoto richiede accesso autenticato e non è ancora
-verificabile anonimamente.
+`graph-horizon-0.1.0.tar.gz` e il relativo record SHA-256. Il repository è
+pubblico e il bootstrap remoto è verificato anche senza autenticazione.
 
 Le versioni Cargo e frontend sono `0.1.0`; l'identità finale è esclusivamente il
 commit risolto da `v0.1.0^{commit}`. La campagna finale su quella sorgente
@@ -100,8 +99,13 @@ La qualifica include inoltre: tag e header Git dell'archivio risolti allo stesso
 commit; checksum affiancato verificato; installazione CPU in prefisso pulito
 eseguita dall'archivio estratto; versione, CLI/Web UI e inferenza smoke
 verificate sul binario installato. Il record `.sha256` pubblicato con la GitHub
-Release coincide con il digest dell'archivio remoto. Il bootstrap anonimo resta
-un gate esterno finché il repository è privato.
+Release coincide con il digest dell'archivio remoto.
+
+Il 23 agosto 2026, dopo la pubblicazione del repository, il comando documentato
+ha scaricato anonimamente bootstrap, archivio e checksum, verificato SHA-256,
+compilato Web UI e backend CPU in profilo release, installato in un prefisso
+pulito e restituito `graph-horizon 0.1.0`. Questo smoke non ha scaricato modelli
+né ripetuto l'inferenza già verificata dall'archivio durante la campagna finale.
 
 ## Artefatti autenticati
 
@@ -193,7 +197,7 @@ La qualifica sopra resta valida soltanto mantenendo questi invarianti:
 5. checksum, header Git, installazione pulita, versione e inferenza sono verificati
    dall'archivio, non dalla working tree;
 6. tag remoto e asset pubblicati coincidono con l'identità qualificata; il
-   bootstrap anonimo deve essere verificato quando il repository diventa pubblico.
+   bootstrap anonimo verificato continua a risolvere quegli asset immutabili.
 
 I dettagli della campagna preliminare sono in
 [`release-qualification.md`](release-qualification.md). Le interfacce operative

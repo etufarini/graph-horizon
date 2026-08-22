@@ -17,9 +17,7 @@ Its real-model matrix completed with 37 pass, 37 external verification, and no
 failure. Exact model identities, environment, and evidence boundaries are in
 [validation.md](validation.md).
 
-The tag and release assets are published. While the repository remains private,
-use an authenticated tagged checkout and the local installer; after it becomes
-public, install anonymously with:
+The repository, tag, and release assets are public. Install anonymously with:
 
 ```sh
 curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend vulkan-hybrid

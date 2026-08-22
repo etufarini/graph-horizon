@@ -20,7 +20,7 @@ pub(super) fn selected() -> Result<Mode> {
         None | Some("") | Some("cli") => Ok(Mode::Cli),
         Some("server") => Ok(Mode::Server),
         Some("web") => Ok(Mode::Web),
-        Some(_) => Err(eyre!("mode non valida")),
+        Some(_) => Err(eyre!("invalid mode")),
     }
 }
 

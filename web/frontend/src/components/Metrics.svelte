@@ -24,25 +24,25 @@
   }
   $: elapsed = active ? Math.max(0, now - active.phaseStartedAt!) : 0;
   $: phaseLabel = active?.phase === 'waiting'
-    ? 'Attesa'
+    ? 'Waiting'
     : active?.phase === 'prefill' ? 'Prefill' : 'Decode';
   $: stats = telemetry?.stats;
   $: prefillRate = stats ? tokensPerSecond(stats.prefillTokens, stats.prefillMs) : null;
   $: decodeRate = stats ? tokensPerSecond(stats.completionTokens, stats.decodeMs) : null;
 
-  const seconds = (milliseconds: number) => `${(milliseconds / 1000).toFixed(2).replace('.', ',')} s`;
-  const rate = (value: number | null) => value === null ? '—' : `${value.toFixed(1).replace('.', ',')} tok/s`;
+  const seconds = (milliseconds: number) => `${(milliseconds / 1000).toFixed(2)} s`;
+  const rate = (value: number | null) => value === null ? '—' : `${value.toFixed(1)} tok/s`;
   onDestroy(() => { if (timer !== null) clearInterval(timer); });
 </script>
 
 {#if active}
-  <section class="metrics metrics-live" aria-label="Fase di generazione">
+  <section class="metrics metrics-live" aria-label="Generation phase">
     <span class="phase-dot phase-{active.phase}" aria-hidden="true"></span>
     <span class="phase-label" aria-live="polite">{phaseLabel}</span>
     <span aria-hidden="true">{seconds(elapsed)}</span>
   </section>
 {:else if stats}
-  <section class="metrics metrics-final" aria-label="Metriche dell'ultima generazione">
+  <section class="metrics metrics-final" aria-label="Latest generation metrics">
     <div><span>Prompt</span><strong>{stats.promptTokens} tok</strong></div>
     <div><span>Prefill</span><strong>{stats.prefillTokens} tok</strong><small>{seconds(stats.prefillMs)} · {rate(prefillRate)}</small></div>
     <div><span>Output</span><strong>{stats.completionTokens} tok</strong></div>

@@ -49,8 +49,8 @@ mod tests {
 
     #[test]
     fn shared_prefix_respects_char_boundaries() {
-        assert_eq!(shared_prefix_len("caffè", "caffè latte"), "caffè".len());
-        assert_eq!(shared_prefix_len("àbc", "àxy"), "à".len());
+        assert_eq!(shared_prefix_len("naïve", "naïve text"), "naïve".len());
+        assert_eq!(shared_prefix_len("ébc", "éxy"), "é".len());
         assert_eq!(shared_prefix_len("abc", "xyz"), 0);
     }
 }

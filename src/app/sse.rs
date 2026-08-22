@@ -118,7 +118,7 @@ mod tests {
     fn delta_line_matches_server_chunk_shape() {
         let line = chunk_line(
             Delta {
-                content: Some("ciao".to_string()),
+                content: Some("hello".to_string()),
             },
             None,
             None,
@@ -126,7 +126,7 @@ mod tests {
         );
         assert_eq!(
             line,
-            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ciao\"},\"finish_reason\":null}]}\n\n"
+            "data: {\"id\":\"chatcmpl-graph-horizon\",\"object\":\"chat.completion.chunk\",\"created\":7,\"model\":\"graph-horizon\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n"
         );
     }
 
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn server_delta_and_final_lines_have_no_usage_key() {
         let delta = delta_line(Delta {
-            content: Some("ciao".to_string()),
+            content: Some("hello".to_string()),
         });
         assert!(!delta.contains("\"usage\""));
         assert!(!final_line().contains("\"usage\""));

@@ -13,9 +13,8 @@ use super::plugins::attachments::FileAuthority;
 use super::runtime::RuntimeInfo;
 use super::runtime::{ClientConfig, ContextBudget, generation_stream, local};
 
-const CONTEXT_UNAVAILABLE: &str =
-    "limite di contesto non disponibile; specificare --context-tokens";
-const NO_PROMPT_SPACE: &str = "max_tokens non lascia spazio al prompt";
+const CONTEXT_UNAVAILABLE: &str = "context limit unavailable; specify --context-tokens";
+const NO_PROMPT_SPACE: &str = "max_tokens leaves no room for the prompt";
 
 fn context_budget(context_limit: Option<usize>, max_tokens: usize) -> Result<ContextBudget> {
     let context_limit = context_limit.ok_or_else(|| eyre!(CONTEXT_UNAVAILABLE))?;
@@ -48,7 +47,7 @@ pub(crate) async fn run(model_path: Option<String>, files: FileAuthority) -> Res
         client_config.apply_local_context_limit(chat.context_limit());
         let budget = context_budget(client_config.context_limit, max_tokens)?;
         let runtime = RuntimeInfo {
-            model_name: chat.model_name().unwrap_or("Modello locale").to_string(),
+            model_name: chat.model_name().unwrap_or("Local model").to_string(),
             backend: chat.backend_name(),
             memory: chat.memory(),
             placement: chat.placement(),

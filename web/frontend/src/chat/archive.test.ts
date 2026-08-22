@@ -20,7 +20,7 @@ const firstId = '00000000-0000-4000-8000-000000000001';
 const secondId = '00000000-0000-4000-8000-000000000002';
 const source = (id: string) => () => id;
 const plain = [
-  { role: 'user' as const, content: 'ciao 🧠' },
+  { role: 'user' as const, content: 'hello 🧠' },
   { role: 'assistant' as const, content: '[THINK]π[/THINK]' }
 ];
 
@@ -30,8 +30,8 @@ function validRecord() {
     activeChatId: firstId,
     chats: [{
       id: firstId,
-      title: 'Titolo',
-      systemPrompt: 'sistema',
+      title: 'Title',
+      systemPrompt: 'system',
       messages: plain,
       updatedAt: 42
     }]
@@ -44,7 +44,7 @@ test('version-3 parsing accepts only the exact per-chat prompt shape', () => {
   assert.equal(result.kind, 'current');
   if (result.kind !== 'current') return;
   assert.equal(result.collection.activeChatId, firstId);
-  assert.equal(result.collection.chats[0].systemPrompt, 'sistema');
+  assert.equal(result.collection.chats[0].systemPrompt, 'system');
   assert.deepEqual(
     result.collection.chats[0].messages.map(({ role, content }) => ({ role, content })),
     plain
@@ -113,7 +113,7 @@ test('legacy version 1 migrates exact messages and derives one active chat', () 
   assert.equal(result.collection.activeChatId, secondId);
   assert.deepEqual(result.collection.chats[0], {
     id: secondId,
-    title: 'ciao 🧠',
+    title: 'hello 🧠',
     systemPrompt: 'legacy prompt',
     messages: result.collection.chats[0].messages,
     updatedAt: 77
@@ -154,7 +154,7 @@ test('legacy recognition rejects extra fields and invalid message objects', () =
 });
 
 test('serialization strips runtime IDs and emits version 3 per-chat prompts', () => {
-  let collection = createCollection(42, source(firstId), 'sistema');
+  let collection = createCollection(42, source(firstId), 'system');
   collection = replaceActiveTranscript(collection, hydrateTranscript(plain), 43);
   const serialized = serializeArchive(collection);
   assert.equal(serialized.ok, true);
@@ -164,8 +164,8 @@ test('serialization strips runtime IDs and emits version 3 per-chat prompts', ()
     activeChatId: firstId,
     chats: [{
       id: firstId,
-      title: 'ciao 🧠',
-      systemPrompt: 'sistema',
+      title: 'hello 🧠',
+      systemPrompt: 'system',
       messages: plain,
       updatedAt: 43
     }]

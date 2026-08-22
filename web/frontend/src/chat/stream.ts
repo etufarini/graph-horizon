@@ -7,7 +7,7 @@
 import { parseGenerationStats } from './telemetry.ts';
 import type { StreamEvent } from './types';
 
-const INTERRUPTED = 'Connessione interrotta';
+const INTERRUPTED = 'Connection interrupted';
 
 export async function readChatStream(
   body: ReadableStream<Uint8Array>,

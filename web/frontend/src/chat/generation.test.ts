@@ -22,10 +22,10 @@ let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch
 globalThis.fetch = (...args) => fetchHandler(...args);
 
 function snapshot(messages = [
-  { role: 'user' as const, content: 'prima domanda' },
-  { role: 'assistant' as const, content: 'prima risposta' }
+  { role: 'user' as const, content: 'first question' },
+  { role: 'assistant' as const, content: 'first response' }
 ]): ChatSnapshot {
-  let collection = createCollection(1, () => id, ' sistema ');
+  let collection = createCollection(1, () => id, ' system ');
   collection = replaceActiveTranscript(collection, hydrateTranscript(messages), 2);
   return {
     collection,
@@ -92,15 +92,15 @@ function harness(initial = snapshot()) {
 test('append streams without checkpoints and commits once after idle', async () => {
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness();
-  const pending = generation.send('  nuova domanda  ', context);
+  const pending = generation.send('  new question  ', context);
   await tick();
   assert.equal(get(store).status, 'streaming');
   assert.deepEqual(checkpoints, []);
   assert.deepEqual(stream.body().messages, [
-    { role: 'system', content: 'sistema' },
-    { role: 'user', content: 'prima domanda' },
-    { role: 'assistant', content: 'prima risposta' },
-    { role: 'user', content: 'nuova domanda' }
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first response' },
+    { role: 'user', content: 'new question' }
   ]);
   assert.equal(stream.body().max_tokens, 4096);
   stream.delta('[THINK]π[/THINK]');
@@ -121,25 +121,25 @@ test('Markdown files expand only the outgoing user copy', async () => {
     id: '00000000-0000-4000-8000-000000000002',
     chatId: id,
     name: 'note.md',
-    content: '# Fonte',
+    content: '# Source',
     utf8Bytes: 7,
     addedAt: 1
   }];
-  const pending = generation.send('domanda visibile', context, files);
+  const pending = generation.send('visible question', context, files);
   await tick();
   const sent = stream.body().messages.at(-1).content as string;
   assert.match(sent, /### File: note\.md/);
-  assert.ok(sent.endsWith("### Richiesta dell'utente\ndomanda visibile"));
-  assert.equal(plain(get(store)).at(-2)?.content, 'domanda visibile');
+  assert.ok(sent.endsWith('### User request\nvisible question'));
+  assert.equal(plain(get(store)).at(-2)?.content, 'visible question');
   stream.done();
   await pending;
-  assert.equal(plain(get(store)).at(-2)?.content, 'domanda visibile');
+  assert.equal(plain(get(store)).at(-2)?.content, 'visible question');
 });
 
 test('valid zero-delta completion retains the empty response and checkpoints', async () => {
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness();
-  const pending = generation.send('nessun token', context);
+  const pending = generation.send('no tokens', context);
   await tick();
   stream.done();
   await pending;
@@ -149,7 +149,7 @@ test('valid zero-delta completion retains the empty response and checkpoints', a
 });
 
 test('append stop keeps empty or partial assistant and commits once', async () => {
-  for (const partial of ['', 'parziale', '[THINK]passo']) {
+  for (const partial of ['', 'partial', '[THINK]step']) {
     const stream = controlledFetch();
     const { store, checkpoints, generation } = harness();
     const pending = generation.send('stop', context);
@@ -175,92 +175,92 @@ test('append transport failures roll back and never checkpoint', async () => {
       fetchHandler = async () => new Response(null, { status: 500 });
     } else {
       const stream = controlledFetch();
-      const pending = generation.send('fallisce', context);
+      const pending = generation.send('fails', context);
       await tick();
-      stream.delta('non stabile');
+      stream.delta('unstable');
       stream.close();
       await pending;
       assert.deepEqual(plain(get(store)), plain(original));
-      assert.equal(get(store).error, 'Risposta interrotta');
+      assert.equal(get(store).error, 'Response interrupted');
       assert.deepEqual(checkpoints, []);
       continue;
     }
-    await generation.send('fallisce', context);
+    await generation.send('fails', context);
     assert.deepEqual(plain(get(store)), plain(original));
-    assert.equal(get(store).error, 'Richiesta non riuscita');
+    assert.equal(get(store).error, 'Request failed');
     assert.deepEqual(checkpoints, []);
   }
 });
 
 test('regenerate excludes the old response and preserves the exact user prompt', async () => {
   const original = snapshot([
-    { role: 'user', content: 'contesto' },
-    { role: 'assistant', content: 'risposta contesto' },
-    { role: 'user', content: '  domanda esatta  ' },
-    { role: 'assistant', content: 'vecchia risposta' }
+    { role: 'user', content: 'context' },
+    { role: 'assistant', content: 'context response' },
+    { role: 'user', content: '  exact question  ' },
+    { role: 'assistant', content: 'old response' }
   ]);
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness(original);
   const pending = generation.regenerate(context);
   await tick();
   assert.deepEqual(stream.body().messages, [
-    { role: 'system', content: 'sistema' },
-    { role: 'user', content: 'contesto' },
-    { role: 'assistant', content: 'risposta contesto' },
-    { role: 'user', content: '  domanda esatta  ' }
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'context' },
+    { role: 'assistant', content: 'context response' },
+    { role: 'user', content: '  exact question  ' }
   ]);
-  stream.delta('nuova risposta');
+  stream.delta('new response');
   stream.done();
   await pending;
-  assert.equal(plain(get(store)).at(-1)?.content, 'nuova risposta');
+  assert.equal(plain(get(store)).at(-1)?.content, 'new response');
   assert.deepEqual(checkpoints, [id]);
 });
 
 test('editing an earlier prompt truncates successors and sends only its causal prefix', async () => {
   const original = snapshot([
-    { role: 'user', content: 'prima domanda' },
-    { role: 'assistant', content: 'prima risposta' },
-    { role: 'user', content: 'domanda successiva' },
-    { role: 'assistant', content: 'risposta successiva' }
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first response' },
+    { role: 'user', content: 'next question' },
+    { role: 'assistant', content: 'next response' }
   ]);
   const userId = original.collection.chats[0].messages[0].id;
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness(original);
-  const pending = generation.editPrompt(userId, '  modificata 🧠  ', context);
+  const pending = generation.editPrompt(userId, '  edited 🧠  ', context);
   await tick();
   assert.deepEqual(stream.body().messages, [
-    { role: 'system', content: 'sistema' },
-    { role: 'user', content: 'modificata 🧠' }
+    { role: 'system', content: 'system' },
+    { role: 'user', content: 'edited 🧠' }
   ]);
   assert.equal(plain(get(store)).length, 2);
-  assert.equal(plain(get(store)).at(-2)?.content, 'modificata 🧠');
-  stream.delta('nuovo percorso');
+  assert.equal(plain(get(store)).at(-2)?.content, 'edited 🧠');
+  stream.delta('new path');
   stream.done();
   await pending;
   assert.deepEqual(plain(get(store)), [
-    { role: 'user', content: 'modificata 🧠' },
-    { role: 'assistant', content: 'nuovo percorso' }
+    { role: 'user', content: 'edited 🧠' },
+    { role: 'assistant', content: 'new path' }
   ]);
   assert.deepEqual(checkpoints, [id]);
 });
 
 test('a failed earlier edit restores the exact complete transcript', async () => {
   const original = snapshot([
-    { role: 'user', content: 'prima domanda' },
-    { role: 'assistant', content: 'prima risposta' },
-    { role: 'user', content: 'domanda successiva' },
-    { role: 'assistant', content: 'risposta successiva' }
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first response' },
+    { role: 'user', content: 'next question' },
+    { role: 'assistant', content: 'next response' }
   ]);
   const userId = original.collection.chats[0].messages[0].id;
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness(original);
-  const pending = generation.editPrompt(userId, 'modificata', context);
+  const pending = generation.editPrompt(userId, 'edited', context);
   await tick();
-  stream.delta('provvisoria');
+  stream.delta('temporary');
   stream.close();
   await pending;
   assert.deepEqual(plain(get(store)), plain(original));
-  assert.equal(get(store).error, 'Risposta interrotta');
+  assert.equal(get(store).error, 'Response interrupted');
   assert.deepEqual(checkpoints, []);
 });
 
@@ -268,12 +268,12 @@ test('stopping replacement commits candidate prompt with empty response', async 
   controlledFetch();
   const { store, checkpoints, generation } = harness();
   const userId = get(store).collection.chats[0].messages[0].id;
-  const pending = generation.editPrompt(userId, '  candidata  ', context);
+  const pending = generation.editPrompt(userId, '  candidate  ', context);
   await tick();
   generation.stop();
   await pending;
   assert.deepEqual(plain(get(store)).slice(-2), [
-    { role: 'user', content: 'candidata' },
+    { role: 'user', content: 'candidate' },
     { role: 'assistant', content: '' }
   ]);
   assert.deepEqual(checkpoints, [id]);
@@ -287,7 +287,7 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   const userId = initial.collection.chats[0].messages[0].id;
   await generation.editPrompt(userId, '   ', context);
   await generation.editPrompt('missing', 'valid', context);
-  await generation.editPrompt(userId, 'troppo lungo', {
+  await generation.editPrompt(userId, 'far too long', {
     contextLimit: 4,
     safePromptBudget: 3
   });
@@ -295,7 +295,7 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   assert.deepEqual(plain(get(store)), plain(initial));
   assert.equal(
     get(store).error,
-    'Contesto insufficiente: ~4 token stimati superano il budget sicuro di 3 token'
+    'Insufficient context: ~4 estimated tokens exceed the safe budget of 3 tokens'
   );
   assert.deepEqual(checkpoints, []);
 });
@@ -308,7 +308,7 @@ test('timeout wins over a later Stop and rolls back partial output', async t => 
   const pending = generation.send('timeout', context);
   await Promise.resolve();
   await Promise.resolve();
-  stream.delta('provvisoria');
+  stream.delta('temporary');
   await Promise.resolve();
   await Promise.resolve();
 
@@ -317,7 +317,7 @@ test('timeout wins over a later Stop and rolls back partial output', async t => 
   await pending;
 
   assert.deepEqual(plain(get(store)), plain(original));
-  assert.equal(get(store).error, 'Risposta interrotta');
+  assert.equal(get(store).error, 'Response interrupted');
   assert.equal(get(store).telemetry, null);
   assert.deepEqual(checkpoints, []);
 });
@@ -347,14 +347,14 @@ test('engine and protocol error frames roll back without leaking details', async
   ]) {
     const stream = controlledFetch();
     const { store, checkpoints, generation } = harness(original);
-    const pending = generation.send('fallisce', context);
+    const pending = generation.send('fails', context);
     await tick();
-    stream.delta('provvisoria');
+    stream.delta('temporary');
     await tick();
     stream.frame(frame);
     await pending;
     assert.deepEqual(plain(get(store)), plain(original));
-    assert.equal(get(store).error, 'Risposta interrotta');
+    assert.equal(get(store).error, 'Response interrupted');
     assert.deepEqual(checkpoints, []);
   }
 });

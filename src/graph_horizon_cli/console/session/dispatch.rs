@@ -63,7 +63,7 @@ pub(super) fn dispatch(
             // instructions. The generic notice remains outside model context.
             history.push(ChatTurn::new(
                 "/system".into(),
-                "✓ system prompt aggiornato".into(),
+                "✓ system prompt updated".into(),
                 Vec::new(),
             ));
             viewport.manual_scroll = None;
@@ -132,16 +132,16 @@ mod tests {
             &mut characters,
             &mut duration,
             &mut stats,
-            "/system segreto",
+            "/system private",
             &files,
         )
         .unwrap();
 
         assert!(matches!(result, Dispatch::Handled));
-        assert_eq!(system.as_deref(), Some("segreto"));
+        assert_eq!(system.as_deref(), Some("private"));
         assert_eq!(characters, Some(7));
         assert_eq!(history[0].prompt, "/system");
-        assert!(!history[0].response.contains("segreto"));
+        assert!(!history[0].response.contains("private"));
     }
 
     #[test]

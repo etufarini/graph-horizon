@@ -47,8 +47,8 @@ history, transcript repair, and persistence remain outside this component.
   {#if turns.length === 0}
     <div class="empty-state">
       <span class="empty-mark" aria-hidden="true"></span>
-      <h2>Motore di inferenza pronto</h2>
-      <p>Scrivi un messaggio per avviare la sessione: tutto gira in locale.</p>
+      <h2>Inference engine ready</h2>
+      <p>Send a message to start the session. Everything runs locally.</p>
     </div>
   {:else}
     {#each turns as turn, index (turn[0].id)}

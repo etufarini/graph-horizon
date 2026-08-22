@@ -218,12 +218,12 @@ mod tests {
 
     #[test]
     fn separates_complete_thinking_and_answer() {
-        let content = output("[THINK]passo[/THINK]risposta");
+        let content = output("[THINK]step[/THINK]response");
         let lines = build_lines(20, 1, &content);
 
         assert_eq!(
             texts(&lines),
-            vec!["> prompt", "", "[THINK]", "passo", "", "risposta"]
+            vec!["> prompt", "", "[THINK]", "step", "", "response"]
         );
         assert_line_style(&lines[2], SectionStyle::Secondary);
         assert_line_style(&lines[3], SectionStyle::Secondary);
@@ -232,11 +232,11 @@ mod tests {
 
     #[test]
     fn streams_unclosed_thinking_without_placeholder() {
-        let content = output("[THINK]passo");
+        let content = output("[THINK]step");
 
         assert_eq!(
             texts(&build_lines(20, 1, &content)),
-            vec!["> prompt", "", "[THINK]", "passo"]
+            vec!["> prompt", "", "[THINK]", "step"]
         );
     }
 
@@ -244,7 +244,7 @@ mod tests {
     fn completed_unclosed_thinking_has_missing_response_label() {
         let history = vec![ChatTurn::new(
             "prompt".to_string(),
-            "[THINK]passo".to_string(),
+            "[THINK]step".to_string(),
             Vec::new(),
         )];
         let content = input(&history, "next");
@@ -255,7 +255,7 @@ mod tests {
                 "> prompt",
                 "",
                 "[THINK]",
-                "passo",
+                "step",
                 "",
                 "[no response]",
                 "",
@@ -266,11 +266,11 @@ mod tests {
 
     #[test]
     fn empty_thinking_keeps_label_before_answer() {
-        let content = output("[THINK][/THINK]risposta");
+        let content = output("[THINK][/THINK]response");
 
         assert_eq!(
             texts(&build_lines(20, 1, &content)),
-            vec!["> prompt", "", "[THINK]", "", "risposta"]
+            vec!["> prompt", "", "[THINK]", "", "response"]
         );
     }
 
@@ -305,7 +305,7 @@ mod tests {
 
     #[test]
     fn completed_and_streaming_views_have_equal_sections() {
-        let raw = "[THINK]passo[/THINK]risposta";
+        let raw = "[THINK]step[/THINK]response";
         let mut completed = Vec::new();
         let mut streaming = Vec::new();
         push_answer(&mut completed, 20, raw, false, false, 1);

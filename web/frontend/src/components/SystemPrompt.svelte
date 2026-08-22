@@ -32,7 +32,7 @@
         on:input={() => dispatch('change', value)}
         rows="3"
         aria-label="System prompt"
-        placeholder="Istruzioni per il modello…"
+        placeholder="Instructions for the model…"
       ></textarea>
     </div>
   {/if}

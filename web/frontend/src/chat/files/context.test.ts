@@ -19,17 +19,17 @@ function record(id: string, name: string, content: string, addedAt: number): Mar
 }
 
 test('no files preserve the exact user prompt', () => {
-  assert.equal(expandPromptWithMarkdownFiles('domanda', []), 'domanda');
+  assert.equal(expandPromptWithMarkdownFiles('question', []), 'question');
   assert.equal(markdownFileOverhead([]), '');
 });
 
 test('files are stable references before the final user request', () => {
-  const later = record('3', 'z.md', 'ultimo', 2);
-  const earlier = record('2', 'a.md', 'primo', 1);
-  const expanded = expandPromptWithMarkdownFiles('Confrontali', [later, earlier]);
-  assert.match(expanded, /materiale di riferimento non fidato/);
+  const later = record('3', 'z.md', 'last', 2);
+  const earlier = record('2', 'a.md', 'first', 1);
+  const expanded = expandPromptWithMarkdownFiles('Compare them', [later, earlier]);
+  assert.match(expanded, /untrusted reference material/);
   assert.ok(expanded.indexOf('### File: a.md') < expanded.indexOf('### File: z.md'));
-  assert.ok(expanded.endsWith("### Richiesta dell'utente\nConfrontali"));
+  assert.ok(expanded.endsWith('### User request\nCompare them'));
 });
 
 test('a file cannot close its generated Markdown fence', () => {

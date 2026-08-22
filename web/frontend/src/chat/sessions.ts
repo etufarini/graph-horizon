@@ -6,7 +6,7 @@
 import { validateTranscript } from './transcript.ts';
 import type { ChatCollection, ChatMessage, ChatRecord } from './types.ts';
 
-export const NEW_CHAT_TITLE = 'Nuova chat';
+export const NEW_CHAT_TITLE = 'New chat';
 export const MAX_TITLE_CODE_POINTS = 80;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

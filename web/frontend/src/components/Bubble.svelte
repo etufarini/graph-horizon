@@ -13,7 +13,7 @@
   export let streaming = false;
 
   $: isUser = message.role === 'user';
-  $: label = isUser ? 'Tu' : 'Graph Horizon';
+  $: label = isUser ? 'You' : 'Graph Horizon';
   // Only assistant presentation derives sections; the raw message stays intact.
   $: reasoning = isUser ? null : splitReasoning(message.content, streaming);
 </script>
@@ -31,9 +31,9 @@
     {/if}
     {#if !reasoning.pending}
       {#if reasoning.incomplete}
-        <p class="placeholder">Risposta incompleta</p>
+        <p class="placeholder">Incomplete response</p>
       {:else if !streaming && reasoning.answer.trim() === ''}
-        <p class="placeholder">Nessuna risposta</p>
+        <p class="placeholder">No response</p>
       {:else if reasoning.answer !== ''}
         <Markdown content={reasoning.answer} />
       {/if}

@@ -17,7 +17,7 @@ fn parse_percent(raw: Option<&str>) -> Result<Option<u8>, String> {
         Some(s) => match s.parse::<u8>() {
             Ok(v) if v <= 100 => Ok(Some(v)),
             _ => Err(format!(
-                "--vram-weights-percent: valore non valido '{s}' (atteso un intero tra 0 e 100)"
+                "--vram-weights-percent: invalid value '{s}' (expected an integer from 0 to 100)"
             )),
         },
     }
@@ -31,7 +31,7 @@ fn parse_threads(raw: Option<&str>) -> Result<Option<usize>, String> {
         Some(s) => match s.parse::<usize>() {
             Ok(n) if n >= 1 => Ok(Some(n)),
             _ => Err(format!(
-                "--cpu-threads: valore non valido '{s}' (atteso un intero ≥ 1)"
+                "--cpu-threads: invalid value '{s}' (expected an integer ≥ 1)"
             )),
         },
     }
@@ -46,7 +46,7 @@ fn parse_context_tokens(raw: Option<&str>) -> Result<Option<usize>, String> {
         Some(s) => match s.parse::<usize>() {
             Ok(n) if n >= 1 => Ok(Some(n)),
             _ => Err(format!(
-                "--context-tokens: valore non valido '{s}' (atteso un intero ≥ 1)"
+                "--context-tokens: invalid value '{s}' (expected an integer ≥ 1)"
             )),
         },
     }
@@ -69,11 +69,11 @@ fn parse_reserve_mib(raw: Option<&str>) -> Result<Option<u64>, String> {
                 // any later conversion to bytes can wrap.
                 let _ = n
                     .checked_mul(1024 * 1024)
-                    .ok_or_else(|| format!("--vram-reserve-mib: valore troppo grande '{s}'"))?;
+                    .ok_or_else(|| format!("--vram-reserve-mib: value is too large '{s}'"))?;
                 Ok(Some(n))
             }
             Err(_) => Err(format!(
-                "--vram-reserve-mib: valore non valido '{s}' (atteso un intero ≥ 0)"
+                "--vram-reserve-mib: invalid value '{s}' (expected an integer ≥ 0)"
             )),
         },
     }
@@ -88,7 +88,7 @@ fn parse_kv_quant(raw: Option<&str>) -> Result<KvQuant, String> {
         Some(s) => KvQuant::parse(s).ok_or_else(|| {
             let valid: Vec<&str> = KvQuant::ALL.iter().map(|q| q.name()).collect();
             format!(
-                "--kv-quant: valore non valido '{s}' (valori validi: {})",
+                "--kv-quant: invalid value '{s}' (valid values: {})",
                 valid.join(", ")
             )
         }),
@@ -101,7 +101,7 @@ fn parse_max_tokens(raw: Option<&str>, default: usize) -> Result<usize, String> 
         Some(s) => match s.parse::<usize>() {
             Ok(n) => Ok(n),
             _ => Err(format!(
-                "--max-tokens: valore non valido '{s}' (atteso un intero ≥ 0)"
+                "--max-tokens: invalid value '{s}' (expected an integer ≥ 0)"
             )),
         },
     }
@@ -185,7 +185,7 @@ mod tests {
         assert_eq!(parse_kv_quant(Some("int8")), Ok(KvQuant::Int8));
         // Values are case-sensitive and unknown values list the valid set.
         let err = parse_kv_quant(Some("INT8")).unwrap_err();
-        assert!(err.contains("valori validi: f16, int8"), "{err}");
+        assert!(err.contains("valid values: f16, int8"), "{err}");
         assert!(parse_kv_quant(Some("bogus")).is_err());
     }
 

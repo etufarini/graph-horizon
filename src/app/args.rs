@@ -65,7 +65,7 @@ pub(crate) fn init() {
                 // The value is the next argument; its absence (flag passed last) is an
                 // error (E-FLAG-VALUE-MISSING), never a silent empty value.
                 let Some(value) = args.get(i + 1) else {
-                    eprintln!("valore mancante per {arg}");
+                    eprintln!("missing value for {arg}");
                     eprintln!("{}", usage());
                     std::process::exit(1);
                 };
@@ -73,7 +73,7 @@ pub(crate) fn init() {
                 i += 2;
             }
             None => {
-                eprintln!("argomento non riconosciuto: {arg}");
+                eprintln!("unrecognized argument: {arg}");
                 eprintln!("{}", usage());
                 std::process::exit(1);
             }
@@ -101,15 +101,15 @@ pub(crate) fn value(flag: &str) -> Option<String> {
 // environment variables are mentioned: the CLI is the single source of configuration.
 pub(crate) fn usage() -> String {
     let mut out = String::from(
-        "Uso: graph-horizon [opzioni]\n\n\
-         La configurazione avviene solo via flag (precedenza: flag > default).\n\n\
-         Opzioni:\n",
+        "Usage: graph-horizon [options]\n\n\
+         Configuration uses flags only (precedence: flag > default).\n\n\
+         Options:\n",
     );
     for flag in FLAGS {
         let shown = if *flag == "--kv-quant" {
             format!("{flag} <f16|int8>")
         } else {
-            format!("{flag} <valore>")
+            format!("{flag} <value>")
         };
         out.push_str(&format!("  {shown}\n"));
     }
@@ -163,7 +163,7 @@ mod tests {
             assert!(!u.contains(f), "usage still lists removed flag {f}");
         }
         // Value flags show their placeholder.
-        assert!(u.contains("--cpu-threads <valore>"));
+        assert!(u.contains("--cpu-threads <value>"));
         assert!(u.contains("--kv-quant <f16|int8>"));
         assert!(u.contains("--version, -V"));
         // No environment variable is mentioned anywhere.

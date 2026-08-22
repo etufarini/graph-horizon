@@ -71,7 +71,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
 
   function remove(chat: ChatRecord): void {
     menuId = null;
-    if (confirm(`Eliminare "${chat.title}"? La chat non potrà essere recuperata.`)) {
+    if (confirm(`Delete "${chat.title}"? This chat cannot be recovered.`)) {
       dispatch('delete', chat.id);
     }
   }
@@ -92,20 +92,20 @@ Store access, persistence, sorting, and collection mutation are excluded.
 </script>
 
 <svelte:window on:click={windowClick} on:keydown={windowKeydown} />
-{#if open}<button class="backdrop" type="button" aria-label="Chiudi cronologia" on:click={() => dispatch('close')}></button>{/if}
-<aside id="chat-history" class:open aria-label="Chat salvate" aria-hidden={!open} inert={!open}>
+{#if open}<button class="backdrop" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}></button>{/if}
+<aside id="chat-history" class:open aria-label="Saved chats" aria-hidden={!open} inert={!open}>
   <button class="new-chat" type="button" disabled={streaming} bind:this={newButton} on:click={() => dispatch('new')}>
-    Nuova chat
+    New chat
   </button>
   <div class="chat-list">
     {#each chats as chat (chat.id)}
       <div class:active={chat.id === activeId} class="chat-row">
         {#if renameId === chat.id}
           <div class="rename-row">
-            <input bind:this={renameInput} bind:value={renameDraft} disabled={streaming} aria-label={`Rinomina ${chat.title}`} on:keydown|stopPropagation={renameKeydown} />
+            <input bind:this={renameInput} bind:value={renameDraft} disabled={streaming} aria-label={`Rename ${chat.title}`} on:keydown|stopPropagation={renameKeydown} />
             <div class="rename-actions">
-              <button type="button" disabled={streaming || !validRename} on:click={saveRename}>Salva</button>
-              <button type="button" disabled={streaming} on:click={() => renameId = null}>Annulla</button>
+              <button type="button" disabled={streaming || !validRename} on:click={saveRename}>Save</button>
+              <button type="button" disabled={streaming} on:click={() => renameId = null}>Cancel</button>
             </div>
           </div>
         {:else}
@@ -113,12 +113,12 @@ Store access, persistence, sorting, and collection mutation are excluded.
             {chat.title}
           </button>
           <div class="menu" data-chat-menu>
-            <button class="menu-trigger" type="button" disabled={streaming} aria-label={`Azioni per ${chat.title}`} aria-expanded={menuId === chat.id} on:click|stopPropagation={event => toggleMenu(chat.id, event)}>…</button>
+            <button class="menu-trigger" type="button" disabled={streaming} aria-label={`Actions for ${chat.title}`} aria-expanded={menuId === chat.id} on:click|stopPropagation={event => toggleMenu(chat.id, event)}>…</button>
           </div>
           {#if menuId === chat.id}
             <div class="menu-items" data-chat-menu>
-              <button type="button" disabled={streaming} on:click={() => rename(chat)}>Rinomina</button>
-              <button class="destructive" type="button" disabled={streaming} on:click={() => remove(chat)}>Elimina</button>
+              <button type="button" disabled={streaming} on:click={() => rename(chat)}>Rename</button>
+              <button class="destructive" type="button" disabled={streaming} on:click={() => remove(chat)}>Delete</button>
             </div>
           {/if}
         {/if}

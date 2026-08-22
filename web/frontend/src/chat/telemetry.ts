@@ -44,7 +44,7 @@ export function parseRuntimeInfo(value: unknown): RuntimeInfoResult {
   return {
     ok: true,
     info: {
-      modelName: modelName ?? 'Modello locale',
+      modelName: modelName ?? 'Local model',
       backend: value.backend,
       memory,
       placement
@@ -89,7 +89,7 @@ export function formatBytes(bytes: bigint): string {
   }
   if (unit === 0) return `${bytes} B`;
   const tenths = (bytes * BigInt(10) + divisor / BigInt(2)) / divisor;
-  return `${tenths / BigInt(10)},${tenths % BigInt(10)} ${units[unit]}`;
+  return `${tenths / BigInt(10)}.${tenths % BigInt(10)} ${units[unit]}`;
 }
 
 function parsePlacement(value: unknown): RuntimePlacement | null {

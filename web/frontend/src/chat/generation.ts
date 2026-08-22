@@ -26,8 +26,8 @@ import type {
 } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
-const FAILED = 'Richiesta non riuscita';
-const INTERRUPTED = 'Risposta interrotta';
+const FAILED = 'Request failed';
+const INTERRUPTED = 'Response interrupted';
 
 export function createGeneration(
   store: Writable<ChatSnapshot>,
@@ -92,7 +92,7 @@ export function createGeneration(
       store.set({
         ...current,
         status: 'error',
-        error: `Contesto insufficiente: ~${admission.estimatedTokens} token stimati superano il budget sicuro di ${admission.safePromptBudget} token`
+        error: `Insufficient context: ~${admission.estimatedTokens} estimated tokens exceed the safe budget of ${admission.safePromptBudget} tokens`
       });
       return;
     }

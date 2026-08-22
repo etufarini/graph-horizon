@@ -35,7 +35,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   function save(): void {
     if (!streaming && validDraft) {
       if (!final && !confirm(
-        'Modificare questo messaggio? Le risposte e i messaggi successivi verranno rimossi e la chat ripartirà da qui.'
+        'Edit this message? This and all subsequent responses and messages will be removed, and the chat will restart here.'
       )) return;
       dispatch('edit', { userId: user.id, text: draft });
       editing = false;
@@ -50,7 +50,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   }
 
   function remove(): void {
-    if (confirm('Eliminare l’ultimo turno? Il messaggio e la risposta verranno rimossi.')) {
+    if (confirm('Delete the last turn? The message and response will be removed.')) {
       dispatch('delete');
     }
   }
@@ -60,19 +60,19 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   <div class="message message-user">
     {#if editing}
       <article class="editor">
-        <label for={`turn-${user.id}`}>Tu</label>
+        <label for={`turn-${user.id}`}>You</label>
         <textarea id={`turn-${user.id}`} bind:value={draft} disabled={streaming} on:keydown={keydown}></textarea>
         <div class="actions">
-          <button type="button" disabled={streaming || !validDraft} on:click={save}>{final ? 'Salva e rigenera' : 'Salva e riparti'}</button>
-          <button type="button" disabled={streaming} on:click={cancel}>Annulla</button>
+          <button type="button" disabled={streaming || !validDraft} on:click={save}>{final ? 'Save and regenerate' : 'Save and restart'}</button>
+          <button type="button" disabled={streaming} on:click={cancel}>Cancel</button>
         </div>
       </article>
     {:else}
       <Bubble message={user} />
       <div class="actions actions-user">
-        <button type="button" disabled={streaming} on:click={edit}>Modifica</button>
+        <button type="button" disabled={streaming} on:click={edit}>Edit</button>
         {#if final}
-          <button class="destructive" type="button" disabled={streaming} on:click={remove}>Elimina</button>
+          <button class="destructive" type="button" disabled={streaming} on:click={remove}>Delete</button>
         {/if}
       </div>
     {/if}
@@ -82,7 +82,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
     <Bubble message={assistant} streaming={streaming && final} />
     {#if final}
       <div class="actions">
-        <button type="button" disabled={streaming} on:click={() => dispatch('regenerate')}>Rigenera</button>
+        <button type="button" disabled={streaming} on:click={() => dispatch('regenerate')}>Regenerate</button>
       </div>
     {/if}
   </div>

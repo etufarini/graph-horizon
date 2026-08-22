@@ -78,7 +78,7 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
       prepared.push(result.record);
     }
     if (new Set(prepared.map(file => file.name)).size !== prepared.length) {
-      fail(chatId, 'Selezione non valida: più file hanno lo stesso nome');
+      fail(chatId, 'Invalid selection: multiple files have the same name');
       return;
     }
 
@@ -86,12 +86,12 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
     const retained = current.files.filter(file => !replacements.has(file.name));
     const candidate = ordered([...retained, ...prepared]);
     if (candidate.length > MAX_FILES_PER_CHAT) {
-      fail(chatId, `Limite file superato: massimo ${MAX_FILES_PER_CHAT} per chat`);
+      fail(chatId, `File limit exceeded: at most ${MAX_FILES_PER_CHAT} per chat`);
       return;
     }
     const bytes = candidate.reduce((total, file) => total + file.utf8Bytes, 0);
     if (!Number.isSafeInteger(bytes) || bytes > MAX_CHAT_FILE_BYTES) {
-      fail(chatId, 'Dimensione complessiva dei file superiore a 2 MiB');
+      fail(chatId, 'Combined file size exceeds 2 MiB');
       return;
     }
     const overhead = markdownFileOverhead(candidate);
@@ -100,7 +100,7 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
       context
     );
     if (!admission.ok) {
-      fail(chatId, `Contesto insufficiente: i file superano il budget sicuro di ${admission.safePromptBudget} token`);
+      fail(chatId, `Insufficient context: files exceed the safe budget of ${admission.safePromptBudget} tokens`);
       return;
     }
 
@@ -171,12 +171,12 @@ export function createMarkdownFileState(storage: MarkdownFileStorage) {
 
 function fileError(error: MarkdownFileError): string {
   switch (error) {
-    case 'extension': return 'File non valido: è richiesta l’estensione .md';
-    case 'name': return 'File non valido: nome non ammesso';
-    case 'empty': return 'File non valido: contenuto vuoto';
-    case 'encoding': return 'File non valido: il contenuto deve essere UTF-8';
-    case 'oversized': return 'File non valido: dimensione superiore a 1 MiB';
-    default: return 'File non leggibile';
+    case 'extension': return 'Invalid file: the .md extension is required';
+    case 'name': return 'Invalid file: name is not allowed';
+    case 'empty': return 'Invalid file: content is empty';
+    case 'encoding': return 'Invalid file: content must be UTF-8';
+    case 'oversized': return 'Invalid file: size exceeds 1 MiB';
+    default: return 'File could not be read';
   }
 }
 

@@ -24,8 +24,8 @@ replacement confirmation remain outside this props-in/events-out component.
 </script>
 
 <div class="session-actions">
-  <button type="button" on:click={() => dispatch('export')}>Esporta</button>
-  <button type="button" disabled={importDisabled} on:click={() => picker.click()}>Importa</button>
+  <button type="button" on:click={() => dispatch('export')}>Export</button>
+  <button type="button" disabled={importDisabled} on:click={() => picker.click()}>Import</button>
   <input type="file" accept=".json,application/json" bind:this={picker} on:change={selected} aria-hidden="true" tabindex="-1" />
 </div>
 

@@ -10,15 +10,15 @@
   export let warning: PersistenceWarning | null;
   export let error: string | null;
   export let usage: ContextUsage | null;
-  const tokens = new Intl.NumberFormat('it-IT');
+  const tokens = new Intl.NumberFormat('en-US');
   $: fillClass = !usage || usage.percent < 80
     ? 'fill-normal'
     : usage.percent < 100
       ? 'fill-warning'
       : 'fill-error';
   $: warningText = warning === 'invalid-record'
-    ? 'Conversazione salvata non valida: avvio con una chat vuota'
-    : warning === 'unavailable' ? 'Persistenza non disponibile: la conversazione resterà solo in memoria' : null;
+    ? 'Invalid saved conversation: starting with an empty chat'
+    : warning === 'unavailable' ? 'Persistence unavailable: the conversation will remain in memory only' : null;
 </script>
 
 {#if warningText}
@@ -32,12 +32,12 @@
 {#if usage}
   <div class="status-panel">
     <div class="status-labels">
-      <span>Contesto ≈{tokens.format(usage.estimatedTokens)} / {tokens.format(usage.contextLimit)} token · {usage.percent}%</span>
+      <span>Context ≈{tokens.format(usage.estimatedTokens)} / {tokens.format(usage.contextLimit)} tokens · {usage.percent}%</span>
     </div>
     <div
       class="context-track"
       role="progressbar"
-      aria-label="Occupazione del contesto"
+      aria-label="Context usage"
       aria-valuemin="0"
       aria-valuemax="100"
       aria-valuenow={usage.progress}

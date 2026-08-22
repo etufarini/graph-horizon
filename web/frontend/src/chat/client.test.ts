@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { MAX_REQUEST_BYTES, streamAssistant } from './client.ts';
 
-const messages = [{ role: 'user' as const, content: 'ciao' }];
+const messages = [{ role: 'user' as const, content: 'hello' }];
 const originalFetch = globalThis.fetch;
 const usage = 'data: {"usage":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n\n';
 
@@ -27,7 +27,7 @@ test('inactivity before response headers aborts after five minutes', async t => 
   const pending = streamAssistant(messages, 4096, () => {}, new AbortController().signal);
   t.mock.timers.tick(5 * 60_000);
 
-  await assert.rejects(pending, { message: 'Connessione interrotta' });
+  await assert.rejects(pending, { message: 'Connection interrupted' });
   assert.equal(internalSignal?.aborted, true);
 });
 
@@ -88,7 +88,7 @@ test('unsuccessful and bodyless responses use request failure', async () => {
     globalThis.fetch = async () => response;
     await assert.rejects(
       streamAssistant(messages, 4096, () => {}, new AbortController().signal),
-      { message: 'Richiesta non riuscita' }
+      { message: 'Request failed' }
     );
   }
 });
@@ -106,7 +106,7 @@ test('an oversized assembled JSON body is rejected before fetch', async () => {
       () => {},
       new AbortController().signal
     ),
-    { message: 'Richiesta non riuscita' }
+    { message: 'Request failed' }
   );
   assert.equal(fetches, 0);
 });

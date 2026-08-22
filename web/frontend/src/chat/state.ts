@@ -118,8 +118,8 @@ function createChatState() {
     const result = parseChatFile(text);
     if (!result.ok) {
       const error = result.error === 'invalid-json'
-        ? 'File non valido: JSON non riconosciuto'
-        : 'File non valido: formato chat non riconosciuto';
+        ? 'Invalid file: unrecognized JSON'
+        : 'Invalid file: unrecognized chat format';
       store.set({ ...current, status: 'error', error });
       return;
     }

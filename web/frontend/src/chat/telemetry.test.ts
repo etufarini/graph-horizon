@@ -52,7 +52,7 @@ test('runtime properties preserve exact bytes and bounded model identity', () =>
   }), {
     ok: true,
     info: {
-      modelName: 'Modello locale',
+      modelName: 'Local model',
       backend: 'cpu',
       memory: { weights: BigInt(11), kv: BigInt(12) },
       placement: null
@@ -97,6 +97,6 @@ test('rates and byte formatting handle zero and IEC boundaries', () => {
   assert.equal(tokensPerSecond(10, 0), null);
   assert.equal(tokensPerSecond(10, 500), 20);
   assert.equal(formatBytes(BigInt(0)), '0 B');
-  assert.equal(formatBytes(BigInt(1024)), '1,0 KiB');
-  assert.equal(formatBytes(BigInt(1536)), '1,5 KiB');
+  assert.equal(formatBytes(BigInt(1024)), '1.0 KiB');
+  assert.equal(formatBytes(BigInt(1536)), '1.5 KiB');
 });

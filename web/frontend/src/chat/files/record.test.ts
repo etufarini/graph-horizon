@@ -22,7 +22,7 @@ function selected(name: string, bytes: Uint8Array): File {
 }
 
 test('reads an exact UTF-8 Markdown record without trusting MIME metadata', async () => {
-  const bytes = new TextEncoder().encode('# Titolo\n\nTesto');
+  const bytes = new TextEncoder().encode('# Title\n\nText');
   const result = await readMarkdownFile(selected('Specifica.MD', bytes), CHAT_ID, 7, () => FILE_ID);
   assert.deepEqual(result, {
     ok: true,
@@ -30,7 +30,7 @@ test('reads an exact UTF-8 Markdown record without trusting MIME metadata', asyn
       id: FILE_ID,
       chatId: CHAT_ID,
       name: 'Specifica.MD',
-      content: '# Titolo\n\nTesto',
+      content: '# Title\n\nText',
       utf8Bytes: bytes.byteLength,
       addedAt: 7
     }

@@ -20,7 +20,7 @@ import { parseChatFile, serializeChat } from './transfer.ts';
 import type { ChatMessage } from './types.ts';
 
 const plain = [
-  { role: 'user' as const, content: '  ciao 🧠\n' },
+  { role: 'user' as const, content: '  hello 🧠\n' },
   { role: 'assistant' as const, content: '[THINK]π[/THINK]\n ✓  ' }
 ];
 
@@ -51,11 +51,11 @@ test('validation rejects the whole invalid transcript without a valid prefix', (
 });
 
 test('file transfer keeps version 1 and delegates complete-pair validation', () => {
-  const text = serializeChat(hydrateTranscript(plain), '  sistema  ');
+  const text = serializeChat(hydrateTranscript(plain), '  system  ');
   assert.match(text, /^\{\n  "version": 1,/);
   assert.deepEqual(parseChatFile(text), {
     ok: true,
-    payload: { systemPrompt: '  sistema  ', messages: plain }
+    payload: { systemPrompt: '  system  ', messages: plain }
   });
   assert.deepEqual(parseChatFile('{'), { ok: false, error: 'invalid-json' });
   assert.deepEqual(
@@ -87,20 +87,20 @@ test('hydration has a deterministic unique fallback without randomUUID', () => {
 
 test('wire projection orders trimmed system and draft around unchanged history', () => {
   const messages = hydrateTranscript(plain);
-  assert.deepEqual(wireMessages(messages, '  sistema  ', '  domanda  '), [
-    { role: 'system', content: 'sistema' },
+  assert.deepEqual(wireMessages(messages, '  system  ', '  question  '), [
+    { role: 'system', content: 'system' },
     ...plain,
-    { role: 'user', content: 'domanda' }
+    { role: 'user', content: 'question' }
   ]);
   assert.deepEqual(wireMessages(messages, '  ', '  '), plain);
 });
 
 test('assistant append is pure and supports empty content', () => {
   const messages = hydrateTranscript(plain);
-  const appended = appendAssistant(messages, ' altro');
+  const appended = appendAssistant(messages, ' more');
   assert.notEqual(appended, messages);
   assert.equal(messages[1].content, plain[1].content);
-  assert.equal(appended[1].content, `${plain[1].content} altro`);
+  assert.equal(appended[1].content, `${plain[1].content} more`);
   const userOnly = messages.slice(0, 1);
   assert.equal(appendAssistant(userOnly, ''), userOnly);
 });
@@ -135,14 +135,14 @@ test('turn lookup and replacement preserve IDs while truncating causal successor
   const replaced = replaceFromTurn(
     messages,
     earlier[0].id,
-    'nuova domanda π',
+    'new question π',
     '[THINK]✓[/THINK]'
   );
   assert.notEqual(replaced, messages);
   assert.equal(replaced.length, 2);
   assert.equal(replaced.at(-2)?.id, earlier[0].id);
   assert.equal(replaced.at(-1)?.id, earlier[1].id);
-  assert.equal(replaced.at(-2)?.content, 'nuova domanda π');
+  assert.equal(replaced.at(-2)?.content, 'new question π');
   assert.equal(replaced.at(-1)?.content, '[THINK]✓[/THINK]');
   assert.equal(messages.length, 4);
   assert.equal(messages[0].content, plain[0].content);

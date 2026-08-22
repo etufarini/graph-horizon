@@ -17,12 +17,12 @@ selection, persistence, confirmation, and responsive panel state are excluded.
   }>();
 </script>
 
-<section class="preview" aria-label={`Anteprima ${file.name}`}>
+<section class="preview" aria-label={`Preview ${file.name}`}>
   <header>
     <strong title={file.name}>{file.name}</strong>
     <div class="actions">
-      <button type="button" on:click={() => dispatch('download', file)}>Scarica</button>
-      <button class="destructive" type="button" {disabled} on:click={() => dispatch('delete', file)}>Elimina</button>
+      <button type="button" on:click={() => dispatch('download', file)}>Download</button>
+      <button class="destructive" type="button" {disabled} on:click={() => dispatch('delete', file)}>Delete</button>
     </div>
   </header>
   <div class="content"><Markdown content={file.content} documentPreview /></div>

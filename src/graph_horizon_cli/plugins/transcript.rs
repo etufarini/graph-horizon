@@ -137,15 +137,15 @@ mod tests {
     #[test]
     fn round_trips_system_and_turns() {
         let path = temp_path("roundtrip");
-        let history = vec![turn("ciao\nmulti", "risposta"), turn("seconda", "ok")];
-        export(File::create(&path).unwrap(), Some("sei utile"), &history).unwrap();
+        let history = vec![turn("hello\nmulti", "response"), turn("second", "ok")];
+        export(File::create(&path).unwrap(), Some("be helpful"), &history).unwrap();
 
         let (system, restored) = import(File::open(&path).unwrap()).unwrap();
-        assert_eq!(system.as_deref(), Some("sei utile"));
+        assert_eq!(system.as_deref(), Some("be helpful"));
         assert_eq!(restored.len(), 2);
-        assert_eq!(restored[0].prompt, "ciao\nmulti");
-        assert_eq!(restored[0].response, "risposta");
-        assert_eq!(restored[1].prompt, "seconda");
+        assert_eq!(restored[0].prompt, "hello\nmulti");
+        assert_eq!(restored[0].response, "response");
+        assert_eq!(restored[1].prompt, "second");
         // Imported turns must carry context messages so the chat resumes.
         assert_eq!(restored[1].messages.len(), 2);
     }

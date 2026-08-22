@@ -1729,7 +1729,7 @@ fn matrix_runs_seventy_four_exact_rows() {
     fs::create_dir_all(copied_root.join("support")).unwrap();
     write_executable(
         &testing.join("matrix-check.sh"),
-        &fs::read(repository().join("support/testing/matrix-check.sh")).unwrap(),
+        fs::read(repository().join("support/testing/matrix-check.sh")).unwrap(),
     );
     fs::write(
         copied_root.join("support/models.tsv"),
@@ -2004,7 +2004,7 @@ fn semantic_script_contract() {
     fs::create_dir(&bin).unwrap();
     write_executable(
         &testing.join("semantic-check.sh"),
-        &fs::read(repository().join("support/testing/semantic-check.sh")).unwrap(),
+        fs::read(repository().join("support/testing/semantic-check.sh")).unwrap(),
     );
     fs::write(
         copied_root.join("support/models.tsv"),

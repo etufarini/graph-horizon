@@ -36,9 +36,14 @@ sizing, and CPU/device/hybrid planning.
 
 Known limitations: serialized serving; compile-time backend selection; no
 runtime fallback; no tools, multimodal input, or separate reasoning channel;
-only Q4_K_M GGUF models are accepted, while Q8 and MoE are outside scope. CPU,
-standalone/mixed Vulkan, Metal, AMD Vulkan, and other devices are experimental
-even where they build or have historical evidence.
+only Q4_K_M GGUF models are accepted, while Q8 and MoE are outside scope.
+
+These preliminary notes do not assign the current backend labels. In the source
+being prepared now, CPU is the reference path, standalone Vulkan is production
+within its declared Linux/NVIDIA-or-AMD scope, and Vulkan-hybrid, Metal, and
+Metal-hybrid are qualified only within their documented tuples. The exact
+scopes and any remaining fresh-campaign requirements are maintained in
+[docs/backend.md](docs/backend.md#support-status), not in this historical draft.
 
 The final release will apply only to the immutable source revision, model
 checksums, backend, and environment recorded by its completed validation

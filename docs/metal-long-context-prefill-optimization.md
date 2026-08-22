@@ -64,12 +64,12 @@ cargo build --locked --release --no-default-features --features metal \
   --example bench
 
 target/release/examples/bench \
-  /Users/emanuele/Documents/models/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
+  "<model.gguf>" \
   --context 32768 --kv f16 --prompt "$(printf 'a %.0s' {1..2044})" \
   --max-tokens 32 --warmup 1 --reps 3
 
-/Users/emanuele/Documents/llama.cpp/build/bin/llama-bench \
-  -m /Users/emanuele/Documents/models/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
+"<llama-bench>" \
+  -m "<model.gguf>" \
   -p 128,512,2048,8192,15435,28000 -n 0 -b 64 -ub 64 \
   -ctk f16 -ctv f16 -ngl 99 -fa on -r 3
 ```

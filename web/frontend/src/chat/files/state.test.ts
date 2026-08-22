@@ -51,11 +51,11 @@ test('adds durably and replaces the same exact filename', async () => {
   const storage = new MemoryStorage();
   const state = createMarkdownFileState(storage);
   await state.select(CHAT_ID);
-  await state.add([selected('note.md', 'prima')], CHAT_ID, [], CONTEXT);
-  assert.equal(get(state).files[0].content, 'prima');
-  await state.add([selected('note.md', 'seconda')], CHAT_ID, [], CONTEXT);
+  await state.add([selected('note.md', 'first')], CHAT_ID, [], CONTEXT);
+  assert.equal(get(state).files[0].content, 'first');
+  await state.add([selected('note.md', 'second')], CHAT_ID, [], CONTEXT);
   assert.equal(get(state).files.length, 1);
-  assert.equal(get(state).files[0].content, 'seconda');
+  assert.equal(get(state).files[0].content, 'second');
   assert.equal(storage.records.length, 1);
 });
 
@@ -64,9 +64,9 @@ test('rejects a candidate whose full text exceeds the active prompt budget', asy
   const state = createMarkdownFileState(storage);
   await state.select(CHAT_ID);
   const tiny = { contextLimit: 4, safePromptBudget: 3 };
-  await state.add([selected('note.md', 'contenuto')], CHAT_ID, [], tiny);
+  await state.add([selected('note.md', 'content')], CHAT_ID, [], tiny);
   assert.equal(get(state).files.length, 0);
-  assert.match(get(state).error ?? '', /Contesto insufficiente/);
+  assert.match(get(state).error ?? '', /Insufficient context/);
 });
 
 test('rejects duplicate names inside one multi-file selection', async () => {
@@ -80,7 +80,7 @@ test('rejects duplicate names inside one multi-file selection', async () => {
     CONTEXT
   );
   assert.equal(get(state).files.length, 0);
-  assert.match(get(state).error ?? '', /stesso nome/);
+  assert.match(get(state).error ?? '', /same name/);
 });
 
 test('failed durable writes retain usable in-memory files with a warning', async () => {
@@ -88,8 +88,8 @@ test('failed durable writes retain usable in-memory files with a warning', async
   storage.failWrites = true;
   const state = createMarkdownFileState(storage);
   await state.select(CHAT_ID);
-  await state.add([selected('note.md', 'locale')], CHAT_ID, [], CONTEXT);
-  assert.equal(get(state).files[0].content, 'locale');
+  await state.add([selected('note.md', 'local')], CHAT_ID, [], CONTEXT);
+  assert.equal(get(state).files[0].content, 'local');
   assert.equal(get(state).warning, 'unavailable');
 });
 

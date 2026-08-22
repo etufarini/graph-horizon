@@ -40,7 +40,7 @@ pub(super) fn push_banner(lines: &mut Vec<Line<'static>>, width: u16, info: &Run
         width,
         SectionStyle::Secondary,
         &format!(
-            "pesi {} · KV max {}",
+            "weights {} · KV max {}",
             bytes(info.memory.weights),
             bytes(info.memory.kv)
         ),
@@ -103,7 +103,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<Vec<_>>()
             .join("");
-        assert!(text.contains("pesi 1.0 KiB · KV max 1.5 KiB"));
+        assert!(text.contains("weights 1.0 KiB · KV max 1.5 KiB"));
     }
 
     #[test]

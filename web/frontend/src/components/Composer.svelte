@@ -40,27 +40,27 @@
     bind:value
     rows="3"
     on:keydown={keydown}
-    aria-label="Messaggio"
-    placeholder="Scrivi a Graph Horizon…"
+    aria-label="Message"
+    placeholder="Message Graph Horizon…"
   ></textarea>
   <div class="composer-bar">
     <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
     <span class="composer-hint">
-      {streaming ? 'Generazione in corso… prepara il prossimo messaggio' : 'Ctrl/⌘ + Invio per inviare'}
+      {streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
     </span>
     {#if streaming}
       <button
         class="action action-stop"
         type="button"
         on:click={() => dispatch('stop')}
-        aria-label="Interrompi"
+        aria-label="Stop"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <rect x="6" y="6" width="12" height="12" rx="1" />
         </svg>
       </button>
     {:else}
-      <button class="action action-send" type="submit" disabled={!canSend} aria-label="Invia">
+      <button class="action action-send" type="submit" disabled={!canSend} aria-label="Send">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M22 2 11 13" />
           <path d="M22 2 15 22 11 13 2 9 22 2z" />

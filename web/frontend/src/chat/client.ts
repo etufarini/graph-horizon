@@ -10,8 +10,8 @@ import { readChatStream } from './stream.ts';
 import { parseRuntimeInfo } from './telemetry.ts';
 import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage } from './types';
 
-const FAILED = 'Richiesta non riuscita';
-const INTERRUPTED = 'Connessione interrotta';
+const FAILED = 'Request failed';
+const INTERRUPTED = 'Connection interrupted';
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>

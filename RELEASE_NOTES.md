@@ -4,11 +4,12 @@ installation, capabilities, and limitations. Qualification mechanics belong in
 VALIDATION.md.
 -->
 
-# Graph Horizon — Ministral 3 v0.1.0 draft
+# Graph Horizon v0.1.0 draft
 
-Graph Horizon v0.1.0 will be a local text-to-text runtime for Ministral 3 2512 with
-an interactive console, OpenAI-compatible streaming chat, and a Web UI. Backend
-choice is fixed when the binary is built.
+Graph Horizon v0.1.0 will be a local text-to-text runtime with an interactive
+console, OpenAI-compatible streaming chat, and a Web UI. Backend choice is
+fixed when the binary is built. Ministral 3 2512 is the currently integrated
+model family, not part of the product name.
 
 The preliminary candidate qualified five exact Q4_K_M artifacts: 3B, 8B, and
 14B Instruct plus 3B and 14B Reasoning. Final claims must be refreshed against
@@ -35,9 +36,9 @@ sizing, and CPU/device/hybrid planning.
 
 Known limitations: serialized serving; compile-time backend selection; no
 runtime fallback; no tools, multimodal input, or separate reasoning channel;
-Q8 and MoE are outside scope. CPU, standalone/mixed Vulkan, Metal, AMD Vulkan,
-and other devices are experimental even where they build or have historical
-evidence.
+only Q4_K_M GGUF models are accepted, while Q8 and MoE are outside scope. CPU,
+standalone/mixed Vulkan, Metal, AMD Vulkan, and other devices are experimental
+even where they build or have historical evidence.
 
 The final release will apply only to the immutable source revision, model
 checksums, backend, and environment recorded by its completed validation

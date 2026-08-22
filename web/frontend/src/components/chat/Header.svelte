@@ -20,12 +20,12 @@ and panel contents remain owned by the parent composition boundary.
 
 <header>
   <div class="main">
-    <button type="button" bind:this={historyToggle} aria-label="Mostra cronologia chat" aria-expanded={historyOpen} aria-controls="chat-history" on:click={() => dispatch('history')}>Chat</button>
-    <button type="button" bind:this={filesToggle} aria-label="Mostra file Markdown" aria-expanded={filesOpen} aria-controls="markdown-files" on:click={() => dispatch('files')}>File · {fileCount}</button>
+    <button type="button" bind:this={historyToggle} aria-label="Show chat history" aria-expanded={historyOpen} aria-controls="chat-history" on:click={() => dispatch('history')}>Chat</button>
+    <button type="button" bind:this={filesToggle} aria-label="Show Markdown files" aria-expanded={filesOpen} aria-controls="markdown-files" on:click={() => dispatch('files')}>Files · {fileCount}</button>
     <h1>
       <span class="brand">Graph Horizon</span>
       <span class="divider" aria-hidden="true">//</span>
-      <span class="sub">console d'inferenza locale</span>
+      <span class="sub">local inference console</span>
     </h1>
   </div>
   {#if runtimeInfo}<Runtime info={runtimeInfo} />{/if}

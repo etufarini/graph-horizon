@@ -26,7 +26,7 @@ test('split CRLF content and DONE report activity and complete', async () => {
   await readChatStream(
     body([
       ': ignored\r\n',
-      'data: {"choices":[{"delta":{"content":"ciao"}}]}\r\n',
+      'data: {"choices":[{"delta":{"content":"hello"}}]}\r\n',
       '\r\ndata: {"usage":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\r\n',
       'data: [DO',
       'NE]\r\n\r\n'
@@ -45,7 +45,7 @@ test('DONE cancels immediately and ignores later bytes', async () => {
     body([
       'data: {"usage":{"prompt_tokens":0,"prefill_tokens":0,"completion_tokens":0,"prefill_ms":0,"decode_ms":0}}\n',
       'data: [DONE]\n',
-      'data: {"choices":[{"delta":{"content":"vietato"}}]}\n'
+      'data: {"choices":[{"delta":{"content":"forbidden"}}]}\n'
     ], () => { cancelled += 1; }),
     event => { if (event.type === 'content') content.push(event.content); }
   );
@@ -57,12 +57,12 @@ test('EOF before DONE rejects even after content', async () => {
   const content: string[] = [];
   await assert.rejects(
     readChatStream(
-      body(['data: {"choices":[{"delta":{"content":"parziale"}}]}\n\n']),
+      body(['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']),
       event => { if (event.type === 'content') content.push(event.content); }
     ),
-    { message: 'Connessione interrotta' }
+    { message: 'Connection interrupted' }
   );
-  assert.deepEqual(content, ['parziale']);
+  assert.deepEqual(content, ['partial']);
 });
 
 test('invalid and prohibited data frames reject uniformly', async t => {
@@ -79,7 +79,7 @@ test('invalid and prohibited data frames reject uniformly', async t => {
     await t.test(frame || 'empty data', async () => {
       await assert.rejects(
         readChatStream(body([`data: ${frame}\n\n`]), () => {}),
-        { message: 'Connessione interrotta' }
+        { message: 'Connection interrupted' }
       );
     });
   }
@@ -109,7 +109,7 @@ test('usage rejects later content or phase frames', async t => {
     await t.test(later.includes('content') ? 'content' : 'phase', async () => {
       await assert.rejects(
         readChatStream(body([usage, later, 'data: [DONE]\n']), () => {}),
-        { message: 'Connessione interrotta' }
+        { message: 'Connection interrupted' }
       );
     });
   }

@@ -56,7 +56,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     void loadRuntimeContext(contextController.signal).then(result => {
       if (contextController.signal.aborted) return;
       if (result.ok) runtimeContext = result.context;
-      else configurationError = 'Configurazione del contesto non disponibile';
+      else configurationError = 'Context configuration unavailable';
     });
     void loadRuntimeInfo(contextController.signal).then(result => {
       if (!contextController.signal.aborted && result.ok) runtimeInfo = result.info;
@@ -88,13 +88,13 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     ? contextUsage(occupancyMessages, runtimeContext)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
-    ? 'Archivio chat non valido: avvio con una nuova chat'
+    ? 'Invalid chat archive: starting with a new chat'
     : $chat.persistenceWarning === 'unavailable'
-      ? 'Persistenza non disponibile: le chat resteranno solo in memoria'
+      ? 'Persistence unavailable: chats will remain in memory only'
       : $markdownFiles.warning === 'invalid-record'
-        ? 'Archivio file non valido: i record danneggiati sono stati rimossi'
+        ? 'Invalid file archive: damaged records were removed'
         : $markdownFiles.warning === 'unavailable'
-          ? 'Persistenza file non disponibile: i file aggiunti resteranno solo in memoria'
+          ? 'File persistence unavailable: added files will remain in memory only'
           : null;
 
   async function send(): Promise<void> {

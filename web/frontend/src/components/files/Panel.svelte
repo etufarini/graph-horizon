@@ -35,7 +35,7 @@ prompt projection, downloads, and chat lifecycle remain outside.
     if (selected.length === 0) return;
     const duplicates = selected.filter(file => files.some(current => current.name === file.name));
     if (duplicates.length > 0 && !confirm(
-      `Sostituire ${duplicates.length === 1 ? `“${duplicates[0].name}”` : `${duplicates.length} file con lo stesso nome`}?`
+      `Replace ${duplicates.length === 1 ? `“${duplicates[0].name}”` : `${duplicates.length} files with matching names`}?`
     )) return;
     dispatch('add', selected);
   }
@@ -52,7 +52,7 @@ prompt projection, downloads, and chat lifecycle remain outside.
 
   function remove(file: MarkdownFileRecord): void {
     if (disabled || busy) return;
-    if (confirm(`Eliminare “${file.name}”? Il file non potrà essere recuperato.`)) {
+    if (confirm(`Delete “${file.name}”? The file cannot be recovered.`)) {
       dispatch('delete', file.id);
     }
   }
@@ -67,30 +67,30 @@ prompt projection, downloads, and chat lifecycle remain outside.
 </script>
 
 <svelte:window on:keydown={keydown} />
-{#if open && overlay}<button class="backdrop" type="button" aria-label="Chiudi file Markdown" on:click={() => dispatch('close')}></button>{/if}
-<aside id="markdown-files" class:open class:overlay class:dragging aria-label="File Markdown" aria-hidden={!open} inert={!open}
+{#if open && overlay}<button class="backdrop" type="button" aria-label="Close Markdown files" on:click={() => dispatch('close')}></button>{/if}
+<aside id="markdown-files" class:open class:overlay class:dragging aria-label="Markdown files" aria-hidden={!open} inert={!open}
   on:dragover|preventDefault={() => { if (!disabled && ready) dragging = true; }}
   on:dragleave={() => dragging = false}
   on:drop|preventDefault={dropped}>
   <header>
     <div>
-      <strong>File Markdown</strong>
+      <strong>Markdown files</strong>
       <span>{files.length} / 10</span>
     </div>
-    {#if overlay}<button class="close" type="button" aria-label="Chiudi file Markdown" on:click={() => dispatch('close')}>×</button>{/if}
+    {#if overlay}<button class="close" type="button" aria-label="Close Markdown files" on:click={() => dispatch('close')}>×</button>{/if}
   </header>
   <button class="add" type="button" disabled={disabled || busy || !ready} on:click={() => picker.click()}>
-    {busy ? 'Salvataggio…' : ready ? '+ Aggiungi .md' : 'Caricamento…'}
+    {busy ? 'Saving…' : ready ? '+ Add .md' : 'Loading…'}
   </button>
   <input type="file" accept=".md,text/markdown,text/plain" multiple bind:this={picker} on:change={picked} aria-hidden="true" tabindex="-1" />
-  <p class="hint">Trascina qui file UTF-8. Saranno usati come contesto nelle richieste future.</p>
-  <div class="file-list" aria-label="File salvati">
+  <p class="hint">Drop UTF-8 files here. They will provide context for future requests.</p>
+  <div class="file-list" aria-label="Saved files">
     {#each files as file (file.id)}
       <button class:active={file.id === selectedId} type="button" title={file.name} on:click={() => selectedId = file.id}>
         <span>{file.name}</span><small>{size(file.utf8Bytes)}</small>
       </button>
     {:else}
-      <p class="empty">Nessun file in questa chat</p>
+      <p class="empty">No files in this chat</p>
     {/each}
   </div>
   {#if selected}

@@ -29,7 +29,7 @@ pub(super) fn generation_status(
     );
     if streaming {
         let phase = match phase {
-            None => "attesa",
+            None => "waiting",
             Some(GenerationPhase::Prefill) => "prefill",
             Some(GenerationPhase::Decode) => "decode",
         };
@@ -68,7 +68,7 @@ pub(super) fn generation_status(
 
 pub(super) fn capacity_error(error: CapacityError) -> String {
     format!(
-        "Contesto insufficiente: ~{} token + {} riservati superano il budget sicuro di {} token",
+        "Insufficient context: ~{} tokens + {} reserved exceed the safe budget of {} tokens",
         error.estimated_messages, error.max_tokens, error.safe_total_budget
     )
 }

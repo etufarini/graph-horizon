@@ -93,13 +93,7 @@ mod tests {
 
     #[test]
     fn ordinary_response_is_unchanged() {
-        assert_view(
-            "Risposta ordinaria",
-            true,
-            None,
-            "Risposta ordinaria",
-            false,
-        );
+        assert_view("Ordinary response", true, None, "Ordinary response", false);
     }
 
     #[test]
@@ -109,19 +103,19 @@ mod tests {
 
     #[test]
     fn leading_whitespace_is_omitted_only_from_reasoning_view() {
-        let raw = " \n[THINK]  ragiona \n[/THINK]  rispondi ";
-        assert_view(raw, false, Some("  ragiona \n"), "  rispondi ", false);
-        assert_eq!(raw, " \n[THINK]  ragiona \n[/THINK]  rispondi ");
+        let raw = " \n[THINK]  reason \n[/THINK]  answer ";
+        assert_view(raw, false, Some("  reason \n"), "  answer ", false);
+        assert_eq!(raw, " \n[THINK]  reason \n[/THINK]  answer ");
     }
 
     #[test]
     fn opening_without_close_exposes_thinking_while_streaming() {
-        assert_view("[THINK]passo", true, Some("passo"), "", false);
+        assert_view("[THINK]step", true, Some("step"), "", false);
     }
 
     #[test]
     fn opening_without_close_exposes_thinking_after_completion() {
-        assert_view("[THINK]passo", false, Some("passo"), "", false);
+        assert_view("[THINK]step", false, Some("step"), "", false);
     }
 
     #[test]
@@ -139,7 +133,7 @@ mod tests {
 
     #[test]
     fn closing_without_opening_is_literal() {
-        let raw = "[/THINK]risposta";
+        let raw = "[/THINK]response";
         assert_view(raw, false, None, raw, false);
     }
 
@@ -168,10 +162,10 @@ mod tests {
     #[test]
     fn newlines_and_unicode_are_preserved_exactly() {
         assert_view(
-            "[THINK]\nπensa 🧠\n[/THINK]\nrisposta ✓\n",
+            "[THINK]\nthink 🧠\n[/THINK]\nresponse ✓\n",
             false,
-            Some("\nπensa 🧠\n"),
-            "\nrisposta ✓\n",
+            Some("\nthink 🧠\n"),
+            "\nresponse ✓\n",
             false,
         );
     }

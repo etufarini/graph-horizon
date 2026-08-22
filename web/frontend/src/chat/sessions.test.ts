@@ -31,7 +31,7 @@ const source = (...values: string[]) => {
   let index = 0;
   return () => values[index++];
 };
-const turn = (user = 'ciao', assistant = 'risposta') => hydrateTranscript([
+const turn = (user = 'hello', assistant = 'response') => hydrateTranscript([
   { role: 'user', content: user },
   { role: 'assistant', content: assistant }
 ]);
@@ -40,7 +40,7 @@ test('constructor creates exactly one empty active chat', () => {
   const collection = createCollection(10, source(ids[0]));
   assert.deepEqual(collection, {
     activeChatId: ids[0],
-    chats: [{ id: ids[0], title: 'Nuova chat', systemPrompt: '', messages: [], updatedAt: 10 }]
+    chats: [{ id: ids[0], title: 'New chat', systemPrompt: '', messages: [], updatedAt: 10 }]
   });
 });
 
@@ -53,10 +53,10 @@ test('new chat is a no-op for an empty active chat and retries UUID collisions',
   assert.equal(created.activeChatId, ids[1]);
   assert.equal(created.chats.length, 2);
   assert.deepEqual(activeChat(created), {
-    id: ids[1], title: 'Nuova chat', systemPrompt: '', messages: [], updatedAt: 20
+    id: ids[1], title: 'New chat', systemPrompt: '', messages: [], updatedAt: 20
   });
 
-  const promptOnly = replaceActiveSystemPrompt(initial, 'specifico');
+  const promptOnly = replaceActiveSystemPrompt(initial, 'specific');
   const afterPrompt = newChat(promptOnly, 21, source(ids[1]));
   assert.equal(afterPrompt.chats.length, 2);
   assert.equal(activeChat(afterPrompt).systemPrompt, '');
@@ -64,7 +64,7 @@ test('new chat is a no-op for an empty active chat and retries UUID collisions',
 
 test('stable replacement derives at most 48 Unicode code points once', () => {
   const initial = createCollection(1, source(ids[0]));
-  const user = `  ${'🧠'.repeat(47)}   fine   ignorato  `;
+  const user = `  ${'🧠'.repeat(47)}   end   ignored  `;
   const messages = turn(user, '[THINK]π[/THINK]');
   const stable = replaceActiveTranscript(initial, messages, 2);
   assert.equal(Array.from(activeChat(stable).title).length, 48);
@@ -72,10 +72,10 @@ test('stable replacement derives at most 48 Unicode code points once', () => {
   assert.equal(activeChat(stable).updatedAt, 2);
   assert.equal(activeChat(stable).messages, messages);
 
-  const next = replaceActiveTranscript(stable, turn('titolo diverso'), 3);
+  const next = replaceActiveTranscript(stable, turn('different title'), 3);
   assert.equal(activeChat(next).title, activeChat(stable).title);
   const blank = replaceActiveTranscript(initial, turn(' \n\t '), 4);
-  assert.equal(activeChat(blank).title, 'Nuova chat');
+  assert.equal(activeChat(blank).title, 'New chat');
 });
 
 test('ordering is descending timestamp with ascending ID tie-break', () => {
@@ -95,12 +95,12 @@ test('selection and rename preserve timestamps and reject invalid titles', () =>
   assert.equal(selectChat(selected, ids[0]), selected);
   assert.equal(selectChat(selected, ids[3]), selected);
 
-  const renamed = renameChat(selected, ids[0], '  titolo   interno  ');
-  assert.equal(renamed.chats[0].title, 'titolo   interno');
+  const renamed = renameChat(selected, ids[0], '  internal   title  ');
+  assert.equal(renamed.chats[0].title, 'internal   title');
   assert.equal(renamed.chats[0].updatedAt, 10);
   assert.equal(renameChat(renamed, ids[0], '   '), renamed);
   assert.equal(renameChat(renamed, ids[0], '🧠'.repeat(MAX_TITLE_CODE_POINTS + 1)), renamed);
-  assert.equal(renameChat(renamed, ids[3], 'valido'), renamed);
+  assert.equal(renameChat(renamed, ids[3], 'valid'), renamed);
   assert.equal(renameChat(renamed, ids[0], '🧠'.repeat(MAX_TITLE_CODE_POINTS)).chats[0].title,
     '🧠'.repeat(MAX_TITLE_CODE_POINTS));
 });
@@ -120,17 +120,17 @@ test('deletion preserves or replaces active selection deterministically', () => 
   const replacement = deleteChat(active, ids[1], 40, source(ids[3]));
   assert.deepEqual(replacement, {
     activeChatId: ids[3],
-    chats: [{ id: ids[3], title: 'Nuova chat', systemPrompt: '', messages: [], updatedAt: 40 }]
+    chats: [{ id: ids[3], title: 'New chat', systemPrompt: '', messages: [], updatedAt: 40 }]
   });
 });
 
 test('system prompts belong to one chat and preserve transcript recency', () => {
-  let collection = createCollection(10, source(ids[0]), 'primo');
-  collection = appendChat(collection, turn(), 'secondo', 20, source(ids[1]));
-  const changed = replaceActiveSystemPrompt(collection, 'secondo aggiornato');
-  assert.deepEqual(changed.chats.map(chat => chat.systemPrompt), ['primo', 'secondo aggiornato']);
+  let collection = createCollection(10, source(ids[0]), 'first');
+  collection = appendChat(collection, turn(), 'second', 20, source(ids[1]));
+  const changed = replaceActiveSystemPrompt(collection, 'updated second');
+  assert.deepEqual(changed.chats.map(chat => chat.systemPrompt), ['first', 'updated second']);
   assert.deepEqual(changed.chats.map(chat => chat.updatedAt), [10, 20]);
-  assert.equal(replaceActiveSystemPrompt(changed, 'secondo aggiornato'), changed);
+  assert.equal(replaceActiveSystemPrompt(changed, 'updated second'), changed);
 });
 
 test('invalid stable transcripts and imported chat inputs are rejected', () => {

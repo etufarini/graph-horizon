@@ -200,12 +200,12 @@ mod tests {
 
     #[test]
     fn text_delta_produces_content_line() {
-        let line = event_line(&Event::TextDelta("ciao".to_string())).unwrap();
+        let line = event_line(&Event::TextDelta("hello".to_string())).unwrap();
         assert!(line.starts_with("data: "));
         assert!(line.ends_with("\n\n"));
         let json: serde_json::Value =
             serde_json::from_str(line.trim_start_matches("data: ").trim_end()).unwrap();
-        assert_eq!(json["choices"][0]["delta"]["content"], "ciao");
+        assert_eq!(json["choices"][0]["delta"]["content"], "hello");
         assert_eq!(json["object"], "chat.completion.chunk");
         assert_eq!(json["model"], "graph-horizon");
         assert!(json["choices"][0]["finish_reason"].is_null());

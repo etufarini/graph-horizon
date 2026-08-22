@@ -43,7 +43,7 @@ const firstId = '00000000-0000-4000-8000-000000000001';
 const secondId = '00000000-0000-4000-8000-000000000002';
 const source = (id: string) => () => id;
 const plain = [
-  { role: 'user' as const, content: 'ciao 🧠' },
+  { role: 'user' as const, content: 'hello 🧠' },
   { role: 'assistant' as const, content: '' }
 ];
 
@@ -56,7 +56,7 @@ function useStorage(storage: MemoryStorage): void {
 
 function collection() {
   return replaceActiveTranscript(
-    createCollection(10, source(firstId), 'specifico'),
+    createCollection(10, source(firstId), 'specific'),
     hydrateTranscript(plain),
     11
   );
@@ -150,12 +150,12 @@ test('legacy migration replaces the exact value only after a successful write', 
 
 test('missing archive adopts the legacy prompt before removing its old key', () => {
   const storage = new MemoryStorage();
-  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'solo prompt');
+  storage.values.set(LEGACY_SYSTEM_PROMPT_KEY, 'prompt only');
   useStorage(storage);
   const result = loadChats(42, source(firstId));
   assert.equal(result.warning, null);
-  assert.equal(result.collection.chats[0].systemPrompt, 'solo prompt');
-  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).chats[0].systemPrompt, 'solo prompt');
+  assert.equal(result.collection.chats[0].systemPrompt, 'prompt only');
+  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).chats[0].systemPrompt, 'prompt only');
   assert.equal(storage.values.has(LEGACY_SYSTEM_PROMPT_KEY), false);
 });
 

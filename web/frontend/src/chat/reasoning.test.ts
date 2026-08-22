@@ -47,8 +47,8 @@ test('an incomplete prefix after completion is an ordinary answer', () => {
 });
 
 test('an ordinary response is unchanged', () => {
-  assert.deepEqual(splitReasoning('Risposta ordinaria', true), {
-    answer: 'Risposta ordinaria',
+  assert.deepEqual(splitReasoning('Ordinary response', true), {
+    answer: 'Ordinary response',
     pending: false,
   });
 });
@@ -62,26 +62,26 @@ test('exact complete markers produce empty THINK and empty answer', () => {
 });
 
 test('leading whitespace is omitted only from a recognized Reasoning view', () => {
-  const raw = ' \n[THINK]  ragiona \n[/THINK]  rispondi ';
+  const raw = ' \n[THINK]  reason \n[/THINK]  answer ';
   assert.deepEqual(splitReasoning(raw, false), {
-    thinking: '  ragiona \n',
-    answer: '  rispondi ',
+    thinking: '  reason \n',
+    answer: '  answer ',
     pending: false,
   });
-  assert.equal(raw, ' \n[THINK]  ragiona \n[/THINK]  rispondi ');
+  assert.equal(raw, ' \n[THINK]  reason \n[/THINK]  answer ');
 });
 
 test('an opening marker without a close exposes THINK while streaming', () => {
-  assert.deepEqual(splitReasoning('[THINK]passo', true), {
-    thinking: 'passo',
+  assert.deepEqual(splitReasoning('[THINK]step', true), {
+    thinking: 'step',
     answer: '',
     pending: false,
   });
 });
 
 test('an opening marker without a close exposes THINK after completion', () => {
-  assert.deepEqual(splitReasoning('[THINK]passo', false), {
-    thinking: 'passo',
+  assert.deepEqual(splitReasoning('[THINK]step', false), {
+    thinking: 'step',
     answer: '',
     pending: false,
     incomplete: true,
@@ -100,7 +100,7 @@ test('an opening marker after non-whitespace text remains literal', () => {
 });
 
 test('a closing marker without an opening marker remains literal', () => {
-  const raw = '[/THINK]risposta';
+  const raw = '[/THINK]response';
   assert.deepEqual(splitReasoning(raw, false), { answer: raw, pending: false });
 });
 
@@ -121,9 +121,9 @@ test('markers after the first close remain literal answer content', () => {
 });
 
 test('newlines and Unicode are preserved exactly in both sections', () => {
-  assert.deepEqual(splitReasoning('[THINK]\nπensa 🧠\n[/THINK]\nrisposta ✓\n', false), {
-    thinking: '\nπensa 🧠\n',
-    answer: '\nrisposta ✓\n',
+  assert.deepEqual(splitReasoning('[THINK]\nthink 🧠\n[/THINK]\nresponse ✓\n', false), {
+    thinking: '\nthink 🧠\n',
+    answer: '\nresponse ✓\n',
     pending: false,
   });
 });

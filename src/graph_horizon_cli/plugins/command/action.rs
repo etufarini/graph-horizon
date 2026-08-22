@@ -25,7 +25,7 @@ pub(super) fn system_command(
     _history: &[ChatTurn],
 ) -> CommandResult {
     match arg {
-        "" => CommandResult::Notice("uso: /system <testo> oppure /system --clear".into()),
+        "" => CommandResult::Notice("usage: /system <text> or /system --clear".into()),
         "--clear" => CommandResult::SetSystem(None),
         text => CommandResult::SetSystem(Some(text.to_string())),
     }

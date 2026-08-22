@@ -16,7 +16,7 @@
 
   function rows(memory: RuntimeMemory): Array<[string, string]> {
     return [
-      ['Pesi', formatBytes(memory.weights)],
+      ['Weights', formatBytes(memory.weights)],
       ['KV max', formatBytes(memory.kv)],
       ['Scratch', formatBytes(memory.scratch)],
       ['Fixed', formatBytes(memory.fixed)],
@@ -27,12 +27,12 @@
   }
 </script>
 
-<section class="runtime" aria-label="Runtime di inferenza">
+<section class="runtime" aria-label="Inference runtime">
   <div class="runtime-summary">
     <strong class="model">{info.modelName}</strong>
     <span>{info.backend}</span>
     <span>{mode}</span>
-    <span>Pesi {formatBytes(info.memory.weights)}</span>
+    <span>Weights {formatBytes(info.memory.weights)}</span>
     <span>KV max {formatBytes(info.memory.kv)}</span>
     {#if placement}
       <span>CPU {placement.cpuLayers}L / {accelerator} {placement.acceleratorLayers}L</span>

@@ -129,8 +129,8 @@ test('selection and valid rename persist without changing recency', () => {
   assert.equal(conversationSets().length, 1);
 
   storage.resetCalls();
-  assert.equal(chat.renameChat(target.id, '  titolo   nuovo  '), true);
-  assert.equal(active().title, 'titolo   nuovo');
+  assert.equal(chat.renameChat(target.id, '  new   title  '), true);
+  assert.equal(active().title, 'new   title');
   assert.equal(active().updatedAt, target.updatedAt);
   assert.equal(conversationSets().length, 1);
   const collection = snapshot.collection;
@@ -260,15 +260,15 @@ test('system prompts remain isolated in the canonical collection', () => {
   const second = snapshot.collection.chats.find(item => item.id !== first.id)!;
   storage.resetCalls();
   chat.selectChat(first.id);
-  chat.setSystemPrompt('primo prompt');
-  assert.equal(active().systemPrompt, 'primo prompt');
+  chat.setSystemPrompt('first prompt');
+  assert.equal(active().systemPrompt, 'first prompt');
   chat.selectChat(second.id);
-  chat.setSystemPrompt('secondo prompt');
-  assert.equal(active().systemPrompt, 'secondo prompt');
+  chat.setSystemPrompt('second prompt');
+  assert.equal(active().systemPrompt, 'second prompt');
   chat.selectChat(first.id);
-  assert.equal(active().systemPrompt, 'primo prompt');
+  assert.equal(active().systemPrompt, 'first prompt');
   assert.equal(snapshot.collection.chats.find(item => item.id === second.id)!.systemPrompt,
-    'secondo prompt');
+    'second prompt');
   assert.equal(storage.values.has(SYSTEM_KEY), false);
   assert.equal(conversationSets().length, 4);
 });

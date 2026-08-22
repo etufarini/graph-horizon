@@ -181,8 +181,8 @@ non è una promessa di determinismo universale tra hardware.
 
 Gli esiti revisionati sono pubblicati nel [registro di validazione](../docs/validation.md) con
 il relativo commit. Una campagna precedente non qualifica automaticamente la
-sorgente corrente; il runner continua a definire il protocollo, non lo stato
-della futura release.
+sorgente corrente; il runner definisce il protocollo, mentre lo stato della
+release `v0.1.0` appartiene al registro.
 
 ## Sicurezza
 

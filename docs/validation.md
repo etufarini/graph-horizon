@@ -8,23 +8,61 @@ log grezzi e decisioni sperimentali restano nella cronologia Git.
 
 ## Stato corrente
 
-Graph Horizon `v0.1.0` non è ancora stato rilasciato: non esistono il tag, la
-GitHub Release o gli artefatti pubblici. La campagna del 19 agosto 2026 qualifica
-il solo runtime `d1bf18f034fd44df5b8e81931e7feea32edeb47f`; le modifiche runtime
-successive impediscono di applicarne automaticamente gli esiti al commit finale
-ancora da scegliere.
+Graph Horizon `v0.1.0` non è ancora stato rilasciato: non esistono il tag remoto,
+la GitHub Release o gli artefatti pubblici. La campagna del 19 agosto 2026
+qualifica il solo runtime `d1bf18f034fd44df5b8e81931e7feea32edeb47f`; le
+modifiche runtime successive impediscono di applicarne automaticamente gli
+esiti al commit finale ancora da scegliere.
 
 Il software dichiara versione Cargo/frontend `0.1.0`, ma resta pre-release. Il
-presente audit parte da `main`/`origin/main` `6b46331` del 22 agosto 2026. La
-correzione engine più recente qualificata è `e7edc83`, confluita in `main` con
-PR #41 (`24eac82`); i commit successivi cambiano presentazione, documentazione e
-commenti, non il percorso numerico oggetto di quella campagna. Questo consente
-di mantenere l'evidenza tecnica revisionata, ma non sostituisce la campagna
-finale sull'unico commit che verrà taggato.
+commit candidato resta `pending/unqualified` finché l'intera campagna finale non
+termina su una working tree pulita. La correzione engine più recente qualificata
+è `e7edc83`, confluita in `main` con PR #41 (`24eac82`); l'evidenza tecnica
+revisionata resta valida soltanto per le revisioni dichiarate e non sostituisce
+la campagna finale sull'unico commit che verrà taggato.
 
 La compatibilità tecnica, la correttezza numerica, la qualità semantica e le
 prestazioni sono claim distinti. Un file caricabile non è per questo
 qualificato; un risultato storico non qualifica una sorgente successiva.
+
+## Identità canonica della release
+
+Questo file è il registro canonico dello stato di qualifica, ma non duplica
+identità che possono divergere. Dopo il freeze, il commit sorgente esatto si
+ricava con `git rev-parse v0.1.0^{commit}`: il tag annotato immutabile è il
+riferimento autoritativo e deve puntare al commit che contiene questo registro.
+Prima della creazione del tag l'identità resta esplicitamente
+`pending/unqualified`; non viene pubblicato come definitivo alcun hash
+intermedio.
+
+L'artefatto canonico è `graph-horizon-0.1.0.tar.gz`, generato con `git archive`
+dal tag. Il solo valore SHA-256 autoritativo è il record affiancato
+`graph-horizon-0.1.0.tar.gz.sha256`; il digest non viene copiato in questo file.
+Archivio, record e annotazione del tag devono riportare lo stesso nome/versione,
+mentre l'header Git dell'archivio deve risolversi allo stesso commit del tag.
+
+## Contratto minimo Rust
+
+Graph Horizon supporta Rust e Cargo 1.88 o successivi. Rust 1.85 è il minimo per
+edition 2024, ma il grafo bloccato contiene dipendenze che dichiarano 1.88;
+quindi una versione inferiore renderebbe falso il contratto corrente. Entrambi i
+crate ereditano `rust-version = "1.88"` dal workspace e l'installer rifiuta prima
+della build una toolchain precedente o non interpretabile.
+
+La verifica riproducibile del limite è:
+
+```sh
+cargo +1.88.0 test --locked --workspace --all-targets \
+  --no-default-features --features cpu
+cargo +1.88.0 check --locked --workspace --all-targets \
+  --no-default-features --features vulkan
+cargo +1.88.0 check --locked --workspace --all-targets \
+  --no-default-features --features vulkan-hybrid
+```
+
+I profili Metal richiedono macOS arm64 e restano una verifica esterna su questo
+host Linux; il grafo Cargo bloccato, inclusi i pacchetti Metal opzionali, non
+dichiara una versione Rust superiore a 1.88.
 
 ## Artefatti autenticati
 
@@ -108,12 +146,14 @@ un canale Reasoning separato erano fuori contratto.
 
 La release può essere dichiarata qualificata soltanto dopo avere:
 
-1. scelto e registrato un commit finale pulito;
+1. scelto un commit finale pulito, lasciando l'identità documentale pending;
 2. rieseguito sullo stesso commit i gate applicabili di build, lint, frontend,
    runtime, parity, semantica, superfici di prodotto, failure path e documentazione;
-3. creato il tag annotato immutabile `v0.1.0` su quel commit;
+3. creato il tag annotato immutabile `v0.1.0` su quel commit, rendendo risolvibile
+   l'identità canonica senza modificare nuovamente il commit;
 4. generato dal tag `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256`;
-5. verificato installazione pulita, versione e inferenza dall’archivio;
+5. verificato checksum, header Git, installazione pulita, versione e inferenza
+   dall'archivio, non dalla working tree;
 6. pubblicato tag e asset solo con autorizzazione esplicita e verificato il
    bootstrap anonimo se il repository è pubblico.
 

@@ -20,7 +20,7 @@ support registry.
 | Qualified inference RC | `d1bf18f034fd44df5b8e81931e7feea32edeb47f` |
 | Packaging RC | `c59ea4eebdd77cfe2712b64bc11245fe4dd12440` |
 | Final pre-tag candidate | `fe7a46aec1e1b5904413082d95946a45ce70d8d2` |
-| Final source | pending |
+| Final source | pending; resolved canonically by immutable `v0.1.0^{commit}` |
 | Qualification date | 2026-08-19 |
 | Determination | `REQUALIFICATION REQUIRED` |
 
@@ -35,6 +35,9 @@ the immutable tag; `git rev-list -n 1 v0.1.0` will then provide the mapping.
 - Linux x86_64, kernel `7.0.0-29-generic`; Intel Core i5-9600K, 6 cores.
 - NVIDIA GeForce RTX 3060 12 GiB, driver 595.84, Vulkan 1.4.329.
 - Rust/Cargo 1.95.0, Node.js 24.15.0, npm 11.12.1, GCC 15.2.0.
+- The current source contract is Rust/Cargo 1.88 or newer; the final campaign
+  must separately exercise 1.88 so the historical 1.95 host does not define the
+  minimum by accident.
 - Metal/macOS, AMD Vulkan, and other NVIDIA hardware were unavailable.
 - Cargo and npm lock files contain resolved versions; no release dependency is
   taken from a mutable Git branch.
@@ -174,11 +177,13 @@ programs.
 
 The current source is not yet release-qualified. Before publishing v0.1.0:
 
-1. select and record one clean final commit;
+1. select one clean final commit, keeping its document identity pending until
+   the immutable tag resolves it without a self-referential hash;
 2. rerun the applicable build, lint, frontend, runtime, semantic, parity,
    product-surface, failure-path, and documentation gates on that source;
 3. create the annotated local `v0.1.0` tag on that exact commit;
-4. generate the deterministic source archive and `.sha256` from the tag;
+4. generate the deterministic source archive and canonical `.sha256` sidecar
+   from the tag without duplicating its digest in mutable documentation;
 5. perform a clean-prefix installation, version check, and inference smoke from
    the generated archive;
 6. publish the tag and both assets only with explicit authorization, then test

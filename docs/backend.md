@@ -33,6 +33,9 @@ a compute target follows the
 
 `Engine::new(path, EngineConfig)` validates the file and builds its resources. A
 `Request` contains text messages, sampling parameters, and `max_tokens`.
+Messages contain at most one initial `System`, then strictly alternate `User`
+and non-empty `Assistant`, and end with `User`; any other sequence is a
+generation error.
 `Engine::generate` sends only these events to the sink:
 
 - `Phase(Prefill)` immediately before prompt evaluation;

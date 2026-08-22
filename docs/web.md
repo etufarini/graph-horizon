@@ -101,6 +101,13 @@ editor is also disabled so prompt persistence cannot checkpoint a partial
 assistant response. A failed request restores its submitted prompt only when no
 newer draft has been entered.
 
+The browser transcript permits an empty assistant so Stop and a valid
+zero-delta completion can retain a complete pair. The local engine does not
+accept an empty assistant as prior model history. Before sending another message
+after such a turn, regenerate it, edit its user prompt, or delete it; otherwise
+the server opens the stream with a generic engine error and the UI reports
+`Response interrupted` while preserving the empty pair.
+
 `--provider` and `--max-tokens` are ignored. `--context-tokens`, KV, threads, and
 placement configure the local engine. The Web wrapper publishes the loaded
 engine's `n_ctx` as both capacity fields.

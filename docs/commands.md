@@ -63,7 +63,9 @@ creation, and completion operation is anchored to that descriptor:
 - completion rejects the same unsafe components but accepts one trailing slash
   to list an already authorized directory;
 - opened directories and files use descriptor-relative, no-follow operations;
-- symlinks are rejected even when they point inside the directory;
+- reads, creates, and directory descent reject symlinks even when they point
+  inside the directory; a name surfaced by completion still fails when opened
+  if it is a symlink;
 - `/export` creates or truncates regular files with `0600` permissions;
 - displayed errors omit absolute paths, OS details, and stack traces.
 

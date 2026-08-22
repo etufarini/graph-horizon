@@ -63,6 +63,13 @@ do not change execution. Sampling is selected from the loaded model profile:
 Instruct is greedy, while Reasoning uses the sampling policy defined by the
 qualification protocol, with `temperature=0.7`.
 
+The engine sequence is at most one initial `system` message followed by strict
+`user`/non-empty-`assistant` alternation and a final `user` message. The wire
+validator checks roles and text shapes before admission but leaves this ordering
+to the engine. An invalid ordering therefore opens the SSE response, emits the
+generic generation error and `[DONE]`, and exposes no internal sequence detail;
+it is not a pre-stream `400`.
+
 When `max_tokens` is absent, the server uses `--max-tokens`, whose server default
 is `1024`. A positive value in the request is retained even when it exceeds that
 default: the flag is not a global ceiling.

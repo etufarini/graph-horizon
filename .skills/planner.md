@@ -1,3 +1,8 @@
+<!--
+This protocol owns interactive requirements gathering and approved Markdown
+specification structure; it does not implement or verify repository changes.
+-->
+
 # planner.md
 
 This file defines the protocol the agent must follow to design a software change without ever implementing it.
@@ -161,9 +166,17 @@ The process is sequential. The agent moves to the next phase only after **explic
 * **File and folder tree:** only what the Phase-3 solution strictly needs.
 * **Self-explanatory names:** clear nouns (`console`, `runtime`, `parser`); no abstract or verb-based names.
 * **Line estimate:** for each file, estimate useful code lines (excluding tests/fixtures).
-* **200-line limit:** if a file exceeds it, split into submodules before approval.
+* **200-line orchestration limit:** dispatch, resource ownership,
+  configuration/budget arithmetic, I/O, and graph wiring must remain within 200
+  productive lines; split the domain into a folder before approval if needed.
+  A single dense kernel of one operation (category K) or one trait/one thin
+  delegating `impl Trait` block (category I) has no line limit and instead
+  declares exactly one matching `// AGENTS deroga K: <nota>` or
+  `// AGENTS deroga I: <nota>` marker.
 * **Single responsibility:** each file does one thing; if its purpose needs more than one sentence, split it.
 * **Folders only when justified:** a domain that fits in one file stays one clearly named file.
+* **Split by folder:** parts of one domain use `domain/{mod.rs, part.rs, …}`;
+  do not create prefix-named siblings such as `domain.rs` and `domain_part.rs`.
 * **Task seams:** identify how the work will split into small, independently verifiable, independently committable tasks, and note the dependencies between them.
 **Block:** Do not proceed until the structure is explicitly approved.
 

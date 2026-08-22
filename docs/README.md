@@ -48,11 +48,14 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-nvidia-long-context-prefill.md](vulkan-nvidia-long-context-prefill.md) | NVIDIA Vulkan long-context prefill attribution, routing fix, and quantitative stop checkpoint |
 | [vulkan-nvidia-long-context-decode.md](vulkan-nvidia-long-context-decode.md) | NVIDIA Vulkan long-context decode attribution and final routing checkpoint |
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Metal performance comparison and optimization checkpoint against llama.cpp Metal |
+| [metal-vulkan-optimization-parity.md](metal-vulkan-optimization-parity.md) | Vulkan-to-Metal capability mapping, retained candidates, and global-stop evidence |
 | [metal-long-context-prefill-optimization.md](metal-long-context-prefill-optimization.md) | Apple Metal long-context prefill attribution, retained attention optimization, and final checkpoint |
 | [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Completed Apple Metal long-context decode checkpoint and candidate ledger |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 | [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 | [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |
+| [final-backend-model-family-cleanup.md](final-backend-model-family-cleanup.md) | Final engine ownership inventory, cleanup decisions, and cross-hardware qualification |
+| [amd-deep-clean-regression-repair.md](amd-deep-clean-regression-repair.md) | AMD post-cleanup correctness diagnosis, repair, and qualification evidence |
 
 ## Reviewed Evidence
 

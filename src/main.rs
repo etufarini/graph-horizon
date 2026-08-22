@@ -7,7 +7,6 @@
 
 mod app;
 mod graph_horizon_cli;
-mod graph_horizon_server;
 mod graph_horizon_web;
 #[cfg(test)]
 mod support_scripts;

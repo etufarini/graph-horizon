@@ -12,7 +12,6 @@ use mode::Mode;
 pub(crate) mod args;
 pub(crate) mod engine;
 mod mode;
-pub(crate) mod sse;
 
 pub(crate) async fn run() -> Result<()> {
     // Validate the shared EngineConfig flags before cwd changes or model loads so every mode

@@ -1,33 +1,27 @@
 /*
  * Browser prompt-capacity model.
- * Validates the `/props` invariant that `n_ctx` equals `max_tokens`, estimates
- * outgoing Unicode occupancy, and admits prompts without reserving generation
- * tokens. All arithmetic on untrusted properties and content fails closed.
+ * Validates the private Web context payload, estimates outgoing Unicode
+ * occupancy, and admits prompts under a conservative budget. All arithmetic on
+ * untrusted transport data and content fails closed.
  */
 import type { ContextAdmission, ContextConfigResult, ContextUsage, RuntimeContext, WireMessage } from './types';
 
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 
 export function parseRuntimeContext(payload: unknown): ContextConfigResult {
-  if (!isRecord(payload) || !isRecord(payload.default_generation_settings)) {
+  if (!isRecord(payload)) {
     return { ok: false, error: 'unavailable' };
   }
-  const { n_ctx: contextLimit, max_tokens: maxTokens } = payload.default_generation_settings;
+  const contextLimit = payload.context_limit;
   if (
     !Number.isSafeInteger(contextLimit) ||
-    (contextLimit as number) <= 0 ||
-    !Number.isSafeInteger(maxTokens) ||
-    (maxTokens as number) <= 0
+    (contextLimit as number) <= 1
   ) {
     return { ok: false, error: 'unavailable' };
   }
   const limit = contextLimit as number;
-  const generationLimit = maxTokens as number;
   // Quotient/remainder avoids overflowing a valid safe integer by multiplying it.
   const safePromptBudget = Math.floor(limit / 10) * 9 + Math.floor(((limit % 10) * 9) / 10);
-  if (generationLimit !== limit || safePromptBudget <= 0) {
-    return { ok: false, error: 'unavailable' };
-  }
   return {
     ok: true,
     context: { contextLimit: limit, safePromptBudget }

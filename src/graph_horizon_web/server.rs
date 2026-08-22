@@ -1,7 +1,7 @@
 /*
  * Graph Horizon web server loop
  * Single responsibility: own the local TCP listener for web mode and share
- * static assets plus headless chat state with each request. It does not carry
+ * static assets plus private chat state with each request. It does not carry
  * tools, confirmations, workspace state, or reasoning state.
  */
 
@@ -13,13 +13,12 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
-use crate::graph_horizon_server::ServerState;
-
 use super::assets::Assets;
+use super::chat::State;
 use super::config::WebConfig;
 use super::router;
 
-pub(super) async fn serve(config: WebConfig, assets: Assets, chat: ServerState) -> Result<()> {
+pub(super) async fn serve(config: WebConfig, assets: Assets, chat: State) -> Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let listener = TcpListener::bind(&addr)
         .await

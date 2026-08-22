@@ -49,8 +49,8 @@ function controlledFetch() {
       start(value) {
         streamController = value;
         streamController.enqueue(encoder.encode(
-          'data: {"graph_horizon":{"phase":"prefill"}}\n\n' +
-          'data: {"graph_horizon":{"phase":"decode"}}\n\n'
+          'data: {"phase":"prefill"}\n\n' +
+          'data: {"phase":"decode"}\n\n'
         ));
         init?.signal?.addEventListener('abort', () =>
           streamController.error(new DOMException('Aborted', 'AbortError')),
@@ -62,7 +62,7 @@ function controlledFetch() {
   return {
     body: () => requestBody,
     delta(content: string) {
-      const data = JSON.stringify({ choices: [{ delta: { content } }] });
+      const data = JSON.stringify({ content });
       streamController.enqueue(encoder.encode(`data: ${data}\n\n`));
     },
     frame(value: unknown) {
@@ -70,8 +70,8 @@ function controlledFetch() {
     },
     done() {
       streamController.enqueue(encoder.encode(
-        'data: {"usage":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
-        'data: [DONE]\n\n'
+        'data: {"stats":{"prompt_tokens":12,"prefill_tokens":8,"completion_tokens":3,"prefill_ms":40,"decode_ms":60}}\n\n' +
+        'data: {"done":true}\n\n'
       ));
       streamController.close();
     },
@@ -102,7 +102,7 @@ test('append streams without checkpoints and commits once after idle', async () 
     { role: 'assistant', content: 'first response' },
     { role: 'user', content: 'new question' }
   ]);
-  assert.equal(stream.body().max_tokens, 4096);
+  assert.deepEqual(Object.keys(stream.body()), ['messages']);
   stream.delta('[THINK]π[/THINK]');
   await tick();
   assert.equal(get(store).collection.chats[0].messages.at(-1)?.content, '[THINK]π[/THINK]');

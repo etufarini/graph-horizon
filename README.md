@@ -8,13 +8,18 @@ support, and validation documents.
   <img src="assets/graph-horizon-logo.svg" alt="Graph Horizon logo" width="220">
 </p>
 
-# Graph Horizon - Ministral 3 Version
+# Graph Horizon
 
-A focused local text-to-text runtime for Ministral 3 Instruct and Reasoning
-2512 in the 3B, 8B, and 14B sizes. It provides an interactive console and Web
-UI as its primary user interfaces, plus an HTTP server compatible with the
-OpenAI chat subset used by the included clients. It supports text messages
-only, without tool calling or a separate reasoning channel.
+Graph Horizon is a focused local text-to-text runtime. It provides an
+interactive console and Web UI as its primary user interfaces, plus an HTTP
+server compatible with the OpenAI chat subset used by the included clients. It
+supports text messages only, without tool calling or a separate reasoning
+channel.
+
+The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
+3B, 8B, and 14B sizes. Ministral 3 is the model family used by the current
+implementation; it is not part of the project name or a separate Graph Horizon
+edition.
 
 ## Project Scope
 
@@ -50,6 +55,34 @@ replace its broader runtime and ecosystem.
 - a compatible GGUF model already present on the computer.
 
 The installer builds from source and does not download models.
+
+## Current model support
+
+Graph Horizon currently accepts Ministral 3 2512 GGUF models with
+`general.architecture=mistral3`. The only supported public quantization is
+`Q4_K_M`. Other files offered in the same repositories, including BF16, Q8,
+IQ, Q4_0, and UD-Q4 variants, are not accepted.
+
+The official Unsloth GGUF repositories are:
+
+| Size | Profile | Hugging Face repository | Required GGUF file |
+|---|---|---|---|
+| 3B | Instruct | [unsloth/Ministral-3-3B-Instruct-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-3B-Instruct-2512-GGUF) | `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` |
+| 8B | Instruct | [unsloth/Ministral-3-8B-Instruct-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF) | `Ministral-3-8B-Instruct-2512-Q4_K_M.gguf` |
+| 14B | Instruct | [unsloth/Ministral-3-14B-Instruct-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF) | `Ministral-3-14B-Instruct-2512-Q4_K_M.gguf` |
+| 3B | Reasoning | [unsloth/Ministral-3-3B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-3B-Reasoning-2512-GGUF) | `Ministral-3-3B-Reasoning-2512-Q4_K_M.gguf` |
+| 8B | Reasoning | [unsloth/Ministral-3-8B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-8B-Reasoning-2512-GGUF) | `Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf` |
+| 14B | Reasoning | [unsloth/Ministral-3-14B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-14B-Reasoning-2512-GGUF) | `Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf` |
+
+Open the repository for the desired size and profile, then download exactly the
+listed `Q4_K_M` file. In particular, do not select the `UD-Q4_K_XL` file that
+some Hugging Face examples use. The installer does not download models.
+
+Technical recognition and reviewed qualification are separate: all six rows
+describe the current loader boundary, while the preliminary v0.1.0 campaign did
+not qualify the 8B Reasoning artifact. See the
+[planned support contract](#planned-v010-support-contract) and
+[validation register](VALIDATION.md) for that evidence.
 
 ## Installation
 
@@ -147,8 +180,8 @@ the current checkout.
 
 ## Usage
 
-The model is opened read-only and must declare
-`general.architecture=mistral3`.
+The model is opened read-only and must satisfy the
+[current model support](#current-model-support) boundary.
 
 ### Local console
 
@@ -197,7 +230,8 @@ Web admission compares only estimated prompt occupancy with the 90% safe budget
 and leaves the engine to enforce the exact rendered limit. The CLI status is
 compact, for example `ctx ~5.2k/32.8k tok gen 12.4s`, with no percentage or
 progress bar.
-The Web UI shows an accessible `Contesto 63%` bar and `Generazione 12.4s`.
+The Web UI shows an accessible `Context` usage bar and the current generation
+phase or latest generation metrics.
 See the [context capacity contract](docs/context.md) for exact admission and
 prompt-preservation behavior.
 
@@ -269,7 +303,8 @@ Until that gate is complete, these results are historical candidate evidence,
 not a published v0.1.0 support claim. Current backend maturity and release
 qualification remain separate.
 
-The public model boundary accepts only Ministral 3 2512 `Q4_K_M` GGUF files.
+The current public model boundary accepts only Ministral 3 2512 `Q4_K_M` GGUF
+files.
 Instruct remains dimension-generic while Reasoning loading requires one of the
 three recognized names. Recognition means technical load compatibility, not
 qualification. A Q8 profile is rejected before backend allocation.

@@ -9,6 +9,9 @@ These pages describe Graph Horizon surfaces and processes without assuming a
 specific model family, size, or release. Examples therefore use the
 `<model.gguf>` placeholder.
 
+Ministral 3 is the model family integrated by the current implementation. It is
+not part of the Graph Horizon project name or a separate product edition.
+
 Concrete support changes with the code: currently accepted architectures, GGUF
 profiles, and limits are defined in the
 [library contract](../crates/graph_horizon_engine/README.md), while reviewed results

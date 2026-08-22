@@ -14,12 +14,12 @@ qualifica il solo runtime `d1bf18f034fd44df5b8e81931e7feea32edeb47f`; le
 modifiche runtime successive impediscono di applicarne automaticamente gli
 esiti al commit finale ancora da scegliere.
 
-Il software dichiara versione Cargo/frontend `0.1.0`, ma resta pre-release. Il
-commit candidato resta `pending/unqualified` finché l'intera campagna finale non
-termina su una working tree pulita. La correzione engine più recente qualificata
-è `e7edc83`, confluita in `main` con PR #41 (`24eac82`); l'evidenza tecnica
-revisionata resta valida soltanto per le revisioni dichiarate e non sostituisce
-la campagna finale sull'unico commit che verrà taggato.
+Il software dichiara versione Cargo/frontend `0.1.0`, ma resta non pubblicato.
+Senza il tag locale l'identità è `pending/unqualified`; con il tag, il commit
+finale è esclusivamente quello risolto da `v0.1.0^{commit}`. La correzione engine
+più recente qualificata prima della campagna finale è `e7edc83`, confluita in
+`main` con PR #41 (`24eac82`); l'evidenza precedente resta valida soltanto per le
+revisioni dichiarate.
 
 La compatibilità tecnica, la correttezza numerica, la qualità semantica e le
 prestazioni sono claim distinti. Un file caricabile non è per questo
@@ -63,6 +63,47 @@ cargo +1.88.0 check --locked --workspace --all-targets \
 I profili Metal richiedono macOS arm64 e restano una verifica esterna su questo
 host Linux; il grafo Cargo bloccato, inclusi i pacchetti Metal opzionali, non
 dichiara una versione Rust superiore a 1.88.
+
+## Campagna finale v0.1.0
+
+La determinazione seguente appartiene soltanto al commit risolto dal tag locale
+annotato `v0.1.0`. La campagna è stata ripetuta dopo l'aggiornamento di questo
+registro; se il tag è assente o punta altrove, questa sezione non qualifica
+alcuna revisione.
+
+Ambiente del 22 agosto 2026: Linux x86_64 `7.0.0-30-generic`, Intel Core
+i5-9600K, NVIDIA RTX 3060 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
+1.95.0, toolchain minima Rust/Cargo 1.88.0, Node.js 24.15.0, npm 11.12.1 e GCC
+15.2.0. I sei Q4_K_M corrispondevano esattamente al catalogo; l'oracle era
+llama.cpp `13f2b28b0`.
+
+| Gate finale sul commit taggato | Esito |
+|---|---|
+| formato Rust, sintassi shell, diff e working tree | PASS |
+| Rust 1.88: suite CPU; check Vulkan e Vulkan-hybrid | PASS |
+| Clippy `-D warnings`, suite complete e build release CPU | PASS: app 143, engine 163, integration 5+12 |
+| Clippy `-D warnings`, suite completa e build release Vulkan | PASS: app 143, engine 162, integration 5+12 |
+| Clippy `-D warnings`, suite completa e build release Vulkan-hybrid | PASS: app 143, engine 233, integration 6+12 |
+| frontend | PASS: 119 test, 0 errori/warning Svelte, build, 0 vulnerabilità |
+| harness `support_scripts` ripetuto | PASS: 20 esecuzioni mirate, nessun `ETXTBSY` |
+| autenticazione Q4_K_M | PASS: 6/6 |
+| matrice reale/oracle | 36 PASS, 38 external verification, 0 failure, totale 74 |
+| semantica terminale | 6 qualified, 0 not-qualified, 0 external verification |
+
+Le 38 righe esterne della matrice sono sei Q8_0 assenti, 28 righe Metal non
+eseguibili su Linux e quattro righe Vulkan-hybrid mixed 14B senza memoria
+sufficiente su questa macchina. Nessuna è riportata come PASS. Le righe CPU e
+Vulkan disponibili, le righe mixed 3B/8B e i quattro endpoint Vulkan-hybrid
+3B sono passati in F16 e INT8. Le tre righe Reasoning correnti hanno ottenuto
+4/4 casi critici, 9/9 semantici e 9/9 marker completi; le tre righe Instruct
+mantengono l'evidenza preservata dichiarata dal protocollo.
+
+La qualifica locale include inoltre: tag e header Git dell'archivio risolti allo
+stesso commit; checksum affiancato verificato; installazione CPU in prefisso
+pulito eseguita dall'archivio estratto; versione, CLI/Web UI e inferenza smoke
+verificate sul binario installato. Il record `.sha256` e gli asset locali sono
+l'evidenza autoritativa di questi ultimi gate. Nessun push, GitHub Release o
+asset remoto è stato creato.
 
 ## Artefatti autenticati
 
@@ -142,17 +183,16 @@ processo, arresto pulito, errori bounded, versione installata e smoke da archivi
 locale. Scheduling concorrente, backend runtime, Q8, MoE, tool, multimodalità e
 un canale Reasoning separato erano fuori contratto.
 
-## Gate della release finale
+## Invarianti della release finale
 
-La release può essere dichiarata qualificata soltanto dopo avere:
+La qualifica sopra resta valida soltanto mantenendo questi invarianti:
 
-1. scelto un commit finale pulito, lasciando l'identità documentale pending;
-2. rieseguito sullo stesso commit i gate applicabili di build, lint, frontend,
+1. il tag annotato risolve al commit pulito che contiene questo registro;
+2. sullo stesso commit sono stati rieseguiti i gate applicabili di build, lint, frontend,
    runtime, parity, semantica, superfici di prodotto, failure path e documentazione;
-3. creato il tag annotato immutabile `v0.1.0` su quel commit, rendendo risolvibile
-   l'identità canonica senza modificare nuovamente il commit;
-4. generato dal tag `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256`;
-5. verificato checksum, header Git, installazione pulita, versione e inferenza
+3. il tag annotato immutabile `v0.1.0` non viene spostato;
+4. archivio `graph-horizon-0.1.0.tar.gz` e relativo `.sha256` derivano dal tag;
+5. checksum, header Git, installazione pulita, versione e inferenza sono verificati
    dall'archivio, non dalla working tree;
 6. pubblicato tag e asset solo con autorizzazione esplicita e verificato il
    bootstrap anonimo se il repository è pubblico.
@@ -169,4 +209,4 @@ nel [processo di validazione modello](model-validation-process.md), nel
 Una nuova evidenza sostituisce una riga soltanto quando registra revisione,
 identità dell’artefatto, configurazione, criterio e stato terminale. Una risorsa
 assente resta `external verification`; una failure non viene nascosta da un
-benchmark favorevole. Il tag pubblicato non deve mai essere spostato.
+benchmark favorevole. Il tag immutabile non deve mai essere spostato.

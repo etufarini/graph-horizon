@@ -6,10 +6,10 @@ support registry.
 
 # Ministral 3 v0.1.0 preliminary qualification
 
-> **Status:** superseded as a final release decision. No `v0.1.0` tag or GitHub
-> release exists, and later runtime changes require qualification on a new final
-> commit. The measurements below remain historical evidence for their recorded
-> revisions only.
+> **Status:** the August 19 material remains historical evidence. The final
+> tag-derived campaign is recorded below and is authoritative only when the
+> local annotated `v0.1.0` tag resolves to the commit containing this report.
+> No push or GitHub Release is part of the local qualification.
 
 ## Release identity
 
@@ -167,25 +167,62 @@ network retrieval can only be repeated after the two release assets exist.
 - Text-only chat; no tools, multimodal input, or separate Reasoning channel.
 - Q8, MoE, custom Reasoning prompts, and long-context quality are outside scope.
 
+## Final tag-derived campaign
+
+The final local campaign ran on Linux x86_64 kernel `7.0.0-30-generic`, Intel
+Core i5-9600K, NVIDIA RTX 3060 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
+1.95.0 plus the declared Rust/Cargo 1.88.0 minimum, Node.js 24.15.0, npm 11.12.1,
+and GCC 15.2.0. Source identity is deliberately not copied here: it is exactly
+`git rev-parse v0.1.0^{commit}` and must equal the commit containing this text.
+
+| Gate | Final result |
+|---|---|
+| Rust formatting, every tracked shell syntax, diff/clean-tree checks | PASS |
+| Rust 1.88 locked CPU tests and Vulkan/Vulkan-hybrid checks | PASS |
+| CPU warnings-denied Clippy / tests / release build | PASS; 143 app, 163 engine, 5+12 integration |
+| Vulkan warnings-denied Clippy / tests / release build | PASS; 143 app, 162 engine, 5+12 integration |
+| Vulkan-hybrid warnings-denied Clippy / tests / release build | PASS; 143 app, 233 engine, 6+12 integration |
+| Frontend | PASS; 119 tests, 0 Svelte diagnostics, production build, 0 audit findings |
+| ETXTBSY stress | PASS; 20 focused executions plus complete suites, no recurrence |
+| Six catalogued Q4_K_M artifacts | PASS; byte count, SHA-256, and structure 6/6 |
+| Real matrix | 36 PASS, 38 external verification, 0 failure, total 74 |
+| Terminal semantic gate | 6 qualified, 0 not-qualified, 0 external verification |
+| Tagged archive, checksum, clean-prefix install and installed-product smoke | PASS |
+
+The real matrix's external rows are explicit: six absent Q8_0 negative inputs,
+28 Metal rows unavailable on Linux, and four 14B Vulkan-hybrid mixed rows that
+did not fit this host. All locally executable CPU and standalone Vulkan rows,
+3B/8B mixed rows, and four homogeneous Vulkan-hybrid 3B endpoints matched the
+pinned oracle in F16 and INT8. The current 3B, 8B, and 14B Reasoning rows each
+passed 4/4 critical, 9/9 semantic, and 9/9 complete-marker gates. Their total
+times were 657,926 ms, 418,786 ms, and 484,966 ms respectively, with no retry.
+
+The deterministic `graph-horizon-0.1.0.tar.gz` was generated from the annotated
+tag. `git get-tar-commit-id`, the tag target, the installed source, and this
+report identify the same commit. The canonical digest is only in
+`graph-horizon-0.1.0.tar.gz.sha256`. Installation used an extracted copy of that
+archive and a new prefix, never the working tree. The installed binary passed
+version, CLI/Web UI, and inference smoke checks. Tag and assets remain local;
+publication and the anonymous network bootstrap require separate authorization.
+
 ## Post-v0.1.0 work
 
 Investigate 8B variation; broaden physical qualification; treat concurrent
 scheduling, runtime backend selection, packaging, and performance as separate
 programs.
 
-## Final release gates
+## Immutable release invariants
 
-The current source is not yet release-qualified. Before publishing v0.1.0:
+The local qualification remains valid only while all of these stay true:
 
-1. select one clean final commit, keeping its document identity pending until
-   the immutable tag resolves it without a self-referential hash;
+1. the annotated tag resolves to the clean commit containing this report;
 2. rerun the applicable build, lint, frontend, runtime, semantic, parity,
    product-surface, failure-path, and documentation gates on that source;
-3. create the annotated local `v0.1.0` tag on that exact commit;
+3. never move the annotated local `v0.1.0` tag;
 4. generate the deterministic source archive and canonical `.sha256` sidecar
    from the tag without duplicating its digest in mutable documentation;
-5. perform a clean-prefix installation, version check, and inference smoke from
-   the generated archive;
+5. retain the clean-prefix installation, version, Web UI, and inference-smoke
+   evidence from the generated archive;
 6. publish the tag and both assets only with explicit authorization, then test
    the anonymous bootstrap if the repository is public.
 

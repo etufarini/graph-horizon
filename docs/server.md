@@ -63,9 +63,24 @@ do not change execution. Sampling is selected from the loaded model profile:
 Instruct is greedy, while Reasoning uses the sampling policy defined by the
 qualification protocol, with `temperature=0.7`.
 
+The engine sequence is at most one initial `system` message followed by strict
+`user`/non-empty-`assistant` alternation and a final `user` message. The wire
+validator checks roles and text shapes before admission but leaves this ordering
+to the engine. An invalid ordering therefore opens the SSE response, emits the
+generic generation error and `[DONE]`, and exposes no internal sequence detail;
+it is not a pre-stream `400`.
+
 When `max_tokens` is absent, the server uses `--max-tokens`, whose server default
 is `1024`. A positive value in the request is retained even when it exceeds that
 default: the flag is not a global ceiling.
+
+An optional `x-graph-horizon-cache` header selects one caller-owned cache
+namespace. Its value must be exactly 32 lowercase hexadecimal characters;
+otherwise the request receives `400`. On standalone Vulkan and Metal builds,
+the engine can reuse an exact rendered-token prefix only when the key also
+matches. The single retained slot may be replaced by another key or prefix.
+CPU and hybrid builds accept the valid header but run the ordinary generation
+path. The key is a cache namespace, not authentication or authorization.
 
 A different method on either exact public route receives the existing
 client-safe `405` JSON error. `/props/` and every other unknown route receive

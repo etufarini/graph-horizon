@@ -74,8 +74,8 @@ Graph Horizon executable.
 
 ## Download a model
 
-Graph Horizon currently accepts Ministral 3 2512 GGUF models with
-`general.architecture=mistral3`. Only the `Q4_K_M` quantization is supported;
+Graph Horizon currently accepts only Ministral 3 2512 `Q4_K_M` GGUF files with
+`general.architecture=mistral3`. Every other quantization is unsupported;
 BF16, Q8, IQ, Q4_0, and UD-Q4 files from the same repositories are rejected.
 
 Download one of these exact files from Unsloth on Hugging Face:
@@ -93,6 +93,17 @@ The loader recognizes all six entries. Reviewed runtime qualification is a
 separate claim: the preliminary v0.1.0 campaign did not qualify the 8B
 Reasoning artifact. See [validation evidence](VALIDATION.md) for the exact
 results.
+
+Five exact artifacts passed that candidate; the Q4_K_M 8B Reasoning artifact
+was `NOT SUPPORTED`. A Q8 profile is rejected before backend allocation even
+though the parser can diagnose it.
+
+Without an explicit context, the engine uses the lesser of 32,768 tokens and
+the GGUF context maximum. On Linux, hybrid automatic RAM capacity is
+`floor(MemAvailable × 90 / 100)`, and placement keeps the maximum possible
+contiguous GPU suffix that fits its budgets. Reasoning output, including
+`[THINK]` and `[/THINK]`, remains ordinary raw text; the CLI and Web UI derive
+their visual sections without changing model history or the HTTP protocol.
 
 ## Run
 
@@ -149,6 +160,20 @@ is called Web UI, while its command-line mode is `web`.
 - One generation runs at a time.
 - The backend is selected when Graph Horizon is built; there is no runtime
   backend switch.
+
+Current backend labels are evidence-scoped; accepted build targets alone do not
+assign these statuses:
+
+| Profile | Status |
+|---|---|
+| `cpu` | **reference** |
+| `vulkan` | **production** |
+| `vulkan-hybrid` | **qualified** |
+| `metal` | **qualified** |
+| `metal-hybrid` | **qualified** |
+
+The precise hardware, software, model, placement, and KV scopes for each label
+are maintained in the [backend contract](docs/backend.md#support-status).
 
 ## Documentation
 

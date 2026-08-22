@@ -34,7 +34,7 @@ The authenticated 3B artifact used throughout the investigation was
 | AMD required-wave32 Q6 decode/logits | AMD plus Vulkan subgroup-size control | default-subgroup pipeline | adds 6.3--6.5% at 3B KV128/2K on top of GQA |
 | AMD required-wave32 4:1 GQA decode | AMD, required subgroup 32, F16 KV, head 128, exact 4:1 GQA | exact wave64 or generic decode | 3B/28K 16.144 → 49.398 tok/s; 8B/28K 18.868 fallback → 28.374 tok/s |
 | Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
-| Request KV reuse | serialized Vulkan requests; keyed calls may also reuse an identical token prefix | fresh state on cache failure | avoids reallocating request-local cache while preserving fresh tail logits |
+| Request KV reuse | serialized standalone Vulkan or Metal requests; keyed calls may also reuse an identical token prefix | ordinary generation on CPU/hybrid; prefix zero on a key/token mismatch and cache invalidation on failure | avoids reallocating request-local cache while preserving fresh tail logits |
 | CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
 | CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
 | Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |

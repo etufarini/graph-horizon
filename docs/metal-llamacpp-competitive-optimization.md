@@ -601,7 +601,7 @@ For a requested prompt length `N`, the synthetic input is `"a "` repeated
 ```sh
 prompt=$(printf 'a %.0s' {1..2044})
 target/release/examples/bench \
-  /Users/emanuele/Documents/models/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
+  "<model.gguf>" \
   --context 32768 --kv f16 --prompt "$prompt" \
   --max-tokens 32 --warmup 1 --reps 3
 ```

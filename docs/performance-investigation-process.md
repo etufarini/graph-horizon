@@ -14,7 +14,8 @@ be used when that benchmark cannot attribute the measured cost; remove them
 before completion unless the task requires a reusable profiling facility.
 
 `support/profiling/profile.sh` may provide a placement and memory snapshot.
-`support/profiling/validate-kv.sh` checks both public KV schemes, and
+`support/profiling/validate-kv.sh` executes one profiler row for each public KV
+scheme without authenticating or comparing them, and
 `support/testing/parity-check.sh` provides pinned-oracle parity. None of these
 tools compares A/B records or makes a performance decision.
 

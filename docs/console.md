@@ -96,7 +96,7 @@ keyboard behavior remains as documented above.
 
 The HTTP provider must expose `/props`, or the CLI must receive a valid
 `--context-tokens`; otherwise startup stops before Ratatui with
-`limite di contesto non disponibile; specificare --context-tokens`.
+`context limit unavailable; specify --context-tokens`.
 
 For the local provider, the scrollable conversation header identifies the
 loaded model, compile-time backend, retained model weights, full-context KV
@@ -108,7 +108,7 @@ identity, or physical-memory capacity. Remote HTTP providers do not synthesize
 runtime identity from endpoint data.
 
 The right-aligned status adapts to terminal width. While a request is active it
-shows `attesa`, `prefill`, or `decode` with a monotonic phase-local timer. After
+shows `waiting`, `prefill`, or `decode` with a monotonic phase-local timer. After
 a Graph Horizon generation completes, wide terminals show prompt, actually
 prefilled, and output counts plus separate phase durations and token rates:
 
@@ -137,3 +137,7 @@ previous successful status.
 While a capacity error is present, the status row instead reports estimated
 messages, reserved tokens, and safe budget. The next edit, recall, completion,
 or submission clears that transient error without clearing the restored prompt.
+
+The local TUI always requests greedy sampling. Server and Web requests instead
+use the loaded model profile's default sampling policy; the HTTP TUI does not
+send sampling fields and leaves that policy to its provider.

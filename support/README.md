@@ -15,7 +15,7 @@ diversi.
 | `../install.sh` | scarica e autentica con SHA-256 l'archivio sorgente `v0.1.0`, poi delega gli argomenti invariati |
 | `install.sh` | valida e compila un checkout locale, poi installa uno dei profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
-| `profiling/validate-kv.sh` | verifica f16/int8 su un Q4_K_M autenticato |
+| `profiling/validate-kv.sh` | esegue i profili f16/int8 su un modello esplicito; autenticazione e verdetto restano al chiamante |
 | `profiling/validate-weights.sh` | autenticazione dei sei Q4_K_M e formati interni sintetici |
 | `testing/parity-check.sh` | prompt esatto e top-2 contro oracle fissato |
 | `testing/matrix-check.sh` | sei Q8, 60 righe principali e otto endpoint hybrid |

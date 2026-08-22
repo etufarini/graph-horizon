@@ -16,8 +16,7 @@ engine from public text deltas, which do not have a one-to-one relationship.
   subgroup-size control, so the retained AMD pipelines request wave32.
 - Other relevant capabilities: integer dot product and FP16 available, 64 KiB
   LDS, 3 MiB L2, 96 MiB Infinity Cache, no Vulkan cooperative matrix.
-- Primary artifact:
-  `/home/emanuele/Documenti/models/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`.
+- Primary artifact: `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`.
 - Artifact size: 2,147,023,008 bytes.
 - SHA-256:
   `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
@@ -36,7 +35,7 @@ capacity regression case rather than a comparable all-GPU control.
 
 ## Reproduction commands
 
-Build and run the retained exact-depth harness:
+The historical exact-depth harness was built and run with:
 
 ```bash
 cargo build --release --features vulkan --example decode
@@ -471,9 +470,9 @@ same tokenizer/delta count.
 
 ## Retained work and next candidate
 
-Retained:
+Retained as evidence or production behavior:
 
-- exact-depth F16/INT8 steady-state decode benchmark;
+- recorded exact-depth F16/INT8 steady-state decode measurements;
 - non-overlapping beginning/middle/end generation reporting;
 - capability- and shape-gated wave32 INT8 4:1 GQA split decode kernel;
 - portable INT8 fallback and unchanged numerical tolerances.

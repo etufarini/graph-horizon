@@ -37,7 +37,8 @@ Ogni dominio possiede un confine stretto.
 - `gguf/`: parsing limitato, metadati e indice tensoriale, compreso Q8_0 solo
   per diagnostica e rifiuto; non alloca backend.
 - `kv_cache/`: schema f16/int8, layout e lifecycle per richiesta.
-- `sampling.rs` e `rng.rs`: scelta token deterministica o campionata.
+- `sampling.rs`: scelta token deterministica o campionata e relativo RNG
+  privato.
 - `harness/`: misure family-neutral e prove esterne; non è parte del runtime.
 
 Il flusso è:

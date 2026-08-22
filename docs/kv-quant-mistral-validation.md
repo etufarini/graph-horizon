@@ -70,6 +70,11 @@ support/profiling/validate-kv.sh \
 
 La stessa interfaccia accetta tutti i cinque profili. Lo script non effettua retry
 e non sostituisce automaticamente il backend quando una riga non è eseguibile.
+Esegue soltanto i due processi di profiling, prima `f16` e poi `int8`, su path,
+backend e contesto espliciti. Non autentica il file contro `models.tsv`, non
+confronta output o placement, non applica una soglia numerica e non assegna uno
+stato terminale: questi passi restano responsabilità della procedura e del
+report revisionato.
 
 ## Evidenza richiesta
 

@@ -7,6 +7,11 @@ description: >-
   where correctness, isolated commits, and reproducible evidence are required.
 ---
 
+<!--
+Questa skill possiede il ciclo locale misura-candidato-gate-decisione per le
+ottimizzazioni autorizzate; delega criteri numerici e misure ai riferimenti.
+-->
+
 # Safe Optimization Loop
 
 Rispondi sempre in italiano. Mantieni comandi e identificatori nella lingua del
@@ -29,8 +34,8 @@ misura -> cambia una cosa -> prova correttezza -> rimisura -> commit o ripristin
 4. Mantieni identici modello, prompt, contesto, KV, feature, profilo e hardware
    tra baseline e candidato.
 5. Cambi di ordine floating point, layout o precisione non sono presumibilmente
-   bit-exact. Esplorali solo se esiste un oracle approvato; altrimenti non
-   committarli.
+   bit-exact. Esplorali solo con un oracle approvato e una soglia dichiarata
+   prima della misura; altrimenti non committarli.
 6. Non introdurre dipendenze o astrazioni per un guadagno ipotetico.
 
 ## Fase 0 — Baseline
@@ -69,12 +74,15 @@ solo dopo il profilo.
 ## Fase 2 — Classificazione
 
 - Bit-exact: elimina lavoro, allocazioni, copie o sincronizzazioni senza
-  riordinare l'aritmetica. Può passare alla parity esatta.
+  riordinare l'aritmetica. Richiede un gate che prometta uguaglianza esatta.
 - Layout/numerica: cambia raggruppamento, FMA, SIMD reduction, tiling, precisione
-  o quantizzazione. Non committare autonomamente senza un oracle numerico
-  approvato dalla specifica corrente.
-- Architetturale: cambia ownership, threading model, dipendenze o interfacce.
-  Escludi dal loop e pianifica separatamente.
+  o quantizzazione. Usa il gate numerico bounded già approvato soltanto quando
+  misura il rischio del candidato; altrimenti serve una soglia specifica
+  predefinita.
+- Architetturale: cambia ownership, threading model o orchestrazione. Resta nel
+  loop quando il mandato prestazionale esplicito lo include e passa i gate
+  mirati di eventi, cancellazione, placement e capacità. Dipendenze e API
+  pubbliche richiedono invece scope esplicito.
 
 ## Fase 3 — Modifica
 
@@ -104,11 +112,12 @@ dal rumore.
 
 ## Fase 5 — Decisione
 
-- Tutti i gate verdi e guadagno reale: commit immediato con metrica prima/dopo.
+- Tutti i gate applicabili verdi e guadagno reale: commit immediato con metrica
+  prima/dopo.
 - Divergenza, regressione o guadagno nel rumore: ripristina solo il candidato e
   registrane il motivo.
-- Candidato numerico/architetturale: non lasciarlo nel tree; riportalo come
-  proposta non applicata.
+- Candidato senza un gate approvato adeguato: non lasciarlo nel tree; riportalo
+  come proposta non applicata.
 
 Ferma il loop quando non restano candidati misurati, l'oracle è instabile o il
 budget richiesto è esaurito. Alla fine ripeti matrice test, parity e benchmark,

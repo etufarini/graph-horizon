@@ -10,7 +10,7 @@ logits, token selection, KV contents, weight math, streaming behavior, or backen
 parity. It defines evidence requirements and does not claim support for any
 model, artifact, backend, or quantization profile.
 
-Current qualification results belong in [VALIDATION.md](../VALIDATION.md). The
+Current qualification results belong in [the validation register](validation.md). The
 broader release workflow is defined in
 [model-validation-process.md](model-validation-process.md).
 

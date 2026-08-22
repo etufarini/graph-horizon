@@ -35,7 +35,7 @@ diversi.
 
 Il contratto degli artefatti e gli SHA registrati sono nel catalogo
 [`models.tsv`](models.tsv); gli esiti revisionati appartengono al
-[registro di validazione](../VALIDATION.md).
+[registro di validazione](../docs/validation.md).
 Per una campagna locale, la directory dei modelli va sempre passata
 esplicitamente come `--models-dir /path/to/models`; il checkout oracle principale
 può trovarsi in `/path/to/llama.cpp`, mentre il worktree disposable previsto è
@@ -179,7 +179,7 @@ o catalogo invalidi prima dell'inferenza. Il run a `temperature=0.7` e `seed=0`
 è riproducibile solo a parità di commit, artefatto, backend, parametri e seed;
 non è una promessa di determinismo universale tra hardware.
 
-Gli esiti revisionati sono pubblicati in [VALIDATION.md](../VALIDATION.md) con
+Gli esiti revisionati sono pubblicati nel [registro di validazione](../docs/validation.md) con
 il relativo commit. Una campagna precedente non qualifica automaticamente la
 sorgente corrente; il runner continua a definire il protocollo, non lo stato
 della futura release.

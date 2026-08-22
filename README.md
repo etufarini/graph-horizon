@@ -91,7 +91,7 @@ Download one of these exact files from Unsloth on Hugging Face:
 
 The loader recognizes all six entries. Reviewed runtime qualification is a
 separate claim: the preliminary v0.1.0 campaign did not qualify the 8B
-Reasoning artifact. See [validation evidence](VALIDATION.md) for the exact
+Reasoning artifact. See [validation evidence](docs/validation.md) for the exact
 results.
 
 Five exact artifacts passed that candidate; the Q4_K_M 8B Reasoning artifact
@@ -182,7 +182,7 @@ are maintained in the [backend contract](docs/backend.md#support-status).
 - [Web UI guide](docs/web.md)
 - [Runtime configuration](docs/configuration.md)
 - [Backend contract](docs/backend.md)
-- [Validation evidence](VALIDATION.md) and
-  [release qualification](RELEASE_QUALIFICATION.md)
+- [Validation evidence](docs/validation.md) and
+  [release qualification](docs/release-qualification.md)
 - [Contributing](CONTRIBUTING.md)
 - [License](LICENSE)

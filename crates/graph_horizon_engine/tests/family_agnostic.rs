@@ -328,7 +328,8 @@ fn docs_contract() {
         .expect("source ownership");
     let support = fs::read_to_string(root.join("support/README.md")).expect("support docs");
     let server = fs::read_to_string(root.join("docs/server.md")).expect("server docs");
-    let validation = fs::read_to_string(root.join("VALIDATION.md")).expect("validation register");
+    let validation =
+        fs::read_to_string(root.join("docs/validation.md")).expect("validation register");
     let kv = fs::read_to_string(root.join("docs/kv-quant-mistral-validation.md"))
         .expect("KV validation docs");
     let args = fs::read_to_string(root.join("src/app/args.rs")).expect("runtime arguments");

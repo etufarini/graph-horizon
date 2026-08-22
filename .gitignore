@@ -1,3 +1,7 @@
+# This file excludes reproducible build output and local workflow artifacts.
+# Durable source, documentation, configuration, and reviewed evidence remain
+# visible to Git.
+
 target
 web/frontend/node_modules/
 web/frontend/dist/
@@ -9,8 +13,8 @@ crates/graph_horizon_engine/examples/dbg*.rs
 graph-horizon-export.json
 support/testing/parity-ref-*.txt
 
-# local design notes
-DECISIONS.md
+# local agent handoff notes
+/DECISIONS.md
 ref.oracle
 
 # local validation reports

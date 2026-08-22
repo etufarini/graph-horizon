@@ -1,7 +1,7 @@
 <!--
 These draft notes describe the intended user-facing v0.1.0 contract,
 installation, capabilities, and limitations. Qualification mechanics belong in
-VALIDATION.md.
+docs/validation.md.
 -->
 
 # Graph Horizon v0.1.0 draft
@@ -14,7 +14,7 @@ model family, not part of the product name.
 The preliminary candidate qualified five exact Q4_K_M artifacts: 3B, 8B, and
 14B Instruct plus 3B and 14B Reasoning. Final claims must be refreshed against
 the source commit selected for release and recorded in
-[VALIDATION.md](VALIDATION.md).
+[validation.md](validation.md).
 
 8B Reasoning is not supported. Its teacher-forced parity passed, but three
 fixed-seed fresh-process runs produced materially different response bytes and
@@ -43,7 +43,7 @@ being prepared now, CPU is the reference path, standalone Vulkan is production
 within its declared Linux/NVIDIA-or-AMD scope, and Vulkan-hybrid, Metal, and
 Metal-hybrid are qualified only within their documented tuples. The exact
 scopes and any remaining fresh-campaign requirements are maintained in
-[docs/backend.md](docs/backend.md#support-status), not in this historical draft.
+[backend.md](backend.md#support-status), not in this historical draft.
 
 The final release will apply only to the immutable source revision, model
 checksums, backend, and environment recorded by its completed validation

@@ -44,10 +44,11 @@ importers validate different contracts.
 ## `@file` Attachments
 
 A UTF-8-readable `@path/to/file` token is replaced in the request copy by a
-Markdown block headed `### File: <path>`. If the turn finishes with text, that
-copy enters the session's internal context; the view and export continue to show
-the typed prompt. The fence language comes from the extension. A missing,
-non-regular, or non-UTF-8 token remains literal text.
+Markdown block headed `### File: <path>`. The expanded copy affects only that
+request and its admission estimate. If the turn finishes with text, later
+requests, the view, and export use the typed prompt with its raw `@path`
+spelling. The fence language comes from the extension. A missing, non-regular,
+or non-UTF-8 token remains literal text.
 
 The fence uses more backticks than the longest sequence found in the file, so
 the content cannot close the block early.
@@ -55,10 +56,13 @@ the content cannot close the block early.
 ## File Authority
 
 A descriptor for the current directory is opened at startup. Every read,
-creation, and completion operation is relative to that descriptor:
+creation, and completion operation is anchored to that descriptor:
 
-- absolute paths, `.` and `..` components, empty components, and trailing slashes are forbidden;
-- every directory and file is opened with `openat` and `O_NOFOLLOW`;
+- reads and creates reject absolute paths, `.` and `..` components, empty
+  components, and trailing slashes;
+- completion rejects the same unsafe components but accepts one trailing slash
+  to list an already authorized directory;
+- opened directories and files use descriptor-relative, no-follow operations;
 - symlinks are rejected even when they point inside the directory;
 - `/export` creates or truncates regular files with `0600` permissions;
 - displayed errors omit absolute paths, OS details, and stack traces.

@@ -111,10 +111,11 @@ files/context <----- files/state <----------> IndexedDB
 ```
 
 `transcript` owns the pure complete-pair invariant shared by file transfer and
-persistence. `state` owns the stable checkpoints: successful completion,
-settled stop, valid import, and new-chat clear. Incremental deltas and failed
-turns do not reach persistence. Import/export and browser persistence remain
-separate versioned formats despite sharing transcript validation.
+persistence. `state` owns collection mutations and stable transcript
+checkpoints, including successful completion, settled stop, turn edits, and
+deletion. Incremental deltas and failed turns do not reach persistence.
+Import/export and browser persistence remain separate versioned formats despite
+sharing transcript validation.
 
 `localStorage` is an origin-scoped browser boundary, not application storage.
 No server route, engine component, or CLI path reads or writes the saved Web

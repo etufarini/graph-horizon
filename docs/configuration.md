@@ -8,7 +8,8 @@ validation-only variables are delegated.
 
 The binary reads runtime configuration only from flags. Flags with values use
 `--flag value`; `--flag=value` is not accepted. Unknown flags and missing values
-terminate execution before loading a model or initializing a surface.
+terminate execution before loading a model or initializing a surface. When a
+flag is repeated, the first occurrence supplies its value.
 
 Profile selection is a build-time decision described in
 [backend.md](backend.md) and [support/README.md](../support/README.md).
@@ -38,7 +39,7 @@ profiles are listed in the
 | Flag | Default | Effect |
 |---|---|---|
 | `--model <path>` | none | GGUF required by the local provider, server, and web modes |
-| `--mode <cli\|server\|web>` | `cli` | Selects one surface; any other value is an error |
+| `--mode <cli\|server\|web>` | `cli` | Selects one surface; an omitted or empty value selects `cli`, and any other value is an error |
 | `--provider <value>` | HTTP | TUI only: `local` uses the in-process engine; every other value uses HTTP |
 | `--host <host>` | `127.0.0.1` | Server and web bind host |
 | `--port <value>` | `8080` | Server and web port, with mode-specific parsing |
@@ -67,7 +68,7 @@ model name or credentials. Without an explicit context, it tries `GET /props` at
 the provider root for three seconds and reads
 `default_generation_settings.n_ctx`. A valid explicit override skips discovery.
 Failure, timeout, malformed JSON, or a non-positive value terminates before the
-terminal with `limite di contesto non disponibile; specificare
+terminal with `context limit unavailable; specify
 --context-tokens`; there is no unknown or unlimited fallback.
 
 The integrated server and Web wrapper expose `/props`, so the HTTP TUI example

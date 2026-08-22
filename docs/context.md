@@ -75,9 +75,9 @@ equal `n_ctx` and `max_tokens` values from the loaded engine. The browser uses
 admission.
 
 Without an override, HTTP CLI discovery failure exits before terminal setup.
-Web disables its composer and shows `Configurazione del contesto non disponibile`
+Web disables its composer and shows `Context configuration unavailable`
 for invalid capacity properties or a zero safe prompt budget. The CLI retains
-`max_tokens non lascia spazio al prompt` when its reserve leaves no capacity.
+`max_tokens leaves no room for the prompt` when its reserve leaves no capacity.
 
 An admission rejection reports estimate and safe budget; the CLI also reports
 its reserve. It preserves CLI input, Web draft, conversation, and the previous

@@ -48,6 +48,13 @@ prefill and decode durations. Cached prompt tokens remain part of
 Each generation has exactly one terminal event. If the sink cancels the request,
 decoding stops and no further events are emitted.
 
+`Engine::generate_cached(cache_key, request, sink)` has the same event and
+cancellation contract. Standalone Vulkan and Metal retain one caller-keyed KV
+slot and reuse only an exact rendered-token prefix with the same 16-byte key;
+another key or prefix may replace it. CPU and hybrid profiles execute the same
+path as `generate` without prefix reuse. The cache key is caller-supplied
+namespacing, not a credential.
+
 After a successful load, `Engine::model_name()` exposes only the bounded,
 control-free `general.name` display value when present; it never derives an
 identity from the model path. `Engine::backend_name()` reports the statically
@@ -55,6 +62,9 @@ selected profile. `Engine::memory()` reports retained model weights and the
 full-context KV capacity for every profile; these immutable planned bytes are
 not process RSS or live allocator telemetry. `Engine::placement()` remains the
 source of effective hybrid ownership and its complete allocation breakdown.
+`Engine::context_limit()` returns the positive resolved context, and
+`Engine::default_sampling()` returns greedy parameters for Instruct or the
+qualified Reasoning policy with `temperature=0.7`.
 
 ## Build Backends
 

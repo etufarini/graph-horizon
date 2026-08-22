@@ -120,6 +120,13 @@ Backends, sampling, KV layout, allocation metadata, and the graph remain
 internal. The active harness measures only the engine's public stream; it does
 not expose buffer profiling or private model access.
 
+The `Engine` methods expose the resolved `context_limit`, immutable `memory`,
+optional hybrid `placement`, model-profile `default_sampling`, ordinary
+`generate`, and caller-keyed `generate_cached`. The cached form reuses an exact
+rendered-token prefix only on standalone Vulkan and Metal and only for the same
+16-byte key; CPU and hybrid profiles run the ordinary generation path. One
+different key or prefix can replace the retained slot.
+
 ## Chat
 
 ```rust

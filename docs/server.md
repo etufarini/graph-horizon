@@ -67,6 +67,14 @@ When `max_tokens` is absent, the server uses `--max-tokens`, whose server defaul
 is `1024`. A positive value in the request is retained even when it exceeds that
 default: the flag is not a global ceiling.
 
+An optional `x-graph-horizon-cache` header selects one caller-owned cache
+namespace. Its value must be exactly 32 lowercase hexadecimal characters;
+otherwise the request receives `400`. On standalone Vulkan and Metal builds,
+the engine can reuse an exact rendered-token prefix only when the key also
+matches. The single retained slot may be replaced by another key or prefix.
+CPU and hybrid builds accept the valid header but run the ordinary generation
+path. The key is a cache namespace, not authentication or authorization.
+
 A different method on either exact public route receives the existing
 client-safe `405` JSON error. `/props/` and every other unknown route receive
 `404`; no prefix or trailing-slash normalization is applied.

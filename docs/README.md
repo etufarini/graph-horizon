@@ -49,7 +49,7 @@ belong in the [validation register](../VALIDATION.md).
 | [vulkan-nvidia-long-context-decode.md](vulkan-nvidia-long-context-decode.md) | NVIDIA Vulkan long-context decode attribution and final routing checkpoint |
 | [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Current Metal performance comparison and optimization checkpoint against llama.cpp Metal |
 | [metal-long-context-prefill-optimization.md](metal-long-context-prefill-optimization.md) | Apple Metal long-context prefill attribution, retained attention optimization, and final checkpoint |
-| [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Active Apple Metal long-context decode investigation and candidate ledger |
+| [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Completed Apple Metal long-context decode checkpoint and candidate ledger |
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 | [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 | [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |

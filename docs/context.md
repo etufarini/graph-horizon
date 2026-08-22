@@ -65,18 +65,15 @@ edit and regenerate use the file snapshots active at that later operation.
 
 ## Context Discovery And Reserves
 
-An explicit positive `--context-tokens` wins. Otherwise the local CLI uses the
-engine's resolved context, while HTTP CLI and Web read `GET /props` at
-`default_generation_settings.n_ctx`.
+An explicit positive `--context-tokens` wins. Otherwise both surfaces use the
+context resolved from the locally loaded engine. The Web UI receives that value
+through its private same-origin transport before enabling Send.
 
-The CLI reserve is configured by `--max-tokens`. In Web mode the wrapper exposes
-equal `n_ctx` and `max_tokens` values from the loaded engine. The browser uses
-`n_ctx` for the request allowance and uses only the 90% prompt budget for local
-admission.
+The CLI reserve is configured by `--max-tokens`. The browser uses only the 90%
+prompt budget for local admission; the backend owns the generation limit.
 
-Without an override, HTTP CLI discovery failure exits before terminal setup.
 Web disables its composer and shows `Context configuration unavailable`
-for invalid capacity properties or a zero safe prompt budget. The CLI retains
+for invalid context data or a zero safe prompt budget. The CLI retains
 `max_tokens leaves no room for the prompt` when its reserve leaves no capacity.
 
 An admission rejection reports estimate and safe budget; the CLI also reports

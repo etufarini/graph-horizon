@@ -6,9 +6,8 @@ the canonical context contract.
 
 # Console: TUI, Streaming, And Status Bar
 
-The TUI lives under `src/graph_horizon_cli/console/` and alternates between input and
-streaming. It uses the same text-only format with both the local engine and the
-HTTP provider.
+The TUI lives under `src/graph_horizon_cli/console/`, loads the selected model
+in-process, and alternates between input and streaming.
 
 ## Session Cycle
 
@@ -24,7 +23,7 @@ context.
 
 Attachments are expanded only in the outgoing copy before admission. Their
 contents contribute to that request's estimate. If admission fails, the typed
-prompt is restored unchanged and no provider call starts; a successful turn
+prompt is restored unchanged and no generation starts; a successful turn
 commits the raw `@path` spelling.
 
 ## Keyboard During Input
@@ -52,8 +51,8 @@ described in [commands.md](commands.md).
 | `Esc` | Closes the application and discards the partial turn |
 | `Ctrl+C` | Cancels an open stream and restores the prompt |
 
-While only waiting for the connection, `Ctrl+C` has no effect; `Esc` still
-closes the application.
+Before the first engine event, `Ctrl+C` has no effect; `Esc` still closes the
+application.
 
 ## Scrolling And Rendering
 
@@ -71,8 +70,8 @@ hint.
 
 ## Reasoning Presentation
 
-The local and HTTP providers keep the same text-only message format. Rendering
-recognizes raw Reasoning text only when, after leading whitespace, it starts with
+The engine emits ordinary text-only messages. Rendering recognizes raw
+Reasoning text only when, after leading whitespace, it starts with
 the exact case-sensitive `[THINK]` marker. The first following `[/THINK]` closes
 the THINK section. Its `[THINK]` label and content use the `Secondary` style;
 the final answer remains in the `Response` style. This terminal section is not
@@ -94,18 +93,13 @@ keyboard behavior remains as documented above.
 
 ## Capacity And Status
 
-The HTTP provider must expose `/props`, or the CLI must receive a valid
-`--context-tokens`; otherwise startup stops before Ratatui with
-`context limit unavailable; specify --context-tokens`.
-
-For the local provider, the scrollable conversation header identifies the
+The scrollable conversation header identifies the
 loaded model, compile-time backend, retained model weights, full-context KV
 capacity, and effective hybrid placement. The weight/KV summary is present for
 every backend profile; hybrid profiles additionally show planned CPU and
 accelerator budget totals, including the withheld reserve. These are immutable load-time values, not live
 RSS or allocator telemetry. The header never includes the model path, device
-identity, or physical-memory capacity. Remote HTTP providers do not synthesize
-runtime identity from endpoint data.
+identity, or physical-memory capacity.
 
 The right-aligned status adapts to terminal width. While a request is active it
 shows `waiting`, `prefill`, or `decode` with a monotonic phase-local timer. After
@@ -119,9 +113,7 @@ ctx ~1.2k/32.8k tok | 1.2k in · 96 pf · 42 out | pf 0.80s 120.0/s · dec 1.40s
 Medium widths retain output and both rates; narrow widths retain output and
 decode rate. Counts below 1000 are integers; larger counts use one decimal and
 `k`. Only the occupied estimate has `~`. A zero-duration rate is `—`. The CLI
-has no percentage and no graphical progress bar. Providers that emit ordinary
-OpenAI usage without Graph Horizon timing remain compatible: the CLI simply
-keeps the prior total-duration presentation.
+has no percentage and no graphical progress bar.
 
 Occupancy includes the raw draft while editing, the expanded submitted prompt
 and partial assistant response while streaming, then the committed raw pair on
@@ -138,6 +130,5 @@ While a capacity error is present, the status row instead reports estimated
 messages, reserved tokens, and safe budget. The next edit, recall, completion,
 or submission clears that transient error without clearing the restored prompt.
 
-The local TUI always requests greedy sampling. Server and Web requests instead
-use the loaded model profile's default sampling policy; the HTTP TUI does not
-send sampling fields and leaves that policy to its provider.
+The CLI always requests greedy sampling. The Web UI instead uses the loaded
+model profile's default sampling policy.

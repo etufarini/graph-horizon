@@ -70,7 +70,7 @@ policy.
 
 The [validation log](../../docs/validation.md) records the most recent reviewed
 campaign and its exact source revision. Those historical results do not qualify
-later runtime changes or a future release tag. The server selects the same
+later runtime changes or a future release tag. The Web UI selects the same
 sampling parameters for a Reasoning profile, but the complete gate remains
 owned by the harness because it also fixes context, KV, placement, and corpus.
 

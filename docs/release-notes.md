@@ -7,7 +7,7 @@ docs/validation.md.
 # Graph Horizon v0.1.0 draft
 
 Graph Horizon v0.1.0 will be a local text-to-text runtime with an interactive
-console, OpenAI-compatible streaming chat, and a Web UI. Backend choice is
+console and a Web UI. Backend choice is
 fixed when the binary is built. Ministral 3 2512 is the currently integrated
 model family, not part of the product name.
 
@@ -34,11 +34,11 @@ The bootstrap downloads the immutable source asset and `.sha256`, verifies it
 before extraction, then builds. It never downloads a model. A tagged checkout
 can instead run `./support/install.sh --backend vulkan-hybrid`.
 
-Capabilities include local CLI inference, serialized SSE streaming, sequential
+Capabilities include local CLI inference, private Web streaming, sequential
 requests without restart, a browser UI, F16/int8 KV selection, explicit context
 sizing, and CPU/device/hybrid planning.
 
-Known limitations: serialized serving; compile-time backend selection; no
+Known limitations: one generation at a time; compile-time backend selection; no
 runtime fallback; no tools, multimodal input, or separate reasoning channel;
 only Q4_K_M GGUF models are accepted, while Q8 and MoE are outside scope.
 

@@ -97,7 +97,10 @@ results.
 ## Run
 
 Replace `/path/to/model.gguf` with the absolute path of the downloaded model.
-Run `graph-horizon --help` for the complete option reference.
+CLI, server, and Web UI resolve the model context automatically when the option
+is omitted. The examples set `--context-tokens 32768` explicitly so their
+memory use and context limit are reproducible. Run `graph-horizon --help` for
+the complete option reference.
 
 ### CLI
 
@@ -105,7 +108,8 @@ Start an interactive local conversation in the terminal:
 
 ```sh
 graph-horizon --mode cli --provider local \
-  --model "/path/to/model.gguf"
+  --model "/path/to/model.gguf" \
+  --context-tokens 32768
 ```
 
 ### Server
@@ -115,6 +119,7 @@ Start the HTTP server on the local machine:
 ```sh
 graph-horizon --mode server \
   --model "/path/to/model.gguf" \
+  --context-tokens 32768 \
   --host 127.0.0.1 --port 8080
 ```
 
@@ -128,6 +133,7 @@ Start the integrated Web UI:
 ```sh
 graph-horizon --mode web \
   --model "/path/to/model.gguf" \
+  --context-tokens 32768 \
   --host 127.0.0.1 --port 8080
 ```
 

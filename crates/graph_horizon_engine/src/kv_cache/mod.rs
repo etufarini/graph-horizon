@@ -3,7 +3,7 @@
  * Owns the `Kv` type (the key/value buffers plus the shape and the runtime
  * scheme needed to index them) and orchestrates its lifecycle as a thin layer
  * over the backend: allocate both buffers transactionally, append tokens, and
- * free both buffers exactly once. Every GPU action goes through the `Backend` primitives
+ * free both buffers exactly once. Every storage action goes through the `Backend` primitives
  * (`alloc_buffer`/`free_buffer`/`kv_write`); all layout arithmetic and the
  * position invariant live in `layout`, the per-scheme byte sizes in `scheme`.
  * The scheme is chosen once at load and fixed before any allocation; backends
@@ -43,9 +43,9 @@ pub(crate) struct Kv<Buf> {
 }
 
 impl<Buf> Kv<Buf> {
-    // Byte base of the metadata region (the payload region of all layers
-    // precedes it; role-independent since payload sizes are). The single
-    // layout truth backends read instead of re-deriving the region split.
+    // Key-buffer metadata base. The Vulkan path also uses this origin for V
+    // because the admitted family has equal key/value widths; generic callers
+    // use `meta_base_for` when the logical widths differ.
     #[cfg(any(
         feature = "vulkan",
         feature = "vulkan-hybrid",
@@ -55,6 +55,7 @@ impl<Buf> Kv<Buf> {
         self.meta_base_for(KvRole::Key)
     }
 
+    // Role-specific metadata origin after that buffer's complete payload region.
     pub(crate) fn meta_base_for(&self, role: KvRole) -> u64 {
         let dim = match role {
             KvRole::Key => self.head_dim,
@@ -80,7 +81,7 @@ pub(crate) fn alloc_shape<B: Backend>(
     value_dim: usize,
     scheme: KvQuant,
 ) -> Result<Kv<B::Buffer>> {
-    // Per-role sizing: the prod schemes carry more metadata on K than on V.
+    // Size each role independently because its logical vector width may differ.
     let k_bytes = layout::buffer_bytes(
         scheme,
         KvRole::Key,

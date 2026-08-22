@@ -6,7 +6,7 @@
  * seeded by `Engine::new` from `cfg.cpu_threads` (CLI flag, no env). `for_units`
  * splits the output into disjoint contiguous chunks and runs them on the
  * persistent worker pool (`pool`), which spawns its workers once and reuses them
- * across the ~150 matmuls/token instead of re-spawning per call. Each chunk is a
+ * across the many projections in each token instead of re-spawning per call. Each chunk is a
  * non-overlapping sub-slice, so workers never alias; the per-chunk `&mut` is
  * rebuilt from a shared base pointer (a small, documented `unsafe`, sound because
  * the slots partition the output and the caller blocks until every slot finishes).
@@ -27,8 +27,8 @@ static THREADS: OnceLock<usize> = OnceLock::new();
 // Seeds the worker count from the CLI (`cfg.cpu_threads`). A `Some(n)` with `n > 0`
 // fixes the count; `None` (no flag) or a degenerate value leaves it unseeded so
 // `threads()` resolves to the system parallelism. Set-once:
-// `Engine::new` runs twice (model + embed), so the second call is a no-op and never
-// panics. Must be called BEFORE the first `threads()`/`pool::global()` use, which
+// Multiple Engine constructors can run in one process, so later calls are no-ops
+// and never panic. Must be called BEFORE the first `threads()`/`pool::global()` use, which
 // `Engine::new` guarantees (it seeds before the load).
 pub(crate) fn set_threads(n: Option<usize>) {
     if let Some(n) = n
@@ -78,7 +78,7 @@ where
     let nslots = units.div_ceil(chunk_units);
     // Dispatch the `n` disjoint chunks to the persistent worker pool (slot 0 runs
     // on the caller). Reusing the workers avoids the per-call thread spawn+join —
-    // decode issues ~150 matmuls/token. Bit-exact: same disjoint chunks, same
+    // decode issues many projections per token. Bit-exact: same disjoint chunks, same
     // per-row order; only which thread runs a chunk changes. Each slot rebuilds
     // its own non-overlapping `&mut` sub-slice from the base pointer, so no two
     // workers ever alias.

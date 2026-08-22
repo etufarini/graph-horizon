@@ -1,13 +1,13 @@
 /*
  * graph_horizon_engine — CPU weight load
- * The CPU counterpart of vulkan::weights plus scratch allocation. Walks neutral
+ * Loads neutral weight groups into CPU storage and allocates graph scratch. It walks
  * embedding/tail/layer groups and copies only selected bytes in their retained
  * format. Family validation admits Q4_K/Q6_K matrices; this generic loader also
  * retains Q5_K/F16 and rejects malformed layer groups before allocation.
  * Quantized weights are validated at
  * load (dequant::validate); F32 norms are converted to FP16 on upload, exactly
- * like Vulkan. Scratch and logits use the same byte sizes as
- * vulkan::buffers::alloc_scratch. This file knows nothing about a model family.
+ * like the GPU loaders. Scratch and logits follow the shared graph buffer layout.
+ * This file knows nothing about a model family.
 */
 
 use color_eyre::eyre::{Result, bail};
@@ -57,7 +57,7 @@ pub(super) fn load_selected(
     })
 }
 
-// Walks tensors in the same canonical order vulkan::weights uses. The source
+// Walks tensors in the canonical order declared by the neutral source. The source
 // declares optional slots explicitly, so no model type or count heuristic leaks
 // into this loader.
 fn load_weights(
@@ -173,9 +173,8 @@ fn load_tensor(gguf: &GgufFile, info: &crate::gguf::tensor_index::TensorInfo) ->
     })
 }
 
-// Reusable activation buffers, identical byte sizes to vulkan::buffers::
-// alloc_scratch: all FP16 except `x`, the residual stream, which is FP32 (late
-// layers overflow FP16). Zeroed.
+// Reusable activation buffers following the shared graph layout: all FP16 except
+// `x`, the residual stream, which is FP32. Every buffer starts zeroed.
 fn alloc_scratch(meta: &ModelMetadata) -> Scratch<CpuBuffer> {
     let f16 = |n: usize| n * 2;
     let embd = f16(meta.embedding_length);

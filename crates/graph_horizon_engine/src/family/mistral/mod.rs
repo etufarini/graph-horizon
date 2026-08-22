@@ -34,7 +34,7 @@ pub(crate) use tensors::MistralTensors;
 pub use tokenizer::TekkenTokenizer;
 
 // Validated contract pieces borrowed from the GGUF file. The struct has no
-// backend fields: it is the last pure-data gate before future allocation code.
+// backend fields: it is the last pure-data gate before backend allocation.
 pub(crate) struct MistralContract<'a> {
     pub(crate) config: MistralConfig,
     pub(crate) tensors: MistralTensors<'a>,

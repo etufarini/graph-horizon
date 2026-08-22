@@ -1,6 +1,6 @@
 /*
  * graph_horizon_engine — persistent fork-join worker pool
- * Decode issues ~150 matmuls per token, so this pool spawns workers once (lazily,
+ * Decode issues many projections per token, so this pool spawns workers once (lazily,
  * on the first parallel call) and reuses them. Each `dispatch` publishes one job, wakes the workers via a
  * condvar (no busy-spin — workers block when idle, so an idle process burns no
  * CPU), runs slot 0 on the caller, then blocks until every worker slot reports
@@ -119,10 +119,8 @@ impl Pool {
     // the persistent workers. Blocks until all complete. `f` must drive disjoint
     // outputs per slot (guaranteed by the only caller, `for_units`).
     pub(super) fn dispatch<F: Fn(usize) + Sync>(&self, n: usize, f: F) {
-        // One job at a time: the shared slot holds a single job, so concurrent
-        // callers (e.g. the test harness running cases in parallel) must serialize.
-        // The engine's forward is single-threaded, so this never contends in the
-        // hot path; it only guarantees correctness if a caller ever overlaps.
+        // The shared slot holds one job. This lock serializes overlapping callers;
+        // ordinary forward execution reaches it from one caller at a time.
         let _serial = self.dispatch_lock.lock().unwrap();
         // Publish the borrowed job with its lifetime erased to 'static (sound: we
         // block below until every worker is done with it).

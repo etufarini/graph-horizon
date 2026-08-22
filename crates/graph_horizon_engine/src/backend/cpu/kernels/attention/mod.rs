@@ -159,7 +159,7 @@ fn axpy_f16_x2(
 }
 
 // Four-output GQA value mix, with one shared FP16 widening on AVX2 and the
-// existing scalar operation as the portable fallback.
+// scalar operation as the portable fallback.
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn axpy_f16_x4(

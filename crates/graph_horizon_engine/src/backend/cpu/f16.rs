@@ -3,7 +3,7 @@
  * This file owns only CPU slice conversion and its F16C/AVX2 acceleration.
  * Scalar IEEE conversion lives in `backend::f16`; both SIMD tails and tests use
  * those primitives so CPU and Vulkan share one rounding implementation. Buffer
- * storage re-exports this narrow surface for existing CPU kernel call sites.
+ * storage re-exports this narrow surface for CPU kernel call sites.
 */
 
 pub(crate) use crate::backend::f16::{f16_to_f32, f32_to_f16, f32_to_f16_bytes};

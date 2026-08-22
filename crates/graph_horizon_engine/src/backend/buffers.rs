@@ -42,8 +42,8 @@ pub(crate) struct LayerWeights<Buf> {
 }
 
 // Full weight set: global tensors + one LayerWeights per block. `output`
-// (lm_head) is optional: present for chat models, absent for embedding models
-// (the GPU mirror of the weight source's tensor list).
+// (lm_head) is absent when the output projection is tied to `token_embd` and
+// present when the source declares a dedicated tensor.
 pub(crate) struct WeightSet<Buf> {
     pub token_embd: Option<Buf>,
     pub output_norm: Option<Buf>,

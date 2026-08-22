@@ -10,9 +10,6 @@ use color_eyre::eyre::{Result, bail, eyre};
 
 use super::value::GgufValue;
 
-// Bounds-checked sequential reader over the mmap bytes. Every read validates the
-// requested range against the slice length before advancing, so untrusted counts
-// and lengths can never read out of bounds.
 pub(super) struct Cursor<'a> {
     buf: &'a [u8],
     pub(super) pos: usize,

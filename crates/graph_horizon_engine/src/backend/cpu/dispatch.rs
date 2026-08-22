@@ -1,7 +1,7 @@
 /*
  * graph_horizon_engine — CPU backend GEMM-family compute dispatch
  * The seam between the `Backend` trait and the matmul kernel module for the three
- * GEMM-family ops (`matmul`, `matmul_batched`, `logits`): the trait methods in `mod.rs`
+ * GEMM-family ops (`matmul`, `matmul_batched`, `logits`): the trait methods in `backend.rs`
  * delegate here, and these forward to `kernels::matmul`, which selects the per-CpuFormat
  * kernel (Q4_K/Q5_K/Q6_K fused, else the generic F16 path). Every CpuFormat
  * is covered there, so no weight ever reaches a kernel for the wrong format. Only the

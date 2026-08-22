@@ -5,16 +5,14 @@
  * pick how to interpret the bytes, and it uses RwLock because kernels write
  * through a shared `&CpuBuffer` reference and the async host (CLI/server) moves
  * `Arc<Engine>` across threads, forcing `Engine: Send + Sync` — which `RefCell`
- * (`!Sync`) cannot satisfy. The lock is never contended (the engine decodes
- * sequentially inside a single `spawn_blocking`); it is only there to satisfy the
- * type bound, and it needs no `unsafe`. The only f16<->f32 conversion of the CPU
+ * (`!Sync`) cannot satisfy. Normal CLI/server generation is serialized; the lock
+ * still makes shared storage access memory-safe at the type boundary. The only
+ * f16<->f32 conversion of the CPU
  * module lives in the sibling `f16` module (scalar + F16C SIMD), re-exported here so
  * the kernels keep reaching it as `cpu::buffer::{f16_to_f32, …}`.
  * The storage is held behind an `Arc` so a sub-view (CpuBuffer::view) can share
  * the parent's bytes: writes through a view are seen by the parent at the same
- * window and vice versa. The `Arc` only adds a reference count, no new
- * synchronization — the lock stays uncontended (decode/prefill run sequentially
- * in one `spawn_blocking`). Each handle confines every access to its window
+ * window and vice versa. Each handle confines every access to its window
  * `[offset, offset + len)`; full buffers have `offset = 0` and `len` = total
  * bytes, so they behave exactly as before.
 */
@@ -29,8 +27,9 @@ pub(crate) use super::f16::{
 };
 
 // The tag carried alongside the raw bytes. F32 backs the residual `x` and the
-// logits; F16 backs activations and the KV cache; the three quant formats back
-// the matmul weights (dequantized on the fly, see `dequant`). The variant names
+// logits; F16 backs activations and also tags opaque KV allocations whose actual
+// layout is selected by `Kv::scheme`; the three quant formats back matmul weights
+// (dequantized on the fly, see `dequant`). The variant names
 // mirror ggml's canonical type names (e.g. Q4_K), hence the allow.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[allow(non_camel_case_types)]

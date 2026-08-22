@@ -4,8 +4,8 @@
  * vector of the incoming K and V (f16, widened to f32), quantize with the
  * scheme's NORMATIVE scalar reference from `kv_cache` and store payload and
  * metadata at their region offsets (both precomputed by kv_cache from `layout`,
- * the single source of layout truth). Prefill N-token writes iterate vectors through this same code path as
- * single-token decode writes, so `--seq-check` payloads match bit-for-bit.
+ * the single source of layout truth). Prefill and single-token decode iterate
+ * vectors through the same encoder and therefore store the same format.
 */
 
 // AGENTS deroga K: famiglia per-schema della sola operazione kv_write (quantizza e scrive), nessun dispatch cross-operazione né I/O.

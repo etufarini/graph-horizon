@@ -86,7 +86,7 @@ pub(crate) trait Backend: Sized {
     // reference — which records nothing and runs sequentially — leaves it a no-op.
     fn no_barrier(&self) {}
 
-    // F16 kernels: record onto the encoder, taking buffer handles + dimensions.
+    // Dense graph operations record onto the encoder using buffer handles and dimensions.
     // Embedding lookup (row copy), widening F16→FP32 into the residual `x`.
     fn embed(
         &self,
@@ -245,12 +245,10 @@ pub(crate) trait Backend: Sized {
         Ok(())
     }
 
-    // Fused `SiLU(gate) ⊙ up`: replaces the `silu` then `mul` pair in the MLP with
-    // a single pass, halving the global-memory traffic of the intermediate. It is
-    // BIT-EXACT with the two-kernel path because the intermediate `silu(gate[i])`
-    // is rounded to FP16 before the product (the two-kernel path writes `act` to
-    // FP16 and reads it back): `out[i] = f16( f16(silu(gate[i])) * up[i] )`. The
-    // standalone `silu`/`mul` exist only in tests as the byte-equality oracle.
+    // Fused `SiLU(gate) ⊙ up`. The intermediate is rounded to FP16 before the
+    // product, preserving the graph's sequential FP16-memory formula:
+    // `out[i] = f16(f16(silu(gate[i])) * up[i])`. Backend tests compare this
+    // operation with that sequential numeric reference.
     fn silu_mul(
         &self,
         enc: &Self::Encoder,
@@ -264,7 +262,7 @@ pub(crate) trait Backend: Sized {
     // Causal GQA attention of the current token over cached positions 0..=pos.
     // The cache handle carries the buffers, the shape (head_dim/kv_heads/
     // context) and the scheme; backends branch on `kv.scheme` once per call and
-    // read the metadata region base from `kv.meta_base()`.
+    // derive metadata origins from the cache's per-role layout.
     #[allow(clippy::too_many_arguments)]
     fn attention_decode(
         &self,

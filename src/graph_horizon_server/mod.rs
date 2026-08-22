@@ -1,14 +1,12 @@
 /*
- * Graph Horizon headless server domain
- * Exposes the OpenAI-compatible HTTP server and the reusable chat pipeline. It
- * has no dependency on the CLI domain and contains no web asset handling.
+ * Graph Horizon legacy chat transport
+ * Temporarily exposes the chat pipeline still used by the Web UI while the
+ * public server contract is removed. It has no standalone startup or listener.
  */
 
 mod api;
 pub(crate) mod config;
 pub(crate) mod handler;
-pub(crate) mod server;
-pub(crate) mod startup;
 pub(crate) mod state;
 mod stream;
 

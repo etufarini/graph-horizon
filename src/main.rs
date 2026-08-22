@@ -2,7 +2,7 @@
  * Graph Horizon binary entrypoint
  * Neutral shell of the binary: installs color_eyre, initializes runtime
  * arguments through `app::args`, and delegates to `app::run`. It does not know
- * how CLI, headless server, or web mode are started.
+ * how CLI or web mode are started.
  */
 
 mod app;

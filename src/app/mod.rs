@@ -32,7 +32,6 @@ async fn dispatch(
 ) -> Result<()> {
     match mode {
         Mode::Cli => crate::graph_horizon_cli::startup::run(model_path, files).await,
-        Mode::Server => crate::graph_horizon_server::startup::run(model_path).await,
         Mode::Web => crate::graph_horizon_web::startup::run(model_path).await,
     }
 }

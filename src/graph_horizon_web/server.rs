@@ -14,7 +14,6 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
 use crate::graph_horizon_server::ServerState;
-use crate::graph_horizon_server::server::is_client_disconnect;
 
 use super::assets::Assets;
 use super::config::WebConfig;
@@ -48,4 +47,24 @@ pub(super) async fn serve(config: WebConfig, assets: Assets, chat: ServerState) 
             }
         });
     }
+}
+
+/// Routine browser disconnects do not indicate a failed Web UI listener.
+fn is_client_disconnect(err: &hyper::Error) -> bool {
+    if err.is_incomplete_message() {
+        return true;
+    }
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::NotConnected
+            );
+        }
+        source = cause.source();
+    }
+    false
 }

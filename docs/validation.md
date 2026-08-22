@@ -93,7 +93,7 @@ llama.cpp `13f2b28b0`.
 Le 37 righe esterne della matrice sono sei Q8_0 assenti, 28 righe Metal non
 eseguibili su Linux e tre righe Vulkan-hybrid mixed 14B senza memoria
 sufficiente su questa macchina. Nessuna è riportata come PASS. Le righe CPU e
-Vulkan disponibili, le righe mixed 3B/8B, la riga 14B Reasoning mixed INT8 e i
+Vulkan disponibili, le righe mixed 3B/8B, una riga 14B Reasoning mixed e i
 quattro endpoint Vulkan-hybrid 3B sono passati. Le tre righe Reasoning correnti
 hanno ottenuto 4/4 casi critici, 9/9 semantici e 9/9 marker completi; le tre
 righe Instruct mantengono l'evidenza preservata dichiarata dal protocollo.

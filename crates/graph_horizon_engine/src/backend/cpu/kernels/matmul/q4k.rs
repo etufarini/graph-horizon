@@ -3,14 +3,14 @@
  * Fused dequant+MAC variant of `kernels::matmul`, specialized to CpuFormat::Q4_K.
  * Why it exists: the generic path dequantizes a whole output row into an f32 Vec
  * of length `in_dim` (via dequant::dequant_row) and only then takes the dot
- * product. This kernel never materializes that row (invariant I1-4): it walks the
+ * product. This kernel never materializes that row: it walks the
  * 256-value blocks, dequantizes one 32-value sub-block into a stack buffer, and
  * accumulates `Σ a[i]·w[i]` straight away, advancing along `in_dim`.
  *
  * Numerics: accumulation is reordered INTRA-row — each 32-value sub-block sums
  * into a local accumulator, added to the row total — so the result is NOT
- * bit-identical to the generic path (invariant I1-2), but within the quantized
- * tolerance used by `validate` (rel. 8e-2). Invariant I1-3: rows stay independent
+ * bit-identical to the generic path, but stays within the quantized tolerance
+ * used by `validate` (rel. 8e-2). Rows stay independent
  * and are distributed by `parallel::for_units` with stride 1, exactly like
  * `matmul`, so each row's value is independent of the worker count (no cross-row
  * reordering). Block validity is guaranteed once at load (dequant::validate), so
@@ -33,7 +33,7 @@ pub(super) fn f16_at(bytes: &[u8], b: usize) -> f32 {
 // Per-row dot dispatcher: on x86_64 with AVX2+FMA the SIMD variant runs
 // (runtime-detected, so a binary built on one host stays correct on a CPU without
 // AVX2); every other target uses the scalar kernel. Both satisfy the same
-// tolerance gate (C-1) — neither is bit-identical to dequant_row (I1-2).
+// tolerance gate; neither is bit-identical to `dequant_row`.
 #[inline]
 pub(crate) fn row_dot_q4k(a: &[f32], bytes: &[u8], row: usize, in_dim: usize) -> f32 {
     #[cfg(target_arch = "x86_64")]
@@ -51,7 +51,7 @@ pub(crate) fn row_dot_q4k(a: &[f32], bytes: &[u8], row: usize, in_dim: usize) ->
 // Scalar fused dot product of activation `a` (f32) with Q4_K weight row `row`,
 // summed in natural in-dimension order. Mirror of dequant_row_q4_k's block decode,
 // but the dequantized values are consumed immediately instead of being stored. The
-// stack buffer `wbuf` holds at most one 32-value sub-block (I1-4: no `Vec` of
+// stack buffer `wbuf` holds at most one 32-value sub-block, not a `Vec` of
 // length `in_dim`). The fixed `0..32` loops have known bounds so they
 // auto-vectorize. This is the portable fallback and the parity reference for the
 // SIMD variant.
@@ -84,7 +84,7 @@ pub(super) fn row_dot_q4k_scalar(a: &[f32], bytes: &[u8], row: usize, in_dim: us
                 wbuf[l] = dl * q4 as f32 - ml;
             }
             // Fixed-length dot of the sub-block; a separate accumulator per
-            // sub-block is the intra-row reordering of I1-2.
+            // sub-block is the documented intra-row reordering.
             let mut partial = 0f32;
             for l in 0..32 {
                 partial += a[in0 + l] * wbuf[l];
@@ -300,7 +300,7 @@ pub(crate) fn matmul_batched(
 }
 
 // y = W·a for a Q4_K weight W, stored FP16. Same contract as `kernels::matmul`;
-// rows are independent and split across cores by `for_units` (stride 1, I1-3).
+// rows are independent and split across cores by `for_units` with stride 1.
 pub(crate) fn matmul(out: &CpuBuffer, a: &CpuBuffer, w: &CpuBuffer, in_dim: usize, out_dim: usize) {
     let a = a.read_f16_as_f32();
     let w_bytes = w.bytes();
@@ -372,7 +372,7 @@ mod tests {
     }
 
     // Fused matmul must match the generic dequant_row path within the quantized
-    // tolerance (rel. 8e-2, C-1). out_dim > a typical core count so the parallel
+    // tolerance (rel. 8e-2). out_dim > a typical core count so the parallel
     // path actually splits; in_dim spans two 256-blocks so the j>=4 sub-block and
     // multi-block accumulation are both exercised.
     #[test]

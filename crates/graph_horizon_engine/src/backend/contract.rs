@@ -57,7 +57,7 @@ pub(crate) trait Backend: Sized {
 
     // Write the current token's k/v into the caches (`vectors` vectors of
     // `kv.head_dim` values each), quantizing per `kv.scheme`. KV quantization is
-    // selected at load via `Kv::scheme`; backends branch once per call (I2).
+    // selected at load via `Kv::scheme`; backends branch once per call.
     // Per-role payload and metadata offsets are byte origins precomputed by
     // `kv_cache`; K and V may have different validated logical widths.
     #[allow(clippy::too_many_arguments)]
@@ -264,7 +264,7 @@ pub(crate) trait Backend: Sized {
     // Causal GQA attention of the current token over cached positions 0..=pos.
     // The cache handle carries the buffers, the shape (head_dim/kv_heads/
     // context) and the scheme; backends branch on `kv.scheme` once per call and
-    // read the metadata region base from `kv.meta_base()` (D6).
+    // read the metadata region base from `kv.meta_base()`.
     #[allow(clippy::too_many_arguments)]
     fn attention_decode(
         &self,

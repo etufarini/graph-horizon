@@ -2,20 +2,20 @@
  * graph_horizon_engine — INT8 per-token asymmetric KV format
  * One group per (token, kv_head) vector of head_dim values; metadata = min,scale
  * as f16. The exact arithmetic here is normative: CPU and GPU must produce
- * bit-identical codes (I3). Format, for a group x[0..head_dim] (f32, widened
+ * bit-identical codes. Format, for a group x[0..head_dim] (f32, widened
  * from the incoming f16):
  *   1. min = min(x), max = max(x) in f32;
  *   2. scale = (max - min) * (1.0/255.0) in f32 — a MULTIPLY by the f32
  *      constant, never a division: Vulkan guarantees correctly-rounded
  *      fmul/fadd but only 2.5 ULP for fdiv, so a division here would break
- *      CPU<->GPU bit parity (I3);
+ *      CPU<->GPU bit parity;
  *   3. both are rounded to f16 and the F16-ROUNDED values are used for coding
  *      (coding against the stored constants is what makes dequant consistent);
  *   4. q_j = the largest q in 0..=255 with x_j >= min_f16 + (q - 0.5)*scale_f16,
  *      each boundary evaluated as one rounded multiply then one rounded add
  *      (no FMA contraction, no division) — mathematically the same rule as
- *      clamp(floor((x_j - min_f16)/scale_f16 + 0.5), 0, 255) (D5: floor(v+0.5)
- *      ties resolve to the UPPER code, since x >= boundary uses >=), found by
+ *      clamp(floor((x_j - min_f16)/scale_f16 + 0.5), 0, 255); ties resolve to
+ *      the upper code because the boundary comparison uses >=, found by
  *      binary search over the monotone boundaries;
  *      IF scale_f16 == 0 THEN q_j = 0 (constant group);
  *   5. payload = head_dim u8 codes; metadata = min_f16, scale_f16 (2+2 bytes LE).
@@ -40,9 +40,9 @@ pub(crate) fn quantize_group(x: &[f32], payload: &mut [u8]) -> [u8; 4] {
         min = min.min(v);
         max = max.max(v);
     }
-    // Multiply by the constant reciprocal — never divide (I3, see header).
+    // Multiply by the constant reciprocal; never divide (see the header).
     let scale = (max - min) * (1.0f32 / 255.0f32);
-    // Round min/scale to f16 FIRST, then code against the rounded values (D4):
+    // Round min/scale to f16 first, then code against the rounded values:
     // dequant reads exactly these stored constants, so coding with anything
     // more precise would bias the codes.
     let min_bits = f32_to_f16(min);
@@ -66,7 +66,7 @@ pub(crate) fn quantize_group(x: &[f32], payload: &mut [u8]) -> [u8; 4] {
 // The largest code q in 0..=255 with `v >= min + (q - 0.5) * scale` (scale > 0):
 // binary search over the 255 monotone boundaries. Each boundary costs exactly
 // one rounded f32 multiply and one rounded f32 add — the two operations Vulkan
-// guarantees correctly rounded — so the GPU mirror is bit-identical (I3). The
+// guarantees correctly rounded, so the GPU mirror is bit-identical. The
 // boundaries are non-decreasing in q under rounding, so the search is exact.
 #[inline]
 fn code_of(v: f32, min: f32, scale: f32) -> u8 {

@@ -118,8 +118,7 @@ impl CpuBuffer {
     }
 
     // Writes `v` as FP32 little-endian into the first `v.len()*4` bytes of the
-    // window. The caller sizes the window to fit (invariant established at alloc
-    // time). Consumed by the kernels in m1/m2.
+    // window. The caller sizes the window to fit at allocation time.
     pub(crate) fn write_f32(&self, v: &[f32]) {
         let mut data = self.data.write().expect("CpuBuffer lock poisoned");
         let win = self.window();
@@ -129,7 +128,7 @@ impl CpuBuffer {
     }
 
     // Writes `v` as FP16 little-endian (narrowing from FP32) into the first
-    // `v.len()*2` bytes of the window. Consumed by the kernels in m1/m2.
+    // `v.len()*2` bytes of the window.
     pub(crate) fn write_f16_from_f32(&self, v: &[f32]) {
         let mut data = self.data.write().expect("CpuBuffer lock poisoned");
         let win = self.window();

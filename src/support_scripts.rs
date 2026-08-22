@@ -1278,6 +1278,7 @@ fn parity_script_contract() {
     let curl = bin.join("curl");
     let cargo = bin.join("cargo");
     let mktemp = bin.join("mktemp");
+    let uname = bin.join("uname");
     let server = fixture.join("llama server stub");
     fs::write(
         &stat,
@@ -1340,6 +1341,11 @@ printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,
     )
     .unwrap();
     fs::write(
+        &uname,
+        b"#!/usr/bin/env bash\ncase \"$1\" in -s) echo \"${GRAPH_HORIZON_TEST_UNAME_S:-Darwin}\" ;; -m) echo \"${GRAPH_HORIZON_TEST_UNAME_M:-arm64}\" ;; *) exit 1 ;; esac\n",
+    )
+    .unwrap();
+    fs::write(
         &server,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1353,7 +1359,7 @@ while :; do /bin/sleep 0.05; done
 "#,
     )
     .unwrap();
-    for executable in [&stat, &sha256sum, &curl, &cargo, &mktemp, &server] {
+    for executable in [&stat, &sha256sum, &curl, &cargo, &mktemp, &uname, &server] {
         let mut permissions = fs::metadata(executable).unwrap().permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(executable, permissions).unwrap();
@@ -1459,6 +1465,30 @@ while :; do /bin/sleep 0.05; done
             .starts_with("pass: model_id=3b-instruct backend=metal-hybrid kv=f16")
     );
     assert!(!temp.exists());
+
+    let unavailable = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args([
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "3b-instruct",
+            "--backend",
+            "metal",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+        ])
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
+        .output()
+        .unwrap();
+    assert!(unavailable.status.success());
+    assert_eq!(
+        String::from_utf8(unavailable.stdout).unwrap(),
+        "external verification: metal backend unavailable on this platform\n"
+    );
 
     let port = free_port();
     let malformed = Command::new("bash")

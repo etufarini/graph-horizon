@@ -33,6 +33,34 @@ fn batch_applies(vendor_id: u32, dp4a: bool, format: WeightFormat, in_dim: u32, 
     vendor_id == AMD_VENDOR_ID && n > 1 && applies(dp4a, format, in_dim)
 }
 
+// Orders the decode quantizer's writes only for the two scratch windows
+// consumed by MMVQ. Independent projection outputs remain coalescible.
+fn scratch_barrier(dev: &Device, cmd: vk::CommandBuffer, qs: &GpuBuffer, ds: &GpuBuffer) {
+    let barrier = |buffer: &GpuBuffer| {
+        vk::BufferMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .buffer(buffer.buffer)
+            .offset(buffer.offset)
+            .size(buffer.size)
+    };
+    let barriers = [barrier(qs), barrier(ds)];
+    // SAFETY: `cmd` is recording and both ranges name live scratch buffers.
+    unsafe {
+        dev.device.cmd_pipeline_barrier(
+            cmd,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::DependencyFlags::empty(),
+            &[],
+            &barriers,
+            &[],
+        );
+    }
+}
+
 // y[out_dim] = W[out_dim,in_dim] · a[in_dim] via the FP16-interface MMVQ path.
 // Out of scope returns false without recording a command.
 pub(crate) fn dispatch_mmvq(
@@ -50,8 +78,16 @@ pub(crate) fn dispatch_mmvq(
     if !applies(dev.dp4a, w.quant, in_dim) {
         return false; // out of scope: caller keeps the float GEMV
     }
-    // Quantize A → int8 Q8 (one invocation per 8-wide block). The trailing compute
-    // barrier (in `record`) orders the quant ahead of the GEMV that reads its scratch.
+    // A caller may coalesce independent projections by skipping this logical
+    // operation's trailing barrier. Preserve that request for the final MMVQ
+    // dispatch: quantization and MMVQ share scratch and must stay ordered.
+    let skip_trailing = dev
+        .skip_next_barrier
+        .swap(false, std::sync::atomic::Ordering::Relaxed);
+    // Replace the quantizer's global trailing barrier with the exact scratch
+    // dependency consumed by MMVQ.
+    dev.skip_next_barrier
+        .store(true, std::sync::atomic::Ordering::Relaxed);
     let nblocks = in_dim / 8;
     let qpush = in_dim.to_le_bytes();
     dispatch(
@@ -67,6 +103,11 @@ pub(crate) fn dispatch_mmvq(
         &qpush,
         nblocks.div_ceil(64).min(MAX_GROUPS_X),
     );
+    scratch_barrier(dev, cmd, qs, ds);
+    if skip_trailing {
+        dev.skip_next_barrier
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     // DP4A Q4_K GEMV: eight lanes per output row, 32 rows per workgroup.
     let mut mpush = Vec::with_capacity(8);
     mpush.extend_from_slice(&in_dim.to_le_bytes());

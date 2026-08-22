@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(parse_kv_quant(None), Ok(KvQuant::F16));
         assert_eq!(parse_kv_quant(Some("f16")), Ok(KvQuant::F16));
         assert_eq!(parse_kv_quant(Some("int8")), Ok(KvQuant::Int8));
-        // Case-sensitive (D8) and unknown values list the valid set.
+        // Values are case-sensitive and unknown values list the valid set.
         let err = parse_kv_quant(Some("INT8")).unwrap_err();
         assert!(err.contains("valori validi: f16, int8"), "{err}");
         assert!(parse_kv_quant(Some("bogus")).is_err());

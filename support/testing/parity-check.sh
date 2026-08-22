@@ -42,6 +42,9 @@ done
     || usage_error "required argument is missing"
 case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) usage_error "invalid backend" ;; esac
 case "$kv" in f16|int8) ;; *) usage_error "invalid KV scheme" ;; esac
+if [[ "$backend" == metal || "$backend" == metal-hybrid ]]; then
+    [[ "$(uname -s):$(uname -m)" == "Darwin:arm64" ]] || external "$backend backend unavailable on this platform"
+fi
 [[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) \
     || usage_error "invalid reference port"
 case "$backend" in

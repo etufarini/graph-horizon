@@ -7,7 +7,7 @@
  * int8). The unit is the VECTOR — the head_dim values of one (token, kv_head) —
  * whose per-scheme byte sizes come from `scheme::KvQuant`. Single source of
  * truth for the region bases and offsets: backends receive byte offsets from
- * here (via `kv_cache`) and never re-derive the region split (D6).
+ * here (via `kv_cache`) and never re-derive the region split.
  *
  * No GPU handle and no `Backend` trait live here; the only error boundary is
  * the position check.

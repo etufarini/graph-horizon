@@ -8,7 +8,7 @@
 // AGENTS deroga K: kernel numerico della sola scrittura KV INT8.
 
 // INT8 per-token asymmetric quantize-on-write: mirrors kv_cache/int8.rs
-// BIT-EXACTLY (I3). One workgroup per (token, kv_head) vector; the workgroup
+// bit-exactly. One workgroup per (token, kv_head) vector; the workgroup
 // quantizes the vector for K and then for V. Per vector: min/max reduced in
 // f32 (order-independent), scale = (max-min) * (1.0/255.0) in f32 (a MULTIPLY,
 // never a division: Vulkan guarantees correctly-rounded fmul/fadd but only
@@ -19,7 +19,7 @@
 // reference. The caches are bound as uint words: payload codes are packed
 // 4/word (byte j in bits 8*(j%4) of word j/4, little-endian like the CPU
 // bytes) and the 4-byte metadata is one word min_bits | scale_bits<<16. Byte
-// offsets arrive from the CPU side (kv_cache::layout, D6) and are word-aligned
+// offsets arrive from the CPU side (`kv_cache::layout`) and are word-aligned
 // (payload: multiples of head_dim; meta: multiples of 4).
 layout(local_size_x = 128) in;
 
@@ -44,13 +44,13 @@ shared uint sh_code[128];
 // lane THROUGH shared memory: the cross-invocation round-trip forces the
 // compiler to materialize the f32->f16 rounding — a same-lane
 // `float(float16_t(x))` chain may legally be folded back to `x`, which would
-// code against the UNROUNDED constants and break CPU parity (I3).
+// code against the unrounded constants and break CPU parity.
 shared uint sh_meta;
 
 // The largest code q in 0..=255 with v >= min + (q-0.5)*scale (scale > 0):
 // binary search over the monotone boundaries, each evaluated with one rounded
 // multiply and one rounded add. `precise` forbids FMA contraction so the
-// boundary bits equal the CPU reference's mul-then-add exactly (I3).
+// boundary bits equal the CPU reference's mul-then-add exactly.
 uint code_of(float v, float mnr, float scr) {
     uint code = 0u;
     for (uint step = 128u; step > 0u; step >>= 1) {

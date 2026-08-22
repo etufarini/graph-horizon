@@ -3,8 +3,8 @@
  * The logical-device bring-up `Device::init` delegates to, after `caps` has selected
  * and validated the physical device: detect optional capabilities (memory-budget,
  * coopmat, dp4a), build the compute queue, enable FP16 features, and create the
- * command pool. Every
- * opt-in is conditional (INV-6 / P1). `create_device` returns a `DeviceBoot` the
+ * command pool. Every optional feature is enabled only after its capability is
+ * established. `create_device` returns a `DeviceBoot` the
  * caller spreads into `Device`.
 */
 
@@ -85,7 +85,7 @@ pub(super) fn create_device(
     if memory_budget_enabled {
         ext.push(MEMORY_BUDGET.as_ptr());
     }
-    // Coopmat extension + feature only when a usable shape was found (INV-6); the
+    // Enable coopmat only when a usable shape was found; the
     // feature structs must outlive `dci`.
     if matrix_extension {
         ext.push(coopmat::COOPERATIVE_MATRIX.as_ptr());

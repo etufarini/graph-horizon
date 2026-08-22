@@ -72,7 +72,7 @@ impl Backend for VulkanBackend {
         _v_meta_offset: u64,
         vectors: u32,
     ) -> Result<()> {
-        // One branch per call on the load-time scheme (I2).
+        // One branch per call on the immutable load-time scheme.
         match kv.scheme {
             // The f16 copy kernel addresses elements, so convert its byte offset
             // at this scheme boundary (2 bytes per element).
@@ -114,7 +114,7 @@ impl Backend for VulkanBackend {
 
     fn submit(&self, enc: vk::CommandBuffer) -> Result<()> {
         // Test-only instrumentation: counts model-forward submits so lifecycle tests
-        // can assert exactly one `backend.submit` per token (I2). The logits readback
+        // can assert exactly one `backend.submit` per token. The logits readback
         // uses `read_buffer` (a device-level `submit_wait`), so it is NOT counted here.
         #[cfg(test)]
         super::record_submit();

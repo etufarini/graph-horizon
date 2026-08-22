@@ -4,7 +4,7 @@
  * vector of the incoming K and V (f16, widened to f32), quantize with the
  * scheme's NORMATIVE scalar reference from `kv_cache` and store payload and
  * metadata at their region offsets (both precomputed by kv_cache from `layout`,
- * D6). Prefill N-token writes iterate vectors through this same code path as
+ * the single source of layout truth). Prefill N-token writes iterate vectors through this same code path as
  * single-token decode writes, so `--seq-check` payloads match bit-for-bit.
 */
 

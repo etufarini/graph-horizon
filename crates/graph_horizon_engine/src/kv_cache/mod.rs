@@ -6,8 +6,8 @@
  * free both buffers exactly once. Every GPU action goes through the `Backend` primitives
  * (`alloc_buffer`/`free_buffer`/`kv_write`); all layout arithmetic and the
  * position invariant live in `layout`, the per-scheme byte sizes in `scheme`.
- * The scheme is chosen once at load (I1) and fixed before any alloc; backends
- * branch on it once per call (I2). Each buffer holds a payload region followed
+ * The scheme is chosen once at load and fixed before any allocation; backends
+ * branch on it once per call. Each buffer holds a payload region followed
  * by a metadata region. K and V retain their own logical head widths and their
  * own checked payload/metadata offsets. A homogeneous GPU session may transfer
  * ownership to one serialized model cache; errors and final model drop still
@@ -45,7 +45,7 @@ pub(crate) struct Kv<Buf> {
 impl<Buf> Kv<Buf> {
     // Byte base of the metadata region (the payload region of all layers
     // precedes it; role-independent since payload sizes are). The single
-    // layout truth backends read instead of re-deriving the region split (D6).
+    // layout truth backends read instead of re-deriving the region split.
     #[cfg(any(
         feature = "vulkan",
         feature = "vulkan-hybrid",
@@ -121,7 +121,7 @@ pub(crate) fn alloc_shape<B: Backend>(
 // asks the backend to quantize/copy into the caches at the precomputed byte
 // offsets (payload and metadata region origins of the token's kv_heads
 // vectors). Offsets are computed HERE from `layout` — backends never re-derive
-// the region split (D6).
+// the region split.
 pub(crate) fn append<B: Backend>(
     backend: &B,
     enc: &B::Encoder,

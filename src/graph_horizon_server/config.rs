@@ -26,7 +26,7 @@ impl ServerConfig {
     pub(crate) fn from_args() -> Self {
         Self {
             host: args::value("--host").unwrap_or_else(|| "127.0.0.1".to_string()),
-            // Existing tolerant behavior: invalid numbers fall back to defaults.
+            // Server mode treats a missing or malformed port as the default 8080.
             port: args::value("--port")
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(8080),

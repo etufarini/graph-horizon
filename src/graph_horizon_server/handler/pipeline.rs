@@ -19,11 +19,11 @@ use super::error::error_response;
 const CACHE_KEY_HEADER: &str = "x-graph-horizon-cache";
 
 // The full chat path. Order is deliberate: read the body under the size cap →
-// parse JSON → validate into an engine request → only THEN take an admission slot
-// and the serialization lock. The permit and lock are acquired strictly after
-// validation succeeds, so an invalid request never occupies a queue slot nor
-// waits on the mutex. Both are then handed to `stream::sse_body`, which holds
-// them for exactly the lifetime of the generation.
+// prevalidate raw JSON → deserialize the typed body → build an engine request →
+// only THEN take an admission slot and the serialization lock. Both are acquired
+// strictly after validation succeeds, so an invalid request never occupies a
+// queue slot nor waits on the mutex. Both are then handed to `stream::sse_body`,
+// which holds them for exactly the lifetime of the generation.
 pub(super) async fn chat_completions(
     req: Request<Incoming>,
     state: ServerState,
@@ -44,11 +44,12 @@ pub(super) async fn chat_completions(
         Err(response) => return response,
     };
 
+    // 2. Reject unsupported JSON shapes and fields before typed deserialization.
     if let Err(response) = validate_chat_body(&bytes) {
         return response;
     }
 
-    // 2. Parse JSON. Malformed body → 400 with a generic message (no parser detail).
+    // 3. Parse JSON. Malformed body → 400 with a generic message (no parser detail).
     let parsed: api::chat::ChatCompletionRequest = match serde_json::from_slice(&bytes) {
         Ok(req) => req,
         Err(_) => {
@@ -60,7 +61,7 @@ pub(super) async fn chat_completions(
         }
     };
 
-    // 3. Validate + build the engine request. Every ApiError → 400, generic message.
+    // 4. Validate + build the engine request. Every ApiError → 400, generic message.
     let sampling = state.chat.default_sampling();
     let request = match api::chat::to_request(parsed, &state.config, sampling) {
         Ok(request) => request,
@@ -73,13 +74,13 @@ pub(super) async fn chat_completions(
         }
     };
 
-    // 4 + 5. Admission slot then serialization lock; 429 if the queue is full.
+    // 5 + 6. Admission slot then serialization lock; 429 if the queue is full.
     let (guard, permit) = match acquire_permits(state.admission, state.serialize).await {
         Ok(pair) => pair,
         Err(response) => return response,
     };
 
-    // 6 + 7. Build the streaming body (it owns guard + permit for the generation's
+    // 7. Build the streaming body (it owns guard + permit for the generation's
     // lifetime) and return 200 with the SSE headers. Without these headers many
     // clients will not interpret the stream.
     let sse = stream::sse_body(state.chat, request, cache_key, guard, permit);
@@ -112,12 +113,11 @@ fn cache_key(headers: &HeaderMap) -> Result<Option<[u8; 16]>, ()> {
     Ok(Some(key))
 }
 
-// Takes an admission slot then the serialization lock, in that order — the dedup
-// of steps 4 and 5, identical in both pipelines. Admission is non-blocking: a
-// full queue returns 429 immediately instead of piling up on the mutex; the
+// Takes an admission slot then the serialization lock, in that order. Admission
+// is non-blocking: a full queue returns 429 immediately instead of piling up on the mutex; the
 // permit lives for the whole request. The serialization lock then queues admitted
-// requests asynchronously (the runtime is never blocked), at most MAX_INFLIGHT - 1
-// waiting, bounded by the permit above. On rejection the caller returns the 429.
+// requests asynchronously (the runtime is never blocked); at most the semaphore
+// capacity minus the active holder can wait. On rejection the caller returns 429.
 pub(crate) async fn acquire_permits(
     admission: Arc<Semaphore>,
     serialize: Arc<Mutex<()>>,

@@ -1,7 +1,7 @@
 /*
  * Graph Horizon headless server - Stream (sync→async bridge for chat)
- * The ONLY place on the server side that knows `tokio` for inference: the
- * server-side analogue of `runtime/local.rs`. The engine decodes synchronously,
+ * Owns the server's sync→async inference bridge, analogous to
+ * `runtime/local.rs`. The engine decodes synchronously,
  * so generation runs on `spawn_blocking`, pushing ready-made SSE lines down an
  * mpsc channel; the receiver is adapted to a `hyper` SSE body. This file does not
  * know the OpenAI wire format (delegated to `api`): it only moves bytes and owns
@@ -19,7 +19,7 @@
  *  - Cancellation: dropping the receiver (client disconnect / stream abandoned)
  *    makes `send` return Err → the sink returns false → the decode loop stops →
  *    the KV cache is freed. No orphaned generation, no lock held for nothing.
- *  - Engine error: `EngineEvent::Error` becomes a generic SSE error line (no
+ *  - Engine error: `Event::Error` becomes a generic SSE error line (no
  *    Report internals exposed) followed by `[DONE]`, then a clean close. We send
  *    `[DONE]` even on error because the natural consumer is this repo's inbound
  *    parser (`runtime/sse.rs`) and the OpenAI SDKs, which terminate cleanly on the
@@ -61,9 +61,8 @@ pub(super) fn sse_body(
     let (tx, rx) = mpsc::channel::<String>(32);
 
     tokio::task::spawn_blocking(move || {
-        // guard and permit are MOVED in here: they are dropped when this closure
-        // returns (normal end OR cancellation), releasing the global mutex and
-        // returning the admission slot. Bind them so they are not dropped early.
+        // Moving and binding both guards here holds admission and serialization
+        // until generation returns, including cancellation exits.
         let _guard = guard;
         let _permit = permit;
 
@@ -73,7 +72,6 @@ pub(super) fn sse_body(
         } else {
             engine.generate(req, &mut sink);
         }
-        // Returning here drops _guard and _permit: lock released, slot returned.
     });
 
     let stream =

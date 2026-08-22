@@ -1,6 +1,8 @@
 /*
  * Graph Horizon CLI Modules - Plugins
- * This module exposes the various plugins available to the graph_horizon_cli modules.
+ * Defines the plugin namespace used by the interactive CLI: workspace-bound
+ * attachments, slash commands, shared completion logic, and JSON transcripts.
+ * Each child owns its parsing and I/O boundary; this module only exposes them.
 */
 
 pub(crate) mod attachments;

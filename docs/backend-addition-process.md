@@ -223,7 +223,7 @@ A combined profile is promoted independently from its component backends. Its
 all-device and all-host endpoints may inherit their numeric paths, but true
 mixed placement must complete its own real-model campaign before the profile
 becomes production. A status change updates the normative backend table and its
-public summaries in the same change; `VALIDATION.md` remains the evidence
+public summaries in the same change; `docs/validation.md` remains the evidence
 register rather than the status authority.
 
 ## Documentation And Evidence
@@ -233,7 +233,7 @@ Before claiming support, update:
 - the engine README support table and limitations;
 - root configuration and installation instructions;
 - `support/install.sh` and profiling or validation scripts, when applicable;
-- `VALIDATION.md` with one terminal state per approved matrix row;
+- `docs/validation.md` with one terminal state per approved matrix row;
 - [backend.md](backend.md) and benchmark notes when their current contracts change.
 
 Do not list speculative platforms, SDKs, devices, or formats as supported. A

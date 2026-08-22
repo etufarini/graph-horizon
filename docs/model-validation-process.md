@@ -188,7 +188,7 @@ The reviewed register contains:
 
 Preserved historical evidence must identify its originating revision and may be
 reused only when a reviewed plan says the relevant runtime contract is unchanged.
-Current repository evidence belongs in [VALIDATION.md](../VALIDATION.md); catalog
+Current repository evidence belongs in [the validation register](validation.md); catalog
 and runners live under [`support/`](../support/README.md).
 
 ## Non-Negotiable Boundaries

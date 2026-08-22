@@ -99,5 +99,5 @@ sola che la perdita introdotta da `int8` rispetti la soglia.
 - `external-verification`: una risorsa necessaria non era disponibile.
 
 Ogni riga riceve un solo stato. Gli esiti revisionati appartengono a
-[`VALIDATION.md`](../VALIDATION.md); questo documento conserva soltanto il
+[`docs/validation.md`](validation.md); questo documento conserva soltanto il
 protocollo e non dichiara superate prove che non sono state eseguite.

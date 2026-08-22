@@ -15,7 +15,7 @@ not part of the Graph Horizon project name or a separate product edition.
 Concrete support changes with the code: currently accepted architectures, GGUF
 profiles, and limits are defined in the
 [library contract](../crates/graph_horizon_engine/README.md), while reviewed results
-belong in the [validation register](../VALIDATION.md).
+belong in the [validation register](validation.md).
 
 ## Usage And Structure
 
@@ -61,9 +61,10 @@ belong in the [validation register](../VALIDATION.md).
 
 | Document | Contents |
 |---|---|
-| [Current optimization state](../CURRENT_OPTIMIZATION_STATE.md) | Retained CPU, Vulkan, AMD, and Metal results and remaining bottlenecks |
-| [Validation register](../VALIDATION.md) | Artifact identities, reviewed qualification evidence, and release readiness |
-| [Pre-release qualification](../RELEASE_QUALIFICATION.md) | Historical v0.1.0 candidate gates that must be refreshed before release |
+| [Current optimization state](current-optimization-state.md) | Retained CPU, Vulkan, AMD, and Metal results and remaining bottlenecks |
+| [Validation register](validation.md) | Artifact identities, reviewed qualification evidence, and release readiness |
+| [Pre-release qualification](release-qualification.md) | Historical v0.1.0 candidate gates that must be refreshed before release |
+| [Release notes](release-notes.md) | Draft user-facing v0.1.0 contract, installation, capabilities, and limitations |
 
 For installation, catalogs, and operational scripts, also see
 [support/README.md](../support/README.md).

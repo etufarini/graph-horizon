@@ -585,7 +585,7 @@ The 3B Reasoning miss is S10's understandable but non-idiomatic Italian phrase
 cases, and the aggregate semantic gate all pass. The runner summary is six
 qualified, zero not-qualified, zero external. This current result does not
 silently rewrite the release record's historical support status; release policy
-still belongs to `VALIDATION.md` and requires its own final qualification.
+still belongs to `docs/validation.md` and requires its own final qualification.
 
 ### Performance preservation
 

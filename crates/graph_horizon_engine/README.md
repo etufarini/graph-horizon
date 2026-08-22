@@ -66,7 +66,7 @@ operational success for the runner even when a model does not pass the semantic
 gate. The runtime continues to emit raw text and does not own this assessment
 policy.
 
-The [validation log](../../VALIDATION.md) records the most recent reviewed
+The [validation log](../../docs/validation.md) records the most recent reviewed
 campaign and its exact source revision. Those historical results do not qualify
 later runtime changes or a future release tag. The server selects the same
 sampling parameters for a Reasoning profile, but the complete gate remains
@@ -235,5 +235,5 @@ GRAPH_HORIZON_REFERENCE_PROMPT_IDS="..." GRAPH_HORIZON_REFERENCE_COMPLETION_IDS=
 
 The complete interfaces of the 74-row matrix and semantic acceptance are
 described in the [script guide](../../support/README.md); reviewed results belong
-in the [validation log](../../VALIDATION.md). Maintainer-facing source ownership
+in the [validation log](../../docs/validation.md). Maintainer-facing source ownership
 is mapped separately in [`src/README.md`](src/README.md).

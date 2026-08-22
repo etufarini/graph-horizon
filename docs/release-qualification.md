@@ -1,7 +1,7 @@
 <!--
 This report preserves the preliminary v0.1.0 qualification campaign and the
-remaining final-release gates. VALIDATION.md remains the authoritative support
-registry.
+remaining final-release gates. docs/validation.md remains the authoritative
+support registry.
 -->
 
 # Ministral 3 v0.1.0 preliminary qualification
@@ -39,7 +39,7 @@ the immutable tag; `git rev-list -n 1 v0.1.0` will then provide the mapping.
 - Cargo and npm lock files contain resolved versions; no release dependency is
   taken from a mutable Git branch.
 - Exact filenames, byte counts, architecture/profile, quantization, and SHA-256
-  values for all six external model inputs are in `VALIDATION.md` and
+  values for all six external model inputs are in `docs/validation.md` and
   `support/models.tsv`.
 
 All six local files matched the catalog before qualification. Different bytes

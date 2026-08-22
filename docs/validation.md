@@ -21,7 +21,7 @@ qualificato; un risultato storico non qualifica una sorgente successiva.
 ## Artefatti autenticati
 
 Il catalogo machine-readable autoritativo è
-[`support/models.tsv`](support/models.tsv). I modelli sono input esterni in sola
+[`support/models.tsv`](../support/models.tsv). I modelli sono input esterni in sola
 lettura e non vengono distribuiti o scaricati dal progetto.
 
 | ID | Profilo | File Q4_K_M | Byte | SHA-256 |
@@ -41,7 +41,7 @@ catalogo autentica l’evidenza, ma non è una whitelist letta dal runtime.
 
 Questa tabella descrive lo stato tecnico revisionato, non il contratto della
 futura release. Le misure, le tuple fisiche e i limiti sono riassunti in
-[`CURRENT_OPTIMIZATION_STATE.md`](CURRENT_OPTIMIZATION_STATE.md).
+[`current-optimization-state.md`](current-optimization-state.md).
 
 | Profilo | Evidenza revisionata | Stato tecnico |
 |---|---|---|
@@ -93,11 +93,11 @@ La release può essere dichiarata qualificata soltanto dopo avere:
    bootstrap anonimo se il repository è pubblico.
 
 I dettagli della campagna preliminare sono in
-[`RELEASE_QUALIFICATION.md`](RELEASE_QUALIFICATION.md). Le interfacce operative
-sono in [`support/README.md`](support/README.md); i processi riutilizzabili sono
-nel [processo di validazione modello](docs/model-validation-process.md), nel
-[processo oracle](docs/oracle-validation-process.md) e nella
-[validazione KV](docs/kv-quant-mistral-validation.md).
+[`release-qualification.md`](release-qualification.md). Le interfacce operative
+sono in [`support/README.md`](../support/README.md); i processi riutilizzabili sono
+nel [processo di validazione modello](model-validation-process.md), nel
+[processo oracle](oracle-validation-process.md) e nella
+[validazione KV](kv-quant-mistral-validation.md).
 
 ## Aggiornamento del registro
 

@@ -147,7 +147,7 @@ uses the CPU reference path.
 Metal and Metal-hybrid qualification is evidence for the stated M4/macOS tuple,
 not a promise for every Apple GPU, Apple silicon generation, or operating-system
 version. Current terminal evidence remains in
-[VALIDATION.md](../VALIDATION.md); that register records results and does not
+[the validation register](validation.md); that register records results and does not
 assign product status.
 
 ## Hybrid Placement
@@ -206,7 +206,7 @@ sampling fields remain ignored.
 
 Internal kernel numeric formats do not automatically expand the accepted GGUF
 contract. Technical support and numeric qualification must be recorded
-separately in [VALIDATION.md](../VALIDATION.md).
+separately in [the validation register](validation.md).
 
 ## Qualification And Performance References
 

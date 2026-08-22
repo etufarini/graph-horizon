@@ -5,8 +5,8 @@
 // AGENTS deroga K: kernel numerico della sola scrittura KV F16.
 
 // Writes the current token's K and V (each [kv_heads*head_dim]) into the KV
-// cache at a precomputed element offset for (layer, pos). The CPU side computes
-// dst_offset so the cache layout stays in one place (kv_cache.rs).
+// cache at a precomputed element offset for (layer, pos). Host dispatch computes
+// dst_offset through `kv_cache/layout.rs`, keeping layout arithmetic out of shaders.
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer K { float16_t k[]; };

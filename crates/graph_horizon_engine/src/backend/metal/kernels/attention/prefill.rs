@@ -140,8 +140,8 @@ fn geometry(
         let threads = heads
             .checked_mul(width)
             .ok_or_else(|| color_eyre::eyre::eyre!("metal: buffer arithmetic overflow"))?;
-        // Mode 2 retains one SIMD-group per head for the established medium
-        // context route; mode 3 widens only qualified long decode threadgroups.
+        // Mode 2 uses one SIMD group per head for qualified medium single-row
+        // decode; mode 3 uses two groups per head for qualified parallel contexts.
         let segmented = rows == 1 && qualified && base >= SEGMENTED_CONTEXT - 1;
         Ok((if segmented { 2 } else { 1 }, threads, 0))
     }

@@ -92,8 +92,8 @@ impl Device {
         Ok(cmd)
     }
 
-    // Ends, submits and waits on `cmd`, then frees it. Synchronous by design
-    // (batch 1, correctness first): one submit per forward step.
+    // Ends, submits and waits on `cmd`, then frees it. Synchronous by design:
+    // one submit owns a complete forward graph.
     pub(crate) fn submit_wait(&self, cmd: vk::CommandBuffer) -> Result<()> {
         // SAFETY: `cmd` is in the recording state opened by `begin_commands`; ending
         // it is the required transition before submission.

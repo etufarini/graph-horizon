@@ -6,9 +6,9 @@
 
 // RMSNorm of the FP32 residual stream into an FP16 output:
 //   out[i] = x[i] / sqrt(mean(x^2) + eps) * weight[i].
-// Identical to rmsnorm.comp but the input x is FP32 (the residual stream is kept
-// in FP32 to avoid FP16 overflow on the model.s massive activations). The output is
-// FP16 because the normalized value is O(1) and feeds the FP16 matmuls. One
+// The residual input stays FP32 to avoid overflow in large intermediate
+// activations. The output is FP16 because the normalized value is O(1) and feeds
+// the FP16 matmuls. One
 // workgroup over the single hidden row (rows = 1).
 layout(local_size_x = 256) in;
 

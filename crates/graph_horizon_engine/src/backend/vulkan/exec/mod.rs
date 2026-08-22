@@ -1,6 +1,5 @@
-// Esecuzione del backend Vulkan: registrazione dispatch, comandi, readback host.
-// `dispatch` e `readback` sono `pub(super)` perché i delegatori di `impl Backend`
-// in `vulkan/mod.rs` li invocano; `commands` (impl su `Device`) resta privato.
+// Vulkan execution namespace: dispatch routing and host readback are visible to
+// the backend delegators, while command-buffer lifecycle helpers remain private.
 mod commands;
 pub(super) mod dispatch;
 pub(super) mod readback;

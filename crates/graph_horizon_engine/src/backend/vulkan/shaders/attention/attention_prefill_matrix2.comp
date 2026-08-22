@@ -12,7 +12,7 @@
 // queries and scans 64 keys at a time. Tensor loads feed Q/K/V directly from
 // their strided buffers; score stays in a cooperative matrix. FP16 probability
 // is staged for AV, while one FP32 cooperative output remains live across KV
-// tiles for the online merge. Decode, INT8 and query tails use existing paths.
+// tiles for the online merge. Decode, INT8, and query tails use fallback kernels.
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };

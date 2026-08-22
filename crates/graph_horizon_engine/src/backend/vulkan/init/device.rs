@@ -24,7 +24,7 @@ pub(crate) struct Device {
     pub queue: vk::Queue,
     pub mem_props: vk::PhysicalDeviceMemoryProperties,
     // True when VK_EXT_memory_budget was advertised and enabled; gates `free_vram`
-    // (read in `exec::commands`). Widened from pub(super) so that cross-folder module can read it.
+    // (read in `exec::commands`).
     pub(in crate::backend::vulkan) memory_budget_enabled: bool,
     // The cooperative-matrix shape selected at bootstrap. `available = false` when
     // the device exposes no usable f16→f32 shape — the extension/feature are then NOT
@@ -68,9 +68,8 @@ impl Device {
         let entry = unsafe { ash::Entry::load() }
             .map_err(|_| eyre!("vulkan: loader not available on this system"))?;
 
-        // Vulkan 1.3: the shaders are SPIR-V 1.6 (build.rs) for the optional
-        // coopmat/dp4a paths, consumed only at API 1.3. Pre-existing kernels are
-        // unchanged; only the module version header rises.
+        // Vulkan 1.3 matches the SPIR-V 1.6 modules emitted by build.rs for the
+        // optional cooperative-matrix and integer-dot-product paths.
         let app = vk::ApplicationInfo::default().api_version(vk::API_VERSION_1_3);
 
         let create = vk::InstanceCreateInfo::default().application_info(&app);

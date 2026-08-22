@@ -12,7 +12,7 @@
 // a drop-in replacement for the per-token matmul_batched output. FP32
 // accumulation; the result equals the per-token GEMV within Q4_K tolerance (the K-sum
 // is grouped in TK strips here vs per-super-block there) and the f16 output rounding
-// is identical to the per-token path within the existing numeric tolerance.
+// is identical to the per-token path within the backend's numeric tolerance.
 //
 // Layout: A POSITION/TOKEN-MAJOR float16_t a[col*in_dim + k]; Y float16_t
 // y[col*out_dim + o] (same token-major [n][out_dim] the per-token path writes); W

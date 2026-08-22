@@ -11,7 +11,7 @@
 // 64x32 output tile. Tensor addressing loads FP16 activations directly, while
 // each lane owns one scale while preparing the 128x32 Q6_K weight tile in
 // shared FP16. The 64-row activation matrix reuses each dequantized weight tile
-// across two former row tiles; the guarded output store narrows back to FP16.
+// across two 64-row halves; the guarded output store narrows back to FP16.
 layout(local_size_x = 256) in;
 
 layout(std430, binding = 0) readonly buffer A { float16_t a[]; };

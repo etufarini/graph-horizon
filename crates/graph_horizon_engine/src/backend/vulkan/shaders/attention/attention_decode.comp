@@ -19,8 +19,8 @@
 // the loop the G partials are combined once (the only workgroup barrier) into the
 // final softmax: m = max m_g, l = Σ l_g·e^{m_g-m}, o_d = (Σ acc_g[d]·e^{m_g-m})/l.
 //
-// vs the previous one-thread-per-dim kernel this removes ~3 barriers PER cached
-// position (the dominant cost of the serial loop at long context) and cuts the
+// Subgroup-strided reduction avoids per-position workgroup barriers across cached
+// positions (the dominant cost of the serial loop at long context) and cuts the
 // serial depth from pos to pos/G. The sum is grouped differently (numerics-changing,
 // f32-oracle gated, f16-level drift), not bit-identical.
 //

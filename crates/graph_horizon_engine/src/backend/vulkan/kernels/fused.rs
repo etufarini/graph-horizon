@@ -4,8 +4,8 @@
  * out of `elementwise.rs` (already near the line budget). Same pattern as the
  * other kernel wrappers: select the pipeline, bind the buffers, set the push
  * constants and record the dispatch. No pipeline or buffer ownership lives here;
- * the fusion's bit-exactness with the standalone primitives is a property of the
- * shaders, not of this dispatch.
+ * the fusion's sequential FP16-rounding contract is implemented by the shader,
+ * not by this dispatch.
 */
 
 #![allow(clippy::too_many_arguments)]

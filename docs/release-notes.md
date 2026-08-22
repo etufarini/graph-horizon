@@ -16,9 +16,13 @@ The preliminary candidate qualified five exact Q4_K_M artifacts: 3B, 8B, and
 the source commit selected for release and recorded in
 [validation.md](validation.md).
 
-8B Reasoning is not supported. Its teacher-forced parity passed, but three
-fixed-seed fresh-process runs produced materially different response bytes and
-lengths and failed the predeclared reproducibility gate.
+In that preliminary campaign, 8B Reasoning was `NOT SUPPORTED`: teacher-forced
+parity passed, but three fixed-seed fresh-process runs produced materially
+different response bytes and lengths and failed the predeclared reproducibility
+gate. The repaired runtime later passed the six-artifact technical matrix and
+qualified all six semantic rows. The old byte-reproducibility release gate has
+not been rerun on a final commit, so this draft does not yet include or exclude
+8B Reasoning from the eventual release contract.
 
 After the repository, tag, and release assets are public, install with:
 

@@ -15,6 +15,7 @@ behind capability, format, shape, row-count, and context-position gates.
 - Baseline: `e3d23f2` on `main`.
 - Retained implementation: `1942208`.
 - Branch: `perf/amd-long-context-prefill`.
+- Later integration: branch tip `23d8186`; merged by PR #39 (`8e2f8cc`).
 - Device: AMD Radeon RX 6750 XT, Navi 22 / RDNA2 / `gfx1031`, 40 CUs.
 - Driver: RADV, Mesa 26.0.3, Vulkan 1.4.335.
 - Device-local memory: 12,868,124,672 bytes.
@@ -29,8 +30,9 @@ behind capability, format, shape, row-count, and context-position gates.
 - Residency at context 32,768: 5,189,935,104 engine weight bytes and
   4,563,402,752 F16 KV bytes. Long-run allocation was 10.79--10.81 GB.
 
-Temporary profiling binaries and outputs remain build artifacts under `target/`;
-the tables below are the persistent record and do not depend on them.
+Temporary profiling binaries and outputs were build artifacts under `target/`;
+the tables below are the persistent record and do not depend on their continued
+presence.
 
 ## Reproduction tuple
 

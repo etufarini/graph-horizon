@@ -17,6 +17,11 @@ profiles, and limits are defined in the
 [library contract](../crates/graph_horizon_engine/README.md), while reviewed results
 belong in the [validation register](validation.md).
 
+Performance and cleanup reports preserve measurements at their recorded SHAs.
+Their mission-close Git state is historical; later push and merge status is
+recorded in each affected report and summarized in
+[current-optimization-state.md](current-optimization-state.md).
+
 ## Usage And Structure
 
 | Document | Contents |
@@ -54,7 +59,7 @@ belong in the [validation register](validation.md).
 | [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
 | [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 | [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |
-| [final-backend-model-family-cleanup.md](final-backend-model-family-cleanup.md) | Final engine ownership inventory, cleanup decisions, and cross-hardware qualification |
+| [final-backend-model-family-cleanup.md](final-backend-model-family-cleanup.md) | Cleanup-candidate ownership inventory, decisions, qualification snapshot, and later repair link |
 | [amd-deep-clean-regression-repair.md](amd-deep-clean-regression-repair.md) | AMD post-cleanup correctness diagnosis, repair, and qualification evidence |
 
 ## Reviewed Evidence

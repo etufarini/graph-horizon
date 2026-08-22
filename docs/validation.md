@@ -14,6 +14,14 @@ il solo runtime `d1bf18f034fd44df5b8e81931e7feea32edeb47f`; le modifiche runtime
 successive impediscono di applicarne automaticamente gli esiti al commit finale
 ancora da scegliere.
 
+Il software dichiara versione Cargo/frontend `0.1.0`, ma resta pre-release. Il
+presente audit parte da `main`/`origin/main` `6b46331` del 22 agosto 2026. La
+correzione engine più recente qualificata è `e7edc83`, confluita in `main` con
+PR #41 (`24eac82`); i commit successivi cambiano presentazione, documentazione e
+commenti, non il percorso numerico oggetto di quella campagna. Questo consente
+di mantenere l'evidenza tecnica revisionata, ma non sostituisce la campagna
+finale sull'unico commit che verrà taggato.
+
 La compatibilità tecnica, la correttezza numerica, la qualità semantica e le
 prestazioni sono claim distinti. Un file caricabile non è per questo
 qualificato; un risultato storico non qualifica una sorgente successiva.
@@ -45,14 +53,31 @@ futura release. Le misure, le tuple fisiche e i limiti sono riassunti in
 
 | Profilo | Evidenza revisionata | Stato tecnico |
 |---|---|---|
-| CPU | suite sintetica e percorsi reali su i5-9600K; nessuna promessa prestazionale | REFERENCE |
-| Vulkan | suite, oracle numerici e campagne NVIDIA RTX 3060 / AMD RX 6750 XT | PRODUCTION |
-| Vulkan-hybrid | all-GPU qualificato nella campagna preliminare; matrice mixed completa da ripetere | QUALIFIED |
+| CPU | suite sintetica e matrice reale post-repair sui sei artefatti/f16-int8; nessuna promessa prestazionale | REFERENCE |
+| Vulkan | suite, oracle numerici e matrici reali NVIDIA RTX 3060 / AMD RX 6750 XT | PRODUCTION |
+| Vulkan-hybrid | all-GPU NVIDIA qualificato; matrice AMD mixed/CPU/all-GPU post-repair completa, da ripetere sul commit finale | QUALIFIED |
 | Metal | suite, oracle, teacher row e misure su Apple M4/macOS 26.3 | QUALIFIED |
 | Metal-hybrid | suite e percorso mixed sullo stesso host; claim limitato alla tupla documentata | QUALIFIED |
 
 Le etichette indicano maturità del percorso corrente. Non trasformano queste
 righe in qualifica v0.1.0 e non si estendono a hardware non misurato.
+
+## Evidenza post-cleanup integrata
+
+Sul runtime corretto `e7edc83`, la matrice AMD disponibile ha prodotto
+`pass=40 external_verification=34 failure=0 total=74`: tutte le 36 righe CPU,
+Vulkan standalone e Vulkan-hybrid mixed sui sei Q4_K_M e sui due KV, più quattro
+endpoint, sono passate. Le 34 righe esterne erano i sei Q8_0 assenti e le 28
+righe Metal/Metal-hybrid non eseguibili sull'host Linux; non sono failure e non
+sono PASS. Lo stesso runtime ha prodotto
+`qualified=6 not_qualified=0 external_verification=0` nel gate semantico.
+
+L'evidenza Apple M4, raccolta in una campagna separata, qualifica Metal e
+Metal-hybrid nella tupla dichiarata, ma non trasforma le righe esterne del
+report AMD in esecuzioni su quello SHA. Analogamente, RTX 3060 e RX 6750 XT non
+qualificano genericamente ogni GPU NVIDIA o AMD. I dettagli e le identità sono in
+[`amd-deep-clean-regression-repair.md`](amd-deep-clean-regression-repair.md) e
+[`current-optimization-state.md`](current-optimization-state.md).
 
 ## Campagna preliminare v0.1.0
 

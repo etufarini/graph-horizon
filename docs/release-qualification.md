@@ -89,6 +89,17 @@ Backend selection is compile-time. Only the first row with the five qualified
 models formed the proposed v0.1.0 contract for this candidate; it is not a
 qualification of the current source tree.
 
+### Later integrated evidence
+
+These historical cells are intentionally not rewritten as if the 19 August
+campaign had executed later hardware. Corrected runtime `e7edc83`, subsequently
+merged into `main` by PR #41, passed all locally executable CPU, standalone
+Vulkan, and Vulkan-hybrid mixed rows on the AMD host: `40 PASS`, `34 external
+verification`, `0 failure`, plus `6/6` semantic qualification. Later Apple M4
+evidence qualifies the documented Metal and Metal-hybrid tuple. Missing Q8
+artifacts and unmeasured devices remain external rather than PASS. The current
+summary is [`validation.md`](validation.md).
+
 ## Serving and failure paths
 
 The server streams one generation at a time. Three sequential SSE requests
@@ -149,9 +160,9 @@ bootstrap's immutable URLs, checksum mismatch rejection, archive validation,
 argument forwarding, and cleanup are covered by focused tests; anonymous
 network retrieval can only be repeated after the two release assets exist.
 
-## Candidate limitations
+## Historical Candidate Limitations
 
-- 8B Reasoning is not supported.
+- 8B Reasoning was not supported by this candidate's release gate.
 - Support is limited to five exact model byte sequences and one physical tuple.
 - CPU, standalone/mixed Vulkan, Metal, AMD, and other NVIDIA devices are not
   release-qualified even where they compile or have historical evidence.

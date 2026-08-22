@@ -17,7 +17,7 @@ runtime API or backend support contract.
 | Merge-base with `main` | `5e4e830ad1da3ea2ae462f1aad91cf7d82cac374` |
 | Initial worktree | clean |
 | Experiment branch | `perf/metal-vulkan-parity` |
-| Push state | nothing pushed |
+| Repository publication | mission closed locally; branch tip `8deb734` was later pushed and merged into `main` by PR #34 (`87e3e4b`) |
 
 The acquired Metal specialization checkpoint is `0c6b13d`. Later production
 changes alter only Metal loader policy plumbing, not Metal shaders or numeric
@@ -790,4 +790,6 @@ principle. No distinct untried candidate has evidence for a >=10% request gain.
 
 The final branch contains only retained P01/P03/P05d/P09 production changes,
 their required structural split, experiment history, and this report. Temporary
-profilers and rejected production candidates are reverted. Nothing was pushed.
+profilers and rejected production candidates are reverted. The mission closed
+before publication; the retained branch was subsequently pushed and merged into
+`main` by PR #34.

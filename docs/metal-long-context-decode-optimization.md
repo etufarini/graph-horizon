@@ -8,15 +8,17 @@ remaining bottleneck. It does not define the runtime support contract.
 
 Status: completed investigation on `perf/metal-long-context-decode`.
 
+Repository status: the branch was later pushed with final tip `f0c3120` and
+merged into `main` by PR #36 (`ae69781`).
+
 The production baseline is `87e3e4b1bb17e811caac030f69261bd0498284ec`.
 No production kernel change is retained. Richer benchmark reporting is commit
 `0899b74`; the final attribution profiler was removed by `49499e1`. The last production
 candidate `54c1621` was removed non-destructively by `c4a49f2` after sustained
 generation failed its retention gate. Final production-equivalent source before
-this report is therefore `c4a49f2`. The checkpoint's current-HEAD identity is
-the symbolic branch tip `refs/heads/perf/metal-long-context-decode`; the exact
-handoff SHA is reported with the final clean-tree audit because a Git commit
-cannot contain its own object ID.
+this report is therefore `c4a49f2`. At report close the checkpoint used the
+symbolic branch tip `refs/heads/perf/metal-long-context-decode`; its later pushed
+tip is `f0c3120`.
 
 ## Environment And Inputs
 
@@ -720,7 +722,8 @@ was loosened. The final qualification reruns the retained test suites below.
 - `cargo fmt --all --check`, warning-denied workspace clippy for pure Metal,
   documentation/source-structure tests, and `git diff --check` passed.
 - No temporary profiler, rejected kernel, experimental route, dependency, API,
-  secret, model artifact, push, or external repository change remains.
+  secret, or model artifact remained in the mission worktree. The retained
+  reporting changes and report were later pushed and merged by PR #36.
 
 The next candidate is not another decode tile. The largest whole-request cost is
 now 15K--28K prefill; a future mission should rebuild its own attribution and

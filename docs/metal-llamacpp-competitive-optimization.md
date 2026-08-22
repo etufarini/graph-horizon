@@ -18,13 +18,14 @@ defines no runtime API or backend support contract.
 | Final tested retained state | `aa6f176` (M10 reverted; M07 behavior retained) |
 | Initial worktree | clean |
 | llama.cpp reference | `2b63e0610bbc2be990ae1360d5256efcdc3f9efb` (build 10237) |
-| Push state | nothing pushed |
+| Repository publication | mission closed locally; branch tip `5375cf3` was later pushed and merged into `main` by PR #34 (`87e3e4b`) |
 
-Repository history contains no qualified Metal revision newer than `8deb734`.
-The Vulkan parity mission is acquired history and is not a performance target.
-The acquired reports are `metal-vulkan-optimization-parity.md` and
-`metal-hardware-specialization.md`; their rejected occupancy, FP16 staging,
-query-reuse, and wider-split variants are not repeated without new evidence.
+At mission start, repository history contained no qualified Metal revision newer
+than `8deb734`. The Vulkan parity mission was acquired history and was not a
+performance target. Its report is `metal-vulkan-optimization-parity.md`; the
+earlier hardware-specialization evidence remains in Git history. Rejected
+occupancy, FP16 staging, query-reuse, and wider-split variants are not repeated
+without new evidence.
 
 ## Qualified tuple
 
@@ -618,7 +619,8 @@ tests, and this report. M02/M03/M05/M06/M08/M09 production candidates and all
 temporary profilers are removed by ordinary revert commits. Complete pure
 Metal and Metal-hybrid suites, the focused Q4/Q6 and attention oracles,
 authenticated F16/INT8 llama.cpp parity, pure-Metal clippy with warnings
-denied, formatting, and `git diff --check` pass. Nothing was pushed.
+denied, formatting, and `git diff --check` pass. The mission closed before
+publication; the retained state was later pushed and merged by PR #34.
 
 ## Completion audit: decode gap reopened
 
@@ -812,4 +814,4 @@ after the ordinary M10 revert (apart from a formatting-only source change).
 The diagnostics-free binary remains
 `a166863382875d596f5cc71406c2d6782b8b15b95c58427350bfb951f7122c1c`.
 No profiler, rejected shader, alternate routing, dependency, or public API
-survives, and nothing was pushed.
+survives. PR #34 later integrated the retained state into `main`.

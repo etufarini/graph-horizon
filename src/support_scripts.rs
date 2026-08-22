@@ -7,6 +7,7 @@
  */
 
 use std::fs;
+use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -114,11 +115,21 @@ fn fixture_dir(label: &str) -> PathBuf {
     path
 }
 
-fn write_executable(path: &Path, source: &[u8]) {
-    fs::write(path, source).unwrap();
-    let mut permissions = fs::metadata(path).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).unwrap();
+fn write_executable(path: &Path, source: impl AsRef<[u8]>) {
+    let staging = path.with_extension("writing");
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&staging)
+        .unwrap();
+    file.write_all(source.as_ref()).unwrap();
+    file.flush().unwrap();
+    file.set_permissions(fs::Permissions::from_mode(0o755))
+        .unwrap();
+    file.sync_all().unwrap();
+    drop(file);
+    // Publish only the closed inode: exec can never race a write descriptor.
+    fs::rename(staging, path).unwrap();
 }
 
 fn installer_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
@@ -541,24 +552,18 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
 
     let stat = bin.join("stat");
     let shasum = bin.join("shasum");
-    fs::write(
+    write_executable(
         &stat,
         b"#!/bin/bash\nif [[ \"$1\" == -c ]]; then exit 1; fi\n[[ \"$1 $2\" == '-f %z' ]] || exit 2\nprintf '7\\n'\n",
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &shasum,
         format!(
             "#!/bin/bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{}  %s\\n' \"${{!#}}\"\n",
             digest
-        ),
-    )
-    .unwrap();
-    for executable in [&stat, &shasum] {
-        let mut permissions = fs::metadata(executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(executable, permissions).unwrap();
-    }
+        )
+        .as_bytes(),
+    );
     let path = bin.display().to_string();
     let command = format!(
         "source \"{}\"; artifact_size \"$1\"; artifact_sha256 \"$1\"",
@@ -893,22 +898,15 @@ fn installer_requires_profile_and_preflights_metal() {
     let bin = fixture.join("bin");
     let mutation = fixture.join("build tool called");
     fs::create_dir(&bin).unwrap();
-    fs::write(
-        bin.join("uname"),
+    write_executable(
+        &bin.join("uname"),
         b"#!/usr/bin/env bash\nprintf 'Linux\\n'\n",
-    )
-    .unwrap();
+    );
     for tool in ["cargo", "npm"] {
-        fs::write(
-            bin.join(tool),
+        write_executable(
+            &bin.join(tool),
             b"#!/usr/bin/env bash\nprintf called > \"$GRAPH_HORIZON_MUTATION_LOG\"\n",
-        )
-        .unwrap();
-    }
-    for tool in ["uname", "cargo", "npm"] {
-        let mut permissions = fs::metadata(bin.join(tool)).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(bin.join(tool), permissions).unwrap();
+        );
     }
     let output = Command::new("/bin/bash")
         .arg(repository().join("support/install.sh"))
@@ -938,14 +936,10 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
     let bin = fixture.join("bin");
     fs::create_dir(&bin).unwrap();
     let cargo = bin.join("cargo");
-    fs::write(
+    write_executable(
         &cargo,
         b"#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$GRAPH_HORIZON_TEST_ARGS\"\n",
-    )
-    .unwrap();
-    let mut permissions = fs::metadata(&cargo).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&cargo, permissions).unwrap();
+    );
 
     let model = fixture.join("model with spaces.gguf");
     let original = b"immutable GGUF fixture";
@@ -1028,7 +1022,7 @@ fn q4_profiling_contract() {
     let cargo = bin.join("cargo");
     let stat = bin.join("stat");
     let sha256sum = bin.join("sha256sum");
-    fs::write(
+    write_executable(
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1050,9 +1044,8 @@ case "$model" in
     *-14B-*) printf 'dimensions: blocks=40 hidden=5120 q=4096 k=1024 v=1024 ffn=16384 context=262144\noutput: dedicated\ntensor_histogram:\n  F32: 81\n  Q4_K: 241\n  Q6_K: 41\n' ;;
 esac
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &stat,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1067,9 +1060,8 @@ case "$model" in
     *14B-Instruct*) echo 8239593024 ;; *14B-Reasoning*) echo 8239591488 ;;
 esac
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &sha256sum,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1084,13 +1076,7 @@ case "$model" in
 esac
 printf '%s  %s\n' "$digest" "$model"
 "#,
-    )
-    .unwrap();
-    for executable in [&cargo, &stat, &sha256sum] {
-        let mut permissions = fs::metadata(executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(executable, permissions).unwrap();
-    }
+    );
 
     let path = format!("{}:/usr/bin:/bin", bin.display());
     let model = models.join(rows[0].q4_file);
@@ -1280,17 +1266,15 @@ fn parity_script_contract() {
     let mktemp = bin.join("mktemp");
     let uname = bin.join("uname");
     let server = fixture.join("llama server stub");
-    fs::write(
+    write_executable(
         &stat,
         b"#!/usr/bin/env bash\nif [[ \"${GRAPH_HORIZON_BAD_SIZE:-}\" == 1 ]]; then echo 1; else echo 2147023008; fi\n",
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &sha256sum,
         b"#!/usr/bin/env bash\nprintf '9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8  %s\\n' \"${!#}\"\n",
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &curl,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1308,9 +1292,8 @@ case "$url" in
     */completion) printf '{"tokens":[10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25]}\n' ;;
 esac
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1333,19 +1316,16 @@ if [[ "${GRAPH_HORIZON_DEVICE_FAILURE:-}" == 1 ]]; then
 fi
 printf 'test result: ok\nministral-parity: local_ids=30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45 oracle_top2=pass\n'
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &mktemp,
         b"#!/usr/bin/env bash\nmkdir -p -- \"$GRAPH_HORIZON_TEMP_DIR\"\nprintf '%s\\n' \"$GRAPH_HORIZON_TEMP_DIR\"\n",
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &uname,
         b"#!/usr/bin/env bash\ncase \"$1\" in -s) echo \"${GRAPH_HORIZON_TEST_UNAME_S:-Darwin}\" ;; -m) echo \"${GRAPH_HORIZON_TEST_UNAME_M:-arm64}\" ;; *) exit 1 ;; esac\n",
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &server,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1357,13 +1337,7 @@ printf 'started %s\n' "$$" >> "$GRAPH_HORIZON_SERVER_LOG"
 trap 'printf "stopped %s\n" "$$" >> "$GRAPH_HORIZON_SERVER_LOG"; exit 0' TERM INT HUP
 while :; do /bin/sleep 0.05; done
 "#,
-    )
-    .unwrap();
-    for executable in [&stat, &sha256sum, &curl, &cargo, &mktemp, &uname, &server] {
-        let mut permissions = fs::metadata(executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(executable, permissions).unwrap();
-    }
+    );
 
     let path = format!("{}:/usr/bin:/bin", bin.display());
     let free_port = || {
@@ -1716,11 +1690,10 @@ fn matrix_runs_seventy_four_exact_rows() {
     fs::create_dir_all(&models).unwrap();
     fs::create_dir(&bin).unwrap();
     fs::create_dir_all(copied_root.join("support")).unwrap();
-    fs::copy(
-        repository().join("support/testing/matrix-check.sh"),
-        testing.join("matrix-check.sh"),
-    )
-    .unwrap();
+    write_executable(
+        &testing.join("matrix-check.sh"),
+        &fs::read(repository().join("support/testing/matrix-check.sh")).unwrap(),
+    );
     fs::write(
         copied_root.join("support/models.tsv"),
         include_str!("../support/models.tsv"),
@@ -1739,7 +1712,7 @@ fn matrix_runs_seventy_four_exact_rows() {
     }
 
     let parity = testing.join("parity-check.sh");
-    fs::write(
+    write_executable(
         &parity,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1759,10 +1732,9 @@ ids='3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18'
 if [[ "$key" == "${GRAPH_HORIZON_MISMATCH_KEY:-}" ]]; then ids='3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,99'; fi
 printf 'pass: model_id=%s backend=%s kv=%s prompt_ids=1 oracle_ids=2 local_ids=%s\n' "$id" "$backend" "$kv" "$ids"
 "#,
-    )
-    .unwrap();
+    );
     let cargo = bin.join("cargo");
-    fs::write(
+    write_executable(
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
@@ -1775,13 +1747,7 @@ fi
 echo "E04 unsupported GGUF weight profile 'Q8_0'; supported profile: Q4_K_M" >&2
 exit 1
 "#,
-    )
-    .unwrap();
-    for executable in [testing.join("matrix-check.sh"), parity, cargo] {
-        let mut permissions = fs::metadata(&executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(executable, permissions).unwrap();
-    }
+    );
 
     let matrix = testing.join("matrix-check.sh");
     let path = format!("{}:/usr/bin:/bin", bin.display());
@@ -1796,7 +1762,8 @@ exit 1
         "--reference-port",
         &port,
     ];
-    let complete = Command::new(&matrix)
+    let complete = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1866,7 +1833,8 @@ exit 1
     fs::remove_file(models.join(rows[0].q8_file)).unwrap();
     fs::write(&parity_log, []).unwrap();
     fs::write(&inspect_log, []).unwrap();
-    let continued = Command::new(&matrix)
+    let continued = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1886,7 +1854,8 @@ exit 1
 
     fs::write(&parity_log, []).unwrap();
     fs::write(&inspect_log, []).unwrap();
-    let stopped = Command::new(&matrix)
+    let stopped = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1902,7 +1871,8 @@ exit 1
 
     fs::write(&parity_log, []).unwrap();
     fs::write(&inspect_log, []).unwrap();
-    let mismatch = Command::new(&matrix)
+    let mismatch = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1923,7 +1893,8 @@ exit 1
 
     fs::write(&parity_log, []).unwrap();
     fs::write(&inspect_log, []).unwrap();
-    let bad_q8 = Command::new(&matrix)
+    let bad_q8 = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1942,7 +1913,8 @@ exit 1
         include_str!("../support/models.tsv").replace('\n', "\r\n"),
     )
     .unwrap();
-    let malformed = Command::new(&matrix)
+    let malformed = Command::new("/bin/bash")
+        .arg(&matrix)
         .args(base)
         .env("PATH", &path)
         .env("GRAPH_HORIZON_PARITY_LOG", &parity_log)
@@ -1956,7 +1928,11 @@ exit 1
             .contains("catalog error")
     );
 
-    let invalid = Command::new(&matrix).arg("--unknown").output().unwrap();
+    let invalid = Command::new("/bin/bash")
+        .arg(&matrix)
+        .arg("--unknown")
+        .output()
+        .unwrap();
     assert_eq!(invalid.status.code(), Some(2));
     let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
     assert!(!source.contains("&\n"));
@@ -1989,11 +1965,10 @@ fn semantic_script_contract() {
     fs::create_dir_all(&testing).unwrap();
     fs::create_dir_all(&models).unwrap();
     fs::create_dir(&bin).unwrap();
-    fs::copy(
-        repository().join("support/testing/semantic-check.sh"),
-        testing.join("semantic-check.sh"),
-    )
-    .unwrap();
+    write_executable(
+        &testing.join("semantic-check.sh"),
+        &fs::read(repository().join("support/testing/semantic-check.sh")).unwrap(),
+    );
     fs::write(
         copied_root.join("support/models.tsv"),
         include_str!("../support/models.tsv"),
@@ -2012,7 +1987,7 @@ fn semantic_script_contract() {
     let stat = bin.join("stat");
     let sha256sum = bin.join("sha256sum");
     let cargo = bin.join("cargo");
-    fs::write(
+    write_executable(
         &stat,
         r#"#!/usr/bin/env bash
 set -eu
@@ -2026,9 +2001,8 @@ case "$model" in
     *14B-Reasoning*) echo 8239591488 ;;
 esac
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &sha256sum,
         r#"#!/usr/bin/env bash
 set -eu
@@ -2043,9 +2017,8 @@ esac
 if [[ -n "${SEMANTIC_STUB_BAD_SHA:-}" && "$model" == *"$SEMANTIC_STUB_BAD_SHA"* ]]; then digest=0000000000000000000000000000000000000000000000000000000000000000; fi
 printf '%s  %s\n' "$digest" "$model"
 "#,
-    )
-    .unwrap();
-    fs::write(
+    );
+    write_executable(
         &cargo,
         r#"#!/usr/bin/env bash
 set -eu
@@ -2077,19 +2050,14 @@ printf 'semantic-summary: model_id=%s critical=%s/4 semantic=%s/9 semantic_statu
 printf 'internal /secret/path must not escape\n' >&2
 [[ "$GRAPH_HORIZON_MODEL_ID" != "${SEMANTIC_STUB_FAIL_ID:-}" ]]
 "#,
-    )
-    .unwrap();
-    for executable in [testing.join("semantic-check.sh"), stat, sha256sum, cargo] {
-        let mut permissions = fs::metadata(&executable).unwrap().permissions();
-        permissions.set_mode(0o755);
-        fs::set_permissions(executable, permissions).unwrap();
-    }
+    );
 
     let runner = testing.join("semantic-check.sh");
     let path = format!("{}:/usr/bin:/bin", bin.display());
     let run = |variables: &[(&str, &str)]| {
-        let mut command = Command::new(&runner);
+        let mut command = Command::new("/bin/bash");
         command
+            .arg(&runner)
             .args(["--models-dir", models.to_str().unwrap()])
             .env("PATH", &path)
             .env("SEMANTIC_STUB_LOG", &calls)
@@ -2220,7 +2188,8 @@ printf 'internal /secret/path must not escape\n' >&2
     )
     .unwrap();
     assert_eq!(
-        Command::new(&runner)
+        Command::new("/bin/bash")
+            .arg(&runner)
             .args(["--models-dir", models.to_str().unwrap()])
             .env("PATH", &path)
             .output()
@@ -2234,7 +2203,8 @@ printf 'internal /secret/path must not escape\n' >&2
         include_str!("../support/models.tsv"),
     )
     .unwrap();
-    let no_cargo = Command::new(&runner)
+    let no_cargo = Command::new("/bin/bash")
+        .arg(&runner)
         .args(["--models-dir", models.to_str().unwrap()])
         .env("PATH", "/usr/bin:/bin")
         .env("SEMANTIC_STUB_TOOL_LOG", &tool_calls)
@@ -2254,7 +2224,8 @@ printf 'internal /secret/path must not escape\n' >&2
         );
     }
     assert_eq!(
-        Command::new(&runner)
+        Command::new("/bin/bash")
+            .arg(&runner)
             .arg("--unknown")
             .status()
             .unwrap()

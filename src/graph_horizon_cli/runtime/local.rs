@@ -4,7 +4,7 @@
  * converts messages, maps engine events to assistant text chunks, and never
  * supplies tools, workspace data, or reasoning controls.
  *
- * This local-provider sync→async bridge runs synchronous engine decoding on a
+ * This local sync→async bridge runs synchronous engine decoding on a
  * blocking task and pushes events down an mpsc channel; the receiver is adapted
  * to a ChunkStream. Dropping the stream (UI cancellation)
  * makes blocking_send fail, the sink return false, and the task stop — freeing the
@@ -19,8 +19,8 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::{ChatMessage, ChunkStream, StreamEvent};
 
-// Builds the local provider closure, shaped like the HTTP path. The shared Engine
-// is loaded once; every request contains only the text-chat fields the engine owns.
+// Builds the console generation closure. The shared Engine is loaded once;
+// every request contains only the text-chat fields the engine owns.
 pub(crate) fn provider(
     engine: Arc<Engine>,
     max_tokens: usize,
@@ -51,7 +51,7 @@ fn start(
 }
 
 // Phase, text, and terminal statistics are forwarded as stream events. Engine
-// errors become client-safe provider errors; the channel closes after generation
+// errors become display-safe errors; the channel closes after generation
 // returns or after the receiver cancels it.
 struct ChannelSink {
     tx: tokio::sync::mpsc::Sender<Result<StreamEvent>>,

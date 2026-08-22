@@ -41,5 +41,5 @@ case "$kv" in f16|int8) ;; *) fail "invalid KV scheme" ;; esac
 
 cd "$project_dir"
 exec cargo run --locked --no-default-features --features "$backend" \
-    --bin graph-horizon -- --provider local --model "$model" \
+    --bin graph-horizon -- --model "$model" \
     --context-tokens "$context" --kv-quant "$kv" --max-tokens "$max_tokens"

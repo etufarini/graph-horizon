@@ -1,7 +1,7 @@
 /*
  * Graph Horizon app arguments
- * Single responsibility: own the chat-only runtime flag table, parser, and
- * usage text. It accepts only model/server/generation/backend configuration,
+ * Single responsibility: own the CLI and Web runtime flag table, parser, and
+ * usage text. It accepts only model/generation/backend and Web bind settings,
  * depends only on `std`, and does not implement tools or reasoning controls.
  */
 
@@ -13,12 +13,10 @@ use std::sync::OnceLock;
 const FLAGS: &[&str] = &[
     "--model",
     "--mode",
-    "--provider",
     "--host",
     "--port",
     "--context-tokens",
     "--system-prompt",
-    "--base-url",
     "--max-tokens",
     "--vram-weights-percent",
     "--vram-reserve-mib",
@@ -128,6 +126,8 @@ mod tests {
         assert!(FLAGS.contains(&"--cpu-threads"));
         assert!(FLAGS.contains(&"--kv-quant"));
         for removed in [
+            "--provider",
+            "--base-url",
             "--think",
             "--profile",
             "--workspace",
@@ -152,6 +152,8 @@ mod tests {
             assert!(u.contains(f), "usage missing {f}");
         }
         for f in [
+            "--provider",
+            "--base-url",
             "--think",
             "--profile",
             "--workspace",

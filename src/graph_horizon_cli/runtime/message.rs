@@ -1,25 +1,24 @@
 /*
  * Graph Horizon CLI Modules - Runtime - Message
- * Single responsibility: represent text-only chat messages sent to local and
- * HTTP providers. It depends on serde and engine message types, and cannot
+ * Single responsibility: represent text-only chat messages sent to the local
+ * engine. It depends on engine message types and cannot
  * encode tools, functions, workspace data, or reasoning payloads.
  */
 
 use graph_horizon_engine::{Message as InferMessage, Role};
-use serde::Serialize;
-
-// Role accepted by the chat completions API.
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[cfg_attr(test, derive(serde::Serialize))]
+#[cfg_attr(test, serde(rename_all = "lowercase"))]
+#[derive(Clone)]
 enum ChatRole {
     System,
     User,
     Assistant,
 }
 
-// One chat message sent to the model provider. The private role plus constructors
+// One chat message sent to the model. The private role plus constructors
 // are the invariant: only system/user/assistant text can be represented.
-#[derive(Clone, Serialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+#[derive(Clone)]
 pub(crate) struct ChatMessage {
     role: ChatRole,
     content: String,
@@ -46,14 +45,14 @@ impl ChatMessage {
         Self::plain(ChatRole::Assistant, content)
     }
 
-    // Unicode scalar-value count of the private content sent on the wire.
+    // Unicode scalar-value count of the private content sent to the engine.
     pub(crate) fn chars(&self) -> usize {
         self.content.chars().count()
     }
 
     // Converts into the engine's message type for the local inference path.
     // Owns the role mapping so ChatRole and the content field stay private to
-    // this module; tool-call wire fields are not modelled in the engine history.
+    // this module; tool-call fields are not modelled in the engine history.
     pub(crate) fn into_engine(self) -> InferMessage {
         let role = match self.role {
             ChatRole::System => Role::System,

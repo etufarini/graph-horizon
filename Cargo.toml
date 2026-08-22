@@ -30,7 +30,6 @@ graph_horizon_engine = { path = "crates/graph_horizon_engine", default-features 
 color-eyre = "0.6.5"
 crossterm = "0.29.0"
 ratatui = { version = "0.30.0", default-features = false, features = ["crossterm", "layout-cache"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "gzip", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-width = "0.2"

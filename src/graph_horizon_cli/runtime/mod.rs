@@ -8,15 +8,12 @@ use color_eyre::eyre::Result;
 use std::pin::Pin;
 use tokio_stream::Stream;
 
-mod client;
 mod config;
 mod context;
 pub(crate) mod local;
 mod message;
-mod sse;
 
-pub(crate) use client::stream_completion as generation_stream;
-pub(crate) use config::ClientConfig;
+pub(crate) use config::RuntimeConfig;
 pub(crate) use context::{CapacityError, ContextBudget, ContextUsage};
 pub(crate) use graph_horizon_engine::{
     GenerationPhase, GenerationStats, ModelMemory, PlacementReport,

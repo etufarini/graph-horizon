@@ -88,14 +88,14 @@ where
             Ok(Some(chunk)) => match chunk? {
                 StreamEvent::Text(text) => {
                     if stats.is_some() {
-                        return Err(eyre!("provider returned content after usage"));
+                        return Err(eyre!("engine returned content after statistics"));
                     }
                     resp.push_str(&text);
                     !text.is_empty()
                 }
                 StreamEvent::Phase(next) => {
                     if stats.is_some() {
-                        return Err(eyre!("provider returned a phase after usage"));
+                        return Err(eyre!("engine returned a phase after statistics"));
                     }
                     let valid = matches!(
                         (phase, next),
@@ -103,7 +103,7 @@ where
                             | (Some(GenerationPhase::Prefill), GenerationPhase::Decode)
                     );
                     if !valid {
-                        return Err(eyre!("provider returned phases out of order"));
+                        return Err(eyre!("engine returned phases out of order"));
                     }
                     phase = Some(next);
                     phase_started = Instant::now();
@@ -111,10 +111,10 @@ where
                 }
                 StreamEvent::Finished(value) => {
                     if phase == Some(GenerationPhase::Prefill) {
-                        return Err(eyre!("provider returned usage before decode"));
+                        return Err(eyre!("engine returned statistics before decode"));
                     }
                     if stats.replace(value).is_some() {
-                        return Err(eyre!("provider returned multiple usage frames"));
+                        return Err(eyre!("engine returned multiple statistics frames"));
                     }
                     true
                 }

@@ -1,17 +1,16 @@
 /*
  * Graph Horizon web startup
- * Loads the local chat engine and assembles the static Web wrapper. The loaded
- * engine's resolved context becomes both the server request cap and the values
- * reported under `/props.default_generation_settings`; headless server flag
- * parsing remains separate.
+ * Loads the local chat engine and assembles the bundled Web UI. The loaded
+ * engine's immutable limits and runtime facts feed only the private browser
+ * transport.
  */
 
 use color_eyre::eyre::{Result, eyre};
 
 use crate::app::engine;
-use crate::graph_horizon_server::{ServerConfig, ServerState};
 
 use super::assets::Assets;
+use super::chat::State;
 use super::config::WebConfig;
 use super::server;
 
@@ -22,8 +21,6 @@ pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
     assets.ensure_index()?;
     let context_limit = engine::config::context_tokens_from_args();
     let chat = engine::load_chat_engine(&model, context_limit)?;
-    // The engine has already resolved and validated the immutable context limit.
-    let chat_config = ServerConfig::chat(chat.context_limit() as usize);
-    let state = ServerState::new(chat, chat_config);
+    let state = State::new(chat);
     server::serve(config, assets, state).await
 }

@@ -20,16 +20,16 @@ function body(chunks: string[], onCancel: () => void = () => {}): ReadableStream
   });
 }
 
-test('split CRLF content and DONE report activity and complete', async () => {
+test('split CRLF content and done report activity and complete', async () => {
   const events: string[] = [];
   let activity = 0;
   await readChatStream(
     body([
       ': ignored\r\n',
-      'data: {"choices":[{"delta":{"content":"hello"}}]}\r\n',
-      '\r\ndata: {"usage":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\r\n',
-      'data: [DO',
-      'NE]\r\n\r\n'
+      'data: {"content":"hello"}\r\n',
+      '\r\ndata: {"stats":{"prompt_tokens":2,"prefill_tokens":2,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\r\n',
+      'data: {"do',
+      'ne":true}\r\n\r\n'
     ]),
     event => events.push(event.type),
     () => { activity += 1; }
@@ -38,14 +38,14 @@ test('split CRLF content and DONE report activity and complete', async () => {
   assert.equal(activity, 5);
 });
 
-test('DONE cancels immediately and ignores later bytes', async () => {
+test('done cancels immediately and ignores later bytes', async () => {
   const content: string[] = [];
   let cancelled = 0;
   await readChatStream(
     body([
-      'data: {"usage":{"prompt_tokens":0,"prefill_tokens":0,"completion_tokens":0,"prefill_ms":0,"decode_ms":0}}\n',
-      'data: [DONE]\n',
-      'data: {"choices":[{"delta":{"content":"forbidden"}}]}\n'
+      'data: {"stats":{"prompt_tokens":0,"prefill_tokens":0,"completion_tokens":0,"prefill_ms":0,"decode_ms":0}}\n',
+      'data: {"done":true}\n',
+      'data: {"content":"forbidden"}\n'
     ], () => { cancelled += 1; }),
     event => { if (event.type === 'content') content.push(event.content); }
   );
@@ -53,11 +53,11 @@ test('DONE cancels immediately and ignores later bytes', async () => {
   assert.equal(cancelled, 1);
 });
 
-test('EOF before DONE rejects even after content', async () => {
+test('EOF before done rejects even after content', async () => {
   const content: string[] = [];
   await assert.rejects(
     readChatStream(
-      body(['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']),
+      body(['data: {"content":"partial"}\n\n']),
       event => { if (event.type === 'content') content.push(event.content); }
     ),
     { message: 'Connection interrupted' }
@@ -70,10 +70,10 @@ test('invalid and prohibited data frames reject uniformly', async t => {
     '',
     '{',
     'null',
-    '{"error":{"message":"secret"}}',
+    '{"error":"failed"}',
     '{"tool_event":{}}',
-    '{"choices":[{"delta":{"tool_calls":[]}}]}',
-    '{"choices":[{"delta":{"reasoning_content":"hidden"}}]}'
+    '{"choices":[]}',
+    '{"content":"x","extra":true}'
   ];
   for (const frame of frames) {
     await t.test(frame || 'empty data', async () => {
@@ -85,30 +85,29 @@ test('invalid and prohibited data frames reject uniformly', async t => {
   }
 });
 
-test('phase, exact usage and final-stop frames emit typed telemetry', async () => {
+test('phase, exact stats and done frames emit typed telemetry', async () => {
   const events: string[] = [];
   await readChatStream(
     body([
-      'data: {"graph_horizon":{"phase":"prefill"}}\n',
-      'data: {"graph_horizon":{"phase":"decode"}}\n',
-      'data: {"usage":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n',
-      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n',
-      'data: [DONE]\n'
+      'data: {"phase":"prefill"}\n',
+      'data: {"phase":"decode"}\n',
+      'data: {"stats":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n',
+      'data: {"done":true}\n'
     ]),
     event => events.push(event.type)
   );
   assert.deepEqual(events, ['phase', 'phase', 'stats']);
 });
 
-test('usage rejects later content or phase frames', async t => {
-  const usage = 'data: {"usage":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n';
+test('stats reject later content or phase frames', async t => {
+  const stats = 'data: {"stats":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n';
   for (const later of [
-    'data: {"choices":[{"delta":{"content":"late"}}]}\n',
-    'data: {"graph_horizon":{"phase":"decode"}}\n'
+    'data: {"content":"late"}\n',
+    'data: {"phase":"decode"}\n'
   ]) {
     await t.test(later.includes('content') ? 'content' : 'phase', async () => {
       await assert.rejects(
-        readChatStream(body([usage, later, 'data: [DONE]\n']), () => {}),
+        readChatStream(body([stats, later, 'data: {"done":true}\n']), () => {}),
         { message: 'Connection interrupted' }
       );
     });

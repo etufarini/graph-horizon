@@ -281,6 +281,8 @@ fn removed_surface_scan() {
         );
     }
     for relative in [
+        "src/graph_horizon_server",
+        "docs/server.md",
         "docs/tools.md",
         "support/testing/resident-golden.sh",
         "crates/graph_horizon_engine/examples/prefill_trace.rs",
@@ -327,7 +329,6 @@ fn docs_contract() {
     let ownership = fs::read_to_string(root.join("crates/graph_horizon_engine/src/README.md"))
         .expect("source ownership");
     let support = fs::read_to_string(root.join("support/README.md")).expect("support docs");
-    let server = fs::read_to_string(root.join("docs/server.md")).expect("server docs");
     let validation =
         fs::read_to_string(root.join("docs/validation.md")).expect("validation register");
     let kv = fs::read_to_string(root.join("docs/kv-quant-mistral-validation.md"))
@@ -393,8 +394,8 @@ fn docs_contract() {
         backend_flat
             .contains("Capability-specific wider routes include their scratch in admission")
     );
-    assert!(config_flat.contains("`--context-tokens` requests exactly"));
-    assert!(config_flat.contains("GET /props"));
+    assert!(config_flat.contains("Graph Horizon supports exactly two modes"));
+    assert!(config_flat.contains("`--context-tokens <n>`"));
     assert!(ownership.contains("family/mistral/version.rs"));
     assert!(config_flat.contains("`--vram-weights-percent <n>`"));
     assert!(kv.contains("contesto `4096`"));
@@ -448,7 +449,12 @@ fn docs_contract() {
         !production_args.contains("--think"),
         "runtime argument table exposes --think"
     );
-    assert!(server.contains("no tool calling or filesystem access through HTTP"));
+    for removed in ["--mode server", "--provider", "--base-url"] {
+        assert!(
+            !production_args.contains(removed),
+            "removed runtime surface remains: {removed}"
+        );
+    }
     for unsupported in ["Q5_K_M", "Q6_K_M", "Mistral Small", "24B"] {
         assert!(
             !readme_flat.contains(unsupported) && !engine_flat.contains(unsupported),

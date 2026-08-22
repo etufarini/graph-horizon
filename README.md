@@ -10,9 +10,9 @@ documentation.
 
 # Graph Horizon
 
-Graph Horizon is a focused local text-to-text runtime with three interfaces: an
-interactive CLI, an HTTP server compatible with the OpenAI chat subset used by
-the included clients, and an integrated Web UI.
+Graph Horizon is a focused local text-to-text runtime with two interfaces: an
+interactive CLI and an integrated Web UI. Both run the model locally; there is
+no standalone server mode or supported public HTTP API.
 
 The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. Ministral 3 is the model family currently used by Graph
@@ -104,12 +104,12 @@ the GGUF context maximum. On Linux, hybrid automatic RAM capacity is
 `floor(MemAvailable × 90 / 100)`, and placement keeps the maximum possible
 contiguous GPU suffix that fits its budgets. Reasoning output, including
 `[THINK]` and `[/THINK]`, remains ordinary raw text; the CLI and Web UI derive
-their visual sections without changing model history or the HTTP protocol.
+their visual sections without changing model history.
 
 ## Run
 
 Replace `/path/to/model.gguf` with the absolute path of the downloaded model.
-CLI, server, and Web UI resolve the model context automatically when the option
+CLI and Web UI resolve the model context automatically when the option
 is omitted. The examples set `--context-tokens 32768` explicitly so their
 memory use and context limit are reproducible. Run `graph-horizon --help` for
 the complete option reference.
@@ -119,24 +119,10 @@ the complete option reference.
 Start an interactive local conversation in the terminal:
 
 ```sh
-graph-horizon --mode cli --provider local \
+graph-horizon --mode cli \
   --model "/path/to/model.gguf" \
   --context-tokens 32768
 ```
-
-### Server
-
-Start the HTTP server on the local machine:
-
-```sh
-graph-horizon --mode server \
-  --model "/path/to/model.gguf" \
-  --context-tokens 32768 \
-  --host 127.0.0.1 --port 8080
-```
-
-Chat completions are available at
-`http://127.0.0.1:8080/v1/chat/completions`.
 
 ### Web UI
 
@@ -179,7 +165,6 @@ are maintained in the [backend contract](docs/backend.md#support-status).
 ## Documentation
 
 - [CLI guide](docs/console.md)
-- [Server guide](docs/server.md)
 - [Web UI guide](docs/web.md)
 - [Runtime configuration](docs/configuration.md)
 - [Backend contract](docs/backend.md)

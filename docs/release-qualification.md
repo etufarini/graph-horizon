@@ -49,7 +49,7 @@ are a different qualification target.
 
 | Model | Semantic generation | Teacher-forced | Repetition | Final |
 |---|---|---|---|---|
-| 3B Instruct | preserved Plan 05, 8/9 | RC 16/16 top-1 | RC server smoke | QUALIFIED |
+| 3B Instruct | preserved Plan 05, 8/9 | RC 16/16 top-1 | RC generation smoke | QUALIFIED |
 | 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | 3 fresh processes | QUALIFIED |
 | 8B Instruct | preserved Plan 05, 8/9 | RC 16/16 top-1 | RC parity | QUALIFIED |
 | 8B Reasoning | 9/9, 9/9, 8/9 | 16/16 twice | divergent bytes/lengths | NOT SUPPORTED |
@@ -100,12 +100,7 @@ evidence qualifies the documented Metal and Metal-hybrid tuple. Missing Q8
 artifacts and unmeasured devices remain external rather than PASS. The current
 summary is [`validation.md`](validation.md).
 
-## Serving and failure paths
-
-The server streams one generation at a time. Three sequential SSE requests
-(A, B, C) in one 3B Instruct process completed with `[DONE]`, with no visible
-cross-request leakage. `/props` reported context 4096 and SIGTERM ended
-promptly. Concurrent scheduling and parallel throughput are not claimed.
+## Failure paths
 
 Missing and invalid GGUF files, invalid KV/placement values, and unknown flags
 returned nonzero with bounded errors. Inspected stderr exposed no developer
@@ -153,9 +148,8 @@ observed.
 An archive made with `git archive`, the release root prefix, and deterministic
 gzip was extracted into a new temporary directory with no build tree. The local
 installer rebuilt frontend and Vulkan-hybrid release artifacts, installed into
-a new prefix, and reported `graph-horizon 0.1.0`. The installed binary loaded
-the authenticated 3B Instruct artifact, served `/props` with context 4096,
-streamed `OK`, usage, stop, and `[DONE]`, then shut down cleanly. The root
+a new prefix, and reported `graph-horizon 0.1.0`. The installed-binary product
+smoke must be repeated for the current CLI and Web UI boundary. The root
 bootstrap's immutable URLs, checksum mismatch rejection, archive validation,
 argument forwarding, and cleanup are covered by focused tests; anonymous
 network retrieval can only be repeated after the two release assets exist.
@@ -166,7 +160,7 @@ network retrieval can only be repeated after the two release assets exist.
 - Support is limited to five exact model byte sequences and one physical tuple.
 - CPU, standalone/mixed Vulkan, Metal, AMD, and other NVIDIA devices are not
   release-qualified even where they compile or have historical evidence.
-- Serving is serialized; backend selection is compile-time; no fallback exists.
+- One generation runs at a time; backend selection is compile-time; no fallback exists.
 - Text-only chat; no tools, multimodal input, or separate Reasoning channel.
 - Q8, MoE, custom Reasoning prompts, and long-context quality are outside scope.
 
@@ -182,7 +176,7 @@ The current source is not yet release-qualified. Before publishing v0.1.0:
 
 1. select and record one clean final commit;
 2. rerun the applicable build, lint, frontend, runtime, semantic, parity,
-   serving, failure-path, and documentation gates on that source;
+   product-surface, failure-path, and documentation gates on that source;
 3. create the annotated local `v0.1.0` tag on that exact commit;
 4. generate the deterministic source archive and `.sha256` from the tag;
 5. perform a clean-prefix installation, version check, and inference smoke from

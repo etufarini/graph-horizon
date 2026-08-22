@@ -1,11 +1,11 @@
 /*
- * Graph Horizon local web backend
- * Single responsibility: expose static browser assets wrapped around the
- * headless chat server. It depends on web config/assets/routing and does not
- * provide tools, confirmations, workspaces, or reasoning endpoints.
+ * Graph Horizon local Web UI
+ * Owns the bundled browser assets, private browser transport, local listener,
+ * and engine startup. It exposes no standalone or compatibility API surface.
  */
 
 mod assets;
+mod chat;
 mod config;
 mod router;
 mod runtime;

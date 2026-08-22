@@ -1,8 +1,8 @@
 /*
  * Line-oriented Web SSE parser.
- * Reports every non-empty body chunk as activity, accepts content, phase, exact
- * usage, and final frames, rejects prohibited protocol data, and requires
- * terminal usage before `[DONE]`. Fetch effects remain outside.
+ * Reports every non-empty body chunk as activity, accepts only the bundled
+ * backend's content, phase, stats, and done frames, and requires terminal stats
+ * before done. Fetch effects remain outside.
  */
 import { parseGenerationStats } from './telemetry.ts';
 import type { StreamEvent } from './types';
@@ -34,7 +34,7 @@ export async function readChatStream(
       const consumed = consumeLines(buffer, emit);
       if (consumed.done) {
         if (!finished) throw new Error(INTERRUPTED);
-        // `[DONE]` wins before any bytes that follow it can be interpreted.
+        // The done frame wins before later bytes can be interpreted.
         await reader.cancel().catch(() => {});
         return;
       }
@@ -74,39 +74,32 @@ function consumeDataLine(
   }
 
   const data = line.slice(5).trimStart();
-  if (data === '[DONE]') {
-    return true;
-  }
-
   const parsed = parseJson(data);
-  if (!isRecord(parsed) || 'error' in parsed || 'tool_event' in parsed) {
+  if (!isRecord(parsed) || 'error' in parsed) {
     throw new Error(INTERRUPTED);
   }
 
-  if (isRecord(parsed.graph_horizon)) {
-    const phase = parsed.graph_horizon.phase;
+  if (only(parsed, 'phase')) {
+    const phase = parsed.phase;
     if (phase !== 'prefill' && phase !== 'decode') throw new Error(INTERRUPTED);
     onEvent({ type: 'phase', phase });
     return false;
   }
 
-  if ('usage' in parsed) {
-    const stats = parseGenerationStats(parsed.usage);
+  if (only(parsed, 'stats')) {
+    const stats = parseGenerationStats(parsed.stats);
     if (!stats) throw new Error(INTERRUPTED);
     onEvent({ type: 'stats', stats });
     return false;
   }
 
-  const choice = Array.isArray(parsed.choices) ? parsed.choices[0] : undefined;
-  const delta = isRecord(choice) && isRecord(choice.delta) ? choice.delta : undefined;
-  if (delta && ('reasoning_content' in delta || 'tool_calls' in delta)) {
-    throw new Error(INTERRUPTED);
-  }
-  if (typeof delta?.content === 'string' && delta.content.length > 0) {
-    onEvent({ type: 'content', content: delta.content });
+  if (only(parsed, 'content') && typeof parsed.content === 'string') {
+    if (parsed.content.length > 0) onEvent({ type: 'content', content: parsed.content });
+    return false;
   }
 
-  return false;
+  if (only(parsed, 'done') && parsed.done === true) return true;
+  throw new Error(INTERRUPTED);
 }
 
 function parseJson(data: string): unknown {
@@ -119,4 +112,8 @@ function parseJson(data: string): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function only(value: Record<string, unknown>, key: string): boolean {
+  return Object.keys(value).length === 1 && key in value;
 }

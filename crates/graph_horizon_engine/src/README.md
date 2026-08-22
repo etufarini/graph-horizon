@@ -25,7 +25,7 @@ Ogni dominio possiede un confine stretto.
   top-two family-neutral, esclusivamente per harness.
 - `tests/semantic.rs`: qualificatore Reasoning-only test-only; possiede
   corpus, sampling, scoring, stop telemetry e marker Reasoning, senza policy
-  runtime o server.
+  runtime o superfici di prodotto.
 - `family/mistral/graph/`: ordine denso condiviso da ogni backend; non decide
   placement.
 - `runtime/`: lifecycle omogeneo o partizionato; il partizionato esegue un

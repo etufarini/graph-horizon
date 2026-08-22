@@ -6,7 +6,7 @@
 # graph_horizon_engine
 
 `graph_horizon_engine` is the text-to-text inference runtime for
-`general.architecture=mistral3`. Its public API accepts chat messages, runs
+`general.architecture=mistral3`. Its public Rust API accepts chat messages, runs
 prefill/decode, and produces incremental events without depending on a console,
 HTTP, or Web UI.
 
@@ -70,7 +70,7 @@ policy.
 
 The [validation log](../../docs/validation.md) records the most recent reviewed
 campaign and its exact source revision. Those historical results do not qualify
-later runtime changes or a future release tag. The server selects the same
+later runtime changes or a future release tag. The Web UI selects the same
 sampling parameters for a Reasoning profile, but the complete gate remains
 owned by the harness because it also fixes context, KV, placement, and corpus.
 

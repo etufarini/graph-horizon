@@ -1,7 +1,7 @@
 <!--
 This document owns the TUI slash-command, transcript, attachment, completion,
 file-authority, and developer build-command behavior. It does not describe
-server or browser file handling.
+browser file handling.
 -->
 
 # Slash Commands And Attachments

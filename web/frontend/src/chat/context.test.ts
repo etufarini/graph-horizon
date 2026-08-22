@@ -1,5 +1,5 @@
 /*
- * Pure Web-capacity tests covering `/props` validation and equality, Unicode
+ * Pure Web-capacity tests covering private payload validation, Unicode
  * estimation, inclusive prompt-budget boundaries, and overflow-safe arithmetic.
  * Browser rendering and transport are intentionally excluded.
  */
@@ -18,10 +18,10 @@ function user(content: string): WireMessage[] {
   return [{ role: 'user', content }];
 }
 
-test('properties accept equal positive safe capacities and ignore extra fields', () => {
+test('context accepts positive safe capacities and ignores extra fields', () => {
   assert.deepEqual(
     parseRuntimeContext({
-      default_generation_settings: { n_ctx: 8192, max_tokens: 8192, ignored: true },
+      context_limit: 8192,
       model_path: 'ignored'
     }),
     {
@@ -29,30 +29,13 @@ test('properties accept equal positive safe capacities and ignore extra fields',
       context: { contextLimit: 8192, safePromptBudget: 7372 }
     }
   );
-  for (const n_ctx of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx, max_tokens: n_ctx } }), {
+  for (const context_limit of [0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
+    assert.deepEqual(parseRuntimeContext({ context_limit }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  for (const max_tokens of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: { n_ctx: max_tokens, max_tokens } }), {
-      ok: false,
-      error: 'unavailable'
-    });
-  }
-  for (const settings of [
-    { n_ctx: 8192 },
-    { max_tokens: 8192 },
-    { n_ctx: 8192, max_tokens: 4096 },
-    { n_ctx: 1, max_tokens: 1 }
-  ]) {
-    assert.deepEqual(parseRuntimeContext({ default_generation_settings: settings }), {
-      ok: false,
-      error: 'unavailable'
-    });
-  }
-  for (const payload of [null, [], {}, { default_generation_settings: null }, { default_generation_settings: [] }]) {
+  for (const payload of [null, [], {}, { context_limit: null }]) {
     assert.deepEqual(parseRuntimeContext(payload), { ok: false, error: 'unavailable' });
   }
 });
@@ -102,10 +85,7 @@ test('usage includes its context denominator and clamps only graphical progress'
 test('maximum safe capacity uses exact quotient arithmetic', () => {
   assert.deepEqual(
     parseRuntimeContext({
-      default_generation_settings: {
-        n_ctx: Number.MAX_SAFE_INTEGER,
-        max_tokens: Number.MAX_SAFE_INTEGER
-      }
+      context_limit: Number.MAX_SAFE_INTEGER
     }),
     {
       ok: true,

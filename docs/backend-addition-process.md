@@ -134,7 +134,7 @@ Load only explicitly supported weight formats. Unsupported formats fail during
 model loading and never enter a fallback that changes the numeric contract.
 
 Wire a standalone backend through the existing family loader without importing
-its concrete API into the public engine, CLI, server, or web modules. When a
+its concrete API into the public engine, CLI, or Web modules. When a
 combined mode is approved, keep placement explicit and immutable. Record which
 backend owns each layer and its KV storage, validate transfer boundaries, and do
 not retry with a different split after observing an error.

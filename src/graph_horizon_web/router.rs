@@ -1,26 +1,25 @@
 /*
  * Graph Horizon web router
- * Single responsibility: route static assets and delegate exact chat and
- * `/props` requests to shared headless-server boundaries and expose immutable
- * Web-only runtime information without widening the headless API.
+ * Single responsibility: route bundled assets and private browser requests.
+ * The internal paths are implementation details of the packaged Web UI and do
+ * not form a supported integration contract.
  */
 
 use std::convert::Infallible;
 use std::sync::Arc;
 
 use bytes::Bytes;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Incoming;
 use hyper::{Method, Request, Response, StatusCode, header};
 
-use crate::graph_horizon_server::{ResponseBody, ServerState};
-
 use super::assets::{AssetFile, Assets};
+use super::chat::State;
 
 #[derive(Debug, PartialEq, Eq)]
-enum SharedRoute {
-    ChatCompletions,
-    Properties,
+enum InternalRoute {
+    Chat,
+    Context,
     Runtime,
     MethodNotAllowed,
     None,
@@ -29,18 +28,15 @@ enum SharedRoute {
 pub(super) async fn handle(
     req: Request<Incoming>,
     assets: Arc<Assets>,
-    chat: ServerState,
+    chat: State,
 ) -> Result<Response<ResponseBody>, Infallible> {
-    let response = match shared_route(req.method(), req.uri().path()) {
-        SharedRoute::ChatCompletions => {
-            crate::graph_horizon_server::handler::chat_completions(req, chat).await
-        }
-        SharedRoute::Properties => crate::graph_horizon_server::handler::properties_response(
-            chat.chat.context_limit(),
-            chat.config.max_tokens,
-        ),
-        SharedRoute::Runtime => {
-            let bytes = serde_json::to_vec(&super::runtime::payload(&chat.chat))
+    let response = match internal_route(req.method(), req.uri().path()) {
+        InternalRoute::Chat => super::chat::handle(req, chat).await,
+        InternalRoute::Context => json_response(&serde_json::json!({
+            "context_limit": chat.engine.context_limit(),
+        })),
+        InternalRoute::Runtime => {
+            let bytes = serde_json::to_vec(&super::runtime::payload(&chat.engine))
                 .unwrap_or_else(|_| b"{}".to_vec());
             Response::builder()
                 .status(StatusCode::OK)
@@ -48,10 +44,10 @@ pub(super) async fn handle(
                 .body(full(bytes))
                 .expect("runtime properties use fixed response metadata")
         }
-        SharedRoute::MethodNotAllowed => {
+        InternalRoute::MethodNotAllowed => {
             error_response(StatusCode::METHOD_NOT_ALLOWED, "method not allowed")
         }
-        SharedRoute::None => match (req.method(), req.uri().path()) {
+        InternalRoute::None => match (req.method(), req.uri().path()) {
             (&Method::GET, "/") | (&Method::GET, "/index.html") => asset_response(assets.index()),
             (&Method::GET, path) if path.starts_with("/assets/") => {
                 asset_response(assets.asset(path))
@@ -62,15 +58,15 @@ pub(super) async fn handle(
     Ok(response)
 }
 
-fn shared_route(method: &Method, path: &str) -> SharedRoute {
+fn internal_route(method: &Method, path: &str) -> InternalRoute {
     match (method, path) {
-        (&Method::POST, "/v1/chat/completions") => SharedRoute::ChatCompletions,
-        (_, "/v1/chat/completions") => SharedRoute::MethodNotAllowed,
-        (&Method::GET, "/props") => SharedRoute::Properties,
-        (_, "/props") => SharedRoute::MethodNotAllowed,
-        (&Method::GET, "/runtime") => SharedRoute::Runtime,
-        (_, "/runtime") => SharedRoute::MethodNotAllowed,
-        _ => SharedRoute::None,
+        (&Method::POST, "/internal/chat") => InternalRoute::Chat,
+        (_, "/internal/chat") => InternalRoute::MethodNotAllowed,
+        (&Method::GET, "/internal/context") => InternalRoute::Context,
+        (_, "/internal/context") => InternalRoute::MethodNotAllowed,
+        (&Method::GET, "/internal/runtime") => InternalRoute::Runtime,
+        (_, "/internal/runtime") => InternalRoute::MethodNotAllowed,
+        _ => InternalRoute::None,
     }
 }
 
@@ -86,10 +82,18 @@ fn asset_response(file: Option<AssetFile>) -> Response<ResponseBody> {
 }
 
 pub(super) fn error_response(status: StatusCode, message: &str) -> Response<ResponseBody> {
-    let payload = serde_json::json!({
-        "error": { "message": message, "type": "invalid_request_error" }
-    });
-    let bytes = serde_json::to_vec(&payload).unwrap_or_else(|_| b"{}".to_vec());
+    json_response_with_status(status, &serde_json::json!({ "error": message }))
+}
+
+fn json_response(value: &serde_json::Value) -> Response<ResponseBody> {
+    json_response_with_status(StatusCode::OK, value)
+}
+
+fn json_response_with_status(
+    status: StatusCode,
+    value: &serde_json::Value,
+) -> Response<ResponseBody> {
+    let bytes = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
     Response::builder()
         .status(status)
         .header(header::CONTENT_TYPE, "application/json")
@@ -97,7 +101,9 @@ pub(super) fn error_response(status: StatusCode, message: &str) -> Response<Resp
         .expect("a response from a static status and header is always valid")
 }
 
-pub(super) fn full(bytes: impl Into<Bytes>) -> ResponseBody {
+pub(super) type ResponseBody = BoxBody<Bytes, Box<dyn std::error::Error + Send + Sync>>;
+
+fn full(bytes: impl Into<Bytes>) -> ResponseBody {
     Full::new(bytes.into())
         .map_err(|never| match never {})
         .boxed()
@@ -108,29 +114,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn web_router_delegates_exact_props_get() {
+    fn private_context_route_is_exact_and_get_only() {
         assert_eq!(
-            shared_route(&Method::GET, "/props"),
-            SharedRoute::Properties
+            internal_route(&Method::GET, "/internal/context"),
+            InternalRoute::Context
         );
         assert_eq!(
-            shared_route(&Method::POST, "/props"),
-            SharedRoute::MethodNotAllowed
+            internal_route(&Method::POST, "/internal/context"),
+            InternalRoute::MethodNotAllowed
         );
-        assert_eq!(shared_route(&Method::GET, "/props/"), SharedRoute::None);
         assert_eq!(
-            shared_route(&Method::GET, "/assets/props.js"),
-            SharedRoute::None
+            internal_route(&Method::GET, "/internal/context/"),
+            InternalRoute::None
         );
     }
 
     #[test]
+    fn legacy_public_paths_have_no_route() {
+        for (method, path) in [
+            (&Method::POST, "/v1/chat/completions"),
+            (&Method::GET, "/props"),
+        ] {
+            assert_eq!(internal_route(method, path), InternalRoute::None);
+        }
+    }
+
+    #[test]
     fn runtime_route_is_web_only_and_get_only() {
-        assert_eq!(shared_route(&Method::GET, "/runtime"), SharedRoute::Runtime);
         assert_eq!(
-            shared_route(&Method::POST, "/runtime"),
-            SharedRoute::MethodNotAllowed
+            internal_route(&Method::GET, "/internal/runtime"),
+            InternalRoute::Runtime
         );
-        assert_eq!(shared_route(&Method::GET, "/runtime/"), SharedRoute::None);
+        assert_eq!(
+            internal_route(&Method::POST, "/internal/runtime"),
+            InternalRoute::MethodNotAllowed
+        );
+        assert_eq!(
+            internal_route(&Method::GET, "/internal/runtime/"),
+            InternalRoute::None
+        );
     }
 }

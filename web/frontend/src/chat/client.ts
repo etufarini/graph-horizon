@@ -19,11 +19,11 @@ const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16
 ).join('');
 
 export async function loadRuntimeContext(signal: AbortSignal): Promise<ContextConfigResult> {
-  return loadProperties('/props', parseRuntimeContext, signal);
+  return loadProperties('/internal/context', parseRuntimeContext, signal);
 }
 
 export async function loadRuntimeInfo(signal: AbortSignal): Promise<RuntimeInfoResult> {
-  return loadProperties('/runtime', parseRuntimeInfo, signal);
+  return loadProperties('/internal/runtime', parseRuntimeInfo, signal);
 }
 
 async function loadProperties<T>(
@@ -51,7 +51,6 @@ async function loadProperties<T>(
 
 export async function streamAssistant(
   messages: WireMessage[],
-  contextLimit: number,
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal
 ): Promise<void> {
@@ -74,15 +73,11 @@ export async function streamAssistant(
   signal.addEventListener('abort', stop, { once: true });
   if (signal.aborted) stop();
   try {
-    const body = JSON.stringify({
-      messages,
-      max_tokens: contextLimit,
-      stream: true
-    });
+    const body = JSON.stringify({ messages });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
       throw new Error(FAILED);
     }
-    const response = await fetch('/v1/chat/completions', {
+    const response = await fetch('/internal/chat', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',

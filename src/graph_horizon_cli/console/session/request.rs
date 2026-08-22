@@ -12,7 +12,7 @@ pub(super) struct PreparedRequest {
     pub(super) characters: usize,
 }
 
-// Assemble the exact provider payload before checking its context capacity.
+// Assemble the exact engine request before checking its context capacity.
 pub(super) fn assemble(
     system: Option<&str>,
     history: &[ChatTurn],

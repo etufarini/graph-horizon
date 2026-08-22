@@ -187,7 +187,7 @@ modules. Family tests assert the neutral contract; device tests stay in backend
 or selected-runtime integration coverage.
 
 The addition is complete when unsupported variants fail deliberately, supported
-artifacts load and generate through the public API, tokenizer/template behavior
+artifacts load and generate through the public Rust API, tokenizer/template behavior
 is verified, every claimed backend and KV row has evidence, performance is
 measured or explicitly out of scope, and documentation states the exact support
 boundary without relying on filenames or implied compatibility.

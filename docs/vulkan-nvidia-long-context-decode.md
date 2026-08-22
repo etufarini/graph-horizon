@@ -352,7 +352,7 @@ Qualification passes:
 - focused hybrid batch selection, placement accounting, Matrix2 Q4/Q6, F16
   attention, and F16/INT8 prefill/decode parity tests;
 - exact greedy output equality between hybrid and pure Vulkan at 128 and 2K;
-- F16 and INT8 8K passkey recovery through the public API;
+- F16 and INT8 8K passkey recovery through the engine library;
 - 14B 1,156-token generation with no within-run decay or placement change;
 - 14B near-capacity fallback preserving all-GPU residency at 19,500/19,750;
 - pure Vulkan compilation and generic fallback preservation.

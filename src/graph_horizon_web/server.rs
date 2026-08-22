@@ -1,7 +1,7 @@
 /*
- * Graph Horizon web server loop
+ * Graph Horizon Web UI listener
  * Single responsibility: own the local TCP listener for web mode and share
- * static assets plus headless chat state with each request. It does not carry
+ * static assets plus private chat state with each request. It does not carry
  * tools, confirmations, workspace state, or reasoning state.
  */
 
@@ -13,18 +13,16 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
-use crate::graph_horizon_server::ServerState;
-use crate::graph_horizon_server::server::is_client_disconnect;
-
 use super::assets::Assets;
+use super::chat::State;
 use super::config::WebConfig;
 use super::router;
 
-pub(super) async fn serve(config: WebConfig, assets: Assets, chat: ServerState) -> Result<()> {
+pub(super) async fn serve(config: WebConfig, assets: Assets, chat: State) -> Result<()> {
     let addr = format!("{}:{}", config.host, config.port);
     let listener = TcpListener::bind(&addr)
         .await
-        .map_err(|_| eyre!("failed to bind the web server"))?;
+        .map_err(|_| eyre!("failed to bind the Web UI listener"))?;
     let assets = Arc::new(assets);
 
     loop {
@@ -48,4 +46,24 @@ pub(super) async fn serve(config: WebConfig, assets: Assets, chat: ServerState) 
             }
         });
     }
+}
+
+/// Routine browser disconnects do not indicate a failed Web UI listener.
+fn is_client_disconnect(err: &hyper::Error) -> bool {
+    if err.is_incomplete_message() {
+        return true;
+    }
+    let mut source = std::error::Error::source(err);
+    while let Some(cause) = source {
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            return matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::NotConnected
+            );
+        }
+        source = cause.source();
+    }
+    false
 }

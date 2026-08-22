@@ -126,7 +126,6 @@ export function createGeneration(
     try {
       await streamAssistant(
         wire,
-        context.contextLimit,
         event => applyEvent(chatId, assistantId, event),
         request.signal
       );

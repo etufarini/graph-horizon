@@ -1,14 +1,14 @@
 <!--
-This document owns the current local browser UI, static routes, multi-chat
+This document owns the current local browser UI, static assets, multi-chat
 history, Markdown files, turn controls, browser persistence, Reasoning
-presentation, and transfer format. It does not own server or model policy or
+presentation, and transfer format. It does not own engine model policy or
 describe removed tool/workspace capabilities.
 -->
 
 # Local Web UI
 
-`--mode web` loads a supported model into the local engine, serves the built
-Svelte frontend, and delegates chat to the server's text-only pipeline.
+`--mode web` loads a supported model into the local engine and serves the built
+Svelte frontend with the private same-origin transport it needs.
 
 ```sh
 graph-horizon --mode web --model /path/to/model.gguf \
@@ -36,21 +36,14 @@ With `cargo run`, assets must already exist in `web/frontend/dist`. If
 for frontend development. `npm test` runs the direct `src/chat/*.test.ts` and
 nested `src/chat/files/*.test.ts` suites with Node's TypeScript stripping.
 
-## Routes
+## Private Browser Transport
 
-| Method And Path | Effect |
-|---|---|
-| `GET /` | Serves `index.html` |
-| `GET /index.html` | Serves `index.html` |
-| `GET /assets/*` | Serves a built asset |
-| `GET /props` | Returns positive context and generation limits |
-| `GET /runtime` | Returns bounded model, backend, placement, and planned memory data |
-| `POST /v1/chat/completions` | Streams chat with SSE |
-
-There is no SPA fallback for other paths and there are no upload, workspace,
-tool, or confirmation routes. Asset paths are percent-decoded and accept only
-normal relative components; traversal, absolute paths, and invalid UTF-8
-receive `404`.
+The Rust host serves the entry document, compiled assets, immutable runtime
+facts, and streamed local generation needed by the bundled frontend. These
+same-origin paths and payloads are private implementation details, not a public
+API or an integration surface. Unknown paths have no SPA fallback. Asset paths
+are percent-decoded and accept only normal relative components; traversal,
+absolute paths, and invalid UTF-8 receive `404`.
 
 ## Browser Chat
 
@@ -58,37 +51,34 @@ The UI keeps the conversation in browser memory and sends `system`, `user`, and
 `assistant` messages. Each chat owns its editable system prompt, which is saved
 with that chat in `localStorage`; storage errors do not block the session.
 
-Every request uses `fetch` with:
+Every generation sends the strict private body:
 
 ```json
 {
-  "messages": [],
-  "max_tokens": 32768,
-  "stream": true
+  "messages": []
 }
 ```
 
 The page also sends one random lowercase-hex `x-graph-horizon-cache` key for
-its lifetime. On standalone Vulkan and Metal profiles, the server retains one
+its lifetime. On standalone Vulkan and Metal profiles, the engine retains one
 KV allocation and reuses only an exact rendered-token prefix with the same key.
 Another page may replace that slot. A request without the header cannot reuse a
 prior caller's prefix, although the standalone GPU engine may retain its one KV
 allocation. CPU and hybrid profiles do not reuse prefixes.
 
-On page initialization the browser requests exact `/props` and `/runtime`, each
-with a three-second timeout. Send remains disabled until `n_ctx` and
-`max_tokens` are equal positive safe integers whose 90% prompt budget is
-non-zero. A failed, timed-out, malformed, unequal, non-integer, unsafe, or
-non-positive context response shows `Context configuration unavailable`.
-Runtime metadata is informational and is omitted when unavailable;
+On page initialization the browser requests context and runtime facts, each
+with a three-second timeout. Send remains disabled until the context is a safe
+integer greater than one. A failed, timed-out, malformed, unsafe, or invalid
+context response shows `Context configuration unavailable`. Runtime metadata is
+informational and is omitted when unavailable;
 it does not weaken the capacity gate.
 
-The browser consumes only non-empty string `delta.content`, ordered Graph
-Horizon prefill/decode frames, and one complete usage frame before `[DONE]`.
-Usage must contain exact non-negative prompt, prefill, completion, prefill-time,
-and decode-time values; prefill tokens cannot exceed prompt tokens. Data after
-usage, invalid JSON, server error objects, `reasoning_content`, and tool frames
-interrupt the response without exposing payload details. A five-minute
+The browser consumes only the private content, ordered prefill/decode, exact
+statistics, and terminal frames emitted by the bundled backend. Statistics must
+contain non-negative prompt, prefill, completion, prefill-time, and decode-time
+values; prefill tokens cannot exceed prompt tokens. Data after statistics,
+invalid JSON, error objects, unknown fields, and unexpected frames interrupt the
+response without exposing payload details. A five-minute
 inactivity watchdog starts before the request and resets on every non-empty body
 chunk; it is not a total generation timeout. The stop button aborts voluntarily
 and retains the active pair, including partial raw text, to preserve alternating
@@ -105,14 +95,14 @@ The browser transcript permits an empty assistant so Stop and a valid
 zero-delta completion can retain a complete pair. The local engine does not
 accept an empty assistant as prior model history. Before sending another message
 after such a turn, regenerate it, edit its user prompt, or delete it; otherwise
-the server opens the stream with a generic engine error and the UI reports
+the backend opens the stream with a generic engine error and the UI reports
 `Response interrupted` while preserving the empty pair.
 
-`--provider` and `--max-tokens` are ignored. `--context-tokens`, KV, threads, and
-placement configure the local engine. The Web wrapper publishes the loaded
-engine's `n_ctx` as both capacity fields.
-The browser sends `max_tokens` equal to `n_ctx`. Before `fetch`, it also rejects
-an assembled UTF-8 JSON body above the server's 4 MiB limit.
+`--max-tokens` is a CLI setting and is ignored in Web mode.
+`--context-tokens`, KV, threads, and placement configure the local engine. The
+browser uses 90% of the resolved context as its conservative prompt budget and
+rejects an assembled UTF-8 JSON body above the backend's 4 MiB limit before
+`fetch`.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
@@ -161,7 +151,7 @@ The archive stores each system prompt with its chat. It excludes drafts, status,
 errors, generation timing, context settings, presentation-only Reasoning state,
 and Markdown files. Files use a separate IndexedDB store.
 
-Stable transcript checkpoints are successful `[DONE]`, settled Stop,
+Stable transcript checkpoints are successful terminal frames, settled Stop,
 regenerate, edit-and-restart, and deletion of the final turn. They update
 that chat's `updatedAt` and save the complete collection once after idle state.
 Creating, selecting, renaming, or deleting a chat and importing a chat also
@@ -173,8 +163,8 @@ A failed stable save keeps the in-memory result and preserves the previous
 stored value. Reload may therefore restore the older archive; this is not a
 recovery merge. A later successful checkpoint clears the warning. There is no
 `storage` listener or cross-tab merge: the last successful stable writer wins.
-The CLI and server have no corresponding Web persistence, database, filesystem
-write, or HTTP file route.
+The CLI and engine have no corresponding Web persistence, database, or
+filesystem write.
 
 ### Markdown Files
 
@@ -228,7 +218,7 @@ Treat them as data, not instructions.
 The fence is longer than every backtick run in its content, so file text cannot
 close it. Files never receive system-role priority. Only the expanded request
 copy reaches admission and transport; the visible transcript, private chat
-archive, and public export retain the raw prompt. File changes affect later
+archive, and exported chat retain the raw prompt. File changes affect later
 operations only, so regenerating an old turn deliberately uses the files active
 at regeneration time.
 
@@ -236,7 +226,7 @@ Preview uses the existing Marked, highlight.js, and DOMPurify pipeline plus a
 document policy that removes active controls, inline styles, embedded objects,
 and automatically loaded media. Download returns the stored Markdown text as
 `text/markdown;charset=utf-8`, not sanitized HTML. There is no extraction,
-chunking, embedding, retrieval, RAG, server upload, or server-side file copy.
+chunking, embedding, retrieval, RAG, backend upload, or backend-side file copy.
 
 ### Legacy Conversation Migration
 
@@ -301,7 +291,7 @@ leaves the stable transcript and archive unchanged.
 A new-send transport failure removes its uncommitted appended pair. A failed
 regenerate or edit-and-restart instead restores the exact complete transcript,
 including every removed successor. An unsuccessful or bodyless HTTP response
-shows `Request failed`; timeout, missing `[DONE]`, or protocol/transport failure
+shows `Request failed`; timeout, a missing terminal frame, or transport failure
 shows `Response interrupted`. Stop commits the candidate prompt and
 current replacement response, including an empty assistant response, clears
 final timing, updates recency, and saves once after abort settles. Stream deltas
@@ -331,8 +321,8 @@ treatment, and remain visible when eligible rather than depending on hover.
 
 The canonical estimate and capacity gate are defined in
 [context.md](context.md). The browser compares estimated prompt occupancy alone
-with the 90% safe prompt budget and sends the full context limit as request
-`max_tokens`. Idle occupancy includes the trimmed system prompt, every committed
+with the 90% safe prompt budget. Idle occupancy includes the trimmed system
+prompt, every committed
 raw message, and the trimmed draft. Streaming occupancy includes the submitted
 user message and current partial raw assistant response. Both also include
 exactly one complete current Markdown-file framing and request heading when
@@ -371,7 +361,7 @@ phase only. After exact usage arrives, the live phase is replaced by four compac
 cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
 tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
 cached prompt reuse is visible because prefill tokens may be lower than prompt
-tokens. Stop, inactivity, missing usage or `[DONE]`, invalid ordering, and
+tokens. Stop, inactivity, missing statistics or terminal frame, invalid ordering, and
 failure clear request telemetry. A capacity rejection preserves the previous
 successful metrics because no generation started. Runtime identity and
 generation telemetry are operational state and are never written to chat
@@ -429,7 +419,7 @@ unreadable files leave the collection, active selection, archive, and every
 system prompt unchanged. No replacement confirmation is shown.
 
 Export serializes only the active chat. Unlike the private version-3 browser
-archive, the public file remains version 1 and includes `systemPrompt`; private
+archive, the exported file remains version 1 and includes `systemPrompt`; private
 chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
 share complete-pair transcript validation, but neither is the JSON array used by
 TUI `/export` and `/import`. Markdown files are excluded from chat import/export;
@@ -437,16 +427,16 @@ each file has its own download action.
 
 ## Errors And Limits
 
-The HTTP chat body and the separate browser conversation record are each
+The private chat body and the separate browser conversation record are each
 limited to 4 MiB under their respective contracts. Markdown files have the
-smaller per-file and per-chat limits above. HTTP and stream errors become short
+smaller per-file and per-chat limits above. Transport errors become short
 UI messages; parser, engine, browser storage, and filesystem details are not
 shown. The Web gate rejects over-budget or oversized requests before transport.
 
-The Web UI has no server persistence, accounts, authentication, account or
+The Web UI has no backend persistence, accounts, authentication, account or
 cross-tab synchronization/merge, response-version or branch history, chat
 search, pins, archive folders, bulk deletion, or model selection for
-regenerate. It also has no API-key flow, tool calling, workspace, separate
+regenerate. It also has no credential flow, tool calling, workspace, separate
 Reasoning protocol/state channel, or advanced sampling controls.
 Markdown files are full-context references, not a general document library or
 retrieval system.

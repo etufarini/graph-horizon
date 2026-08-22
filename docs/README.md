@@ -29,8 +29,7 @@ recorded in each affected report and summarized in
 | [configuration.md](configuration.md) | Runtime flags, defaults, and build-time backend selection |
 | [architecture.md](architecture.md) | Workspace layout and application flows |
 | [backend.md](backend.md) | CPU, Vulkan, Metal, hybrid placement, and KV cache |
-| [server.md](server.md) | Text-only HTTP server and SSE protocol |
-| [web.md](web.md) | Local web UI, assets, and available routes |
+| [web.md](web.md) | Local Web UI, assets, and browser behavior |
 | [context.md](context.md) | Shared context estimate and request admission rules |
 
 ## Console
@@ -56,7 +55,7 @@ recorded in each affected report and summarized in
 | [metal-vulkan-optimization-parity.md](metal-vulkan-optimization-parity.md) | Vulkan-to-Metal capability mapping, retained candidates, and global-stop evidence |
 | [metal-long-context-prefill-optimization.md](metal-long-context-prefill-optimization.md) | Apple Metal long-context prefill attribution, retained attention optimization, and final checkpoint |
 | [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Completed Apple Metal long-context decode checkpoint and candidate ledger |
-| [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the public API |
+| [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the engine library |
 | [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
 | [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |
 | [final-backend-model-family-cleanup.md](final-backend-model-family-cleanup.md) | Cleanup-candidate ownership inventory, decisions, qualification snapshot, and later repair link |

@@ -93,7 +93,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn payload_contains_only_public_runtime_fields_and_exact_bytes() {
+    fn payload_contains_only_safe_runtime_fields_and_exact_bytes() {
         let report = PlacementReport {
             mode: "mixed",
             cpu_layers: 12,

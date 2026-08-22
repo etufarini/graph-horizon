@@ -31,10 +31,6 @@ The installer builds Graph Horizon from source. Before running it, install:
 The default installation directory is `$HOME/.local/bin`. The installer does
 not use `sudo`, modify shell configuration, or download a model.
 
-> The `v0.1.0` tag and release assets are published, but the repository remains
-> private. The commands below therefore do not yet work as written for anonymous
-> users; use an authenticated checkout and the local installer instead.
-
 ### macOS
 
 Graph Horizon supports macOS on Apple Silicon (`arm64`). Install the Xcode

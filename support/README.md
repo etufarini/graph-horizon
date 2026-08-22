@@ -45,8 +45,7 @@ salta test sintetici.
 
 ## Installazione
 
-Il bootstrap pubblico sarà disponibile anonimamente soltanto quando repository,
-tag e asset della release saranno pubblici. Scarica l'artefatto sorgente
+Il bootstrap pubblico è disponibile anonimamente. Scarica l'artefatto sorgente
 immutabile `v0.1.0` e il relativo record `.sha256`, verificandolo prima
 dell'estrazione:
 

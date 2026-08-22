@@ -35,9 +35,9 @@ pushed and integrated as follows.
 | Metal long-context prefill | PR #40, `6e514c1` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
-The package version is `0.1.0`, but no `v0.1.0` tag or GitHub Release exists.
-Integration into `main` is therefore current source state, not release
-qualification.
+The package version is `0.1.0`. The immutable annotated `v0.1.0` tag and its
+GitHub Release are published; [`validation.md`](validation.md) owns the
+tag-derived release identity and qualification state.
 
 ## Retained Improvements
 

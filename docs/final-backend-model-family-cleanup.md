@@ -847,14 +847,16 @@ path was reached by explicit capability, shape, datatype, and quantization
 eligibility with a valid fallback. Every remaining production-code difference
 was necessary for the bounded cleanup or the validation contract.
 
-At this report's close, global completion was prohibited until all three
+The following status is historical and applies only to this report's close.
+Global completion was prohibited until all three
 materially supported physical backends passed on an identical final candidate
 SHA, or the project explicitly accepted an external blocker. NVIDIA was
 complete; AMD Vulkan and Apple Metal were external blockers. Publication,
 tagging, release, and other external mutation had not yet occurred.
 
 Subsequently, AMD qualification completed on repaired runtime `e7edc83` and the
-lineage was pushed and merged by PR #41. Metal has reviewed M4 evidence for the
-retained implementation, but no campaign qualifies a final v0.1.0 commit yet.
-The repository still has no `v0.1.0` tag or release; current terminal status is
+lineage was pushed and merged by PR #41. The final tag-derived campaign then
+qualified all six model entries semantically and completed every locally
+available technical-matrix row without failure. The immutable annotated
+`v0.1.0` tag and its GitHub Release are published; current terminal status is
 owned by [`validation.md`](validation.md), not this cleanup snapshot.

@@ -2,7 +2,7 @@
  * graph_horizon_engine — Vulkan backend compute dispatch
  * Free-fn bodies of the `Backend` compute methods that do more than one kernel call:
  * `embed` (per-format gather), `matmul` (mmvq decode routing + per-format GEMV
- * fallback), and `matmul_batched` (batched Q4_K vs per-token loop). Records
+ * fallback), and `matmul_batched` (specialized Q4_K/Q6_K batches plus fallback). Records
  * kernels only, with no submit or resource ownership.
 */
 
@@ -75,10 +75,9 @@ pub(in crate::backend::vulkan) fn matmul(
     kernels::matmul::matmul(&b.dev, &b.reg, *enc, out, a, w, in_dim, out_dim);
 }
 
-// Override the per-token default: for Q4_K weights and a real batch (n>1, prefill),
-// dispatch the tiled kernel that reads each weight ONCE for the whole batch. n==1
-// (decode) and non-Q4_K keep the per-token loop (with barrier elision). Tiled output
-// is token-major [n][out_dim] FP16 — same layout as per-token, callers unchanged.
+// Override the per-token default: a real batch first tries MMQ, then the Q4_K or
+// Q6_K tiled path. Decode and remaining formats use the per-token loop with
+// barrier elision. Output stays token-major `[n][out_dim]` FP16 on every route.
 #[allow(clippy::too_many_arguments)]
 pub(in crate::backend::vulkan) fn matmul_batched(
     b: &VulkanBackend,

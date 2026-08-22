@@ -72,8 +72,8 @@ fn f16_at(bytes: &[u8], b: usize) -> f32 {
 }
 
 // 6-bit scale/min codes of sub-block `j` (0..7) from scales[12] at byte `sco`.
-// Exact port of get_scale_min_k4 / scale_min in matmul_q4_k.comp. Shared with the
-// fused Q4_K kernel (kernels::matmul::q4k) so the easy-to-get-wrong j>=4 6-bit
+// Decodes the shared Q4_K scale/min bit layout used by the retained Vulkan Q4_K
+// shaders. Shared with the fused CPU Q4_K kernel so the easy-to-get-wrong j>=4 6-bit
 // recomposition has a single transcription.
 pub(crate) fn scale_min(bytes: &[u8], sco: usize, j: usize) -> (u32, u32) {
     let gb = |b: usize| bytes[b] as u32;
@@ -89,7 +89,7 @@ pub(crate) fn scale_min(bytes: &[u8], sco: usize, j: usize) -> (u32, u32) {
 }
 
 // Q4_K: block = d(f16) | dmin(f16) | scales[12] | qs[128]; 8 sub-blocks of 32,
-// w = d*scale*q4 - dmin*min. Mirror of matmul_q4_k.comp.
+// w = d*scale*q4 - dmin*min, in the canonical Q4_K sub-block order.
 fn dequant_row_q4_k(bytes: &[u8], row: usize, in_dim: usize, out: &mut [f32]) {
     let nsb = in_dim / 256;
     let base = row * nsb * 144;

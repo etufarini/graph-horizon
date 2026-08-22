@@ -2,8 +2,8 @@
 # measure.sh — capture comparable before/after metrics for a Rust ablation.
 #
 # Usage:
-#   bash scripts/measure.sh                 # measure current dir
-#   bash scripts/measure.sh /path/to/repo   # measure a specific repo root
+#   bash .skills/rust_code_ablation/measure.sh                 # measure current dir
+#   bash .skills/rust_code_ablation/measure.sh /path/to/repo   # measure a repo root
 #
 # Output: a single JSON object on stdout. Run it once for the baseline and once
 # after simplification, then diff the two.

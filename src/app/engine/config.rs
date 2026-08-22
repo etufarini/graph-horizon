@@ -1,7 +1,7 @@
 /*
  * Graph Horizon app engine config
  * Single responsibility: convert the chat-only parsed runtime flags into
- * `EngineConfig`. It validates numeric/backend knobs, depends only on app args
+ * `EngineConfig`. It validates numeric engine knobs, depends only on app args
  * and graph_horizon_engine types, and does not expose tools or reasoning controls.
  */
 
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn percent_validation() {
-        assert_eq!(parse_percent(None), Ok(None)); // absent ⇒ AUTO
+        assert_eq!(parse_percent(None), Ok(None));
         assert_eq!(parse_percent(Some("50")), Ok(Some(50)));
         assert_eq!(parse_percent(Some("0")), Ok(Some(0)));
         assert_eq!(parse_percent(Some("100")), Ok(Some(100)));
@@ -179,11 +179,9 @@ mod tests {
 
     #[test]
     fn kv_quant_validation() {
-        // Absent and explicit `f16` are identical.
         assert_eq!(parse_kv_quant(None), Ok(KvQuant::F16));
         assert_eq!(parse_kv_quant(Some("f16")), Ok(KvQuant::F16));
         assert_eq!(parse_kv_quant(Some("int8")), Ok(KvQuant::Int8));
-        // Values are case-sensitive and unknown values list the valid set.
         let err = parse_kv_quant(Some("INT8")).unwrap_err();
         assert!(err.contains("valid values: f16, int8"), "{err}");
         assert!(parse_kv_quant(Some("bogus")).is_err());

@@ -1,7 +1,7 @@
 /*
  * This module recognizes current raw Ministral Reasoning markers for rendering
  * only. Runtime chunks, history, transcripts, protocol fields, and model policy
- * remain owned by their existing modules.
+ * remain outside this presentation parser.
  */
 
 const THINK_OPEN: &str = "[THINK]";

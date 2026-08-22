@@ -11,7 +11,7 @@
 // One WG128 owns 64 queries, loads Q once, and traverses KV64 tiles while FP32
 // max/sum/output remain in cooperative matrices. The host gate requires F16,
 // head_dim 128, qualified 4:1 GQA, contiguous token/head/dimension layout, and
-// complete Q64 tiles. Decode, INT8, and unsupported shapes use existing kernels.
+// complete Q64 tiles. Decode, INT8, and unsupported shapes use fallback kernels.
 layout(local_size_x = 128) in;
 
 layout(std430, binding = 0) readonly buffer Q { float16_t q[]; };

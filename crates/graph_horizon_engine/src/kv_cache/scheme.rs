@@ -9,11 +9,12 @@
  * (token, kv_head), for K or for V. Each scheme fixes the payload bytes per
  * vector and the metadata bytes per role; the byte-region math over whole
  * buffers lives in `layout`, and the int8 quantization arithmetic lives in
- * `int8` and is bit-identical between CPU and Vulkan.
+ * `int8`. The CPU scalar reference and Vulkan shader use bit-identical coding;
+ * Metal stores the same payload and metadata layout.
  *
  * Adding a scheme: a variant here (parse/name/sizing rows), the normative
  * scalar reference under `kv_cache`, one arm in each backend's per-call
- * dispatch (CPU `kernels/attention`, Vulkan `kernels/attention.rs` + shaders),
+ * attention dispatch and its GPU shaders,
  * and a row in `support/profiling/validate-kv.sh` / the docs.
 */
 
@@ -89,7 +90,7 @@ mod tests {
 
     #[test]
     fn parse_is_case_sensitive_and_rejects_unknown() {
-        assert_eq!(KvQuant::parse("INT8"), None); // Lowercase only.
+        assert_eq!(KvQuant::parse("INT8"), None);
         assert_eq!(KvQuant::parse("F16"), None);
         assert_eq!(KvQuant::parse(""), None);
         assert_eq!(KvQuant::parse("int9"), None);
@@ -98,10 +99,8 @@ mod tests {
 
     #[test]
     fn sizing_per_vector_matches_the_formats() {
-        // f16: 128 values × 2 bytes, no metadata.
         assert_eq!(KvQuant::F16.payload_bytes_per_vector(128), 256);
         assert_eq!(KvQuant::F16.meta_bytes_per_vector(KvRole::Key), 0);
-        // int8: 128 u8 codes + (min, scale) as f16.
         assert_eq!(KvQuant::Int8.payload_bytes_per_vector(128), 128);
         assert_eq!(KvQuant::Int8.meta_bytes_per_vector(KvRole::Key), 4);
     }

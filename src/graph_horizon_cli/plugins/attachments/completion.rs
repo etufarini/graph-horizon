@@ -27,7 +27,7 @@ pub(crate) fn complete_at_token(
 // path in one scan. When `only_ext` is Some, regular files are kept only if their
 // extension matches it (directories are always kept so the user can still descend
 // into them); None lists every entry. Shared by '@' attachments (no filter) and
-// the '/import' command (.md).
+// callers that request a specific extension, currently '/import' (`json`).
 pub(crate) fn complete_path(
     files: &FileAuthority,
     partial: &str,
@@ -68,7 +68,7 @@ fn partial_matches<'a>(
 
 // Lists files and directories in the specified path that start with the given
 // pattern. Directories are always included (trailing '/'); files are filtered by
-// `only_ext` when set, so '/import' can surface only Markdown files.
+// `only_ext` when set.
 fn list_matches(
     files: &FileAuthority,
     dir_path: &str,

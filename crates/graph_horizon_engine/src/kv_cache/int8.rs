@@ -1,8 +1,9 @@
 /*
  * graph_horizon_engine — INT8 per-token asymmetric KV format
  * One group per (token, kv_head) vector of head_dim values; metadata = min,scale
- * as f16. The exact arithmetic here is normative: CPU and GPU must produce
- * bit-identical codes. Format, for a group x[0..head_dim] (f32, widened
+ * as f16. The exact arithmetic here is normative for CPU and Vulkan, which
+ * produce bit-identical codes. Metal uses the same stored format. For a group
+ * x[0..head_dim] (f32, widened
  * from the incoming f16):
  *   1. min = min(x), max = max(x) in f32;
  *   2. scale = (max - min) * (1.0/255.0) in f32 — a MULTIPLY by the f32
@@ -25,7 +26,7 @@
  * produce are deterministic garbage, never a crash.
 */
 
-// KV metadata uses the same backend-neutral IEEE conversion as CPU and Vulkan.
+// KV metadata uses the backend-neutral IEEE conversion shared by CPU and Vulkan.
 pub(crate) use crate::backend::f16::{f16_to_f32, f32_to_f16};
 
 // Quantizes one group (the head_dim f32 values of a (token, kv_head) vector)
@@ -101,7 +102,7 @@ pub(crate) fn dequant(code: u8, min: f32, scale: f32) -> f32 {
 mod tests {
     use super::*;
 
-    // Seeded xorshift64* (same generator family as crate::rng), local to the
+    // Seeded xorshift64* matching the sampling module's generator family, local to the
     // test so the reference stays dependency-free.
     struct XorShift(u64);
     impl XorShift {

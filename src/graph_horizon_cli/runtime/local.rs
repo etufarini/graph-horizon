@@ -4,9 +4,9 @@
  * converts messages, maps engine events to assistant text chunks, and never
  * supplies tools, workspace data, or reasoning controls.
  *
- * Sync→async bridge (this is the ONLY place that knows tokio): the engine decodes
- * synchronously on a spawn_blocking task that pushes events down an mpsc channel;
- * the receiver is adapted to a ChunkStream. Dropping the stream (UI cancellation)
+ * This local-provider sync→async bridge runs synchronous engine decoding on a
+ * blocking task and pushes events down an mpsc channel; the receiver is adapted
+ * to a ChunkStream. Dropping the stream (UI cancellation)
  * makes blocking_send fail, the sink return false, and the task stop — freeing the
  * request's KV cache, with no orphaned generation left occupying VRAM.
 */
@@ -50,11 +50,9 @@ fn start(
     Ok(Box::pin(ReceiverStream::new(rx)))
 }
 
-// EngineEvent → stream item (spec sez. 2). Finished maps to None: it is the Ok
-// end of the stream, carried by the channel closing, not by a Chunk. A context
-// overflow during the turn is an accepted, expected failure (the user wants a
-// correct answer, not corrupted output); it is translated here into a readable
-// CLI message instead of surfacing the raw engine error.
+// Phase, text, and terminal statistics are forwarded as stream events. Engine
+// errors become client-safe provider errors; the channel closes after generation
+// returns or after the receiver cancels it.
 struct ChannelSink {
     tx: tokio::sync::mpsc::Sender<Result<StreamEvent>>,
 }

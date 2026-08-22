@@ -7,8 +7,6 @@ crates/graph_horizon_engine/examples/dbg*.rs
 
 # transcript export artifact (default output of /export)
 graph-horizon-export.json
-# parity-check.sh per-model golden reference: machine/build-specific, regenerate
-# locally with `parity-check.sh --bless`.
 support/testing/parity-ref-*.txt
 
 # local design notes

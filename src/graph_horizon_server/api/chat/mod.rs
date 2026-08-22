@@ -116,7 +116,7 @@ mod tests {
         to_request(req, &cfg(), SamplingParams::greedy())
     }
 
-    // LocalGenerateRequest implements neither Debug nor PartialEq, so the error
+    // The engine Request implements neither Debug nor PartialEq, so the error
     // tests assert on the ApiError alone rather than on the whole Result.
     fn parse_err(body: &str) -> ApiError {
         parse(body).err().expect("expected an ApiError")
@@ -126,7 +126,7 @@ mod tests {
     fn valid_request_without_max_tokens_uses_default() {
         let req = parse(r#"{"messages":[{"role":"user","content":"hi"}]}"#).unwrap();
         assert_eq!(req.max_tokens, 256);
-        assert_eq!(req.sampling.temperature, 0.0); // greedy
+        assert_eq!(req.sampling.temperature, 0.0);
         assert_eq!(req.messages.len(), 1);
         assert!(req.messages[0].role == Role::User);
     }

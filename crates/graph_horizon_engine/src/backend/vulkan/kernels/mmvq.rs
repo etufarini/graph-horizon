@@ -6,7 +6,7 @@
  *
  * Each entry returns `true` only after recording its complete route. Decode
  * accepts DP4A Q4_K devices; batch additionally requires the AMD architecture
- * family and Q4_K. Out-of-scope callers retain their existing kernels.
+ * family and Q4_K. Other formats and shapes use their format-specific fallbacks.
  * Scratch follows the project's explicit persistent-scratch convention.
 */
 

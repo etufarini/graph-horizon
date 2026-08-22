@@ -1,4 +1,4 @@
-# Build environment for the `shaderc` build-dependency (graph_horizon_engine, M2).
+# Build environment for the `shaderc` build-dependency in graph_horizon_engine.
 #
 # `shaderc-sys` compiles a bundled glslang/SPIRV-Tools from source. On recent
 # toolchains this needs two overrides, otherwise the build of libshaderc fails
@@ -10,7 +10,8 @@
 #     transitively, so it must be force-included. C-only crates (openssl-sys)
 #     are left untouched because cstdint is a C++ header — set CXXFLAGS only,
 #     never CFLAGS.
-# Adjust or remove these if your toolchain builds libshaderc cleanly.
+# These Cargo environment overrides are process-global; remove them together when
+# the bundled shaderc sources no longer require either compatibility workaround.
 [env]
 CMAKE_POLICY_VERSION_MINIMUM = "3.5"
 CXXFLAGS = "-include cstdint"

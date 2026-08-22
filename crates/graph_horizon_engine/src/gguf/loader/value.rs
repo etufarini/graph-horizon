@@ -5,8 +5,6 @@
  * plain owned structure. Pure data — no I/O, no architecture knowledge.
 */
 
-// A typed GGUF metadata value. Mirrors the GGUF value-type tags; arrays are read
-// eagerly into a Vec, so the metadata map is a plain owned structure.
 pub enum GgufValue {
     U8(u8),
     I8(i8),
@@ -78,9 +76,7 @@ mod tests {
     fn integer_widths_read_as_u64_when_non_negative() {
         assert_eq!(GgufValue::U32(7).as_u64(), Some(7));
         assert_eq!(GgufValue::I32(7).as_u64(), Some(7));
-        // A negative signed int is not a valid u64 hyper-parameter.
         assert_eq!(GgufValue::I32(-1).as_u64(), None);
-        // A non-integer value has no u64 reading.
         assert_eq!(GgufValue::String("x".into()).as_u64(), None);
     }
 

@@ -4,16 +4,15 @@
 
 // AGENTS deroga K: kernel numerico della sola attivazione fused SiLU-mul.
 
-// Fused SiLU(gate) ⊙ up: o[i] = f16( f16(silu(gate[i])) * up[i] ). One dispatch
-// replacing silu.comp + mul.comp. Bit-exactness requirement: the silu intermediate
-// must be rounded to FP16 before the product, EXACTLY as the two-kernel path does
-// by writing `act` to FP16 memory and reading it back. On RADV that FP16 store is
+// Fused SiLU(gate) ⊙ up: o[i] = f16(f16(silu(gate[i])) * up[i]). The graph
+// contract requires the SiLU intermediate to round through FP16 memory before
+// the product. On RADV that FP16 store is
 // also what pins the silu's exp/divide codegen, so an in-register round-trip
 // (`float(float16_t(x))`, or pack/unpackHalf2x16) is NOT bit-exact — the optimizer
 // recompiles the silu sub-ULP differently once its result feeds the multiply. So
-// the fusion reproduces the genuine memory round-trip: `o` is `volatile`, the silu
-// is stored to it (identical op to silu.comp), then re-read (identical to mul.comp
-// reading `act`) and multiplied. One dispatch, one buffer, byte-identical output.
+// the shader uses a genuine memory round-trip: `o` is `volatile`, the SiLU result
+// is stored to it, then re-read and multiplied. One dispatch, one buffer, and the
+// same sequential FP16-rounded formula.
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer G { float16_t g[]; };
@@ -26,9 +25,8 @@ void main() {
     uint i = gl_GlobalInvocationID.x;
     if (i >= p.n) return;
     float v = float(g[i]);
-    // Store f16(silu) — identical op to silu.comp writing `act`.
+    // The volatile FP16 store is the required rounding boundary.
     o[i] = float16_t(v / (1.0 + exp(-v)));
-    // Re-read the FP16 value (volatile ⇒ a real load) and multiply by up —
-    // identical to mul.comp reading `act` and `up`.
+    // Re-read the FP16 value (volatile ⇒ a real load) before multiplying by up.
     o[i] = float16_t(float(o[i]) * float(u[i]));
 }

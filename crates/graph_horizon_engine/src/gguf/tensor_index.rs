@@ -8,9 +8,9 @@
 
 use std::collections::HashMap;
 
-// GGML tensor element type (dtype / quantization). Only the variants relevant
-// to supported GGUFs are named; any other tag is preserved as `Unknown`
-// so the loader can still index the tensor table. Block/type sizes follow ggml. The
+// GGML tensor element types whose block layouts this loader can size. Backend
+// support is narrower; any other tag is preserved as `Unknown` so the loader can
+// still index the tensor table. Block/type sizes follow ggml. The
 // variant names mirror ggml's canonical type names (e.g. Q4_K), hence the allow.
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]

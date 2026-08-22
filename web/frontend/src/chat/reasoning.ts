@@ -1,7 +1,7 @@
 /*
  * This module recognizes the current raw Ministral Reasoning markers for
  * presentation only. Chat state, persistence, transport, Markdown rendering,
- * and model selection remain owned by their existing modules.
+ * and model selection remain outside this presentation parser.
  */
 
 const THINK_OPEN = '[THINK]';

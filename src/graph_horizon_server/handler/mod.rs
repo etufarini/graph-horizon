@@ -38,8 +38,8 @@ pub(crate) async fn handle(
     state: ServerState,
 ) -> Result<Response<ResponseBody>, Infallible> {
     let response = match route(req.method(), req.uri().path()) {
-        // The real chat path: body cap → parse → validate → admission → lock →
-        // streaming SSE generation.
+        // The chat path caps and prevalidates raw JSON before typed parsing,
+        // engine validation, admission, serialization, and SSE generation.
         Route::ChatCompletions => chat_completions(req, state).await,
         // Properties are immutable engine data and never consume chat permits.
         Route::Properties => {

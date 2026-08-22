@@ -14,8 +14,8 @@ use ratatui::DefaultTerminal;
 use std::time::{Duration, Instant};
 use tokio_stream::StreamExt;
 
-// ~60 fps polling keeps streaming output smooth without busy-spinning. Shared
-// with the busy-wait spinner (busy.rs) so both animate at the same cadence.
+// ~60 fps polling keeps stream opening, token delivery, and input handling
+// responsive without busy-spinning.
 pub(super) const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(16);
 
 pub(crate) enum StreamOutcome {

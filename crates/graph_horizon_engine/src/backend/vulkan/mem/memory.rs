@@ -1,20 +1,16 @@
 /*
  * graph_horizon_engine — memory estimation and weight placement plan
- * Estimates the engine's memory footprint (weights, FP16 KV cache for the real
- * context, scratch activations, FP32 logits) and decides each weight tensor's
- * placement. Pure Vulkan runs all-GPU-or-error after checked preflight; the
- * hybrid build keeps the legacy host-placement plan for tensors delegated away
- * from GPU residency. This is a pre-flight check: impossible footprints fail
- * before persistent model upload.
+ * Estimates the standalone Vulkan engine's memory ceiling from aligned weights,
+ * full-context FP16 KV storage, scratch activations, peak staging, and FP32
+ * logits. It produces an all-device placement or fails before persistent upload;
+ * hybrid range placement is owned by its separate planner and loader.
  *
  * Quantization: per-weight sizing is already exact for quantized dtypes —
- * TensorInfo::byte_len follows the ggml block layout (Q4_K/Q6_K), so the plan
- * uses the real on-disk (and on-GPU) size of each quantized tensor. KV cache,
- * scratch and logits stay FP16/FP32 regardless of weight quantization. The
- * pre-flight therefore naturally covers the expected case of a model that fits in
- * VRAM only when quantized.
- * The KV-cache byte size comes from `kv_cache::layout::cache_bytes`, the single
- * source of truth for that arithmetic — it is no longer computed here.
+ * TensorInfo::byte_len follows the ggml block layout, so weight accounting uses
+ * the actual retained bytes. The KV term deliberately uses an F16 ceiling; this
+ * safely covers both selectable KV schemes, while the later session allocation
+ * uses its exact scheme layout. Scratch, staging, and logits retain their graph
+ * formats independently of weight quantization.
  *
  * Knobs: the placement dials (`--vram-weights-percent`, `--vram-reserve-mib`)
  * enter this plan explicitly; byte-exact cap and reserve arithmetic live in
@@ -54,6 +50,7 @@ pub(crate) fn plan(
     weights_percent: Option<u8>,
     reserve_mib: Option<u64>,
 ) -> Result<MemoryPlan> {
+    // Conservative two-buffer F16 ceiling; int8 sessions allocate less later.
     let kv_bytes = checked_product(&[
         4,
         meta.block_count as u64,

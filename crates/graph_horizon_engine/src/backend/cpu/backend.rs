@@ -23,7 +23,8 @@ impl Backend for CpuBackend {
         &self.buffers
     }
 
-    // KV cache storage is FP16 (kv_cache::alloc passes elems*2 bytes).
+    // KV allocations are opaque raw bytes; `Kv::scheme` determines whether
+    // kernels interpret their payload as FP16 values or int8 codes plus metadata.
     fn alloc_buffer(&self, bytes: u64) -> Result<CpuBuffer> {
         Ok(CpuBuffer::zeroed(bytes as usize, CpuFormat::F16))
     }

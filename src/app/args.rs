@@ -143,7 +143,6 @@ mod tests {
     #[test]
     fn usage_lists_new_flags_without_env() {
         let u = usage();
-        // The engine knobs appear.
         for f in [
             "--vram-weights-percent",
             "--vram-reserve-mib",
@@ -162,11 +161,9 @@ mod tests {
         ] {
             assert!(!u.contains(f), "usage still lists removed flag {f}");
         }
-        // Value flags show their placeholder.
         assert!(u.contains("--cpu-threads <value>"));
         assert!(u.contains("--kv-quant <f16|int8>"));
         assert!(u.contains("--version, -V"));
-        // No environment variable is mentioned anywhere.
         assert!(!u.to_lowercase().contains("env"));
         assert!(!u.contains("GRAPH_HORIZON_"));
     }

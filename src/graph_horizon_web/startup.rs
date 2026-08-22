@@ -1,8 +1,9 @@
 /*
  * Graph Horizon web startup
  * Loads the local chat engine and assembles the static Web wrapper. The loaded
- * engine context is the Web allowance used by both `/props.max_tokens` and the
- * wrapped-server fallback; headless server configuration remains separate.
+ * engine's resolved context becomes both the server request cap and the values
+ * reported under `/props.default_generation_settings`; headless server flag
+ * parsing remains separate.
  */
 
 use color_eyre::eyre::{Result, eyre};

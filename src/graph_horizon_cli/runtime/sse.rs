@@ -60,7 +60,7 @@ struct Delta {
 }
 
 // Handles one decoded SSE line: skips non-data lines, parses data frames into
-// Chunks and forwards them over the channel. Returns true when the stream should
+// stream events and forwards them over the channel. Returns true when the stream should
 // stop — either a [DONE] sentinel or a dropped receiver.
 pub(super) async fn handle_sse_line(
     line: &str,
@@ -151,7 +151,7 @@ const TOOL_FINISH: &str = concat!("tool_", "calls");
 mod tests {
     use super::*;
 
-    // Feeds one raw SSE data payload through the parser, returning the Chunk.
+    // Feeds one raw SSE data payload through the parser, returning its stream event.
     fn parse(json: &str) -> Result<Option<StreamEvent>> {
         parse_sse_line(json)
     }

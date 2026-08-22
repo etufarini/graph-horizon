@@ -4,7 +4,7 @@
  * allocation and upload (device-local via a host-visible staging buffer + copy;
  * host-visible via direct mapping), views, and destruction. Persistent backend
  * assembly lives in `vulkan::loader`; generic shape holders live in
- * `backend::buffers`; weight upload lives in `vulkan::weights`.
+ * `backend::buffers`; weight upload lives in `vulkan::mem::weights`.
 */
 
 use ash::vk;
@@ -25,7 +25,7 @@ pub(crate) enum WeightFormat {
 // One GPU buffer plus the memory backing it. `host_visible` records whether it
 // was placed in host RAM (weight spill) so uploads pick mapping vs staging. `quant`
 // records the on-GPU weight layout so the matmul dispatch picks the right kernel;
-// it defaults to F16 and is set by vulkan::weights for quantized weights.
+// it defaults to F16 and is set by `vulkan::mem::weights` for quantized weights.
 pub(crate) struct GpuBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,

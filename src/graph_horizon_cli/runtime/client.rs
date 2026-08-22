@@ -64,7 +64,8 @@ pub(super) async fn fetch_context_limit(base_url: &str) -> Option<usize> {
     Some(props.default_generation_settings.n_ctx).filter(|&n| n > 0)
 }
 
-// Streams a chat completion from the configured OpenAI-compatible endpoint, parsing SSE lines into Chunks.
+// Streams a chat completion from the configured OpenAI-compatible endpoint,
+// parsing SSE lines into provider-neutral stream events.
 pub(crate) async fn stream_completion(
     messages: Vec<ChatMessage>,
     config: ClientConfig,

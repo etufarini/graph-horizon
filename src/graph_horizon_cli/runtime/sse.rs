@@ -151,7 +151,7 @@ const TOOL_FINISH: &str = concat!("tool_", "calls");
 mod tests {
     use super::*;
 
-    // Feeds one raw SSE data payload through the parser, returning the Chunk.
+    // Feeds one raw SSE data payload through the parser, returning its stream event.
     fn parse(json: &str) -> Result<Option<StreamEvent>> {
         parse_sse_line(json)
     }

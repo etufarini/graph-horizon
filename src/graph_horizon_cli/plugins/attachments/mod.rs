@@ -19,9 +19,7 @@ pub(crate) fn attach_local_files(files: &FileAuthority, prompt: &str) -> String 
     let mut expanded = String::new();
     let mut last_end = 0;
 
-    // Use a simple scanner to find @ tokens.
     for (i, _) in prompt.match_indices('@') {
-        // Add text before the @
         expanded.push_str(&prompt[last_end..i]);
 
         let after_at = &prompt[i + 1..];
@@ -39,7 +37,7 @@ pub(crate) fn attach_local_files(files: &FileAuthority, prompt: &str) -> String 
             expanded.push_str(filename);
             expanded.push('\n');
             expanded.push_str(&fence);
-            // Try to guess extension for markdown highlight.
+            // The extension is a Markdown info string, not trusted executable metadata.
             if let Some(ext) = Path::new(filename).extension().and_then(|s| s.to_str()) {
                 expanded.push_str(ext);
             }
@@ -52,12 +50,11 @@ pub(crate) fn attach_local_files(files: &FileAuthority, prompt: &str) -> String 
             continue;
         }
 
-        // If not a file or empty, just push the @ and continue.
+        // Preserve unmatched and empty tokens literally in the submitted prompt.
         expanded.push('@');
         last_end = i + 1;
     }
 
-    // Add remaining text
     expanded.push_str(&prompt[last_end..]);
     expanded
 }
@@ -108,8 +105,6 @@ fn is_attachment_char(c: char) -> bool {
     !c.is_whitespace() && (!c.is_ascii_punctuation() || matches!(c, '.' | '_' | '-' | '/'))
 }
 
-// Tests for the file attachment plugin, including attaching existing files.
-// Handling non-existent files, and completing partial filenames.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,13 +239,11 @@ mod tests {
         File::create(format!("{dir}/skip.txt")).unwrap();
         fs::create_dir_all(format!("{dir}/sub")).unwrap();
 
-        // With a .md filter only the Markdown file and the directory survive.
         let authority = files();
         let (_, mut matches) = complete_path(&authority, &format!("{dir}/"), Some("md"));
         matches.sort();
         assert_eq!(matches, vec!["keep.md".to_string(), "sub/".to_string()]);
 
-        // Without a filter every entry is listed.
         assert_eq!(
             complete_path(&authority, &format!("{dir}/"), None).1.len(),
             3

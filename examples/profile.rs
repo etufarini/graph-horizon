@@ -1,6 +1,6 @@
 /*
  * Graph Horizon runtime profile example
- * Reports immutable placement/memory fields and one 32-token timing sample for
+ * Reports immutable placement/memory fields and one up-to-32-token timing sample for
  * an explicit tuple. It rejects incomplete metrics and never retries another
  * backend, context, KV scheme, or placement.
  */

@@ -1,6 +1,6 @@
 /*
  * Document surface, application shell, shared panel, and scrollbar styling.
- * Component presentation remains scoped; every visual value comes from the
+ * Component presentation remains scoped; shared visual values come from the
  * static theme contract in tokens.scss.
  */
 html,
@@ -16,7 +16,7 @@ body {
   font-family: var(--gn-font-sans);
   font-size: var(--gn-text-md);
   line-height: var(--gn-line-height);
-  /* The page itself never scrolls: only the transcript does. */
+  /* The page itself stays fixed; scrollable panels own their overflow. */
   overflow: hidden;
 }
 

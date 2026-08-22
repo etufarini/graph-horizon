@@ -45,8 +45,8 @@ objc2-metal = { version = "=0.3.2", optional = true }
 # packaged `libshaderc_combined.a` is not self-contained (glslang ships as a
 # separate `libglslang.a` that shaderc-sys never links), so the build script
 # fails to link with undefined `glslang::TShader::*` symbols. Forcing the
-# bundled source build makes linking deterministic on every host; the cmake
-# overrides this build needs live in `.cargo/config.toml`.
+# bundled source build avoids that distribution-specific system link; the CMake
+# overrides required by the bundled snapshot live in `.cargo/config.toml`.
 [build-dependencies]
 # 0.9+ bundles a glslang new enough for GL_EXT_shader_integer_dot_product (dp4a),
 # used by the int8 Q4_K GEMV. Version bump of an existing build-dep, not a new dep.

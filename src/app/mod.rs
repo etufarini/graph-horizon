@@ -15,7 +15,7 @@ mod mode;
 pub(crate) mod sse;
 
 pub(crate) async fn run() -> Result<()> {
-    // Validate engine flags before cwd changes or model loads so every mode
+    // Validate the shared EngineConfig flags before cwd changes or model loads so every mode
     // fails fast on malformed numeric input.
     let _ = engine::config::engine_config(None);
 

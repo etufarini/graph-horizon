@@ -31,6 +31,9 @@ npm run build
 
 With `cargo run`, assets must already exist in `web/frontend/dist`. If
 `index.html` is missing, startup terminates with `web frontend build missing`.
+The installer copies the same build to `<prefix>/share/graph-horizon/web`; an
+installed command resolves that directory from its executable and therefore
+does not depend on the shell's current directory.
 
 `npm run dev`, `npm run check`, `npm test`, and `npm run build` are available
 for frontend development. `npm test` runs the direct `src/chat/*.test.ts` and

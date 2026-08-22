@@ -12,7 +12,7 @@ diversi.
 
 | Script | Scopo |
 |---|---|
-| `../install.sh` | scarica e autentica con SHA-256 l'archivio sorgente `v0.1.0`, poi delega gli argomenti invariati |
+| `../install.sh` | scarica e autentica con SHA-256 l'archivio sorgente `v0.1.1`, poi delega gli argomenti invariati |
 | `install.sh` | valida e compila un checkout locale, poi installa uno dei profili espliciti |
 | `profiling/profile.sh` | memoria/placement e throughput family-neutral |
 | `profiling/validate-kv.sh` | esegue i profili f16/int8 su un modello esplicito; autenticazione e verdetto restano al chiamante |
@@ -46,11 +46,11 @@ salta test sintetici.
 ## Installazione
 
 Il bootstrap pubblico è disponibile anonimamente. Scarica l'artefatto sorgente
-immutabile `v0.1.0` e il relativo record `.sha256`, verificandolo prima
+immutabile `v0.1.1` e il relativo record `.sha256`, verificandolo prima
 dell'estrazione:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend cpu
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.1/install.sh | bash -s -- --backend cpu
 ```
 
 `../install.sh` possiede soltanto download HTTPS, validazione dell'archivio e
@@ -79,9 +79,11 @@ script invoca `sudo`.
 `install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
 una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
 `test` e `build`.
-Il binario canonico installato è `graph-horizon`; il nome precedente
-`gh-zero-engine` è un collegamento di compatibilità allo stesso artefatto e non
-può quindi restare fermo a una build precedente.
+Il binario canonico installato è `graph-horizon`; gli asset compilati della Web
+UI sono installati in `<prefix>/share/graph-horizon/web` e vengono risolti
+rispetto all'eseguibile, indipendentemente dalla directory corrente. Il nome
+precedente `gh-zero-engine` è un collegamento di compatibilità allo stesso
+artefatto e non può quindi restare fermo a una build precedente.
 La policy `allowScripts` autorizza esattamente `esbuild@0.28.1` e nega
 `@parcel/watcher@2.5.6`; un nuovo script di dipendenza deve essere classificato
 prima di entrare nel lockfile. `GRAPH_HORIZON_INSTALL_PREFIX` imposta il prefisso

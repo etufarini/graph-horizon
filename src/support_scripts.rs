@@ -159,6 +159,15 @@ esac
         &bin.join("npm"),
         br#"#!/usr/bin/env bash
 printf 'npm\t%s\n' "$*" >> "$GRAPH_HORIZON_TEST_LOG"
+if [[ "$1" == run && "$2" == build ]]; then
+  mkdir -p "$GRAPH_HORIZON_FIXTURE_ROOT/web/frontend/dist/assets/nested"
+  printf '<html>fixture</html>\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/web/frontend/dist/index.html"
+  printf 'fixture js\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/web/frontend/dist/assets/app.js"
+  printf 'fixture css\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/web/frontend/dist/assets/nested/app.css"
+  if [[ -n "${GRAPH_HORIZON_TEST_LINK_ASSET:-}" ]]; then
+    ln -s /etc/passwd "$GRAPH_HORIZON_FIXTURE_ROOT/web/frontend/dist/assets/linked.js"
+  fi
+fi
 "#,
     );
     write_executable(
@@ -225,14 +234,14 @@ fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
 [[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
 [[ "$4" == --show-error && "$5" == --output ]]
 case "$7" in
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.1/graph-horizon-0.1.1.tar.gz)
     cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
     ;;
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.0/graph-horizon-0.1.0.tar.gz.sha256)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.1/graph-horizon-0.1.1.tar.gz.sha256)
     if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then
-      printf '%064d  graph-horizon-0.1.0.tar.gz\n' 0 > "$6"
+      printf '%064d  graph-horizon-0.1.1.tar.gz\n' 0 > "$6"
     else
-      printf '%s  graph-horizon-0.1.0.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
+      printf '%s  graph-horizon-0.1.1.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
     fi
     ;;
   *) exit 2 ;;
@@ -265,7 +274,7 @@ exec /usr/bin/tar "$@"
 
 fn source_archive(fixture: &Path, name: &str, complete: bool, with_symlink: bool) -> PathBuf {
     let tree = fixture.join(format!("{name} tree"));
-    let root = tree.join("graph-horizon-0.1.0");
+    let root = tree.join("graph-horizon-0.1.1");
     fs::create_dir_all(root.join("support")).unwrap();
     fs::create_dir_all(root.join("web/frontend")).unwrap();
     write_executable(
@@ -290,7 +299,7 @@ exit "${GRAPH_HORIZON_DELEGATE_STATUS:-0}"
             archive.to_str().unwrap(),
             "-C",
             tree.to_str().unwrap(),
-            "graph-horizon-0.1.0",
+            "graph-horizon-0.1.1",
         ])
         .output()
         .unwrap();
@@ -674,8 +683,8 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
     let safe = source_archive(&fixture, "listed source", true, false);
     for (index, members) in [
         "/absolute/member\n",
-        "graph-horizon-0.1.0/../escape\n",
-        "graph-horizon-0.1.0/./member\n",
+        "graph-horizon-0.1.1/../escape\n",
+        "graph-horizon-0.1.1/./member\n",
         "another-root/member\n",
         "",
     ]
@@ -912,6 +921,18 @@ fn installer_reports_missing_path_without_mutating_shells() {
         Path::new("graph-horizon")
     );
     assert_eq!(
+        fs::read(prefix.join("share/graph-horizon/web/index.html")).unwrap(),
+        b"<html>fixture</html>\n"
+    );
+    assert_eq!(
+        fs::read(prefix.join("share/graph-horizon/web/assets/app.js")).unwrap(),
+        b"fixture js\n"
+    );
+    assert_eq!(
+        fs::read(prefix.join("share/graph-horizon/web/assets/nested/app.css")).unwrap(),
+        b"fixture css\n"
+    );
+    assert_eq!(
         fs::read_to_string(&log)
             .unwrap()
             .lines()
@@ -922,6 +943,36 @@ fn installer_reports_missing_path_without_mutating_shells() {
             "cargo\tbuild --locked --no-default-features --features cpu --profile release -p graph-horizon"
         ]
     );
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn installer_rejects_linked_frontend_assets_before_rust_build() {
+    let (fixture, root, bin, log) = installer_fixture("installer linked frontend asset");
+    let prefix = fixture.join("prefix");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(["--backend", "cpu", "--prefix", prefix.to_str().unwrap()])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_OS", "Linux")
+        .env("GRAPH_HORIZON_TEST_ARCH", "x86_64")
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
+        .env("GRAPH_HORIZON_TEST_LINK_ASSET", "1")
+        .output()
+        .unwrap();
+
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("frontend build contains an unsupported file")
+    );
+    assert_eq!(
+        fs::read_to_string(&log).unwrap(),
+        "npm\tci\nnpm\trun build\n"
+    );
+    assert!(!prefix.exists());
     fs::remove_dir_all(fixture).unwrap();
 }
 

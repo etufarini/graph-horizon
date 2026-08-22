@@ -1,46 +1,45 @@
 <!--
-These notes describe the released user-facing v0.1.0 contract, installation,
-capabilities, and limitations. Qualification mechanics belong in
-docs/validation.md.
+These notes describe the released user-facing v0.1.1 contract, installation,
+packaging correction, capabilities, and limitations. Qualification mechanics
+belong in docs/validation.md.
 -->
 
-# Graph Horizon v0.1.0
+# Graph Horizon v0.1.1
 
-Graph Horizon v0.1.0 is a local text-to-text runtime with an interactive console
-and a Web UI. Backend choice is
-fixed when the binary is built. Ministral 3 2512 is the currently integrated
-model family, not part of the product name.
+Graph Horizon v0.1.1 is a packaging patch for the local text-to-text runtime.
+It corrects the installed Web UI without changing numeric engine operations,
+model formats, backend policy, or the CLI contract qualified for v0.1.0.
 
-The final tag-derived campaign authenticated and semantically qualified all six
-exact Q4_K_M artifacts: 3B, 8B, and 14B Instruct plus 3B, 8B, and 14B Reasoning.
-Its real-model matrix completed with 37 pass, 37 external verification, and no
-failure. Exact model identities, environment, and evidence boundaries are in
-[validation.md](validation.md).
+The v0.1.0 installer built the frontend but installed only the executable, so
+`--mode web` failed outside a source checkout with `web frontend build missing`.
+The v0.1.1 installer places compiled assets under
+`<prefix>/share/graph-horizon/web`; the executable resolves that directory from
+its own location and remains independent of the shell's current directory.
+Installer input containing symlinks or other non-regular frontend output is
+rejected before the Rust build.
 
 The repository, tag, and release assets are public. Install anonymously with:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh | bash -s -- --backend vulkan-hybrid
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.1/install.sh | bash -s -- --backend vulkan-hybrid
 ```
 
-The bootstrap downloads the immutable source asset and `.sha256`, verifies it
-before extraction, then builds. It never downloads a model. A tagged checkout
-can instead run `./support/install.sh --backend vulkan-hybrid`.
+The bootstrap downloads the immutable v0.1.1 source archive and `.sha256`,
+verifies it before extraction, then builds and installs the command plus Web
+assets. It never downloads a model. A tagged checkout can instead run
+`./support/install.sh --backend vulkan-hybrid`.
 
-Capabilities include local CLI inference, private Web streaming, sequential
-requests without restart, a browser UI, F16/int8 KV selection, explicit context
-sizing, and CPU/device/hybrid planning.
+The packaging patch passed the locked CPU workspace suite, warnings-denied
+Clippy, the Rust 1.88 compatibility check, all frontend tests and diagnostics,
+a clean-prefix archive installation, and installed-product CLI/Web smoke. The
+Web smoke served the frontend from outside the checkout and completed a real
+3B Instruct CPU generation through the private browser transport.
 
-Known limitations: one generation at a time; compile-time backend selection; no
-runtime fallback; no tools, multimodal input, or separate reasoning channel;
-only Q4_K_M GGUF models are accepted, while Q8 and MoE are outside scope.
+The model/backend qualification evidence remains attached to immutable
+`v0.1.0`; v0.1.1 does not relabel that historical campaign as a new numerical
+qualification. The accepted artifacts remain the six exact Ministral 3 2512
+Q4_K_M files listed in [validation.md](validation.md).
 
-CPU is the reference path, standalone Vulkan is production within its declared
-Linux/NVIDIA-or-AMD scope, and Vulkan-hybrid, Metal, and Metal-hybrid are
-qualified only within their documented tuples. The exact scopes are maintained
-in [backend.md](backend.md#support-status).
-
-The release applies only to the immutable source revision, model
-checksums, backend, and environment recorded by its completed validation
-matrix. Every other configuration remains experimental, unavailable, or
-unsupported as documented.
+Known limitations remain unchanged: one generation at a time; compile-time
+backend selection; no runtime fallback; no tools, multimodal input, or separate
+reasoning channel; Q8 and MoE are outside scope.

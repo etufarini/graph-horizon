@@ -35,9 +35,10 @@ pushed and integrated as follows.
 | Metal long-context prefill | PR #40, `6e514c1` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
-The package version is `0.1.0`. The immutable annotated `v0.1.0` tag and its
-GitHub Release are published; [`validation.md`](validation.md) owns the
-tag-derived release identity and qualification state.
+The package version is `0.1.1`. The immutable annotated `v0.1.0` tag retains
+the numeric qualification evidence; `v0.1.1` is the packaging correction that
+installs and resolves Web UI assets from the prefix. [`validation.md`](validation.md)
+owns both tag-derived identities and their distinct evidence boundaries.
 
 ## Retained Improvements
 

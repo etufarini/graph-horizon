@@ -436,7 +436,9 @@ fn docs_contract() {
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    assert!(validation.contains("Graph Horizon `v0.1.0` è stato rilasciato"));
+    assert!(validation.contains("Graph Horizon `v0.1.1` è stato rilasciato"));
+    assert!(validation.contains("Il tag `v0.1.0`"));
+    assert!(validation.contains("suoi asset restano immutati"));
     assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
     assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
     assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));

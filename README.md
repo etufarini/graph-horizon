@@ -39,7 +39,7 @@ command-line Metal tools and check that `xcrun -f metal` and
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.1/install.sh \
   | bash -s -- --backend metal
 ```
 
@@ -50,7 +50,7 @@ driver for a compatible NVIDIA or AMD GPU, then run:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.0/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.1/install.sh \
   | bash -s -- --backend vulkan
 ```
 
@@ -64,7 +64,7 @@ If the installed command is not found, add its directory to the current shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The bootstrap downloads the immutable `v0.1.0` source archive and its published
+The bootstrap downloads the immutable `v0.1.1` source archive and its published
 checksum, verifies SHA-256 before extraction, and then builds the Web UI and the
 Graph Horizon executable.
 

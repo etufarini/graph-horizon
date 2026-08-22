@@ -8,14 +8,14 @@ log grezzi e decisioni sperimentali restano nella cronologia Git.
 
 ## Stato corrente
 
-Graph Horizon `v0.1.0` è stato rilasciato dal tag annotato e immutabile
-`v0.1.0`. La GitHub Release contiene l'archivio sorgente
-`graph-horizon-0.1.0.tar.gz` e il relativo record SHA-256. Il repository è
-pubblico e il bootstrap remoto è verificato anche senza autenticazione.
+Graph Horizon `v0.1.1` è stato rilasciato dal tag annotato e immutabile
+`v0.1.1` come correzione di packaging della Web UI. La GitHub Release contiene
+`graph-horizon-0.1.1.tar.gz` e il relativo record SHA-256. Il tag `v0.1.0` e i
+suoi asset restano immutati e possiedono la qualifica numerica storica.
 
-Le versioni Cargo e frontend sono `0.1.0`; l'identità finale è esclusivamente il
-commit risolto da `v0.1.0^{commit}`. La campagna finale su quella sorgente
-sostituisce, per il contratto di release, le campagne preliminari sui runtime
+Le versioni Cargo e frontend correnti sono `0.1.1`; l'identità della patch è
+esclusivamente il commit risolto da `v0.1.1^{commit}`. La campagna finale
+v0.1.0 sostituisce, per il proprio contratto, le campagne preliminari sui runtime
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` ed
 `e7edc8315d397f6eb34c5efb91a9ae20b9b59bc4`; l'evidenza precedente resta
 storica e valida soltanto per le revisioni dichiarate.
@@ -27,16 +27,53 @@ qualificato; un risultato storico non qualifica una sorgente successiva.
 ## Identità canonica della release
 
 Questo file è il registro canonico dello stato di qualifica, ma non duplica
-identità che possono divergere. Il commit sorgente esatto si ricava con
-`git rev-parse v0.1.0^{commit}`: il tag annotato immutabile è il riferimento
+identità che possono divergere. Il commit sorgente della patch si ricava con
+`git rev-parse v0.1.1^{commit}`: il tag annotato immutabile è il riferimento
 autoritativo e punta al commit che contiene questo registro. Nessun hash
 intermedio costituisce l'identità della release.
 
-L'artefatto canonico è `graph-horizon-0.1.0.tar.gz`, generato con `git archive`
+L'artefatto corrente è `graph-horizon-0.1.1.tar.gz`, generato con `git archive`
 dal tag. Il solo valore SHA-256 autoritativo è il record affiancato
-`graph-horizon-0.1.0.tar.gz.sha256`; il digest non viene copiato in questo file.
-Archivio, record e annotazione del tag devono riportare lo stesso nome/versione,
-mentre l'header Git dell'archivio deve risolversi allo stesso commit del tag.
+`graph-horizon-0.1.1.tar.gz.sha256`; il digest non viene copiato in questo file.
+Archivio, record e annotazione riportano lo stesso nome/versione, mentre
+l'header Git dell'archivio risolve allo stesso commit del tag.
+
+`v0.1.0`, `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256` restano
+l'identità autoritativa della campagna numerica descritta più avanti. La patch
+non sposta il tag né sostituisce quegli asset.
+
+## Correzione di packaging v0.1.1
+
+La patch modifica soltanto installazione, risoluzione degli asset Web, test e
+documentazione/versioni. Il crate motore non cambia rispetto a `v0.1.0`, salvo
+la versione del manifest; nessun risultato numerico o semantico storico viene
+riattribuito alla nuova revisione.
+
+Il difetto era riproducibile sul prodotto installato: `v0.1.0` compilava la Web
+UI ma copiava nel prefisso soltanto il binario, che cercava
+`web/frontend/dist` nella directory corrente. `v0.1.1` installa esclusivamente
+file regolari sotto `<prefix>/share/graph-horizon/web`, rifiuta symlink e
+risolve gli asset rispetto all'eseguibile.
+
+Ambiente del 23 agosto 2026: Linux x86_64, AMD Radeon RX 6750 XT disponibile ma
+smoke di packaging eseguito sul backend CPU, Rust/Cargo 1.97.1 più toolchain
+minima 1.88.0, Node.js 24.18.0 e npm 11.16.0.
+
+| Gate della patch v0.1.1 | Esito |
+|---|---|
+| formato Rust, sintassi shell e diff | PASS |
+| Rust 1.88 e check CPU/Vulkan/Vulkan-hybrid | PASS |
+| CPU Clippy `-D warnings` e suite completa | PASS: app 145, engine 163, integration 5+12 |
+| frontend | PASS: 119 test, 0 errori/warning Svelte, build, 0 vulnerabilità |
+| bootstrap/installer, inclusi asset annidati e rifiuto symlink | PASS |
+| archivio/tag/checksum e installazione CPU in prefisso pulito | PASS |
+| prodotto installato fuori checkout: versione, Web HTTP e inferenza SSE 3B | PASS |
+| bootstrap pubblico anonimo dopo pubblicazione | PASS |
+
+Il modello 3B Instruct usato nello smoke corrispondeva a byte count e SHA-256
+del catalogo. La richiesta Web ha restituito HTTP 200 per UI, contesto e runtime
+e ha completato `OK.` con statistiche e frame terminale `done`. Questo verifica
+il confine di packaging e prodotto; non è una nuova campagna di parità o qualità.
 
 ## Contratto minimo Rust
 

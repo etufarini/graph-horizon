@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #
 # Local source installer: validates one explicit host/backend/profile tuple,
-# builds the Web UI and Rust binary, and installs both command names in a prefix.
-# Remote acquisition and prerequisite installation are intentionally excluded.
+# builds the Web UI and Rust binary, and installs the executable plus Web assets
+# in one prefix. Remote acquisition and prerequisite installation stay excluded.
 
 set -euo pipefail
 
@@ -72,7 +72,7 @@ while [[ "${prefix}" != "/" && "${prefix}" == */ ]]; do
 done
 [[ "${prefix}" != "/" ]] || fail "invalid install prefix"
 
-for prerequisite in bash uname install npm cargo rustc; do
+for prerequisite in bash uname install npm cargo rustc find; do
     command -v "${prerequisite}" >/dev/null 2>&1 || fail "${prerequisite} is required"
 done
 
@@ -104,6 +104,12 @@ fi
     npm run build
 )
 
+web_dist="${project_dir}/web/frontend/dist"
+[[ -f "${web_dist}/index.html" ]] || fail "frontend build completed without index.html"
+# The install tree must never dereference a link emitted by build tooling.
+[[ -z "$(find "${web_dist}" ! -type d ! -type f -print -quit)" ]] \
+    || fail "frontend build contains an unsupported file"
+
 profile_args=(--profile "${profile}")
 (
     cd "${project_dir}"
@@ -114,9 +120,19 @@ profile_args=(--profile "${profile}")
 binary="${project_dir}/target/${profile}/graph-horizon"
 [[ -f "${binary}" ]] || fail "build completed without the expected binary"
 bindir="${prefix}/bin"
+assetdir="${prefix}/share/graph-horizon/web"
 legacy="${bindir}/gh-zero-engine"
 [[ ! -d "${legacy}" || -L "${legacy}" ]] \
     || fail "legacy command path is a directory: ${legacy}"
+install -d "${assetdir}"
+while IFS= read -r -d '' source; do
+    relative="${source#"${web_dist}"}"
+    install -d "${assetdir}${relative}"
+done < <(find "${web_dist}" -type d -print0)
+while IFS= read -r -d '' source; do
+    relative="${source#"${web_dist}"}"
+    install -m 0644 "${source}" "${assetdir}${relative}"
+done < <(find "${web_dist}" -type f -print0)
 install -d "${bindir}"
 install -m 0755 "${binary}" "${bindir}/graph-horizon"
 # One relative link keeps the legacy command on the exact installed artifact.

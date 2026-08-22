@@ -28,7 +28,7 @@ profile follows the [model addition process](model-addition-process.md); adding
 a compute target follows the
 [backend addition process](backend-addition-process.md).
 
-## Public API
+## Public Rust API
 
 `Engine::new(path, EngineConfig)` validates the file and builds its resources. A
 `Request` contains text messages, sampling parameters, and `max_tokens`.

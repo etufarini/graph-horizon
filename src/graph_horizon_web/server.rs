@@ -1,5 +1,5 @@
 /*
- * Graph Horizon web server loop
+ * Graph Horizon Web UI listener
  * Single responsibility: own the local TCP listener for web mode and share
  * static assets plus private chat state with each request. It does not carry
  * tools, confirmations, workspace state, or reasoning state.
@@ -22,7 +22,7 @@ pub(super) async fn serve(config: WebConfig, assets: Assets, chat: State) -> Res
     let addr = format!("{}:{}", config.host, config.port);
     let listener = TcpListener::bind(&addr)
         .await
-        .map_err(|_| eyre!("failed to bind the web server"))?;
+        .map_err(|_| eyre!("failed to bind the Web UI listener"))?;
     let assets = Arc::new(assets);
 
     loop {

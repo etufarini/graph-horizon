@@ -6,7 +6,7 @@
 # graph_horizon_engine
 
 `graph_horizon_engine` is the text-to-text inference runtime for
-`general.architecture=mistral3`. Its public API accepts chat messages, runs
+`general.architecture=mistral3`. Its public Rust API accepts chat messages, runs
 prefill/decode, and produces incremental events without depending on a console,
 HTTP, or Web UI.
 

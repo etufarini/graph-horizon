@@ -136,9 +136,9 @@ parity-check.sh --models-dir DIR --model-id ID \
 ```
 
 Lo script esegue una sola riga, autentica il Q4_K_M catalogato, avvia un solo
-server CPU su loopback e termina soltanto quel processo. `f16` e `int8` sono
-righe distinte; non esistono sostituzioni o retry con altro backend, modello o
-contesto. Una risorsa assente o Vulkan indisponibile produce
+oracle CPU `llama-server` su loopback e termina soltanto quel processo. `f16` e
+`int8` sono righe distinte; non esistono sostituzioni o retry con altro backend,
+modello o contesto. Una risorsa assente o Vulkan indisponibile produce
 `external verification: <motivo preciso>`; errori di protocollo, codice o
 parità falliscono la riga.
 

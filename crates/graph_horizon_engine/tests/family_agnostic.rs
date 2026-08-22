@@ -281,6 +281,8 @@ fn removed_surface_scan() {
         );
     }
     for relative in [
+        "src/graph_horizon_server",
+        "docs/server.md",
         "docs/tools.md",
         "support/testing/resident-golden.sh",
         "crates/graph_horizon_engine/examples/prefill_trace.rs",
@@ -447,7 +449,6 @@ fn docs_contract() {
         !production_args.contains("--think"),
         "runtime argument table exposes --think"
     );
-    assert!(!root.join("docs/server.md").exists());
     for removed in ["--mode server", "--provider", "--base-url"] {
         assert!(
             !production_args.contains(removed),

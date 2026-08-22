@@ -104,10 +104,10 @@ pub(crate) fn usage() -> String {
          Options:\n",
     );
     for flag in FLAGS {
-        let shown = if *flag == "--kv-quant" {
-            format!("{flag} <f16|int8>")
-        } else {
-            format!("{flag} <value>")
+        let shown = match *flag {
+            "--mode" => format!("{flag} <cli|web>"),
+            "--kv-quant" => format!("{flag} <f16|int8>"),
+            _ => format!("{flag} <value>"),
         };
         out.push_str(&format!("  {shown}\n"));
     }
@@ -163,6 +163,7 @@ mod tests {
         ] {
             assert!(!u.contains(f), "usage still lists removed flag {f}");
         }
+        assert!(u.contains("--mode <cli|web>"));
         assert!(u.contains("--cpu-threads <value>"));
         assert!(u.contains("--kv-quant <f16|int8>"));
         assert!(u.contains("--version, -V"));

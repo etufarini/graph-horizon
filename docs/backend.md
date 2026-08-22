@@ -139,10 +139,11 @@ The current primary labels are:
 The CPU profile remains a public supported path even though its primary role is
 reference. Vulkan support outside Linux x86_64 is not implied by build
 availability. `vulkan-hybrid` remains qualified because its placement and
-implementation gates pass, but a fresh complete real-model `Mixed` campaign is
-still required before production promotion. The homogeneous endpoints retain
-their underlying numeric status: all-GPU uses production Vulkan, while CPU-only
-uses the CPU reference path.
+implementation gates pass. A complete real-model `Mixed` campaign passed on the
+AMD repair SHA; a fresh campaign on the selected final commit and the intended
+production tuple is still required before production promotion. The homogeneous
+endpoints retain their underlying numeric status: all-GPU uses production
+Vulkan, while CPU-only uses the CPU reference path.
 
 Metal and Metal-hybrid qualification is evidence for the stated M4/macOS tuple,
 not a promise for every Apple GPU, Apple silicon generation, or operating-system
@@ -160,12 +161,14 @@ pass.
 The effective placement, rather than the Cargo profile name, selects batching
 and numeric dispatch:
 
-| Effective placement | Prefill rows | Numeric execution |
+| Effective placement | Prefill ownership | Numeric execution |
 |---|---:|---|
-| CPU standalone or `CpuOnly` | 4 | CPU |
-| Vulkan standalone or `AllGpu` | 32 | Vulkan |
-| Metal standalone or `AllGpu` (`all-metal`) | 32 | Metal |
-| Vulkan or Metal `Mixed` | 4 | CPU prefix, one crossing, GPU suffix |
+| CPU standalone or `CpuOnly` | 32 rows | CPU |
+| Vulkan standalone | 256 rows normally; 512 on the qualified Matrix2 route; AMD uses 128 or the deep/long 64-row bound | Vulkan |
+| Vulkan-hybrid `AllGpu` | 32-row accounted fallback; 512 on eligible, capacity-fitting NVIDIA Matrix2 devices | Vulkan |
+| Metal standalone | 64 rows | Metal |
+| Metal-hybrid `AllGpu` (`all-metal`) | 32 rows | Metal |
+| Vulkan or Metal `Mixed` | 4 rows | CPU prefix, one crossing, GPU suffix |
 
 Feature conditions control availability, dependencies, and loading. They do not
 select operation variants. Metal stores the immutable `Mixed` fact and applies
@@ -179,10 +182,13 @@ withholds VRAM from the budget and participates in the hybrid automatic plan.
 `Engine::placement()` exposes the final decision and planned CPU/GPU memory
 breakdown.
 
-Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split.
-The requested percentage, reserve, candidate order, immutable result, and
-no-retry behavior remain unchanged; the runtime never reduces context or
-replans after an allocation or execution error.
+Prefill ownership is fixed when the backend or immutable hybrid plan is built.
+Capability-specific wider routes include their scratch in admission; if an
+eligible 512-row NVIDIA hybrid plan does not fit, placement is recomputed with
+the accounted 32-row fallback before the immutable result is committed. The
+requested percentage, reserve, candidate order, and no-retry behavior remain
+unchanged; the runtime never reduces context or replans after an allocation or
+execution error.
 
 Vulkan owns device memory and explicit transfer/staging buffers. Metal uses
 shared/private storage as required by CPU visibility, one command queue, and

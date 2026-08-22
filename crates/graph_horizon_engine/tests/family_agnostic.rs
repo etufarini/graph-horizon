@@ -345,8 +345,8 @@ fn docs_contract() {
 
     for required in [
         "only Ministral 3 2512 `Q4_K_M` GGUF files",
-        "Five exact artifacts passed that candidate",
-        "Q4_K_M 8B Reasoning artifact was `NOT SUPPORTED`",
+        "preliminary v0.1.0 candidate qualified five and excluded 8B Reasoning",
+        "later repaired runtime passed the technical matrix on all six artifacts",
         "A Q8 profile is rejected before backend allocation",
         "maximum possible contiguous GPU suffix",
         "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",
@@ -390,9 +390,8 @@ fn docs_contract() {
         )
     );
     assert!(
-        backend_flat.contains(
-            "Correct 32-row scratch accounting can change a capacity-bound `AllGpu` split"
-        )
+        backend_flat
+            .contains("Capability-specific wider routes include their scratch in admission")
     );
     assert!(config_flat.contains("`--context-tokens` requests exactly"));
     assert!(config_flat.contains("GET /props"));

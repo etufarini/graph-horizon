@@ -22,20 +22,30 @@ At mission start, local `main`, `origin/main`, and `HEAD` were identical. The
 three latest integration merges were NVIDIA long-context prefill (`8884465`),
 AMD long-context prefill (`8e2f8cc`), and Metal long-context prefill
 (`6e514c1`). The earlier NVIDIA, AMD, and Metal decode and specialization work
-is also in this ancestry. This is the one authoritative cleanup branch; it will
-not be pushed without explicit authorization.
+is also in this ancestry. This was the one authoritative cleanup branch;
+publication required explicit authorization during the mission.
 
 ```text
 runtime cleanup candidate: 1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd
 ```
 
 The final evidence-only report commit follows that runtime candidate and changes
-no executable source. Physical qualification must use the exact runtime SHA
-above; a code fix requires a new candidate and renewed affected qualification.
+no executable source. Qualification of that snapshot had to use the exact
+runtime SHA above; a code fix required a new candidate and renewed affected
+qualification.
+
+Repository status changed after this cleanup report closed. The cleanup branch
+was pushed, its corrected descendant was published as
+`perf/nvidia-amd-metal-deep-clean-repair`, and PR #41 merged that lineage into
+`main` at `24eac82`. The AMD run exposed a pre-existing synchronization defect
+in `1bfe337`; corrected runtime `e7edc83` then passed the complete available AMD
+matrix. The exact sequence is recorded in
+[`amd-deep-clean-regression-repair.md`](amd-deep-clean-regression-repair.md).
 
 The cleanup host is Linux x86_64 with an Intel i5-9600K and NVIDIA RTX 3060
-12 GiB, driver 595.84, Vulkan 1.4.329. AMD and Apple Metal execution are
-external qualification requirements for the final candidate.
+12 GiB, driver 595.84, Vulkan 1.4.329. At cleanup report start, AMD and Apple
+Metal execution were external qualification requirements for candidate
+`1bfe337`; the later status is recorded above and in the qualification snapshot.
 
 ### Exact baseline performance
 
@@ -649,13 +659,13 @@ production environment override, diagnostic buffer, rejected representation,
 ablation branch, phase-named route, orphan capability, consumerless shader, or
 model/artifact-name execution hack remains.
 
-## Physical Qualification
+## Cleanup-Candidate Qualification Snapshot
 
 | Backend | Candidate SHA | Device | Status |
 |---|---|---|---|
-| AMD Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | qualified AMD device required | pending external run |
+| AMD Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | RX 6750 XT / RADV | FAIL: intermittent MMVQ scratch-ordering defect; repaired descendant `e7edc83` passed |
 | NVIDIA Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | RTX 3060 12 GiB, driver 595.84 | PASS locally: routes/build/tests/parity/quality/performance |
-| Apple Metal | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | Apple M4/macOS host required | pending external run |
+| Apple Metal | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | Apple M4/macOS host required | external verification on this exact candidate |
 
 For the NVIDIA run, physical Vulkan numeric/lifecycle tests passed, all six
 artifacts across both KV schemes passed on standalone Vulkan, 3B
@@ -665,14 +675,17 @@ representative performance guard remained stable. Integrated capability policy
 and route-boundary tests cover Matrix2, Q64, DP4A, generic fallback, and hybrid
 row selection on the physical device.
 
-### Dedicated external qualification packets
+### Historical External Qualification Packets
 
-These are the authoritative prompts/checklists for the two pending machines.
-They authorize evidence collection only: do not edit source, amend commits,
-change a tuple after seeing its result, or substitute a model, KV scheme,
-placement, device, or backend. Use two clean worktrees with separate Cargo
-target directories, one detached at baseline `6e514c1eaba02b8dcb6d7202bfd13fcee0317f36`
-and one detached at candidate `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd`.
+These prompts/checklists preserve the protocol used for the then-pending AMD and
+Apple runs. They are no longer current release instructions: the AMD packet led
+to the repaired descendant, and any future release campaign must regenerate the
+packet for its one selected final SHA. For reproducing this historical snapshot,
+do not edit source, amend commits, change a tuple after seeing its result, or
+substitute a model, KV scheme, placement, device, or backend. Use two clean
+worktrees with separate Cargo target directories, one detached at baseline
+`6e514c1eaba02b8dcb6d7202bfd13fcee0317f36` and one detached at candidate
+`1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd`.
 Before work, record `git rev-parse HEAD`, `git status --porcelain`, and
 `git diff --exit-code`; the first output must be the intended SHA and the other
 two must be empty. The candidate worktree must remain clean throughout.
@@ -827,15 +840,21 @@ branch, produces one new candidate SHA, and invalidates affected prior passes.
 
 ## Final Assessment
 
-The runtime candidate is locally PR-ready and its worktree was clean before the
-evidence-only report update. Every remaining model-family special case is a
-semantic or structural property; every retained hardware path is reached by
-explicit capability, shape, datatype, and quantization eligibility with a valid
-fallback. Every remaining production-code difference is necessary for the
-bounded cleanup or the validation contract.
+At report close, the runtime candidate was locally PR-ready and its worktree was
+clean before the evidence-only report update. Every remaining model-family
+special case was a semantic or structural property; every retained hardware
+path was reached by explicit capability, shape, datatype, and quantization
+eligibility with a valid fallback. Every remaining production-code difference
+was necessary for the bounded cleanup or the validation contract.
 
-Global completion remains prohibited until all three materially supported
-physical backends pass on the identical final candidate SHA, or the project
-explicitly accepts a documented external blocker. NVIDIA is complete; AMD
-Vulkan and Apple Metal are the two current external blockers. No push, tag,
-release, or external mutation has been performed.
+At this report's close, global completion was prohibited until all three
+materially supported physical backends passed on an identical final candidate
+SHA, or the project explicitly accepted an external blocker. NVIDIA was
+complete; AMD Vulkan and Apple Metal were external blockers. Publication,
+tagging, release, and other external mutation had not yet occurred.
+
+Subsequently, AMD qualification completed on repaired runtime `e7edc83` and the
+lineage was pushed and merged by PR #41. Metal has reviewed M4 evidence for the
+retained implementation, but no campaign qualifies a final v0.1.0 commit yet.
+The repository still has no `v0.1.0` tag or release; current terminal status is
+owned by [`validation.md`](validation.md), not this cleanup snapshot.

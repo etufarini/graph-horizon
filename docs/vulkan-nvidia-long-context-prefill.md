@@ -41,7 +41,7 @@ global stop, not a claim that the hardware is at a physical limit.
 | Date | 2026-08-21 Europe/Rome |
 | Branch | `perf/nvidia-long-context-prefill-20260821` |
 | Baseline / production SHA | `e3d23f2102661c5cb95310a11873ad974ab2c831` (no production delta) |
-| Checkpoint HEAD | evidence-only descendant of the production SHA; resolve with `git rev-parse HEAD` |
+| Checkpoint / integration | branch tip `011952b`; merged by PR #38 (`8884465`) |
 | GPU | NVIDIA GeForce RTX 3060 12 GiB, GA104/Ampere, PCI device `0x2487` |
 | Driver / Vulkan | NVIDIA 595.84 / device API 1.4.329, loader 1.4.341 |
 | Subgroup / capabilities | 32 lanes; FP16; integer dot; KHR cooperative matrix; NV Matrix2 |

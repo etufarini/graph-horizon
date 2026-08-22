@@ -35,6 +35,7 @@ required pipelines exist. At 14B/15K, TTFT falls 230.888 -> 33.549 seconds
 |---|---|
 | Date | 2026-08-21 |
 | Branch | `perf/nvidia-long-context-decode-20260821` |
+| Later integration | branch tip `079acb2`; merged by PR #35 (`e955b26`) |
 | Baseline | `87e3e4b1bb17e811caac030f69261bd0498284ec` |
 | Production | `2228a7a` |
 | GPU | NVIDIA GeForce RTX 3060 12 GiB, Ampere GA104, PCI device `0x2487` |

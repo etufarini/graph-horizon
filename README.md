@@ -89,14 +89,15 @@ Download one of these exact files from Unsloth on Hugging Face:
 | 8B | Reasoning | [unsloth/Ministral-3-8B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-8B-Reasoning-2512-GGUF) | `Ministral-3-8B-Reasoning-2512-Q4_K_M.gguf` |
 | 14B | Reasoning | [unsloth/Ministral-3-14B-Reasoning-2512-GGUF](https://huggingface.co/unsloth/Ministral-3-14B-Reasoning-2512-GGUF) | `Ministral-3-14B-Reasoning-2512-Q4_K_M.gguf` |
 
-The loader recognizes all six entries. Reviewed runtime qualification is a
-separate claim: the preliminary v0.1.0 campaign did not qualify the 8B
-Reasoning artifact. See [validation evidence](docs/validation.md) for the exact
-results.
+The loader recognizes all six entries. The preliminary v0.1.0 candidate
+qualified five and excluded 8B Reasoning under its strict three-process byte
+reproducibility gate. The later repaired runtime passed the technical matrix on
+all six artifacts and qualified all six in the semantic gate, but those results
+do not yet define the final release contract. See
+[validation evidence](docs/validation.md) for the exact SHAs and criteria.
 
-Five exact artifacts passed that candidate; the Q4_K_M 8B Reasoning artifact
-was `NOT SUPPORTED`. A Q8 profile is rejected before backend allocation even
-though the parser can diagnose it.
+A Q8 profile is rejected before backend allocation even though the parser can
+diagnose it.
 
 Without an explicit context, the engine uses the lesser of 32,768 tokens and
 the GGUF context maximum. On Linux, hybrid automatic RAM capacity is

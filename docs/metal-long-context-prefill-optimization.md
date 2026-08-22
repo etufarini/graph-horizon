@@ -9,7 +9,7 @@ qualification, and stop record; it defines no runtime API or support contract.
 ## Result and identity
 
 The reported 15,435-token symptom of 213.24 seconds was not reproducible on the
-qualified current source. Fresh diagnostics-free Graph Horizon measured
+then-current qualified source. Fresh diagnostics-free Graph Horizon measured
 103.184 seconds (149.59 tok/s). The largest removable component was exact F16
 causal attention: 53.295 of 94.345 profiled GPU seconds, or 56.49%.
 
@@ -37,7 +37,7 @@ tokens in 70.942 seconds and generates all 256 requested tokens at 18.72 tok/s.
 | Graph Horizon | pure Metal, all layers Metal, context 32,768, F16 KV, rows 64 |
 | llama.cpp | `2b63e0610bbc2be990ae1360d5256efcdc3f9efb`, build 10237 |
 | llama.cpp tuple | Metal, full offload, F16 K/V, flash attention, batch/microbatch 64 |
-| Push state | nothing pushed |
+| Repository publication | mission closed locally; branch tip `fb3a7e6` was later pushed and merged into `main` by PR #40 (`6e514c1`) |
 
 The machine was on AC power. `pmset` reported no thermal or performance
 warning. `powermetrics` requires root, so clocks, power, and numeric temperature
@@ -353,4 +353,5 @@ schedule. Reopen only with new counters or a genuinely different exact
 algorithm with a precomputed >=10% whole-prefill bound, not another tile sweep.
 
 No profiler, rejected path, diagnostic feature, dependency, or API change
-remains, and nothing was pushed.
+remains. The mission closed before publication; the retained M13 change was
+subsequently pushed and merged into `main` by PR #40.

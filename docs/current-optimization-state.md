@@ -18,6 +18,27 @@ The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
 
+## Integration Identity
+
+This record was audited against `main`/`origin/main` `6b46331` on 22 August
+2026. The retained performance lineages are not local-only work: they were
+pushed and integrated as follows.
+
+| Work | Main integration |
+|---|---|
+| Metal parity and llama.cpp competition | PR #34, `87e3e4b` |
+| NVIDIA long-context decode | PR #35, `e955b26` |
+| Metal long-context decode | PR #36, `ae69781` |
+| AMD long-context decode | PR #37, `e3d23f2` |
+| NVIDIA long-context prefill | PR #38, `8884465` |
+| AMD long-context prefill | PR #39, `8e2f8cc` |
+| Metal long-context prefill | PR #40, `6e514c1` |
+| Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
+
+The package version is `0.1.0`, but no `v0.1.0` tag or GitHub Release exists.
+Integration into `main` is therefore current source state, not release
+qualification.
+
 ## Retained Improvements
 
 | Path | Eligibility | Fallback | Measured effect |
@@ -137,9 +158,11 @@ public-event boundary than llama.cpp prompt evaluation.
   Reasoning artifacts for numeric paths that do not promise bit identity. The
   final AMD route additionally passes the pinned external 16-token teacher on
   3B/8B/14B with exact prompt IDs and zero crossings.
-- The final local matrix passes CPU, Vulkan, and Vulkan-hybrid tests and
-  warning-denied Clippy. The Metal checkpoint passes pure/hybrid suites,
-  focused numeric tests, and the authenticated 3B teacher row on the M4 host.
+- Corrected runtime `e7edc83` passes the available CPU, Vulkan, and
+  Vulkan-hybrid matrix (`40 pass`, `34 external verification`, zero failures),
+  both warning-denied profiles, and all six semantic rows. The Metal checkpoint
+  passes pure/hybrid suites, focused numeric tests, and the authenticated 3B
+  teacher row on the M4 host.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
 

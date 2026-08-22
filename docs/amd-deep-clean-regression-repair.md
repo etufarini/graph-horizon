@@ -1,3 +1,9 @@
+<!--
+This report preserves the AMD cleanup-regression diagnosis, accepted repair,
+qualification evidence, and later repository integration. Current release and
+support status belong to docs/validation.md.
+-->
+
 # AMD deep-clean regression repair
 
 This report records the investigation and correction performed on the final
@@ -42,10 +48,13 @@ CV / NOISE = failed report had no performance data; focused failed-candidate
              benchmark was within 0.27% of baseline with low CV
 ```
 
-The failed candidate remains unchanged in its detached qualification worktree.
-All production experiments were performed on disposable worktrees before the
-accepted correction was committed on `perf/amd-deep-clean-regression-repair`.
-Nothing was pushed.
+At report close, the failed candidate remained unchanged in its detached
+qualification worktree. All production experiments were performed on disposable
+worktrees before the accepted correction was committed on
+`perf/amd-deep-clean-regression-repair`. The investigation closed before
+publication. The corrected lineage was later pushed as
+`perf/nvidia-amd-metal-deep-clean-repair` and merged into `main` by PR #41
+(`24eac82`).
 
 ## Original failure and preserved evidence
 

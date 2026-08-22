@@ -250,9 +250,9 @@ graph-horizon --provider local --model "/path/to/model.gguf" \
 The advanced `--vram-reserve-mib` option is listed by
 `graph-horizon --help`.
 
-The CLI uses the bright Mistral palette already represented by the Web UI:
-Input `#FF5229`, Response `#44BA82`, Secondary `#55B3FB`, and Hint/status
-`#FFAF01`.
+The CLI uses the bright Azure palette represented by the logo and Web UI:
+Input and Hint/status `#0096DC`, Response and Secondary `#41BEF5`. Errors retain
+their dedicated red state color.
 
 ## Planned v0.1.0 support contract
 

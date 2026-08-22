@@ -4,50 +4,45 @@
  */
 :root {
   /* Surfaces, text, and state colors. */
-  --gn-bg-page: #fbfbf8;
-  --gn-bg-panel: #f5f4ef;
-  --gn-bg-panel-raised: #ebe9e0;
-  --gn-text-primary: #151524;
-  --gn-text-muted: #56566c;
-  --gn-border: #151524;
-  --gn-accent: #ff5229;
-  --gn-accent-bright: #ff8204;
-  --gn-accent-ink: #933800;
-  --gn-user-bg: #ffdccf;
-  --gn-user-border: #b75002;
-  --gn-streaming: #ffaf01;
+  --gn-bg-page: #ebf8ff;
+  --gn-bg-panel: #ffffff;
+  --gn-bg-panel-raised: #d7f1ff;
+  --gn-text-primary: #072346;
+  --gn-text-muted: #3f5870;
+  --gn-border: #072346;
+  --gn-accent: #0096dc;
+  --gn-accent-bright: #41bef5;
+  --gn-accent-ink: #072346;
+  --gn-user-bg: #ebf8ff;
+  --gn-user-border: #0096dc;
+  --gn-streaming: #0096dc;
   --gn-ready: #44ba82;
   --gn-ready-ink: #055737;
-  --gn-link: #044298;
-  --gn-link-hover-bg: #b9daff;
-  --gn-link-vivid: #55b3fb;
+  --gn-link: #005d8f;
+  --gn-link-hover-bg: #c7ebff;
+  --gn-link-vivid: #41bef5;
   --gn-error-vivid: #e51300;
   --gn-error-fg: #c4001d;
   --gn-error-bg: #fff0eb;
   --gn-error-border: #c4001d;
-  --gn-decorative-pink: #ff92dc;
 
   /* Sanitized Markdown syntax roles. */
-  --gn-syntax-keyword: #044298;
-  --gn-syntax-string: #055737;
-  --gn-syntax-number: #933800;
-  --gn-syntax-comment: #56566c;
-  --gn-syntax-title: #83075c;
-  --gn-syntax-variable: #c4001d;
+  --gn-syntax-keyword: #005d8f;
+  --gn-syntax-string: #06717d;
+  --gn-syntax-number: #006aa6;
+  --gn-syntax-comment: #3f5870;
+  --gn-syntax-title: #074b78;
+  --gn-syntax-variable: #006f98;
 
-  /* Composer branding and its seven equal, hard-edged color segments. */
+  /* Composer branding and its three equal, hard-edged Azure segments. */
   --gn-composer-logo-size: 32px;
   --gn-composer-logo-size-mobile: 28px;
   --gn-color-rail-height: 4px;
   --gn-color-rail: linear-gradient(
     to right,
-    var(--gn-error-vivid) 0 calc(100% / 7),
-    var(--gn-accent) calc(100% / 7) calc(200% / 7),
-    var(--gn-accent-bright) calc(200% / 7) calc(300% / 7),
-    var(--gn-streaming) calc(300% / 7) calc(400% / 7),
-    var(--gn-decorative-pink) calc(400% / 7) calc(500% / 7),
-    var(--gn-link-vivid) calc(500% / 7) calc(600% / 7),
-    var(--gn-ready) calc(600% / 7) 100%
+    var(--gn-border) 0 calc(100% / 3),
+    var(--gn-accent) calc(100% / 3) calc(200% / 3),
+    var(--gn-accent-bright) calc(200% / 3) 100%
   );
 
   /* Square pixel geometry and hard shadows. */
@@ -74,7 +69,7 @@
   --gn-motion-low-opacity: 0.35;
 
   --gn-history-width: 264px; --gn-files-width: 304px; --gn-application-width: 1640px;
-  --gn-history-backdrop: rgb(21 21 36 / 45%);
+  --gn-history-backdrop: rgb(7 35 70 / 45%);
 
   /* Existing spacing, font, type, and line-height scales stay unchanged. */
   --gn-space-xs: 4px;

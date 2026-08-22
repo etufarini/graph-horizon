@@ -108,7 +108,7 @@ The retained `support/testing/parity-check.sh` demonstrates the current external
 runtime boundary for cataloged rows: it authenticates the artifact, pins the
 oracle revision, binds the oracle to loopback, renders the release-owned prompt
 locally, obtains completion IDs from the oracle using those exact prompt IDs,
-then runs one exact local parity test.
+then runs one bounded local parity test.
 
 For the current Ministral qualification, the accepted llama.cpp revision is
 exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout is

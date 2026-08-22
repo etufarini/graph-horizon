@@ -1,3 +1,8 @@
+<!--
+Questo riferimento definisce i gate di correttezza usati dal loop di
+ottimizzazione; descrive protocollo e limiti, non risultati di qualifica.
+-->
+
 # Oracle di correttezza
 
 ## Gate locale
@@ -21,9 +26,10 @@ Usa soltanto gli artefatti Q4_K_M con dimensione e SHA fissati in
 
 `support/testing/parity-check.sh` invoca i test ignorati con:
 
-- template fisso e prompt ID contro tokenizer di riferimento;
-- greedy decoding;
-- primi token ID contro CLI di riferimento;
+- template fisso e prompt ID esatti contro il tokenizer di riferimento;
+- sedici token oracle ottenuti dal riferimento e applicati in teacher forcing;
+- presenza di ogni token oracle nella top two locale deterministica, con
+  registrazione separata degli ID top-1 locali;
 - feature backend e contesto espliciti.
 
 Esempio:
@@ -54,12 +60,16 @@ Mantieni costanti:
 - riferimento e commit;
 - hardware e condizioni termiche.
 
-Non rigenerare un riferimento per accettare un candidato. Una differenza nei
-primi ID greedy blocca il commit.
+Non rigenerare un riferimento per accettare un candidato. L'assenza di un token
+oracle dalla top two locale blocca la riga; una differenza negli ID top-1
+registrati non fallisce da sola questo gate bounded. Se il candidato promette
+identità esatta, deve passare anche il gate esatto scelto prima della misura.
 
 ## Candidati numerici
 
-La milestone corrente non conserva un oracle a tolleranza per modifiche
-floating-point. Un candidato che cambia ordine, layout o precisione può essere
-misurato in un branch temporaneo, ma non viene committato autonomamente. Per
-abilitarlo serve una specifica separata con metrica e soglie approvate.
+Il protocollo corrente conserva un oracle bounded top-two per sedici passi
+teacher-forced. Non è una tolleranza universale: un candidato che cambia ordine,
+layout o precisione può usarlo solo quando quel criterio misura il rischio
+dichiarato. Modifiche KV richiedono inoltre i propri gate di payload, layout e
+qualità; ogni altra divergenza numerica richiede metrica e soglia approvate prima
+di osservare il risultato.

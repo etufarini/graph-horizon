@@ -7,8 +7,8 @@
 
 use std::collections::HashSet;
 
-use reqwest::Url;
 use scraper::{Html, Selector};
+use url::Url;
 
 const MAX_RESULTS: usize = 5;
 const MAX_TITLE_CHARACTERS: usize = 160;

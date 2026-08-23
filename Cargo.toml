@@ -37,7 +37,7 @@ ratatui = { version = "0.30.0", default-features = false, features = ["crossterm
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 unicode-width = "0.2"
-tokio = { version = "1.52.1", features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "1.52.1", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { version = "0.1", default-features = false }
 # The Web UI owns a small internal HTTP listener. `hyper` needs the server+http1
 # features and `hyper-util` the Tokio runtime adapter for its accept loop.
@@ -45,5 +45,5 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
-reqwest = { version = "0.13.4", default-features = false, features = ["brotli", "charset", "form", "gzip", "rustls", "stream"] }
 scraper = { version = "0.27.0", default-features = false }
+url = "2.5.8"

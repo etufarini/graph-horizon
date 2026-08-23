@@ -133,12 +133,14 @@ query must contain at most 512 Unicode code points and 2 KiB of UTF-8. When the
 button is inactive the field is omitted and Graph Horizon performs no outbound
 request.
 
-The Rust host posts the query directly to the fixed DuckDuckGo Lite HTTPS origin
-with no API key, cookies, implicit proxy, or redirect following. The complete
-request has an eight-second timeout, the decoded HTML body is limited to 512
-KiB, and only one search runs at a time. At most five non-sponsored, distinct
-HTTP(S) results survive parsing. Each contains bounded plain-text title, URL,
-and snippet; Graph Horizon never visits or downloads a result URL.
+The Rust host runs the `curl` already required by Graph Horizon without a shell,
+user configuration, cookies, implicit proxy, or redirect following, and posts to
+the fixed DuckDuckGo Lite HTTPS origin. `curl` must remain available on `PATH`
+when Web search is used; its absence affects search only. The complete request
+has an eight-second timeout, the decoded HTML body is limited to 512 KiB, and
+only one search runs at a time. At most five non-sponsored, distinct HTTP(S)
+results survive parsing. Each contains bounded plain-text title, URL, and
+snippet; Graph Horizon never visits or downloads a result URL.
 
 Validated results are prefixed only to the final outgoing user-message copy.
 The framing calls them untrusted, potentially stale reference data and asks the

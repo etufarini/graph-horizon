@@ -26,7 +26,7 @@ The installer builds Graph Horizon from source. Before running it, install:
 - Rust and Cargo 1.88 or newer;
 - Node.js and npm 22.12 or newer;
 - `bash`, `curl`, `tar`, `find`, `awk`, `mktemp`, `uname`, `install`, and either
-  `sha256sum` or `shasum`;
+  `sha256sum` or `shasum`; keep `curl` available to use optional Web search;
 - the platform requirements listed below.
 
 The default installation directory is `$HOME/.local/bin`. The installer does

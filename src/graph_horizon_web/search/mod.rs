@@ -7,7 +7,6 @@
 
 use std::sync::Arc;
 
-use color_eyre::eyre::{Result, eyre};
 use tokio::sync::Semaphore;
 
 mod client;
@@ -30,11 +29,11 @@ pub(super) enum Error {
 }
 
 impl State {
-    pub(in crate::graph_horizon_web) fn new() -> Result<State> {
-        Ok(State {
-            client: client::Client::new().map_err(|_| eyre!("failed to initialize Web search"))?,
+    pub(in crate::graph_horizon_web) fn new() -> State {
+        State {
+            client: client::Client::new(),
             admission: Arc::new(Semaphore::new(MAX_CONCURRENT)),
-        })
+        }
     }
 
     pub(super) async fn context(&self, query: &str) -> Result<String, Error> {

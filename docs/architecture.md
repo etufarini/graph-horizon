@@ -90,9 +90,10 @@ engine, CLI, or filesystem component reads browser archives. Files are framed as
 untrusted reference data in one outgoing user-message copy; they are never
 uploaded into product storage or indexed by a retrieval service.
 
-Search is the only optional non-local Web path. It sends the query directly to a
-fixed DuckDuckGo Lite HTTPS origin, follows no redirects, and never fetches a
-result URL. Search snippets are framed as untrusted data and exist only in the
+Search is the only optional non-local Web path. The Rust host invokes the
+project's existing `curl` prerequisite without a shell to contact one fixed
+DuckDuckGo Lite HTTPS origin; it follows no redirects and never fetches a result
+URL. Search snippets are framed as untrusted data and exist only in the
 engine-request copy; transcript storage retains the visible prompt and response.
 
 Reasoning markers remain ordinary raw assistant text in both surfaces. The CLI

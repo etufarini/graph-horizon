@@ -12,7 +12,8 @@ documentation.
 
 Graph Horizon is a focused local text-to-text runtime with two interfaces: an
 interactive CLI and an integrated Web UI. Both run the model locally; there is
-no standalone server mode or supported public HTTP API.
+no standalone server mode or supported public HTTP API. The Web UI can
+optionally send an explicit search query to DuckDuckGo; inference remains local.
 
 The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. Ministral 3 is the model family currently used by Graph
@@ -130,12 +131,15 @@ graph-horizon --mode web \
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser. The interface
-is called Web UI, while its command-line mode is `web`.
+is called Web UI, while its command-line mode is `web`. Its globe button enables
+one best-effort Web search for the next request without an account or API key.
 
 ## Current scope
 
 - Local text messages only; tool calling and multimodal input are not
   supported.
+- Web search is an explicit, snippets-only Web UI option; it is not an agentic
+  tool loop and does not download result pages.
 - Reasoning markers remain ordinary streamed text, not a separate reasoning
   channel.
 - One generation runs at a time.

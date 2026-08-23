@@ -1,8 +1,8 @@
 <!--
 This document owns the current local browser UI, static assets, multi-chat
-history, Markdown files, turn controls, browser persistence, Reasoning
-presentation, and transfer format. It does not own engine model policy or
-describe removed tool/workspace capabilities.
+history, optional Web search, Markdown files, turn controls, browser
+persistence, Reasoning presentation, and transfer format. It does not own
+engine model policy or describe removed tool/workspace capabilities.
 -->
 
 # Local Web UI
@@ -62,6 +62,16 @@ Every generation sends the strict private body:
 }
 ```
 
+When the composer Web-search button is active, the same body adds the trimmed
+visible prompt separately from messages and file framing:
+
+```json
+{
+  "messages": [],
+  "search_query": "current information requested by the user"
+}
+```
+
 The page also sends one random lowercase-hex `x-graph-horizon-cache` key for
 its lifetime. On standalone Vulkan and Metal profiles, the engine retains one
 KV allocation and reuses only an exact rendered-token prefix with the same key.
@@ -70,11 +80,11 @@ prior caller's prefix, although the standalone GPU engine may retain its one KV
 allocation. CPU and hybrid profiles do not reuse prefixes.
 
 On page initialization the browser requests context and runtime facts, each
-with a three-second timeout. Send remains disabled until the context is a safe
-integer greater than one. A failed, timed-out, malformed, unsafe, or invalid
-context response shows `Context configuration unavailable`. Runtime metadata is
-informational and is omitted when unavailable;
-it does not weaken the capacity gate.
+with a three-second timeout. Send remains disabled until the context limit and
+the advertised maximum Web-search framing reserve are safe positive integers.
+A failed, timed-out, malformed, unsafe, or invalid context response shows
+`Context configuration unavailable`. Runtime metadata is informational and is
+omitted when unavailable; it does not weaken the capacity gate.
 
 The browser consumes only the private content, ordered prefill/decode, exact
 statistics, and terminal frames emitted by the bundled backend. Statistics must
@@ -108,6 +118,42 @@ rejects an assembled UTF-8 JSON body above the backend's 4 MiB limit before
 `fetch`.
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 sampling policy defined by the qualification protocol, with `temperature=0.7`.
+
+### Web Search
+
+The globe button in the composer enables one search for the request being
+submitted. It starts disabled, is not persisted, and may be changed while a
+response streams to prepare the next request. Send, regenerate, and
+edit-and-restart use its value at the moment they start. This is explicit prompt
+enrichment, not tool calling: the model cannot initiate another search.
+
+The browser sends only the trimmed visible user prompt as `search_query`; system
+text, prior messages, and expanded Markdown files never enter the query. The
+query must contain at most 512 Unicode code points and 2 KiB of UTF-8. When the
+button is inactive the field is omitted and Graph Horizon performs no outbound
+request.
+
+The Rust host posts the query directly to the fixed DuckDuckGo Lite HTTPS origin
+with no API key, cookies, implicit proxy, or redirect following. The complete
+request has an eight-second timeout, the decoded HTML body is limited to 512
+KiB, and only one search runs at a time. At most five non-sponsored, distinct
+HTTP(S) results survive parsing. Each contains bounded plain-text title, URL,
+and snippet; Graph Horizon never visits or downloads a result URL.
+
+Validated results are prefixed only to the final outgoing user-message copy.
+The framing calls them untrusted, potentially stale reference data and asks the
+model to cite sources without inventing URLs. The complete added framing is
+limited to 6,144 Unicode characters. The browser reserves that maximum before
+creating a visible turn or starting `fetch`, so an admitted search result cannot
+silently exceed the displayed prompt budget. Search context and toggle state are
+excluded from transcript, local storage, import, and export.
+
+Search is best-effort because DuckDuckGo's public markup and rate limits are not
+a stable API contract. A timeout, redirect, rate limit, malformed response, or
+absence of usable results fails the generation as `Web search unavailable` and
+restores the submitted prompt when no newer draft exists. It never falls back to
+an unsearched answer. Enabling search sends the query and public source IP to
+DuckDuckGo; inference and stored chat history remain local.
 
 ### Saved Chat Persistence
 
@@ -323,13 +369,14 @@ treatment, and remain visible when eligible rather than depending on hover.
 ## Context And Generation Status
 
 The canonical estimate and capacity gate are defined in
-[context.md](context.md). The browser compares estimated prompt occupancy alone
+[context.md](context.md). The browser compares estimated outgoing occupancy
 with the 90% safe prompt budget. Idle occupancy includes the trimmed system
-prompt, every committed
-raw message, and the trimmed draft. Streaming occupancy includes the submitted
-user message and current partial raw assistant response. Both also include
-exactly one complete current Markdown-file framing and request heading when
-files exist.
+prompt, every committed raw message, and the trimmed draft. Streaming occupancy
+includes the submitted user message and current partial raw assistant response.
+Both also include exactly one complete current Markdown-file framing and request
+heading when files exist. When Web search is active, both the visible estimate
+and admission also reserve the backend's complete 6,144-character result framing
+ceiling.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
 chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
@@ -431,15 +478,16 @@ each file has its own download action.
 ## Errors And Limits
 
 The private chat body and the separate browser conversation record are each
-limited to 4 MiB under their respective contracts. Markdown files have the
-smaller per-file and per-chat limits above. Transport errors become short
-UI messages; parser, engine, browser storage, and filesystem details are not
-shown. The Web gate rejects over-budget or oversized requests before transport.
+limited to 4 MiB under their respective contracts. Markdown files and Web
+queries have the smaller limits above. Transport errors become short UI
+messages; search, parser, engine, browser storage, and filesystem details are
+not shown. The Web gate rejects over-budget or oversized requests before
+transport.
 
 The Web UI has no backend persistence, accounts, authentication, account or
-cross-tab synchronization/merge, response-version or branch history, chat
-search, pins, archive folders, bulk deletion, or model selection for
-regenerate. It also has no credential flow, tool calling, workspace, separate
-Reasoning protocol/state channel, or advanced sampling controls.
+cross-tab synchronization/merge, response-version or branch history,
+chat-history search, pins, archive folders, bulk deletion, or model selection
+for regenerate. It also has no credential flow, tool calling, workspace,
+separate Reasoning protocol/state channel, or advanced sampling controls.
 Markdown files are full-context references, not a general document library or
 retrieval system.

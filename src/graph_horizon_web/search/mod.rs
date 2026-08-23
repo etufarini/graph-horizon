@@ -36,7 +36,7 @@ impl State {
         }
     }
 
-    pub(super) async fn context(&self, query: &str) -> Result<String, Error> {
+    pub(super) async fn context(&self, query: &str, date: &str) -> Result<String, Error> {
         // One best-effort request at a time avoids amplifying upstream rate limits.
         let _permit = Arc::clone(&self.admission)
             .try_acquire_owned()
@@ -47,6 +47,6 @@ impl State {
             .await
             .map_err(|_| Error::Unavailable)?;
         let results = parser::parse(&html);
-        context::frame(&results).ok_or(Error::Unavailable)
+        context::frame(&results, date).ok_or(Error::Unavailable)
     }
 }

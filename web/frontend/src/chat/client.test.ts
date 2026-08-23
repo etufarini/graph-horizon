@@ -93,7 +93,7 @@ test('unsuccessful and bodyless responses use request failure', async () => {
   }
 });
 
-test('Web search adds only the bounded query field and reports upstream failure', async () => {
+test('Web search adds only its bounded query and browser-local date', async () => {
   let request: unknown;
   globalThis.fetch = async (_input, init) => {
     request = JSON.parse(String(init?.body));
@@ -105,7 +105,9 @@ test('Web search adds only the bounded query field and reports upstream failure'
     }));
   };
   await streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query');
-  assert.deepEqual(request, { messages, search_query: 'fresh query' });
+  assert.deepEqual(Object.keys(request as object), ['messages', 'search_query', 'search_date']);
+  assert.equal((request as any).search_query, 'fresh query');
+  assert.match((request as any).search_date, /^\d{4}-\d{2}-\d{2}$/);
 
   globalThis.fetch = async () => new Response(null, { status: 502 });
   await assert.rejects(

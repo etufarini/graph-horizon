@@ -46,8 +46,8 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
         Ok(permit) => permit,
         Err(_) => return error_response(StatusCode::TOO_MANY_REQUESTS, "busy"),
     };
-    if let Some(query) = parsed.search_query.take() {
-        let context = match state.search.context(&query).await {
+    if let Some(search) = parsed.search.take() {
+        let context = match state.search.context(&search.query, &search.date).await {
             Ok(context) => context,
             Err(search::Error::Busy) => {
                 return error_response(StatusCode::TOO_MANY_REQUESTS, "busy");

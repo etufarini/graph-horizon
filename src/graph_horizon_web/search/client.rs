@@ -94,7 +94,17 @@ fn form(query: &str) -> String {
         }
     }
     value.push_str("&kl=wt-wt&kp=1");
+    if requests_today(query) {
+        // DuckDuckGo's day filter keeps explicit "today" queries out of almanacs.
+        value.push_str("&df=d");
+    }
     value
+}
+
+fn requests_today(query: &str) -> bool {
+    query
+        .split(|character: char| !character.is_alphanumeric())
+        .any(|word| matches!(word.to_lowercase().as_str(), "oggi" | "today"))
 }
 
 #[cfg(test)]
@@ -104,5 +114,12 @@ mod tests {
     #[test]
     fn query_is_form_encoded_without_curl_file_syntax() {
         assert_eq!(form("a b&@\0é"), "q=a%20b%26%40%00%C3%A9&kl=wt-wt&kp=1");
+    }
+
+    #[test]
+    fn explicit_current_day_queries_receive_the_day_filter() {
+        assert!(form("Cosa è successo OGGI?").ends_with("&df=d"));
+        assert!(form("News today").ends_with("&df=d"));
+        assert!(!form("History magazine").contains("&df=d"));
     }
 }

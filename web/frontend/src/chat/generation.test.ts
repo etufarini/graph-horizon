@@ -154,8 +154,9 @@ test('Web search sends the visible query apart from expanded Markdown context', 
   const pending = generation.send(' visible question ', context, files, true);
   await tick();
   assert.equal(stream.body().search_query, 'visible question');
+  assert.match(stream.body().search_date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(stream.body().messages.at(-1).content, /### File: note\.md/);
-  assert.deepEqual(Object.keys(stream.body()), ['messages', 'search_query']);
+  assert.deepEqual(Object.keys(stream.body()), ['messages', 'search_query', 'search_date']);
   stream.done();
   await pending;
 });

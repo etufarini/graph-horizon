@@ -1,7 +1,7 @@
 /*
  * Graph Horizon Web chat request
- * Reads one bounded private request and separates its optional raw search query
- * from the messages converted for the engine. Compatibility fields are rejected.
+ * Reads one bounded private request and separates optional validated search
+ * metadata from messages converted for the engine. Compatibility fields are rejected.
  */
 
 use bytes::Bytes;
@@ -25,8 +25,10 @@ pub(super) enum Error {
 #[serde(deny_unknown_fields)]
 struct ChatRequest {
     messages: Vec<WireMessage>,
-    #[serde(default, deserialize_with = "search_query")]
+    #[serde(default, deserialize_with = "optional_string")]
     search_query: Option<String>,
+    #[serde(default, deserialize_with = "optional_string")]
+    search_date: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -46,7 +48,12 @@ enum WireRole {
 
 pub(super) struct ParsedRequest {
     pub(super) engine: EngineRequest,
-    pub(super) search_query: Option<String>,
+    pub(super) search: Option<Search>,
+}
+
+pub(super) struct Search {
+    pub(super) query: String,
+    pub(super) date: String,
 }
 
 pub(super) async fn parse(
@@ -89,30 +96,63 @@ fn parse_bytes(
             content: message.content,
         })
         .collect();
-    let search_query = request.search_query.map(|query| query.trim().to_string());
-    if let Some(query) = &search_query
-        && (query.is_empty()
-            || query.len() > MAX_SEARCH_QUERY_BYTES
-            || query.chars().count() > MAX_SEARCH_QUERY_CHARACTERS
-            || !matches!(messages.last(), Some(message) if message.role == Role::User))
-    {
-        return Err(Error::Invalid);
-    }
+    let search = match (request.search_query, request.search_date) {
+        (None, None) => None,
+        (Some(query), Some(date)) => {
+            let query = query.trim().to_string();
+            if query.is_empty()
+                || query.len() > MAX_SEARCH_QUERY_BYTES
+                || query.chars().count() > MAX_SEARCH_QUERY_CHARACTERS
+                || !valid_date(&date)
+                || !matches!(messages.last(), Some(message) if message.role == Role::User)
+            {
+                return Err(Error::Invalid);
+            }
+            Some(Search { query, date })
+        }
+        _ => return Err(Error::Invalid),
+    };
     Ok(ParsedRequest {
         engine: EngineRequest {
             messages,
             sampling,
             max_tokens,
         },
-        search_query,
+        search,
     })
 }
 
-fn search_query<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+fn optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     String::deserialize(deserializer).map(Some)
+}
+
+fn valid_date(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10
+        || bytes[4] != b'-'
+        || bytes[7] != b'-'
+        || !bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+    {
+        return false;
+    }
+    let year = value[0..4].parse::<u16>().unwrap_or(0);
+    let month = value[5..7].parse::<u8>().unwrap_or(0);
+    let day = value[8..10].parse::<u8>().unwrap_or(0);
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    year != 0 && day != 0 && day <= days
 }
 
 #[cfg(test)]
@@ -136,7 +176,7 @@ mod tests {
         assert_eq!(request.engine.messages.len(), 2);
         assert!(request.engine.messages[0].role == Role::System);
         assert_eq!(request.engine.max_tokens, 4096);
-        assert_eq!(request.search_query, None);
+        assert!(request.search.is_none());
     }
 
     #[test]
@@ -148,7 +188,9 @@ mod tests {
             r#"{"messages":[{"role":"tool","content":"x"}]}"#,
             r#"{"messages":[{"role":"user","content":"x","tool_calls":[]}]}"#,
             r#"{"messages":[{"role":"user","content":"x"}],"search_query":null}"#,
-            r#"{"messages":[{"role":"assistant","content":"x"}],"search_query":"x"}"#,
+            r#"{"messages":[{"role":"user","content":"x"}],"search_query":"x"}"#,
+            r#"{"messages":[{"role":"user","content":"x"}],"search_date":"2026-08-23"}"#,
+            r#"{"messages":[{"role":"assistant","content":"x"}],"search_query":"x","search_date":"2026-08-23"}"#,
         ] {
             assert_eq!(parse(body).err(), Some(Error::Invalid));
         }
@@ -157,15 +199,28 @@ mod tests {
     #[test]
     fn search_query_is_separate_trimmed_and_bounded() {
         let request = parse(
-            r#"{"messages":[{"role":"user","content":"framed input"}],"search_query":"  visible query  "}"#,
+            r#"{"messages":[{"role":"user","content":"framed input"}],"search_query":"  visible query  ","search_date":"2024-02-29"}"#,
         )
         .unwrap();
-        assert_eq!(request.search_query.as_deref(), Some("visible query"));
+        let search = request.search.unwrap();
+        assert_eq!(search.query, "visible query");
+        assert_eq!(search.date, "2024-02-29");
         assert_eq!(request.engine.messages[0].content, "framed input");
 
         let long = "x".repeat(MAX_SEARCH_QUERY_CHARACTERS + 1);
-        let body =
-            format!(r#"{{"messages":[{{"role":"user","content":"x"}}],"search_query":"{long}"}}"#);
+        let body = format!(
+            r#"{{"messages":[{{"role":"user","content":"x"}}],"search_query":"{long}","search_date":"2026-08-23"}}"#
+        );
         assert_eq!(parse(&body).err(), Some(Error::Invalid));
+    }
+
+    #[test]
+    fn search_date_is_a_real_gregorian_date() {
+        for date in ["", "2026-8-23", "0000-01-01", "2023-02-29", "2026-13-01"] {
+            assert!(!valid_date(date), "accepted {date}");
+        }
+        for date in ["2024-02-29", "2026-08-23", "2000-02-29"] {
+            assert!(valid_date(date), "rejected {date}");
+        }
     }
 }

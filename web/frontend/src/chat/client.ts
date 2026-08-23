@@ -1,8 +1,8 @@
 /*
  * Web chat HTTP client.
  * Loads immutable context properties and posts admitted text requests with an
- * optional separate Web-search query. Its linked controller keeps caller Stop
- * distinct from the resettable five-minute inactivity cancellation.
+ * optional separate Web-search query and browser-local date. Its linked
+ * controller keeps caller Stop distinct from inactivity cancellation.
  */
 import { parseRuntimeContext } from './context.ts';
 import { readChatStream } from './stream.ts';
@@ -85,7 +85,7 @@ export async function streamAssistant(
     }
     const body = JSON.stringify(searchQuery === null
       ? { messages }
-      : { messages, search_query: searchQuery });
+      : { messages, search_query: searchQuery, search_date: localDate(new Date()) });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
       throw new Error(FAILED);
     }
@@ -119,4 +119,12 @@ export async function streamAssistant(
     clearTimeout(timeout!);
     signal.removeEventListener('abort', stop);
   }
+}
+
+function localDate(date: Date): string {
+  // Local calendar getters preserve the meaning of "today" at the browser.
+  const year = String(date.getFullYear()).padStart(4, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

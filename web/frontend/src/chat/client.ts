@@ -11,7 +11,7 @@ import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage }
 
 const FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
-export const WEB_SEARCH_FAILED = 'Web search unavailable';
+export const WEB_SEARCH_FAILED = 'Web search unavailable; no answer was generated';
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const MAX_SEARCH_QUERY_BYTES = 2 * 1024;

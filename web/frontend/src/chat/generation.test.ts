@@ -240,7 +240,7 @@ test('Web search failure rolls back with its specific generic error', async () =
   const { store, checkpoints, generation } = harness(original);
   await generation.send('needs current facts', context, [], true);
   assert.deepEqual(plain(get(store)), plain(original));
-  assert.equal(get(store).error, 'Web search unavailable');
+  assert.equal(get(store).error, 'Web search unavailable; no answer was generated');
   assert.deepEqual(checkpoints, []);
 });
 

@@ -162,10 +162,11 @@ from transcript, local storage, import, and export.
 
 Search is best-effort because DuckDuckGo's public markup and rate limits are not
 a stable API contract. A timeout, redirect, rate limit, malformed response, or
-absence of usable results fails the generation as `Web search unavailable` and
-restores the submitted prompt when no newer draft exists. It never falls back to
-an unsearched answer. Enabling search sends the query and public source IP to
-DuckDuckGo; inference and stored chat history remain local.
+absence of usable results reports that Web search is unavailable and that no
+answer was generated, then restores the submitted prompt when no newer draft
+exists. It never falls back to an unsearched answer. Enabling search sends the
+query and public source IP to DuckDuckGo; inference and stored chat history
+remain local.
 
 ### Saved Chat Persistence
 

@@ -112,7 +112,7 @@ test('Web search adds only its bounded query and browser-local date', async () =
   globalThis.fetch = async () => new Response(null, { status: 502 });
   await assert.rejects(
     streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query'),
-    { message: 'Web search unavailable' }
+    { message: 'Web search unavailable; no answer was generated' }
   );
 });
 

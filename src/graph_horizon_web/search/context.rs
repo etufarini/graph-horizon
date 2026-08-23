@@ -43,9 +43,12 @@ pub(super) fn frame(results: &[Result], date: &str) -> Option<Framed> {
     framed.push_str(FOOTER);
     debug_assert!(framed.chars().count() <= MAX_CONTEXT_CHARACTERS);
     let mut sources = String::from("\n\n### Sources\n");
+    let mut definitions = String::from("\n");
     for (index, result) in results.iter().take(included).enumerate() {
-        sources.push_str(&format!("- [S{}](<{}>)\n", index + 1, result.url));
+        sources.push_str(&format!("- [S{}]\n", index + 1));
+        definitions.push_str(&format!("[S{}]: <{}>\n", index + 1, result.url));
     }
+    sources.push_str(&definitions);
     Some(Framed {
         prompt: framed,
         sources,
@@ -87,7 +90,7 @@ mod tests {
         assert!(framed.prompt.ends_with("### Existing request context\n"));
         assert_eq!(
             framed.sources,
-            "\n\n### Sources\n- [S1](<https://example.com/1>)\n- [S2](<https://example.com/2>)\n"
+            "\n\n### Sources\n- [S1]\n- [S2]\n\n[S1]: <https://example.com/1>\n[S2]: <https://example.com/2>\n"
         );
     }
 

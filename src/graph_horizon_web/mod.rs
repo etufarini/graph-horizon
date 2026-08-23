@@ -9,5 +9,6 @@ mod chat;
 mod config;
 mod router;
 mod runtime;
+mod search;
 mod server;
 pub(crate) mod startup;

@@ -25,6 +25,7 @@ impl Client {
     }
 
     pub(super) async fn fetch(&self, query: &str) -> Result<String, ()> {
+        let url = request_url(query);
         let mut command = Command::new("curl");
         command
             // `-q` must be first so ~/.curlrc cannot widen this fixed request.
@@ -45,11 +46,7 @@ impl Client {
                 "=https",
                 "--user-agent",
                 concat!("graph-horizon/", env!("CARGO_PKG_VERSION")),
-                "--header",
-                "Content-Type: application/x-www-form-urlencoded",
-                "--data-raw",
-                &form(query),
-                ENDPOINT,
+                &url,
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -80,10 +77,11 @@ impl Client {
     }
 }
 
-fn form(query: &str) -> String {
+fn request_url(query: &str) -> String {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut value = String::with_capacity(query.len() * 3 + 24);
-    value.push_str("q=");
+    let mut value = String::with_capacity(ENDPOINT.len() + query.len() * 3 + 25);
+    value.push_str(ENDPOINT);
+    value.push_str("?q=");
     for byte in query.bytes() {
         if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
             value.push(char::from(byte));
@@ -112,14 +110,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn query_is_form_encoded_without_curl_file_syntax() {
-        assert_eq!(form("a b&@\0é"), "q=a%20b%26%40%00%C3%A9&kl=wt-wt&kp=1");
+    fn query_is_encoded_into_the_fixed_get_url() {
+        assert_eq!(
+            request_url("a b&@\0é"),
+            "https://lite.duckduckgo.com/lite/?q=a%20b%26%40%00%C3%A9&kl=wt-wt&kp=1"
+        );
     }
 
     #[test]
     fn explicit_current_day_queries_receive_the_day_filter() {
-        assert!(form("Cosa è successo OGGI?").ends_with("&df=d"));
-        assert!(form("News today").ends_with("&df=d"));
-        assert!(!form("History magazine").contains("&df=d"));
+        assert!(request_url("Cosa è successo OGGI?").ends_with("&df=d"));
+        assert!(request_url("News today").ends_with("&df=d"));
+        assert!(!request_url("History magazine").contains("&df=d"));
     }
 }

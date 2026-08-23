@@ -11,7 +11,6 @@ use crate::app::engine;
 use super::assets::Assets;
 use super::chat::State;
 use super::config::WebConfig;
-use super::search;
 use super::server;
 
 pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
@@ -21,6 +20,6 @@ pub(crate) async fn run(model_path: Option<String>) -> Result<()> {
     assets.ensure_index()?;
     let context_limit = engine::config::context_tokens_from_args();
     let chat = engine::load_chat_engine(&model, context_limit)?;
-    let state = State::new(chat, search::State::new());
+    let state = State::new(chat);
     server::serve(config, assets, state).await
 }

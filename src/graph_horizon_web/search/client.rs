@@ -11,92 +11,78 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::time::timeout;
+use url::Url;
 
 const ENDPOINT: &str = "https://lite.duckduckgo.com/lite/";
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(9);
 
-#[derive(Clone, Copy)]
-pub(super) struct Client;
+pub(super) async fn fetch(query: &str) -> Result<String, ()> {
+    let url = request_url(query);
+    let mut command = Command::new("curl");
+    command
+        // `-q` must be first so ~/.curlrc cannot widen this fixed request.
+        .arg("-q")
+        .args([
+            "--silent",
+            "--fail",
+            "--compressed",
+            "--connect-timeout",
+            "4",
+            "--max-time",
+            "8",
+            "--max-filesize",
+            "524288",
+            "--noproxy",
+            "*",
+            "--proto",
+            "=https",
+            "--user-agent",
+            concat!("graph-horizon/", env!("CARGO_PKG_VERSION")),
+            &url,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
 
-impl Client {
-    pub(super) fn new() -> Client {
-        Client
-    }
-
-    pub(super) async fn fetch(&self, query: &str) -> Result<String, ()> {
-        let url = request_url(query);
-        let mut command = Command::new("curl");
-        command
-            // `-q` must be first so ~/.curlrc cannot widen this fixed request.
-            .arg("-q")
-            .args([
-                "--silent",
-                "--fail",
-                "--compressed",
-                "--connect-timeout",
-                "4",
-                "--max-time",
-                "8",
-                "--max-filesize",
-                "524288",
-                "--noproxy",
-                "*",
-                "--proto",
-                "=https",
-                "--user-agent",
-                concat!("graph-horizon/", env!("CARGO_PKG_VERSION")),
-                &url,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .kill_on_drop(true);
-
-        let mut child = command.spawn().map_err(|_| ())?;
-        let stdout = child.stdout.take().ok_or(())?;
-        timeout(PROCESS_TIMEOUT, async move {
-            let mut body = Vec::new();
-            stdout
-                .take((MAX_RESPONSE_BYTES + 1) as u64)
-                .read_to_end(&mut body)
-                .await
-                .map_err(|_| ())?;
-            if body.len() > MAX_RESPONSE_BYTES {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                return Err(());
-            }
-            if !child.wait().await.map_err(|_| ())?.success() {
-                return Err(());
-            }
-            String::from_utf8(body).map_err(|_| ())
-        })
-        .await
-        .map_err(|_| ())?
-    }
+    let mut child = command.spawn().map_err(|_| ())?;
+    let stdout = child.stdout.take().ok_or(())?;
+    timeout(PROCESS_TIMEOUT, async move {
+        let mut body = Vec::new();
+        stdout
+            .take((MAX_RESPONSE_BYTES + 1) as u64)
+            .read_to_end(&mut body)
+            .await
+            .map_err(|_| ())?;
+        if body.len() > MAX_RESPONSE_BYTES {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(());
+        }
+        if !child.wait().await.map_err(|_| ())?.success() {
+            return Err(());
+        }
+        String::from_utf8(body).map_err(|_| ())
+    })
+    .await
+    .map_err(|_| ())?
 }
 
 fn request_url(query: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut value = String::with_capacity(ENDPOINT.len() + query.len() * 3 + 25);
-    value.push_str(ENDPOINT);
-    value.push_str("?q=");
-    for byte in query.bytes() {
-        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
-            value.push(char::from(byte));
-        } else {
-            value.push('%');
-            value.push(char::from(HEX[(byte >> 4) as usize]));
-            value.push(char::from(HEX[(byte & 0x0f) as usize]));
-        }
-    }
-    value.push_str("&kl=wt-wt&kp=1");
-    if requests_today(query) {
+    let mut url = Url::parse(ENDPOINT).expect("fixed search endpoint is valid");
+    let today = requests_today(query);
+    let mut pairs = url.query_pairs_mut();
+    pairs
+        .append_pair("q", query)
+        .append_pair("kl", "wt-wt")
+        .append_pair("kp", "1");
+    if today {
         // DuckDuckGo's day filter keeps explicit "today" queries out of almanacs.
-        value.push_str("&df=d");
+        pairs.append_pair("df", "d");
     }
-    value
+    drop(pairs);
+    url.into()
 }
 
 fn requests_today(query: &str) -> bool {
@@ -113,7 +99,7 @@ mod tests {
     fn query_is_encoded_into_the_fixed_get_url() {
         assert_eq!(
             request_url("a b&@\0é"),
-            "https://lite.duckduckgo.com/lite/?q=a%20b%26%40%00%C3%A9&kl=wt-wt&kp=1"
+            "https://lite.duckduckgo.com/lite/?q=a+b%26%40%00%C3%A9&kl=wt-wt&kp=1"
         );
     }
 

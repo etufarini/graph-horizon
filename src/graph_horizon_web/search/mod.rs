@@ -18,7 +18,6 @@ const MAX_CONCURRENT: usize = 1;
 
 #[derive(Clone)]
 pub(in crate::graph_horizon_web) struct State {
-    client: client::Client,
     admission: Arc<Semaphore>,
 }
 
@@ -31,7 +30,6 @@ pub(super) enum Error {
 impl State {
     pub(in crate::graph_horizon_web) fn new() -> State {
         State {
-            client: client::Client::new(),
             admission: Arc::new(Semaphore::new(MAX_CONCURRENT)),
         }
     }
@@ -41,11 +39,7 @@ impl State {
         let _permit = Arc::clone(&self.admission)
             .try_acquire_owned()
             .map_err(|_| Error::Busy)?;
-        let html = self
-            .client
-            .fetch(query)
-            .await
-            .map_err(|_| Error::Unavailable)?;
+        let html = client::fetch(query).await.map_err(|_| Error::Unavailable)?;
         let results = parser::parse(&html);
         context::frame(&results, date).ok_or(Error::Unavailable)
     }

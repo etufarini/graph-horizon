@@ -22,14 +22,14 @@ pub(in crate::graph_horizon_web) struct State {
 }
 
 impl State {
-    pub(in crate::graph_horizon_web) fn new(engine: Arc<Engine>, search: search::State) -> State {
+    pub(in crate::graph_horizon_web) fn new(engine: Arc<Engine>) -> State {
         State {
             engine,
             // One generation at a time protects the in-process engine state.
             serialize: Arc::new(Mutex::new(())),
             // Excess browser work fails immediately instead of growing a queue.
             admission: Arc::new(Semaphore::new(MAX_INFLIGHT)),
-            search,
+            search: search::State::new(),
         }
     }
 }

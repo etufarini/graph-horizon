@@ -14,7 +14,6 @@ const INTERRUPTED = 'Connection interrupted';
 export const WEB_SEARCH_FAILED = 'Web search unavailable; no answer was generated';
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
-const MAX_SEARCH_QUERY_BYTES = 2 * 1024;
 const MAX_SEARCH_QUERY_CHARACTERS = 512;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
   byte.toString(16).padStart(2, '0')
@@ -78,8 +77,7 @@ export async function streamAssistant(
   try {
     if (searchQuery !== null && (
       !searchQuery ||
-      Array.from(searchQuery).length > MAX_SEARCH_QUERY_CHARACTERS ||
-      new TextEncoder().encode(searchQuery).byteLength > MAX_SEARCH_QUERY_BYTES
+      Array.from(searchQuery).length > MAX_SEARCH_QUERY_CHARACTERS
     )) {
       throw new Error(FAILED);
     }

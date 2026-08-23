@@ -132,9 +132,9 @@ The browser sends only the trimmed visible user prompt as `search_query`; system
 text, prior messages, and expanded Markdown files never enter the query. It also
 sends `search_date`, the browser-local Gregorian date captured for that request.
 The two fields are required together, and the backend rejects malformed or
-impossible dates. The query must contain at most 512 Unicode code points and 2
-KiB of UTF-8. When the button is inactive both fields are omitted and Graph
-Horizon performs no outbound request.
+impossible dates. The query must contain at most 512 Unicode code points (and
+therefore at most 2 KiB of UTF-8). When the button is inactive both fields are
+omitted and Graph Horizon performs no outbound request.
 
 The Rust host runs the `curl` already required by Graph Horizon without a shell,
 user configuration, cookies, implicit proxy, or redirect following, and sends a

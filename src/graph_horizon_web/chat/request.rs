@@ -12,7 +12,6 @@ use hyper::body::Incoming;
 use serde::Deserialize;
 
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SEARCH_QUERY_BYTES: usize = 2 * 1024;
 const MAX_SEARCH_QUERY_CHARACTERS: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -101,7 +100,6 @@ fn parse_bytes(
         (Some(query), Some(date)) => {
             let query = query.trim().to_string();
             if query.is_empty()
-                || query.len() > MAX_SEARCH_QUERY_BYTES
                 || query.chars().count() > MAX_SEARCH_QUERY_CHARACTERS
                 || !valid_date(&date)
                 || !matches!(messages.last(), Some(message) if message.role == Role::User)

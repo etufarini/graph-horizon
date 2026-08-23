@@ -68,7 +68,8 @@ visible prompt separately from messages and file framing:
 ```json
 {
   "messages": [],
-  "search_query": "current information requested by the user"
+  "search_query": "current information requested by the user",
+  "search_date": "2026-08-23"
 }
 ```
 
@@ -128,10 +129,12 @@ edit-and-restart use its value at the moment they start. This is explicit prompt
 enrichment, not tool calling: the model cannot initiate another search.
 
 The browser sends only the trimmed visible user prompt as `search_query`; system
-text, prior messages, and expanded Markdown files never enter the query. The
-query must contain at most 512 Unicode code points and 2 KiB of UTF-8. When the
-button is inactive the field is omitted and Graph Horizon performs no outbound
-request.
+text, prior messages, and expanded Markdown files never enter the query. It also
+sends `search_date`, the browser-local Gregorian date captured for that request.
+The two fields are required together, and the backend rejects malformed or
+impossible dates. The query must contain at most 512 Unicode code points and 2
+KiB of UTF-8. When the button is inactive both fields are omitted and Graph
+Horizon performs no outbound request.
 
 The Rust host runs the `curl` already required by Graph Horizon without a shell,
 user configuration, cookies, implicit proxy, or redirect following, and posts to
@@ -142,13 +145,20 @@ only one search runs at a time. At most five non-sponsored, distinct HTTP(S)
 results survive parsing. Each contains bounded plain-text title, URL, and
 snippet; Graph Horizon never visits or downloads a result URL.
 
+Queries containing the explicit word `oggi` or `today` request DuckDuckGo's
+one-day filter. This narrow rule avoids treating every Web query as news while
+preventing current-day requests from defaulting to almanac pages.
+
 Validated results are prefixed only to the final outgoing user-message copy.
-The framing calls them untrusted, potentially stale reference data and asks the
-model to cite sources without inventing URLs. The complete added framing is
-limited to 6,144 Unicode characters. The browser reserves that maximum before
-creating a visible turn or starting `fetch`, so an admitted search result cannot
-silently exceed the displayed prompt budget. Search context and toggle state are
-excluded from transcript, local storage, import, and export.
+The framing calls them untrusted, potentially stale reference data, states the
+browser-local date, and requires citations by result identifier (`[S1]`, `[S2]`).
+It instructs the model to use only facts supported by the returned snippets, not
+to name absent sources, and to acknowledge insufficient evidence rather than
+fill gaps from model memory. The complete added framing is limited to 6,144
+Unicode characters. The browser reserves that maximum before creating a visible
+turn or starting `fetch`, so an admitted search result cannot silently exceed
+the displayed prompt budget. Search context, date, and toggle state are excluded
+from transcript, local storage, import, and export.
 
 Search is best-effort because DuckDuckGo's public markup and rate limits are not
 a stable API contract. A timeout, redirect, rate limit, malformed response, or

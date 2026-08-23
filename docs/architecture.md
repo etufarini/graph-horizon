@@ -93,8 +93,10 @@ uploaded into product storage or indexed by a retrieval service.
 Search is the only optional non-local Web path. The Rust host invokes the
 project's existing `curl` prerequisite without a shell to contact one fixed
 DuckDuckGo Lite HTTPS origin; it follows no redirects and never fetches a result
-URL. Search snippets are framed as untrusted data and exist only in the
-engine-request copy; transcript storage retains the visible prompt and response.
+URL. Explicit `oggi`/`today` queries use the provider's one-day filter. Search
+snippets are framed as untrusted data with the validated browser-local request
+date and strict grounding instructions; they exist only in the engine-request
+copy, while transcript storage retains the visible prompt and response.
 
 Reasoning markers remain ordinary raw assistant text in both surfaces. The CLI
 and browser derive visual THINK sections at presentation time without creating

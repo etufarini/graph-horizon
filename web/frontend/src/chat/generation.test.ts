@@ -15,7 +15,11 @@ import type { ChatSnapshot, RuntimeContext } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
-const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
+const context: RuntimeContext = {
+  contextLimit: 4096,
+  safePromptBudget: 3686,
+  searchContextCharacters: 6144
+};
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
@@ -136,6 +140,43 @@ test('Markdown files expand only the outgoing user copy', async () => {
   assert.equal(plain(get(store)).at(-2)?.content, 'visible question');
 });
 
+test('Web search sends the visible query apart from expanded Markdown context', async () => {
+  const stream = controlledFetch();
+  const { generation } = harness();
+  const files: MarkdownFileRecord[] = [{
+    id: '00000000-0000-4000-8000-000000000002',
+    chatId: id,
+    name: 'note.md',
+    content: '# Source',
+    utf8Bytes: 7,
+    addedAt: 1
+  }];
+  const pending = generation.send(' visible question ', context, files, true);
+  await tick();
+  assert.equal(stream.body().search_query, 'visible question');
+  assert.match(stream.body().messages.at(-1).content, /### File: note\.md/);
+  assert.deepEqual(Object.keys(stream.body()), ['messages', 'search_query']);
+  stream.done();
+  await pending;
+});
+
+test('Web search reserves its maximum context before visible mutation or fetch', async () => {
+  let fetches = 0;
+  fetchHandler = async () => { fetches += 1; throw new Error('unexpected fetch'); };
+  const { store, generation } = harness(snapshot([]));
+  await generation.send('x', {
+    contextLimit: 10,
+    safePromptBudget: 1,
+    searchContextCharacters: 8
+  }, [], true);
+  assert.equal(fetches, 0);
+  assert.deepEqual(plain(get(store)), []);
+  assert.equal(
+    get(store).error,
+    'Insufficient context: ~3 estimated tokens exceed the safe budget of 1 tokens'
+  );
+});
+
 test('valid zero-delta completion retains the empty response and checkpoints', async () => {
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness();
@@ -190,6 +231,16 @@ test('append transport failures roll back and never checkpoint', async () => {
     assert.equal(get(store).error, 'Request failed');
     assert.deepEqual(checkpoints, []);
   }
+});
+
+test('Web search failure rolls back with its specific generic error', async () => {
+  fetchHandler = async () => new Response(null, { status: 502 });
+  const original = snapshot();
+  const { store, checkpoints, generation } = harness(original);
+  await generation.send('needs current facts', context, [], true);
+  assert.deepEqual(plain(get(store)), plain(original));
+  assert.equal(get(store).error, 'Web search unavailable');
+  assert.deepEqual(checkpoints, []);
 });
 
 test('regenerate excludes the old response and preserves the exact user prompt', async () => {
@@ -289,7 +340,8 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   await generation.editPrompt('missing', 'valid', context);
   await generation.editPrompt(userId, 'far too long', {
     contextLimit: 4,
-    safePromptBudget: 3
+    safePromptBudget: 3,
+    searchContextCharacters: 6144
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));

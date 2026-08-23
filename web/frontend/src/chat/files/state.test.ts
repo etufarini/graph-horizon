@@ -11,7 +11,11 @@ import type { MarkdownFileRecord } from './record.ts';
 
 const CHAT_ID = '00000000-0000-4000-8000-000000000001';
 const OTHER_ID = '00000000-0000-4000-8000-000000000002';
-const CONTEXT = { contextLimit: 32768, safePromptBudget: 29491 };
+const CONTEXT = {
+  contextLimit: 32768,
+  safePromptBudget: 29491,
+  searchContextCharacters: 6144
+};
 
 class MemoryStorage implements MarkdownFileStorage {
   records: MarkdownFileRecord[] = [];
@@ -63,7 +67,7 @@ test('rejects a candidate whose full text exceeds the active prompt budget', asy
   const storage = new MemoryStorage();
   const state = createMarkdownFileState(storage);
   await state.select(CHAT_ID);
-  const tiny = { contextLimit: 4, safePromptBudget: 3 };
+  const tiny = { contextLimit: 4, safePromptBudget: 3, searchContextCharacters: 6144 };
   await state.add([selected('note.md', 'content')], CHAT_ID, [], tiny);
   assert.equal(get(state).files.length, 0);
   assert.match(get(state).error ?? '', /Insufficient context/);

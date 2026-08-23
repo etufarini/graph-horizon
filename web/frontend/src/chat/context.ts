@@ -1,8 +1,8 @@
 /*
  * Browser prompt-capacity model.
  * Validates the private Web context payload, estimates outgoing Unicode
- * occupancy, and admits prompts under a conservative budget. All arithmetic on
- * untrusted transport data and content fails closed.
+ * occupancy plus optional remote-context reserve, and admits prompts under a
+ * conservative budget. Arithmetic on untrusted data fails closed.
  */
 import type { ContextAdmission, ContextConfigResult, ContextUsage, RuntimeContext, WireMessage } from './types';
 
@@ -13,9 +13,12 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
     return { ok: false, error: 'unavailable' };
   }
   const contextLimit = payload.context_limit;
+  const searchContextCharacters = payload.search_context_characters;
   if (
     !Number.isSafeInteger(contextLimit) ||
-    (contextLimit as number) <= 1
+    (contextLimit as number) <= 1 ||
+    !Number.isSafeInteger(searchContextCharacters) ||
+    (searchContextCharacters as number) <= 0
   ) {
     return { ok: false, error: 'unavailable' };
   }
@@ -24,16 +27,28 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
   const safePromptBudget = Math.floor(limit / 10) * 9 + Math.floor(((limit % 10) * 9) / 10);
   return {
     ok: true,
-    context: { contextLimit: limit, safePromptBudget }
+    context: {
+      contextLimit: limit,
+      safePromptBudget,
+      searchContextCharacters: searchContextCharacters as number
+    }
   };
 }
 
-export function contextUsage(messages: WireMessage[], context: RuntimeContext): ContextUsage {
-  return estimate(messages, context).usage;
+export function contextUsage(
+  messages: WireMessage[],
+  context: RuntimeContext,
+  reservedCharacters = 0
+): ContextUsage {
+  return estimate(messages, context, reservedCharacters).usage;
 }
 
-export function admitMessages(messages: WireMessage[], context: RuntimeContext): ContextAdmission {
-  const assessed = estimate(messages, context);
+export function admitMessages(
+  messages: WireMessage[],
+  context: RuntimeContext,
+  reservedCharacters = 0
+): ContextAdmission {
+  const assessed = estimate(messages, context, reservedCharacters);
   if (assessed.valid && assessed.estimatedTokens <= context.safePromptBudget) {
     return { ok: true, usage: assessed.usage };
   }
@@ -45,8 +60,15 @@ export function admitMessages(messages: WireMessage[], context: RuntimeContext):
   };
 }
 
-function estimate(messages: WireMessage[], context: RuntimeContext): { valid: boolean; estimatedTokens: number; usage: ContextUsage } {
-  let characters = 0;
+function estimate(
+  messages: WireMessage[],
+  context: RuntimeContext,
+  reservedCharacters: number
+): { valid: boolean; estimatedTokens: number; usage: ContextUsage } {
+  if (!Number.isSafeInteger(reservedCharacters) || reservedCharacters < 0) {
+    return overflowUsage(context.contextLimit);
+  }
+  let characters = reservedCharacters;
   for (const message of messages) {
     let contentCharacters = 0;
     for (const _codePoint of message.content) {

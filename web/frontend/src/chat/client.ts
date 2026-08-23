@@ -1,9 +1,8 @@
 /*
  * Web chat HTTP client.
- * Loads immutable context properties and posts admitted text-only requests.
- * Generation uses a linked internal controller so caller Stop remains distinct
- * from five-minute inactivity cancellation; activity resets that watchdog, which
- * is not a total-generation timeout.
+ * Loads immutable context properties and posts admitted text requests with an
+ * optional separate Web-search query. Its linked controller keeps caller Stop
+ * distinct from the resettable five-minute inactivity cancellation.
  */
 import { parseRuntimeContext } from './context.ts';
 import { readChatStream } from './stream.ts';
@@ -12,8 +11,11 @@ import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage }
 
 const FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
+export const WEB_SEARCH_FAILED = 'Web search unavailable';
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
+const MAX_SEARCH_QUERY_BYTES = 2 * 1024;
+const MAX_SEARCH_QUERY_CHARACTERS = 512;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
   byte.toString(16).padStart(2, '0')
 ).join('');
@@ -52,7 +54,8 @@ async function loadProperties<T>(
 export async function streamAssistant(
   messages: WireMessage[],
   onEvent: (event: StreamEvent) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  searchQuery: string | null = null
 ): Promise<void> {
   const controller = new AbortController();
   let cancellation: 'external' | 'timeout' | null = null;
@@ -73,7 +76,16 @@ export async function streamAssistant(
   signal.addEventListener('abort', stop, { once: true });
   if (signal.aborted) stop();
   try {
-    const body = JSON.stringify({ messages });
+    if (searchQuery !== null && (
+      !searchQuery ||
+      Array.from(searchQuery).length > MAX_SEARCH_QUERY_CHARACTERS ||
+      new TextEncoder().encode(searchQuery).byteLength > MAX_SEARCH_QUERY_BYTES
+    )) {
+      throw new Error(FAILED);
+    }
+    const body = JSON.stringify(searchQuery === null
+      ? { messages }
+      : { messages, search_query: searchQuery });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
       throw new Error(FAILED);
     }
@@ -87,6 +99,9 @@ export async function streamAssistant(
       signal: controller.signal
     });
 
+    if (response.status === 502) {
+      throw new Error(WEB_SEARCH_FAILED);
+    }
     if (!response.ok || !response.body) {
       throw new Error(FAILED);
     }

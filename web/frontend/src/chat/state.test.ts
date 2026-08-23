@@ -48,7 +48,11 @@ const { chat } = await import('./state.ts');
 let snapshot: ChatSnapshot;
 chat.subscribe(value => { snapshot = value; });
 
-const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
+const context: RuntimeContext = {
+  contextLimit: 4096,
+  safePromptBudget: 3686,
+  searchContextCharacters: 6144
+};
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const active = () => snapshot.collection.chats.find(

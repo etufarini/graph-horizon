@@ -1,8 +1,8 @@
 <script lang="ts">
   /*
    * Composer.svelte
-   * Single responsibility: keep the next draft editable while exposing send
-   * only when the runtime is idle and available, alongside the stop action.
+   * Single responsibility: keep the next draft and its explicit Web-search
+   * choice editable while exposing send or stop for the active request.
    */
   // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
   import logoUrl from '../../../../assets/graph-horizon-logo.svg';
@@ -11,6 +11,7 @@
   export let value = '';
   export let streaming = false;
   export let contextAvailable = false;
+  export let webSearch = false;
 
   const dispatch = createEventDispatcher<{
     send: void;
@@ -45,6 +46,19 @@
   ></textarea>
   <div class="composer-bar">
     <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
+    <button
+      class:search-active={webSearch}
+      class="action action-search"
+      type="button"
+      aria-pressed={webSearch}
+      aria-label={webSearch ? 'Disable Web search' : 'Enable Web search'}
+      on:click={() => { webSearch = !webSearch; }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+      </svg>
+    </button>
     <span class="composer-hint">
       {streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
     </span>
@@ -131,6 +145,22 @@
     height: var(--gn-composer-logo-size);
     flex: 0 0 auto;
     object-fit: contain;
+  }
+
+  .action-search {
+    border: var(--gn-border-width) solid var(--gn-border);
+    background: var(--gn-bg-panel-raised);
+    color: var(--gn-text-muted);
+  }
+
+  .action-search:hover,
+  .action-search.search-active {
+    border-color: var(--gn-accent);
+    color: var(--gn-text-primary);
+  }
+
+  .action-search.search-active {
+    background: var(--gn-accent);
   }
 
   .action {

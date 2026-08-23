@@ -58,6 +58,7 @@ export type ChatSaveResult = PersistenceWarning | null;
 export interface RuntimeContext {
   contextLimit: number;
   safePromptBudget: number;
+  searchContextCharacters: number;
 }
 
 export interface ContextUsage {

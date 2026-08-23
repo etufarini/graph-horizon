@@ -11,7 +11,8 @@ import type { RuntimeContext, WireMessage } from './types.ts';
 
 const context: RuntimeContext = {
   contextLimit: 2000,
-  safePromptBudget: 1800
+  safePromptBudget: 1800,
+  searchContextCharacters: 6144
 };
 
 function user(content: string): WireMessage[] {
@@ -22,22 +23,40 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
   assert.deepEqual(
     parseRuntimeContext({
       context_limit: 8192,
+      search_context_characters: 6144,
       model_path: 'ignored'
     }),
     {
       ok: true,
-      context: { contextLimit: 8192, safePromptBudget: 7372 }
+      context: {
+        contextLimit: 8192,
+        safePromptBudget: 7372,
+        searchContextCharacters: 6144
+      }
     }
   );
   for (const context_limit of [0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ context_limit }), {
+    assert.deepEqual(parseRuntimeContext({ context_limit, search_context_characters: 6144 }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  for (const payload of [null, [], {}, { context_limit: null }]) {
+  for (const search_context_characters of [0, -1, 1.5, '6144', null]) {
+    assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search_context_characters }), {
+      ok: false,
+      error: 'unavailable'
+    });
+  }
+  for (const payload of [null, [], {}, { context_limit: null }, { context_limit: 8192 }]) {
     assert.deepEqual(parseRuntimeContext(payload), { ok: false, error: 'unavailable' });
   }
+});
+
+test('search reserve participates in the same Unicode estimate', () => {
+  assert.equal(contextUsage(user('xxxx'), context, 4).estimatedTokens, 2);
+  assert.equal(admitMessages(user('x'.repeat(1799 * 4)), context, 4).ok, true);
+  assert.equal(admitMessages(user('x'.repeat(1800 * 4)), context, 4).ok, false);
+  assert.equal(contextUsage([], context, -1).estimatedTokens, Number.MAX_SAFE_INTEGER);
 });
 
 test('Unicode code points are summed before one floor division', () => {
@@ -85,13 +104,15 @@ test('usage includes its context denominator and clamps only graphical progress'
 test('maximum safe capacity uses exact quotient arithmetic', () => {
   assert.deepEqual(
     parseRuntimeContext({
-      context_limit: Number.MAX_SAFE_INTEGER
+      context_limit: Number.MAX_SAFE_INTEGER,
+      search_context_characters: 6144
     }),
     {
       ok: true,
       context: {
         contextLimit: Number.MAX_SAFE_INTEGER,
-        safePromptBudget: 8106479329266891
+        safePromptBudget: 8106479329266891,
+        searchContextCharacters: 6144
       }
     }
   );

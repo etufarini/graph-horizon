@@ -93,6 +93,37 @@ test('unsuccessful and bodyless responses use request failure', async () => {
   }
 });
 
+test('Web search adds only the bounded query field and reports upstream failure', async () => {
+  let request: unknown;
+  globalThis.fetch = async (_input, init) => {
+    request = JSON.parse(String(init?.body));
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(finished));
+        controller.close();
+      }
+    }));
+  };
+  await streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query');
+  assert.deepEqual(request, { messages, search_query: 'fresh query' });
+
+  globalThis.fetch = async () => new Response(null, { status: 502 });
+  await assert.rejects(
+    streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query'),
+    { message: 'Web search unavailable' }
+  );
+});
+
+test('invalid Web query is rejected before fetch', async () => {
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches += 1; throw new Error('unexpected fetch'); };
+  await assert.rejects(
+    streamAssistant(messages, () => {}, new AbortController().signal, 'x'.repeat(513)),
+    { message: 'Request failed' }
+  );
+  assert.equal(fetches, 0);
+});
+
 test('an oversized assembled JSON body is rejected before fetch', async () => {
   let fetches = 0;
   globalThis.fetch = async () => {

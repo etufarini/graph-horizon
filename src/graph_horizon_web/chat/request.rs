@@ -1,8 +1,7 @@
 /*
  * Graph Horizon Web chat request
- * Reads one size-bounded request from the bundled frontend and converts its
- * strict private JSON shape into an engine request. No compatibility fields are
- * accepted and no HTTP response policy is defined here.
+ * Reads one bounded private request and separates its optional raw search query
+ * from the messages converted for the engine. Compatibility fields are rejected.
  */
 
 use bytes::Bytes;

@@ -1,11 +1,7 @@
-/*
- * Transactional generation lifecycle: admits prompt occupancy before visible
- * mutation, then owns one request, timing, deltas, append/restart rollback,
- * voluntary Stop commit, and stable checkpoint signals. Chat-list, storage,
- * Reasoning presentation, and UI are excluded.
- */
+/* Transactional generation lifecycle: admits local plus optional search context,
+ * then owns one streamed request, rollback, Stop, timing, and checkpoints. */
 import { get, type Writable } from 'svelte/store';
-import { streamAssistant } from './client.ts';
+import { streamAssistant, WEB_SEARCH_FAILED } from './client.ts';
 import { admitMessages } from './context.ts';
 import { expandPromptWithMarkdownFiles } from './files/context.ts';
 import { activeChat } from './sessions.ts';
@@ -17,17 +13,12 @@ import {
   replaceFromTurn,
   wireMessages
 } from './transcript.ts';
-import type {
-  ChatCollection,
-  ChatMessage,
-  ChatSnapshot,
-  RuntimeContext,
-  StreamEvent
-} from './types.ts';
+import type { ChatCollection, ChatMessage, ChatSnapshot, RuntimeContext, StreamEvent } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
 const FAILED = 'Request failed';
 const INTERRUPTED = 'Response interrupted';
+const KNOWN_FAILURES = new Set([FAILED, WEB_SEARCH_FAILED]);
 
 export function createGeneration(
   store: Writable<ChatSnapshot>,
@@ -38,19 +29,21 @@ export function createGeneration(
   async function send(
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
-    await generate('append', text.trim(), context, '', files);
+    await generate('append', text.trim(), context, '', files, webSearch);
   }
 
   async function regenerate(
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
     const snapshot = get(store);
     const pair = finalPair(activeChat(snapshot.collection).messages);
     if (pair) {
-      await generate('replace', pair[0].content, context, pair[0].id, files);
+      await generate('replace', pair[0].content, context, pair[0].id, files, webSearch);
     }
   }
 
@@ -58,9 +51,10 @@ export function createGeneration(
     userId: string,
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
-    await generate('replace', text.trim(), context, userId, files);
+    await generate('replace', text.trim(), context, userId, files, webSearch);
   }
 
   function stop(): void {
@@ -72,7 +66,8 @@ export function createGeneration(
     prompt: string,
     context: RuntimeContext,
     userId = '',
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
@@ -87,7 +82,7 @@ export function createGeneration(
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
-    const admission = admitMessages(wire, context);
+    const admission = admitMessages(wire, context, webSearch ? context.searchContextCharacters : 0);
     if (!admission.ok) {
       store.set({
         ...current,
@@ -127,7 +122,8 @@ export function createGeneration(
       await streamAssistant(
         wire,
         event => applyEvent(chatId, assistantId, event),
-        request.signal
+        request.signal,
+        webSearch ? prompt.trim() : null
       );
       store.update(snapshot => ({
         ...snapshot,
@@ -151,7 +147,7 @@ export function createGeneration(
           ...snapshot,
           collection: withMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
-          error: error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED,
+          error: error instanceof Error && KNOWN_FAILURES.has(error.message) ? error.message : INTERRUPTED,
           telemetry: null
         }));
       }

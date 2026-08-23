@@ -1,8 +1,5 @@
-<!--
-Chat.svelte is the sole Web UI composition boundary for active-chat prompt,
-transcript, Markdown files, responsive panels, context, transfer, status, and
-gated submission. Collection rules, transport, and storage schemas remain outside.
--->
+<!-- Chat.svelte composes the active chat, optional Web search, files, panels,
+context, transfer, status, and gated submission; domain rules remain outside. -->
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import ChatHistory from '../ChatHistory.svelte';
@@ -32,6 +29,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
   let mobile = false;
   let filesOpen = false;
   let filesOverlay = false;
+  let webSearch = false;
   let selectedFileChat = '';
   let historyToggle: HTMLButtonElement;
   let filesToggle: HTMLButtonElement;
@@ -85,7 +83,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     ...(fileOverhead ? [{ role: 'user' as const, content: fileOverhead }] : [])
   ];
   $: usage = runtimeContext
-    ? contextUsage(occupancyMessages, runtimeContext)
+    ? contextUsage(occupancyMessages, runtimeContext, webSearch ? runtimeContext.searchContextCharacters : 0)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
     ? 'Invalid chat archive: starting with a new chat'
@@ -101,7 +99,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     const submitted = draft;
     draft = '';
     if (!runtimeContext || !filesReady) return;
-    await chat.send(submitted, runtimeContext, $markdownFiles.files);
+    await chat.send(submitted, runtimeContext, $markdownFiles.files, webSearch);
     // Restore only when no newer draft was prepared during the failed request.
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
@@ -134,12 +132,12 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
   }
 
   function regenerate(): void {
-    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files);
+    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, webSearch);
   }
 
   function editPrompt(userId: string, text: string): void {
     if (runtimeContext && filesReady) {
-      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files);
+      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, webSearch);
     }
   }
 
@@ -181,7 +179,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />
-    <Composer bind:value={draft} {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
+    <Composer bind:value={draft} bind:webSearch {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
   <FilesPanel

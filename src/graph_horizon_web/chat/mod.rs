@@ -1,8 +1,7 @@
 /*
  * Graph Horizon Web chat pipeline
- * Validates one bundled-frontend request, acquires bounded engine access, and
- * returns the private streaming response. Listener and asset routing are owned
- * by the surrounding Web domain.
+ * Validates one bundled-frontend request, optionally adds bounded Web-search
+ * context before acquiring the engine mutex, and returns the private stream.
  */
 
 use std::sync::Arc;

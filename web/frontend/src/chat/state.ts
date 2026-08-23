@@ -42,10 +42,11 @@ function createChatState() {
   async function send(
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.send(text, context, files);
+    await generation.send(text, context, files, webSearch);
   }
 
   function stop(): void {
@@ -54,20 +55,22 @@ function createChatState() {
 
   async function regenerate(
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.regenerate(context, files);
+    await generation.regenerate(context, files, webSearch);
   }
 
   async function editPrompt(
     userId: string,
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    webSearch = false
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.editPrompt(userId, text, context, files);
+    await generation.editPrompt(userId, text, context, files, webSearch);
   }
 
   function deleteLastTurn(): void {

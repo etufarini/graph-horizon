@@ -1,8 +1,7 @@
 /*
  * Graph Horizon web startup
- * Loads the local chat engine and assembles the bundled Web UI. The loaded
- * engine's immutable limits and runtime facts feed only the private browser
- * transport.
+ * Loads the local chat engine, initializes optional Web-search transport, and
+ * assembles the bundled UI behind its private browser protocol.
  */
 
 use color_eyre::eyre::{Result, eyre};

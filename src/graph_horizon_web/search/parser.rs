@@ -184,4 +184,21 @@ mod tests {
         assert_eq!(results[0].title.chars().count(), MAX_TITLE_CHARACTERS);
         assert_eq!(results[0].snippet.chars().count(), MAX_SNIPPET_CHARACTERS);
     }
+
+    #[test]
+    fn result_urls_reject_credentials_and_non_web_schemes() {
+        for href in [
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "https://user@example.com/",
+            "https://user:secret@example.com/",
+            "/l/?uddg=javascript%3Aalert%281%29",
+        ] {
+            assert_eq!(result_url(href), None, "accepted {href}");
+        }
+        assert_eq!(
+            result_url("//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa%23part"),
+            Some("https://example.com/a".into())
+        );
+    }
 }

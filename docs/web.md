@@ -159,11 +159,11 @@ fill gaps from model memory. The complete added framing is limited to 6,144
 Unicode characters. The browser reserves that maximum before creating a visible
 turn or starting `fetch`, so an admitted search result cannot silently exceed
 the displayed prompt budget. After successful generation, the backend appends a
-sanitized Markdown `Sources` list mapping every included identifier to its
-validated clickable URL. Reference definitions also make matching identifiers
-such as `[S3]` clickable inside the answer. Search context, date, and toggle
-state are excluded from transcript, local storage, import, and export; the
-source list is retained as part of the visible assistant answer.
+sanitized Markdown `Sources` list with an explicit validated link for every
+included identifier. Reference definitions also provide link targets for
+matching identifiers such as `[S3]` inside the answer. Search context, date, and
+toggle state are excluded from transcript, local storage, import, and export;
+the source list is retained as part of the visible assistant answer.
 
 Search is best-effort because DuckDuckGo's public markup and rate limits are not
 a stable API contract. A timeout, redirect, rate limit, malformed response, or

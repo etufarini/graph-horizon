@@ -22,6 +22,7 @@ pub(in crate::graph_horizon_web) struct Framed {
 
 pub(super) fn frame(results: &[Result], date: &str) -> Option<Framed> {
     let mut framed = format!("{HEADER}Browser-local date for this request: {date}.\n");
+    let mut characters = framed.chars().count() + FOOTER.chars().count();
     let mut included = 0;
     for result in results {
         let number = included + 1;
@@ -29,26 +30,27 @@ pub(super) fn frame(results: &[Result], date: &str) -> Option<Framed> {
             "\n### Result S{number}\nTitle: {}\nURL: {}\nSnippet: {}\n",
             result.title, result.url, result.snippet
         );
-        if framed.chars().count() + entry.chars().count() + FOOTER.chars().count()
-            > MAX_CONTEXT_CHARACTERS
-        {
+        let entry_characters = entry.chars().count();
+        if characters + entry_characters > MAX_CONTEXT_CHARACTERS {
             break;
         }
         framed.push_str(&entry);
+        characters += entry_characters;
         included += 1;
     }
     if included == 0 {
         return None;
     }
     framed.push_str(FOOTER);
-    debug_assert!(framed.chars().count() <= MAX_CONTEXT_CHARACTERS);
+    debug_assert_eq!(framed.chars().count(), characters);
     let mut sources = String::from("\n\n### Sources\n");
-    let mut definitions = String::from("\n");
     for (index, result) in results.iter().take(included).enumerate() {
-        sources.push_str(&format!("- [S{}]\n", index + 1));
-        definitions.push_str(&format!("[S{}]: <{}>\n", index + 1, result.url));
+        sources.push_str(&format!("- [S{}](<{}>)\n", index + 1, result.url));
     }
-    sources.push_str(&definitions);
+    sources.push('\n');
+    for (index, result) in results.iter().take(included).enumerate() {
+        sources.push_str(&format!("[S{}]: <{}>\n", index + 1, result.url));
+    }
     Some(Framed {
         prompt: framed,
         sources,
@@ -90,7 +92,7 @@ mod tests {
         assert!(framed.prompt.ends_with("### Existing request context\n"));
         assert_eq!(
             framed.sources,
-            "\n\n### Sources\n- [S1]\n- [S2]\n\n[S1]: <https://example.com/1>\n[S2]: <https://example.com/2>\n"
+            "\n\n### Sources\n- [S1](<https://example.com/1>)\n- [S2](<https://example.com/2>)\n\n[S1]: <https://example.com/1>\n[S2]: <https://example.com/2>\n"
         );
     }
 

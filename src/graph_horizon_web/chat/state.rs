@@ -1,7 +1,7 @@
 /*
  * Graph Horizon Web chat state
- * Owns the local engine, optional search client, and bounded concurrency gates
- * used by bundled Web chat. Routing, wire parsing, and streaming stay elsewhere.
+ * Owns the local engine, search admission, and bounded concurrency gates used
+ * by bundled Web chat. Routing, wire parsing, and streaming stay elsewhere.
  */
 
 use std::sync::Arc;

@@ -1,7 +1,7 @@
 /* Transactional generation lifecycle: admits local plus optional search context,
  * then owns one streamed request, rollback, Stop, timing, and checkpoints. */
 import { get, type Writable } from 'svelte/store';
-import { streamAssistant, WEB_SEARCH_FAILED } from './client.ts';
+import { REQUEST_FAILED, streamAssistant, WEB_SEARCH_FAILED } from './client.ts';
 import { admitMessages } from './context.ts';
 import { expandPromptWithMarkdownFiles } from './files/context.ts';
 import { activeChat } from './sessions.ts';
@@ -16,9 +16,7 @@ import {
 import type { ChatCollection, ChatMessage, ChatSnapshot, RuntimeContext, StreamEvent } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
-const FAILED = 'Request failed';
 const INTERRUPTED = 'Response interrupted';
-const KNOWN_FAILURES = new Set([FAILED, WEB_SEARCH_FAILED]);
 
 export function createGeneration(
   store: Writable<ChatSnapshot>,
@@ -143,11 +141,12 @@ export function createGeneration(
         }));
         checkpoint(chatId);
       } else {
+        const message = error instanceof Error ? error.message : '';
         store.update(snapshot => ({
           ...snapshot,
           collection: withMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
-          error: error instanceof Error && KNOWN_FAILURES.has(error.message) ? error.message : INTERRUPTED,
+          error: message === REQUEST_FAILED || message === WEB_SEARCH_FAILED ? message : INTERRUPTED,
           telemetry: null
         }));
       }

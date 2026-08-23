@@ -9,7 +9,7 @@ import { readChatStream } from './stream.ts';
 import { parseRuntimeInfo } from './telemetry.ts';
 import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage } from './types';
 
-const FAILED = 'Request failed';
+export const REQUEST_FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
 export const WEB_SEARCH_FAILED = 'Web search unavailable; no answer was generated';
 const INACTIVITY_MS = 5 * 60_000;
@@ -79,13 +79,13 @@ export async function streamAssistant(
       !searchQuery ||
       Array.from(searchQuery).length > MAX_SEARCH_QUERY_CHARACTERS
     )) {
-      throw new Error(FAILED);
+      throw new Error(REQUEST_FAILED);
     }
     const body = JSON.stringify(searchQuery === null
       ? { messages }
       : { messages, search_query: searchQuery, search_date: localDate(new Date()) });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
-      throw new Error(FAILED);
+      throw new Error(REQUEST_FAILED);
     }
     const response = await fetch('/internal/chat', {
       method: 'POST',
@@ -101,7 +101,7 @@ export async function streamAssistant(
       throw new Error(WEB_SEARCH_FAILED);
     }
     if (!response.ok || !response.body) {
-      throw new Error(FAILED);
+      throw new Error(REQUEST_FAILED);
     }
 
     await readChatStream(response.body, onEvent, resetWatchdog);

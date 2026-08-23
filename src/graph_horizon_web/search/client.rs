@@ -32,7 +32,9 @@ pub(super) async fn fetch(query: &str) -> Result<String, ()> {
             "--max-time",
             "8",
             "--max-filesize",
-            "524288",
+        ])
+        .arg(MAX_RESPONSE_BYTES.to_string())
+        .args([
             "--noproxy",
             "*",
             "--proto",
@@ -88,7 +90,7 @@ fn request_url(query: &str) -> String {
 fn requests_today(query: &str) -> bool {
     query
         .split(|character: char| !character.is_alphanumeric())
-        .any(|word| matches!(word.to_lowercase().as_str(), "oggi" | "today"))
+        .any(|word| word.eq_ignore_ascii_case("oggi") || word.eq_ignore_ascii_case("today"))
 }
 
 #[cfg(test)]

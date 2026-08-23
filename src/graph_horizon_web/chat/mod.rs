@@ -46,6 +46,7 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
         Ok(permit) => permit,
         Err(_) => return error_response(StatusCode::TOO_MANY_REQUESTS, "busy"),
     };
+    let mut source_footer = None;
     if let Some(search) = parsed.search.take() {
         let context = match state.search.context(&search.query, &search.date).await {
             Ok(context) => context,
@@ -62,10 +63,18 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
             .messages
             .last_mut()
             .expect("validated Web search has a final user message");
-        message.content.insert_str(0, &context);
+        message.content.insert_str(0, &context.prompt);
+        source_footer = Some(context.sources);
     }
     let guard = Arc::clone(&state.serialize).lock_owned().await;
-    let body = stream::body(state.engine, parsed.engine, cache_key, guard, permit);
+    let body = stream::body(
+        state.engine,
+        parsed.engine,
+        source_footer,
+        cache_key,
+        guard,
+        permit,
+    );
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/event-stream")

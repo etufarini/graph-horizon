@@ -158,8 +158,11 @@ to name absent sources, and to acknowledge insufficient evidence rather than
 fill gaps from model memory. The complete added framing is limited to 6,144
 Unicode characters. The browser reserves that maximum before creating a visible
 turn or starting `fetch`, so an admitted search result cannot silently exceed
-the displayed prompt budget. Search context, date, and toggle state are excluded
-from transcript, local storage, import, and export.
+the displayed prompt budget. After successful generation, the backend appends a
+sanitized Markdown `Sources` list mapping every included identifier to its
+validated clickable URL. Search context, date, and toggle state are excluded
+from transcript, local storage, import, and export; the source list is retained
+as part of the visible assistant answer.
 
 Search is best-effort because DuckDuckGo's public markup and rate limits are not
 a stable API contract. A timeout, redirect, rate limit, malformed response, or

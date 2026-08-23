@@ -23,6 +23,7 @@ use super::super::router::ResponseBody;
 pub(super) fn body(
     engine: Arc<Engine>,
     request: Request,
+    source_footer: Option<String>,
     cache_key: [u8; 16],
     guard: OwnedMutexGuard<()>,
     permit: OwnedSemaphorePermit,
@@ -32,7 +33,7 @@ pub(super) fn body(
         // Both gates live exactly as long as generation, including cancellation.
         let _guard = guard;
         let _permit = permit;
-        engine.generate_cached(cache_key, request, &mut WebSink { tx });
+        engine.generate_cached(cache_key, request, &mut WebSink { tx, source_footer });
     });
 
     let stream =
@@ -44,6 +45,7 @@ pub(super) fn body(
 
 struct WebSink {
     tx: mpsc::Sender<String>,
+    source_footer: Option<String>,
 }
 
 impl EventSink for WebSink {
@@ -68,6 +70,11 @@ impl EventSink for WebSink {
                 false
             }
             Event::Finished(stats) => {
+                if let Some(content) = self.source_footer.take()
+                    && !self.send(&ContentFrame { content: &content })
+                {
+                    return false;
+                }
                 let _ = self.send(&StatsFrame {
                     stats: Stats {
                         prompt_tokens: stats.prompt_tokens,
@@ -133,8 +140,35 @@ mod tests {
     fn disconnected_receiver_cancels_generation() {
         let (tx, rx) = mpsc::channel(1);
         drop(rx);
-        let mut sink = WebSink { tx };
+        let mut sink = WebSink {
+            tx,
+            source_footer: None,
+        };
         assert!(!sink.emit(Event::TextDelta("ignored".into())));
         assert!(sink.cancelled());
+    }
+
+    #[test]
+    fn source_footer_precedes_terminal_frames() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let mut sink = WebSink {
+            tx,
+            source_footer: Some("\n\n### Sources\n- [S1](<https://example.com/>)\n".into()),
+        };
+        assert!(
+            !sink.emit(Event::Finished(graph_horizon_engine::GenerationStats {
+                prompt_tokens: 2,
+                prefill_tokens: 2,
+                completion_tokens: 1,
+                prefill_ms: 10,
+                decode_ms: 20,
+            }))
+        );
+        drop(sink);
+
+        assert!(rx.blocking_recv().unwrap().contains("### Sources"));
+        assert!(rx.blocking_recv().unwrap().contains("\"stats\""));
+        assert!(rx.blocking_recv().unwrap().contains("\"done\":true"));
+        assert!(rx.blocking_recv().is_none());
     }
 }

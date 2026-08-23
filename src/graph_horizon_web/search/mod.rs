@@ -36,7 +36,7 @@ impl State {
         }
     }
 
-    pub(super) async fn context(&self, query: &str, date: &str) -> Result<String, Error> {
+    pub(super) async fn context(&self, query: &str, date: &str) -> Result<context::Framed, Error> {
         // One best-effort request at a time avoids amplifying upstream rate limits.
         let _permit = Arc::clone(&self.admission)
             .try_acquire_owned()

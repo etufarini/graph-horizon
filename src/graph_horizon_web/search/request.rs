@@ -1,27 +1,27 @@
 /*
  * Provider-neutral Web search request
- * Validates the bounded terms, browser language hint, reference date, and
- * optional half-open publication interval before any provider sees them.
+ * Validates bounded terms, browser language, local reference date, and an
+ * optional half-open UTC millisecond interval before any provider sees them.
  */
 
-use serde::Deserialize;
-use std::time::{SystemTime, UNIX_EPOCH};
+use serde::{Deserialize, Serialize};
 
-const MAX_QUERY_CHARACTERS: usize = 512;
+pub(super) const MAX_QUERY_CHARACTERS: usize = 512;
+pub(super) const MAX_TIMESTAMP_BOUND_MS: u64 = 253_402_300_800_000;
 const MAX_LANGUAGE_CHARACTERS: usize = 35;
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum Category {
     Web,
     News,
 }
 
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Published {
-    from: String,
-    to: String,
+    from_ms: u64,
+    to_ms: u64,
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -41,8 +41,8 @@ impl Request {
             || self.terms.chars().count() > MAX_QUERY_CHARACTERS
             || !valid_language(&self.language)
             || !valid_date(&self.reference_date)
-            || self.published.as_ref().is_some_and(|range| {
-                !valid_date(&range.from) || !valid_date(&range.to) || range.from >= range.to
+            || self.published.is_some_and(|range| {
+                range.from_ms >= range.to_ms || range.to_ms > MAX_TIMESTAMP_BOUND_MS
             })
         {
             return Err(());
@@ -66,31 +66,22 @@ impl Request {
         &self.reference_date
     }
 
-    pub(super) fn published(&self) -> Option<&Published> {
-        self.published.as_ref()
+    pub(super) fn published(&self) -> Option<Published> {
+        self.published
     }
 }
 
 impl Published {
-    pub(super) fn from(&self) -> &str {
-        &self.from
+    pub(super) fn from_ms(self) -> u64 {
+        self.from_ms
     }
 
-    pub(super) fn to(&self) -> &str {
-        &self.to
+    pub(super) fn to_ms(self) -> u64 {
+        self.to_ms
     }
 
-    pub(super) fn contains(&self, time: SystemTime) -> bool {
-        let Ok(seconds) = time.duration_since(UNIX_EPOCH) else {
-            return false;
-        };
-        let day = (seconds.as_secs() / 86_400) as i64;
-        date_day(&self.from).is_some_and(|from| from <= day)
-            && date_day(&self.to).is_some_and(|to| day < to)
-    }
-
-    pub(super) fn duckduckgo_filter(&self) -> String {
-        format!("{}..{}", self.from, previous_date(&self.to))
+    pub(super) fn contains(self, time_ms: u64) -> bool {
+        self.from_ms <= time_ms && time_ms < self.to_ms
     }
 }
 
@@ -111,7 +102,7 @@ fn valid_language(value: &str) -> bool {
         })
 }
 
-pub(super) fn valid_date(value: &str) -> bool {
+fn valid_date(value: &str) -> bool {
     let bytes = value.as_bytes();
     if bytes.len() != 10
         || bytes[4] != b'-'
@@ -137,44 +128,6 @@ pub(super) fn valid_date(value: &str) -> bool {
     year != 0 && day != 0 && day <= days
 }
 
-fn date_day(value: &str) -> Option<i64> {
-    valid_date(value).then_some(())?;
-    let mut year = value[0..4].parse::<i64>().ok()?;
-    let month = value[5..7].parse::<i64>().ok()?;
-    let day = value[8..10].parse::<i64>().ok()?;
-    year -= i64::from(month <= 2);
-    let era = if year >= 0 { year } else { year - 399 } / 400;
-    let year_of_era = year - era * 400;
-    let shifted_month = month + if month > 2 { -3 } else { 9 };
-    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
-    Some(
-        era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year
-            - 719_468,
-    )
-}
-
-fn previous_date(value: &str) -> String {
-    let year = value[0..4].parse::<u16>().expect("validated year");
-    let month = value[5..7].parse::<u8>().expect("validated month");
-    let day = value[8..10].parse::<u8>().expect("validated day");
-    if day > 1 {
-        return format!("{year:04}-{month:02}-{:02}", day - 1);
-    }
-    let (year, month) = if month == 1 {
-        (year - 1, 12)
-    } else {
-        (year, month - 1)
-    };
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let day = match month {
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => 31,
-    };
-    format!("{year:04}-{month:02}-{day:02}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,60 +139,34 @@ mod tests {
     }
 
     #[test]
-    fn request_preserves_terms_and_separates_search_properties() {
-        let request = parse(
-            r#"{"terms":" notizie Rust 10 giorni fa ","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from":"2026-08-14","to":"2026-08-15"}}"#,
-        )
-        .unwrap();
-        assert_eq!(request.terms(), "notizie Rust 10 giorni fa");
+    fn request_preserves_explicit_properties() {
+        let request = parse(r#"{"terms":" current Rust ","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from_ms":1787522400000,"to_ms":1787608800000}}"#).unwrap();
+        assert_eq!(request.terms(), "current Rust");
         assert_eq!(request.category(), Category::News);
-        assert_eq!(request.language(), "it-IT");
-        assert_eq!(request.reference_date(), "2026-08-24");
-        assert_eq!(request.published().unwrap().from(), "2026-08-14");
-        assert_eq!(request.published().unwrap().to(), "2026-08-15");
+        assert_eq!(request.published().unwrap().from_ms(), 1_787_522_400_000);
     }
 
     #[test]
-    fn request_accepts_languages_without_classifying_terms() {
-        for language in ["it", "en-GB", "es-419", "de-DE", "ja-JP"] {
-            let body = format!(
-                r#"{{"terms":"error class latest","category":"web","language":"{language}","reference_date":"2026-08-24","published":null}}"#
-            );
-            assert!(parse(&body).is_ok(), "rejected {language}");
-        }
-    }
-
-    #[test]
-    fn invalid_language_dates_and_intervals_are_rejected() {
+    fn invalid_properties_are_rejected() {
         for body in [
             r#"{"terms":"x","category":"web","language":"","reference_date":"2026-08-24","published":null}"#,
             r#"{"terms":"x","category":"web","language":"it--IT","reference_date":"2026-08-24","published":null}"#,
             r#"{"terms":"x","category":"web","language":"it-IT","reference_date":"2026-02-29","published":null}"#,
-            r#"{"terms":"x","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from":"2026-08-15","to":"2026-08-15"}}"#,
-            r#"{"terms":"x","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from":"2026-08-16","to":"2026-08-15"}}"#,
+            r#"{"terms":"x","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from_ms":2,"to_ms":2}}"#,
+            r#"{"terms":"x","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from_ms":2,"to_ms":253402300800001}}"#,
         ] {
             assert!(parse(body).is_err(), "accepted {body}");
         }
     }
 
     #[test]
-    fn publication_intervals_are_half_open_utc_days() {
+    fn interval_is_half_open() {
         let range = Published {
-            from: "2026-08-14".into(),
-            to: "2026-08-15".into(),
+            from_ms: 100,
+            to_ms: 200,
         };
-        assert!(
-            range.contains(httpdate::parse_http_date("Fri, 14 Aug 2026 23:59:59 GMT").unwrap())
-        );
-        assert!(
-            !range.contains(httpdate::parse_http_date("Sat, 15 Aug 2026 00:00:00 GMT").unwrap())
-        );
-        assert_eq!(range.duckduckgo_filter(), "2026-08-14..2026-08-14");
-
-        let leap = Published {
-            from: "2024-02-28".into(),
-            to: "2024-03-01".into(),
-        };
-        assert_eq!(leap.duckduckgo_filter(), "2024-02-28..2024-02-29");
+        assert!(range.contains(100));
+        assert!(range.contains(199));
+        assert!(!range.contains(200));
     }
 }

@@ -13,12 +13,11 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
     return { ok: false, error: 'unavailable' };
   }
   const contextLimit = payload.context_limit;
-  const searchContextCharacters = payload.search_context_characters;
+  const search = parseSearchCapability(payload.search);
   if (
     !Number.isSafeInteger(contextLimit) ||
     (contextLimit as number) <= 1 ||
-    !Number.isSafeInteger(searchContextCharacters) ||
-    (searchContextCharacters as number) <= 0
+    search === null
   ) {
     return { ok: false, error: 'unavailable' };
   }
@@ -30,8 +29,28 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
     context: {
       contextLimit: limit,
       safePromptBudget,
-      searchContextCharacters: searchContextCharacters as number
+      search
     }
+  };
+}
+
+function parseSearchCapability(value: unknown): RuntimeContext['search'] | null {
+  if (!isRecord(value) || typeof value.enabled !== 'boolean' ||
+      !(value.provider === null || typeof value.provider === 'string') ||
+      !Number.isSafeInteger(value.max_query_characters) ||
+      (value.max_query_characters as number) <= 0 ||
+      !Number.isSafeInteger(value.max_context_characters) ||
+      (value.max_context_characters as number) <= 0 ||
+      typeof value.date_filters !== 'boolean' ||
+      value.enabled !== (value.provider !== null)) {
+    return null;
+  }
+  return {
+    enabled: value.enabled,
+    provider: value.provider,
+    maxQueryCharacters: value.max_query_characters as number,
+    maxContextCharacters: value.max_context_characters as number,
+    dateFilters: value.date_filters
   };
 }
 

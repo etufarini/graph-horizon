@@ -10,6 +10,7 @@ history, transcript repair, and persistence remain outside this component.
 
   export let messages: ChatMessage[] = [];
   export let streaming = false;
+  export let searchEnabled = false;
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
@@ -48,7 +49,9 @@ history, transcript repair, and persistence remain outside this component.
     <div class="empty-state">
       <span class="empty-mark" aria-hidden="true"></span>
       <h2>Inference engine ready</h2>
-      <p>Send a message to start the session. Everything runs locally.</p>
+      <p>{searchEnabled
+        ? 'Inference stays local. Web search sends only the displayed query to its configured provider.'
+        : 'Send a message to start the local session.'}</p>
     </div>
   {:else}
     {#each turns as turn, index (turn[0].id)}

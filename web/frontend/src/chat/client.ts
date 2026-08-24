@@ -12,7 +12,14 @@ import type { ContextConfigResult, RuntimeInfoResult, SearchInput, StreamEvent, 
 
 export const REQUEST_FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
-export const WEB_SEARCH_FAILED = 'Web search unavailable; no answer was generated';
+const SEARCH_FAILURES: Record<string, string> = {
+  'web search not configured': 'Web search is not configured',
+  'web search returned no results': 'Web search returned no usable results; no answer was generated',
+  'web search rate limited': 'Web search was rate limited; no answer was generated',
+  'web search timed out': 'Web search timed out; no answer was generated',
+  'invalid web search response': 'The Web search provider returned invalid data; no answer was generated',
+  'web search unavailable': 'Web search is unavailable; no answer was generated'
+};
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
@@ -96,10 +103,8 @@ export async function streamAssistant(
       signal: controller.signal
     });
 
-    if (response.status === 502) {
-      throw new Error(WEB_SEARCH_FAILED);
-    }
     if (!response.ok || !response.body) {
+      if (search !== null) throw new Error(await searchFailure(response));
       throw new Error(REQUEST_FAILED);
     }
 
@@ -116,4 +121,21 @@ export async function streamAssistant(
     clearTimeout(timeout!);
     signal.removeEventListener('abort', stop);
   }
+}
+
+export function isExpectedFailure(message: string): boolean {
+  return message === REQUEST_FAILED || Object.values(SEARCH_FAILURES).includes(message);
+}
+
+async function searchFailure(response: Response): Promise<string> {
+  try {
+    const value: unknown = await response.json();
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const error = (value as Record<string, unknown>).error;
+      if (typeof error === 'string' && SEARCH_FAILURES[error]) return SEARCH_FAILURES[error];
+    }
+  } catch {
+    // Provider and server details are intentionally replaced by a fixed message.
+  }
+  return 'Web search is unavailable; no answer was generated';
 }

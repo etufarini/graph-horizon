@@ -1,6 +1,6 @@
 /*
  * Private chat-archive format boundary: owns exact version schemas, strict
- * object validation, the UTF-8 size limit, and version-1/2 migration into
+ * object validation, the UTF-8 size limit, and legacy migration into
  * per-chat prompts. Browser storage I/O remains outside this module.
  */
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
@@ -8,7 +8,7 @@ import { hydrateTranscript, validateTranscript } from './transcript.ts';
 import type { ChatArchiveRecord, ChatCollection, TranscriptMessage } from './types.ts';
 
 export const STORAGE_KEY = 'graph-horizon.conversation';
-export const FORMAT_VERSION = 3;
+export const FORMAT_VERSION = 4;
 export const MAX_RECORD_BYTES = 4_194_304;
 
 export type ArchiveParseResult =
@@ -41,11 +41,15 @@ export function parseArchive(
     return { kind: 'invalid' };
   }
   if (value.version === FORMAT_VERSION) {
-    const collection = parseCollection(value, true);
+    const collection = parseCollection(value, true, true);
     return collection ? { kind: 'current', collection } : { kind: 'invalid' };
   }
+  if (value.version === 3) {
+    const collection = parseCollection(value, true, false);
+    return collection ? { kind: 'legacy', collection } : { kind: 'invalid' };
+  }
   if (value.version === 2) {
-    const collection = parseCollection(value, false, legacySystemPrompt);
+    const collection = parseCollection(value, false, false, legacySystemPrompt);
     return collection ? { kind: 'legacy', collection } : { kind: 'invalid' };
   }
   if (value.version === 1) {
@@ -69,7 +73,8 @@ export function serializeArchive(collection: ChatCollection): ArchiveSerializeRe
       id: chat.id,
       title: chat.title,
       systemPrompt: chat.systemPrompt,
-      messages: chat.messages.map(({ role, content }) => ({ role, content })),
+      messages: chat.messages.map(({ role, content, search }) =>
+        search ? { role, content, search } : { role, content }),
       updatedAt: chat.updatedAt
     }))
   };
@@ -82,6 +87,7 @@ export function serializeArchive(collection: ChatCollection): ArchiveSerializeRe
 function parseCollection(
   value: Record<string, unknown>,
   promptsRequired: boolean,
+  searchAllowed: boolean,
   legacySystemPrompt = ''
 ): ChatCollection | null {
   if (!exact(value, ['version', 'activeChatId', 'chats']) ||
@@ -102,7 +108,7 @@ function parseCollection(
         !Number.isSafeInteger(entry.updatedAt) || (entry.updatedAt as number) < 0) {
       return null;
     }
-    const messages = parseMessages(entry.messages);
+    const messages = parseMessages(entry.messages, searchAllowed);
     if (!messages) {
       return null;
     }
@@ -121,12 +127,16 @@ function parseCollection(
 }
 
 function parseLegacy(value: Record<string, unknown>): TranscriptMessage[] | null {
-  return exact(value, ['version', 'messages']) ? parseMessages(value.messages) : null;
+  return exact(value, ['version', 'messages']) ? parseMessages(value.messages, false) : null;
 }
 
-function parseMessages(value: unknown): TranscriptMessage[] | null {
-  if (!Array.isArray(value) || !value.every(message =>
-    isObject(message) && exact(message, ['role', 'content']))) {
+function parseMessages(value: unknown, searchAllowed: boolean): TranscriptMessage[] | null {
+  if (!Array.isArray(value) || !value.every(message => {
+    if (!isObject(message)) return false;
+    const keys = Object.keys(message);
+    return exact(message, ['role', 'content']) ||
+      (searchAllowed && keys.includes('search') && exact(message, ['role', 'content', 'search']));
+  })) {
     return null;
   }
   return validateTranscript(value);

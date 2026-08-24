@@ -62,8 +62,8 @@ Every generation sends the strict private body:
 }
 ```
 
-When the composer Web-search button is active, the same body adds the trimmed
-visible prompt separately from messages and file framing:
+When the composer Web-search button is active, the same body adds its displayed
+query separately from messages and file framing:
 
 ```json
 {
@@ -73,7 +73,7 @@ visible prompt separately from messages and file framing:
     "category": "news",
     "language": "it-IT",
     "reference_date": "2026-08-23",
-    "published": { "from": "2026-08-17", "to": "2026-08-24" }
+    "published": { "from_ms": 1786917600000, "to_ms": 1787522400000 }
   }
 }
 ```
@@ -92,8 +92,8 @@ A failed, timed-out, malformed, unsafe, or invalid context response shows
 `Context configuration unavailable`. Runtime metadata is informational and is
 omitted when unavailable; it does not weaken the capacity gate.
 
-The browser consumes only the private content, ordered prefill/decode, exact
-statistics, and terminal frames emitted by the bundled backend. Statistics must
+The browser consumes only the private search-provenance, content, ordered
+prefill/decode, exact statistics, and terminal frames emitted by the bundled backend. Statistics must
 contain non-negative prompt, prefill, completion, prefill-time, and decode-time
 values; prefill tokens cannot exceed prompt tokens. Data after statistics,
 invalid JSON, error objects, unknown fields, and unexpected frames interrupt the
@@ -117,7 +117,7 @@ after such a turn, regenerate it, edit its user prompt, or delete it; otherwise
 the backend opens the stream with a generic engine error and the UI reports
 `Response interrupted` while preserving the empty pair.
 
-`--max-tokens` is a CLI setting and is ignored in Web mode.
+`--max-tokens` bounds Web generation; without it Web uses the resolved context limit.
 `--context-tokens`, KV, threads, and placement configure the local engine. The
 browser uses 90% of the resolved context as its conservative prompt budget and
 rejects an assembled UTF-8 JSON body above the backend's 4 MiB limit before
@@ -127,81 +127,83 @@ sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Web Search
 
-The globe button in the composer enables one search for the request being
-submitted. It starts disabled, is not persisted, and may be changed while a
-response streams to prepare the next request. Send, regenerate, and
-edit-and-restart use its value at the moment they start. This is explicit prompt
-enrichment, not tool calling: the model cannot initiate another search.
+Search is disabled by default. `--search-url` enables the globe button and names
+one JSON provider; `--search-key-file` optionally supplies its bearer token.
+There are no built-in scrapers or fallback providers. The model cannot initiate
+a search, and a failed search never falls back to an unsearched answer.
 
-The browser sends only the trimmed visible user prompt as `search.terms`;
-system text, prior messages, and expanded Markdown files never enter the query.
-The user chooses `web` or `news` and any time, today, the last 7 or 30 local
-calendar days, or an inclusive custom date range. The wire interval is expressed
-as validated half-open UTC dates (`from` inclusive, `to` exclusive), alongside
-the browser's BCP 47 language hint and local Gregorian `reference_date`. The
-query is limited to 512 Unicode code points. When the button is inactive the
-whole `search` object is omitted and Graph Horizon performs no outbound request.
+The composer shows the exact query that will leave the process. An empty search
+query means “use the visible message”; otherwise the explicit query is used.
+System text, prior messages, Markdown files, and the rest of the prompt never
+enter it. The query is trimmed and limited to 512 Unicode code points. The user
+also chooses `web` or `news` plus any time, today, the last 7 or 30 local calendar
+days, or an inclusive custom date range. Calendar boundaries are transmitted as
+a half-open interval of Unix milliseconds derived from local midnights. Category
+and terms are never inferred or rewritten.
 
-Category and publication scope are explicit controls. Neither browser nor host
-inspects terms such as `news`, `latest`, language names, error text, frameworks,
-or programming vocabulary to classify a request. Arbitrary-language terms,
-identifiers, versions, and error messages reach the selected provider unchanged.
-The only additions are provider-native date parameters: DuckDuckGo's `df` field
-or Google News `after:` and `before:` operators.
+Graph Horizon sends one POST with `content-type: application/json`:
 
-The Rust host runs the `curl` already required by Graph Horizon without a shell,
-user configuration, cookies, implicit proxy, or redirect following. Web starts
-with a POST to fixed DuckDuckGo Lite; without a publication interval, an empty
-or unusable response falls back to a GET from fixed Brave Search. News starts
-with a GET from fixed Google News RSS; an any-time request may fall back through
-DuckDuckGo and then Brave. A request with dates never falls back to a provider
-that cannot prove those dates. Google News timestamps are parsed from RSS and
-checked against the requested interval; DuckDuckGo's Web interval is provider-
-filtered and its results therefore retain an unknown publication timestamp.
+```json
+{
+  "query": "Rust 1.97 release",
+  "category": "news",
+  "language": "it-IT",
+  "reference_date": "2026-08-24",
+  "published": { "from_ms": 1787522400000, "to_ms": 1787608800000 }
+}
+```
 
-`curl` must remain available on `PATH` when search is used; its absence affects
-search only. Each request has an eight-second transfer timeout, a nine-second
-process ceiling, and a 512 KiB decoded-body limit. Only one search workflow runs
-at a time. HTTP status, malformed XML, block pages, and rate limits are handled
-as provider failures. At most ten distinct HTTP(S) results survive parsing.
-Title, URL, snippet, publisher, and publication time are separately bounded or
-marked unknown. Graph Horizon never visits or downloads a result URL.
+The provider must return exactly this response shape:
 
-Validated results are prefixed only to the final outgoing user-message copy.
-The framing calls them untrusted, potentially stale reference data, states the
-explicit category, browser-local date, requested interval, publisher and parsed
-publication time, and requires citations by result identifier (`[S1]`, `[S2]`).
-It instructs the model to use only facts supported by the returned snippets, not
-to name absent sources, and to acknowledge insufficient evidence rather than
-fill gaps from model memory. The complete added framing is limited to 12,288
-Unicode characters. The browser reserves that maximum before creating a visible
-turn or starting `fetch`, so an admitted search result cannot silently exceed
-the displayed prompt budget. After successful generation, the backend appends a
-sanitized Markdown `Sources` list with an explicit validated link for every
-included identifier. Reference definitions also provide link targets for
-matching identifiers such as `[S3]` inside the answer. Search context, date, and
-toggle state are excluded from transcript, local storage, import, and export;
-the source list is retained as part of the visible assistant answer.
+```json
+{
+  "results": [{
+    "title": "Rust 1.97 released",
+    "url": "https://example.com/rust-1-97",
+    "excerpt": "A bounded factual excerpt.",
+    "publisher": "Example",
+    "published_at_ms": 1787565600000
+  }]
+}
+```
 
-Search is best-effort because DuckDuckGo and Brave public markup and rate limits
-and the Google News public feed are not stable API contracts. When the applicable
-provider chain times out, redirects, rate-limits, returns malformed data, or has
-no usable results, Graph Horizon reports that Web search is unavailable and that
-no answer was generated, then restores the submitted prompt when no newer draft
-exists. It never falls back to an unsearched answer. Enabling search sends the
-query, language/region hint, selected dates, and public source IP to the selected
-providers; inference and stored chat history remain local.
+Unknown response fields reject the whole response. Graph Horizon keeps at most
+five distinct HTTP(S) URLs, bounds title, excerpt, publisher, and URL lengths,
+and never visits result URLs. With a requested interval, a result is retained
+only when it has a timestamp inside that exact half-open interval. A `429`,
+timeout, invalid response, unavailable provider, and zero usable results produce
+distinct fixed UI errors.
+
+The host invokes `curl` without a shell, user curl configuration, cookies,
+proxy, or redirects. The bearer token is supplied through curl configuration on
+stdin, not its process arguments. Each request has an eight-second transfer
+timeout, a nine-second process ceiling, and a 512 KiB response limit. Only one
+search runs at a time. `curl` must remain on `PATH` when configured search is
+used.
+
+Validated excerpts are framed as untrusted data only in the final outgoing user
+copy. The framing requires `[S1]` citations, includes no result URL, and is
+limited to 2,800 Unicode characters; the browser reserves that maximum before
+fetch. Provenance arrives in a separate strict stream event and is rendered
+outside assistant Markdown. Only identifiers present in the visible answer are
+labelled `Cited`; the rest remain `Search result`. Provenance is persisted and
+exported with the assistant message, but `wireMessages` projects only role and
+content, so it can never become later model history.
+
+Enabling search sends the displayed query, language hint, category, selected
+interval, local reference date, and public source IP to the configured provider.
+Inference, system prompt, chat history, files, and stored archives remain local.
 
 ### Saved Chat Persistence
 
 The browser restores one chat collection synchronously from the origin-scoped
 `localStorage` key `graph-horizon.conversation`. A different scheme, host, or
 port therefore selects a different archive. The private compact record is
-distinct from import/export and has exactly this version-3 shape:
+distinct from import/export and has exactly this version-4 shape:
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "activeChatId": "00000000-0000-4000-8000-000000000001",
   "chats": [
     {
@@ -223,7 +225,8 @@ exactly one member. Every transcript is empty or consists of complete, strictly
 alternating `user`/`assistant` pairs. Titles contain 1–80 Unicode code points;
 each `systemPrompt` is a string; `updatedAt` is a non-negative safe Unix time in
 milliseconds. Runtime message IDs are regenerated on restore and never enter
-the archive.
+the archive. An assistant message may additionally contain one strict `search`
+provenance object; a user message cannot.
 
 The serialized archive is limited to 4,194,304 UTF-8 bytes. A missing key
 creates, activates, and immediately attempts to save one empty `New chat`.
@@ -316,16 +319,17 @@ chunking, embedding, retrieval, RAG, backend upload, or backend-side file copy.
 
 ### Legacy Conversation Migration
 
-The loader recognizes the exact version-2 multi-chat archive and the exact
-version-1 private record `{"version":1,"messages":[...]}` with a valid complete
-transcript. During either migration, the former global value under
+The loader recognizes the exact version-3 per-chat-prompt archive, version-2
+multi-chat archive, and version-1 private record
+`{"version":1,"messages":[...]}` with a valid complete transcript. Version 3
+preserves its prompts. During version-1 or version-2 migration, the former global value under
 `graph-horizon.system-prompt`, or an empty string when absent, is copied into
 every migrated chat. Version 1 becomes one active chat whose title is derived
-from the first user message. The loader then attempts one version-3 `setItem` on
+from the first user message. The loader then attempts one version-4 `setItem` on
 the conversation key.
 
 The replacement is atomic from the application's perspective: the legacy value
-is replaced only when the version-3 write succeeds. Only after that write does
+is replaced only when the version-4 write succeeds. Only after that write does
 the loader remove the obsolete global-prompt key. If serialization or the write
 fails, the migrated collection remains usable in memory, the exact legacy
 archive and global prompt remain stored, and persistence is reported
@@ -412,7 +416,7 @@ prompt, every committed raw message, and the trimmed draft. Streaming occupancy
 includes the submitted user message and current partial raw assistant response.
 Both also include exactly one complete current Markdown-file framing and request
 heading when files exist. When Web search is active, both the visible estimate
-and admission also reserve the backend's complete 12,288-character result framing
+and admission also reserve the backend's complete 2,800-character result framing
 ceiling.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
@@ -489,7 +493,7 @@ The web UI exports a versioned JSON object:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "systemPrompt": "",
   "messages": [
     { "role": "user", "content": "..." },
@@ -498,15 +502,16 @@ The web UI exports a versioned JSON object:
 }
 ```
 
-Import requires `version: 1`, strings for the system prompt and message content,
-and complete `user`/`assistant` pairs. A valid file creates and activates a new
+Import accepts legacy `version: 1` and current `version: 2`, strings for the
+system prompt and message content, and complete `user`/`assistant` pairs. Version
+2 may contain strict assistant search provenance. A valid file creates and activates a new
 chat, derives its title, and stores the imported system prompt only on that chat.
 An imported empty transcript still creates a new empty chat. Invalid or
 unreadable files leave the collection, active selection, archive, and every
 system prompt unchanged. No replacement confirmation is shown.
 
-Export serializes only the active chat. Unlike the private version-3 browser
-archive, the exported file remains version 1 and includes `systemPrompt`; private
+Export serializes only the active chat. Unlike the private version-4 browser
+archive, the exported file is version 2 and includes `systemPrompt`; private
 chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
 share complete-pair transcript validation, but neither is the JSON array used by
 TUI `/export` and `/import`. Markdown files are excluded from chat import/export;

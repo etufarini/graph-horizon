@@ -1,12 +1,13 @@
 /* Transactional generation lifecycle: admits local plus optional search context,
  * then owns one streamed request, rollback, Stop, timing, and checkpoints. */
 import { get, type Writable } from 'svelte/store';
-import { REQUEST_FAILED, streamAssistant, WEB_SEARCH_FAILED } from './client.ts';
+import { isExpectedFailure, streamAssistant } from './client.ts';
 import { admitMessages } from './context.ts';
 import { expandPromptWithMarkdownFiles } from './files/context.ts';
 import { activeChat, replaceChatMessages } from './sessions.ts';
 import {
   appendAssistant,
+  attachAssistantSearch,
   findTurn,
   finalPair,
   hydrateTranscript,
@@ -80,7 +81,11 @@ export function createGeneration(
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
-    const admission = admitMessages(wire, context, search ? context.searchContextCharacters : 0);
+    if (search && !context.search.enabled) {
+      store.set({ ...current, status: 'error', error: 'Web search is not configured' });
+      return;
+    }
+    const admission = admitMessages(wire, context, search ? context.search.maxContextCharacters : 0);
     if (!admission.ok) {
       store.set({
         ...current,
@@ -121,7 +126,7 @@ export function createGeneration(
         wire,
         event => applyEvent(chatId, assistantId, event),
         request.signal,
-        search ? { terms: prompt.trim(), selection: search } : null
+        search ? { terms: search.query.trim() || prompt.trim(), selection: search } : null
       );
       store.update(snapshot => ({
         ...snapshot,
@@ -146,7 +151,7 @@ export function createGeneration(
           ...snapshot,
           collection: replaceChatMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
-          error: message === REQUEST_FAILED || message === WEB_SEARCH_FAILED ? message : INTERRUPTED,
+          error: isExpectedFailure(message) ? message : INTERRUPTED,
           telemetry: null
         }));
       }
@@ -164,6 +169,16 @@ export function createGeneration(
         return snapshot;
       }
       if (snapshot.telemetry?.stats) throw new Error(INTERRUPTED);
+      if (event.type === 'search') {
+        return {
+          ...snapshot,
+          collection: replaceChatMessages(
+            snapshot.collection,
+            chatId,
+            attachAssistantSearch(chat.messages, event.search)
+          )
+        };
+      }
       if (event.type === 'phase') {
         const prior = snapshot.telemetry?.phase;
         const valid = (prior === 'waiting' && event.phase === 'prefill') ||

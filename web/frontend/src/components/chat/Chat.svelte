@@ -83,7 +83,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     ...(fileOverhead ? [{ role: 'user' as const, content: fileOverhead }] : [])
   ];
   $: usage = runtimeContext
-    ? contextUsage(occupancyMessages, runtimeContext, search ? runtimeContext.searchContextCharacters : 0)
+    ? contextUsage(occupancyMessages, runtimeContext, search ? runtimeContext.search.maxContextCharacters : 0)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
     ? 'Invalid chat archive: starting with a new chat'
@@ -175,11 +175,11 @@ context, transfer, status, and gated submission; domain rules remain outside. --
 
     <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
     <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
-    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
+    <Transcript {messages} {streaming} searchEnabled={runtimeContext?.search.enabled === true} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />
-    <Composer bind:value={draft} bind:search {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
+    <Composer bind:value={draft} bind:search {streaming} searchCapability={runtimeContext?.search ?? null} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
   <FilesPanel

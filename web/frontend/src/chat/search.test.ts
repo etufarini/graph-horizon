@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { defaultSearch, validSearch, wireSearch } from './search.ts';
 
 const now = new Date(2026, 7, 24, 12);
+const ms = (year: number, month: number, day: number) => new Date(year, month - 1, day).getTime();
 
 test('any-time Web search preserves arbitrary-language terms', () => {
   const terms = 'noticias de hace diez días error class latest';
@@ -18,13 +19,13 @@ test('any-time Web search preserves arbitrary-language terms', () => {
 
 test('calendar presets produce exact half-open intervals', () => {
   for (const category of ['web', 'news'] as const) {
-    for (const [period, from, to] of [
-      ['day', '2026-08-24', '2026-08-25'],
-      ['week', '2026-08-18', '2026-08-25'],
-      ['month', '2026-07-26', '2026-08-25']
+    for (const [period, from_ms, to_ms] of [
+      ['day', ms(2026, 8, 24), ms(2026, 8, 25)],
+      ['week', ms(2026, 8, 18), ms(2026, 8, 25)],
+      ['month', ms(2026, 7, 26), ms(2026, 8, 25)]
     ] as const) {
       const selection = { ...defaultSearch(), period, category };
-      assert.deepEqual(wireSearch('query', selection, now)?.published, { from, to });
+      assert.deepEqual(wireSearch('query', selection, now)?.published, { from_ms, to_ms });
     }
   }
 });
@@ -39,8 +40,8 @@ test('custom dates are inclusive in the UI and exclusive on the wire', () => {
   };
   assert.equal(validSearch(selection), true);
   assert.deepEqual(wireSearch('query', selection, now)?.published, {
-    from: '2026-08-14',
-    to: '2026-08-15'
+    from_ms: ms(2026, 8, 14),
+    to_ms: ms(2026, 8, 15)
   });
 
   assert.equal(validSearch({ ...selection, from: '2026-02-29' }), false);

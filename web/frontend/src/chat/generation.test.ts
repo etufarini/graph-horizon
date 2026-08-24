@@ -19,9 +19,14 @@ const id = '00000000-0000-4000-8000-000000000001';
 const context: RuntimeContext = {
   contextLimit: 4096,
   safePromptBudget: 3686,
-  searchContextCharacters: 12288
+  search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
 };
 const encoder = new TextEncoder();
+const providerReport = {
+  query: 'public query', category: 'web', reference_date: '2026-08-24',
+  published: null, provider: 'search.example',
+  sources: [{ id: 'S1', title: 'Result', url: 'https://example.com/result', publisher: null, published_at_ms: null }]
+};
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
 globalThis.fetch = (...args) => fetchHandler(...args);
@@ -45,7 +50,7 @@ function plain(value: ChatSnapshot) {
   return value.collection.chats[0].messages.map(({ role, content }) => ({ role, content }));
 }
 
-function controlledFetch() {
+function controlledFetch(report: object | null = null) {
   let streamController: ReadableStreamDefaultController<Uint8Array>;
   let requestBody: any;
   fetchHandler = async (_input, init) => {
@@ -54,6 +59,7 @@ function controlledFetch() {
       start(value) {
         streamController = value;
         streamController.enqueue(encoder.encode(
+          (report ? `data: ${JSON.stringify({ search: report })}\n\n` : '') +
           'data: {"phase":"prefill"}\n\n' +
           'data: {"phase":"decode"}\n\n'
         ));
@@ -162,6 +168,26 @@ test('Web search sends the visible query apart from expanded Markdown context', 
   await pending;
 });
 
+test('explicit query and provenance never contaminate later model history', async () => {
+  const stream = controlledFetch(providerReport);
+  const { store, generation } = harness();
+  const selection = { ...defaultSearch(), query: ' public query ' };
+  const pending = generation.send('private visible prompt', context, [], selection);
+  await tick();
+  assert.equal(stream.body().search.terms, 'public query');
+  stream.done();
+  await pending;
+  assert.equal(get(store).collection.chats[0].messages.at(-1)?.search?.query, 'public query');
+
+  const next = controlledFetch();
+  const followUp = generation.send('follow up', context);
+  await tick();
+  const priorAssistant = next.body().messages.at(-2);
+  assert.deepEqual(Object.keys(priorAssistant), ['role', 'content']);
+  next.done();
+  await followUp;
+});
+
 test('Web search reserves its maximum context before visible mutation or fetch', async () => {
   let fetches = 0;
   fetchHandler = async () => { fetches += 1; throw new Error('unexpected fetch'); };
@@ -169,7 +195,7 @@ test('Web search reserves its maximum context before visible mutation or fetch',
   await generation.send('x', {
     contextLimit: 10,
     safePromptBudget: 1,
-    searchContextCharacters: 8
+    search: { ...context.search, maxContextCharacters: 8 }
   }, [], defaultSearch());
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), []);
@@ -241,7 +267,7 @@ test('Web search failure rolls back with its specific generic error', async () =
   const { store, checkpoints, generation } = harness(original);
   await generation.send('needs current facts', context, [], defaultSearch());
   assert.deepEqual(plain(get(store)), plain(original));
-  assert.equal(get(store).error, 'Web search unavailable; no answer was generated');
+  assert.equal(get(store).error, 'Web search is unavailable; no answer was generated');
   assert.deepEqual(checkpoints, []);
 });
 
@@ -343,7 +369,7 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   await generation.editPrompt(userId, 'far too long', {
     contextLimit: 4,
     safePromptBudget: 3,
-    searchContextCharacters: 12288
+    search: context.search
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));

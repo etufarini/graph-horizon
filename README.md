@@ -13,7 +13,7 @@ documentation.
 Graph Horizon is a focused local text-to-text runtime with two interfaces: an
 interactive CLI and an integrated Web UI. Both run the model locally; there is
 no standalone server mode or supported public HTTP API. The Web UI can
-optionally send an explicit Web or News query to fixed keyless providers;
+optionally send an explicit Web or News query to a configured JSON provider;
 inference remains local.
 
 The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
@@ -132,12 +132,12 @@ graph-horizon --mode web \
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser. The interface
-is called Web UI, while its command-line mode is `web`. Its globe button enables
-one keyless search for the next request. The user explicitly chooses Web or News
-and any-time, recent, or custom publication dates; query text is never classified
-or rewritten from keywords. DuckDuckGo and Brave serve Web results, while Google
-News RSS is the primary News source. Answers are instructed to cite only the
-returned bounded snippets.
+is called Web UI, while its command-line mode is `web`. Configure search with
+`--search-url https://search.example/v1/search` and, when needed,
+`--search-key-file /path/to/key`. Its globe button then enables one explicit
+search for the next request. The query shown in the composer is the only chat
+text sent to that provider; inference, history, and files remain local. See the
+[Web search contract](docs/web.md#web-search).
 
 ## Current scope
 

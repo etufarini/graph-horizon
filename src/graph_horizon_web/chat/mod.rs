@@ -25,33 +25,46 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
         Ok(key) => key,
         Err(()) => return error_response(StatusCode::BAD_REQUEST, "invalid request"),
     };
-    let mut parsed = match request::parse(
-        request,
-        state.engine.context_limit() as usize,
-        state.engine.default_sampling(),
-    )
-    .await
-    {
-        Ok(request) => request,
-        Err(request::Error::TooLarge) => {
-            return error_response(StatusCode::PAYLOAD_TOO_LARGE, "request too large");
-        }
-        Err(request::Error::Invalid) => {
-            return error_response(StatusCode::BAD_REQUEST, "invalid request");
-        }
-    };
+    let mut parsed =
+        match request::parse(request, state.max_tokens, state.engine.default_sampling()).await {
+            Ok(request) => request,
+            Err(request::Error::TooLarge) => {
+                return error_response(StatusCode::PAYLOAD_TOO_LARGE, "request too large");
+            }
+            Err(request::Error::Invalid) => {
+                return error_response(StatusCode::BAD_REQUEST, "invalid request");
+            }
+        };
     // Admission covers both remote search and generation, but the engine mutex
     // remains free while an explicitly requested search waits on the network.
     let permit = match Arc::clone(&state.admission).try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => return error_response(StatusCode::TOO_MANY_REQUESTS, "busy"),
     };
-    let mut source_footer = None;
+    let mut search_report = None;
     if let Some(search) = parsed.search.take() {
         let context = match state.search.context(&search).await {
             Ok(context) => context,
             Err(search::Error::Busy) => {
                 return error_response(StatusCode::TOO_MANY_REQUESTS, "busy");
+            }
+            Err(search::Error::NotConfigured) => {
+                return error_response(StatusCode::BAD_REQUEST, "web search not configured");
+            }
+            Err(search::Error::NoResults) => {
+                return error_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "web search returned no results",
+                );
+            }
+            Err(search::Error::RateLimited) => {
+                return error_response(StatusCode::TOO_MANY_REQUESTS, "web search rate limited");
+            }
+            Err(search::Error::Timeout) => {
+                return error_response(StatusCode::GATEWAY_TIMEOUT, "web search timed out");
+            }
+            Err(search::Error::Invalid) => {
+                return error_response(StatusCode::BAD_GATEWAY, "invalid web search response");
             }
             Err(search::Error::Unavailable) => {
                 return error_response(StatusCode::BAD_GATEWAY, "web search unavailable");
@@ -64,13 +77,13 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
             .last_mut()
             .expect("validated Web search has a final user message");
         message.content.insert_str(0, &context.prompt);
-        source_footer = Some(context.sources);
+        search_report = Some(context.report);
     }
     let guard = Arc::clone(&state.serialize).lock_owned().await;
     let body = stream::body(
         state.engine,
         parsed.engine,
-        source_footer,
+        search_report,
         cache_key,
         guard,
         permit,

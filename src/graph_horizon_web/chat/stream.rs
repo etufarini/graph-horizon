@@ -19,11 +19,12 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::super::router::ResponseBody;
+use super::super::search::Report;
 
 pub(super) fn body(
     engine: Arc<Engine>,
     request: Request,
-    source_footer: Option<String>,
+    search_report: Option<Report>,
     cache_key: [u8; 16],
     guard: OwnedMutexGuard<()>,
     permit: OwnedSemaphorePermit,
@@ -33,7 +34,13 @@ pub(super) fn body(
         // Both gates live exactly as long as generation, including cancellation.
         let _guard = guard;
         let _permit = permit;
-        engine.generate_cached(cache_key, request, &mut WebSink { tx, source_footer });
+        let mut sink = WebSink { tx };
+        if let Some(report) = search_report
+            && !sink.send(&SearchFrame { search: &report })
+        {
+            return;
+        }
+        engine.generate_cached(cache_key, request, &mut sink);
     });
 
     let stream =
@@ -45,7 +52,6 @@ pub(super) fn body(
 
 struct WebSink {
     tx: mpsc::Sender<String>,
-    source_footer: Option<String>,
 }
 
 impl EventSink for WebSink {
@@ -70,11 +76,6 @@ impl EventSink for WebSink {
                 false
             }
             Event::Finished(stats) => {
-                if let Some(content) = self.source_footer.take()
-                    && !self.send(&ContentFrame { content: &content })
-                {
-                    return false;
-                }
                 let _ = self.send(&StatsFrame {
                     stats: Stats {
                         prompt_tokens: stats.prompt_tokens,
@@ -114,6 +115,11 @@ struct ErrorFrame<'a> {
 }
 
 #[derive(Serialize)]
+struct SearchFrame<'a> {
+    search: &'a Report,
+}
+
+#[derive(Serialize)]
 struct StatsFrame {
     stats: Stats,
 }
@@ -140,21 +146,15 @@ mod tests {
     fn disconnected_receiver_cancels_generation() {
         let (tx, rx) = mpsc::channel(1);
         drop(rx);
-        let mut sink = WebSink {
-            tx,
-            source_footer: None,
-        };
+        let mut sink = WebSink { tx };
         assert!(!sink.emit(Event::TextDelta("ignored".into())));
         assert!(sink.cancelled());
     }
 
     #[test]
-    fn source_footer_precedes_terminal_frames() {
-        let (tx, mut rx) = mpsc::channel(4);
-        let mut sink = WebSink {
-            tx,
-            source_footer: Some("\n\n### Sources\n- [S1](<https://example.com/>)\n".into()),
-        };
+    fn terminal_frames_contain_no_appended_assistant_content() {
+        let (tx, mut rx) = mpsc::channel(3);
+        let mut sink = WebSink { tx };
         assert!(
             !sink.emit(Event::Finished(graph_horizon_engine::GenerationStats {
                 prompt_tokens: 2,
@@ -166,7 +166,6 @@ mod tests {
         );
         drop(sink);
 
-        assert!(rx.blocking_recv().unwrap().contains("### Sources"));
         assert!(rx.blocking_recv().unwrap().contains("\"stats\""));
         assert!(rx.blocking_recv().unwrap().contains("\"done\":true"));
         assert!(rx.blocking_recv().is_none());

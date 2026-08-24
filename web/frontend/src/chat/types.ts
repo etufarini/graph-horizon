@@ -44,6 +44,29 @@ export interface WireMessage {
   content: string;
 }
 
+export type SearchCategory = 'web' | 'news';
+export type SearchPeriod = 'any' | 'day' | 'week' | 'month' | 'custom';
+
+export interface SearchSelection {
+  category: SearchCategory;
+  period: SearchPeriod;
+  from: string;
+  to: string;
+}
+
+export interface WireSearch {
+  terms: string;
+  category: SearchCategory;
+  language: string;
+  reference_date: string;
+  published: { from: string; to: string } | null;
+}
+
+export interface SearchInput {
+  terms: string;
+  selection: SearchSelection;
+}
+
 export type ChatStatus = 'idle' | 'streaming' | 'error';
 
 export type PersistenceWarning = 'invalid-record' | 'unavailable';

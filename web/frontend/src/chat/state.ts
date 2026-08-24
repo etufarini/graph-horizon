@@ -19,7 +19,7 @@ import {
 } from './sessions.ts';
 import { finalPair, hydrateTranscript, removeTrailingTurn } from './transcript.ts';
 import { parseChatFile } from './transfer.ts';
-import type { ChatCollection, ChatSnapshot, RuntimeContext } from './types.ts';
+import type { ChatCollection, ChatSnapshot, RuntimeContext, SearchSelection } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
 export { wireMessages } from './transcript.ts';
@@ -43,10 +43,10 @@ function createChatState() {
     text: string,
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.send(text, context, files, webSearch);
+    await generation.send(text, context, files, search);
   }
 
   function stop(): void {
@@ -56,10 +56,10 @@ function createChatState() {
   async function regenerate(
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.regenerate(context, files, webSearch);
+    await generation.regenerate(context, files, search);
   }
 
   async function editPrompt(
@@ -67,10 +67,10 @@ function createChatState() {
     text: string,
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
     if (get(markdownFiles).busy) return;
-    await generation.editPrompt(userId, text, context, files, webSearch);
+    await generation.editPrompt(userId, text, context, files, search);
   }
 
   function deleteLastTurn(): void {

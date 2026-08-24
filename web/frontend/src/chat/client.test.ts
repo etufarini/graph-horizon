@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MAX_REQUEST_BYTES, streamAssistant } from './client.ts';
+import { defaultSearch } from './search.ts';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
 const originalFetch = globalThis.fetch;
@@ -104,14 +105,17 @@ test('Web search adds only its bounded query and browser-local date', async () =
       }
     }));
   };
-  await streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query');
-  assert.deepEqual(Object.keys(request as object), ['messages', 'search_query', 'search_date']);
-  assert.equal((request as any).search_query, 'fresh query');
-  assert.match((request as any).search_date, /^\d{4}-\d{2}-\d{2}$/);
+  const search = { terms: 'fresh query', selection: defaultSearch() };
+  await streamAssistant(messages, () => {}, new AbortController().signal, search);
+  assert.deepEqual(Object.keys(request as object), ['messages', 'search']);
+  assert.equal((request as any).search.terms, 'fresh query');
+  assert.equal((request as any).search.category, 'web');
+  assert.match((request as any).search.reference_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal((request as any).search.published, null);
 
   globalThis.fetch = async () => new Response(null, { status: 502 });
   await assert.rejects(
-    streamAssistant(messages, () => {}, new AbortController().signal, 'fresh query'),
+    streamAssistant(messages, () => {}, new AbortController().signal, search),
     { message: 'Web search unavailable; no answer was generated' }
   );
 });
@@ -120,7 +124,10 @@ test('invalid Web query is rejected before fetch', async () => {
   let fetches = 0;
   globalThis.fetch = async () => { fetches += 1; throw new Error('unexpected fetch'); };
   await assert.rejects(
-    streamAssistant(messages, () => {}, new AbortController().signal, 'x'.repeat(513)),
+    streamAssistant(messages, () => {}, new AbortController().signal, {
+      terms: 'x'.repeat(513),
+      selection: defaultSearch()
+    }),
     { message: 'Request failed' }
   );
   assert.equal(fetches, 0);

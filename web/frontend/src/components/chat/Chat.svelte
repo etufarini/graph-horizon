@@ -19,7 +19,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   import { activeChat, orderedChats } from '../../chat/sessions';
   import { chat, wireMessages } from '../../chat/state';
   import { serializeChat } from '../../chat/transfer';
-  import type { RuntimeContext, RuntimeInfo } from '../../chat/types';
+  import type { RuntimeContext, RuntimeInfo, SearchSelection } from '../../chat/types';
 
   let draft = '';
   let runtimeContext: RuntimeContext | null = null;
@@ -29,7 +29,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   let mobile = false;
   let filesOpen = false;
   let filesOverlay = false;
-  let webSearch = false;
+  let search: SearchSelection | null = null;
   let selectedFileChat = '';
   let historyToggle: HTMLButtonElement;
   let filesToggle: HTMLButtonElement;
@@ -83,7 +83,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     ...(fileOverhead ? [{ role: 'user' as const, content: fileOverhead }] : [])
   ];
   $: usage = runtimeContext
-    ? contextUsage(occupancyMessages, runtimeContext, webSearch ? runtimeContext.searchContextCharacters : 0)
+    ? contextUsage(occupancyMessages, runtimeContext, search ? runtimeContext.searchContextCharacters : 0)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
     ? 'Invalid chat archive: starting with a new chat'
@@ -99,7 +99,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     const submitted = draft;
     draft = '';
     if (!runtimeContext || !filesReady) return;
-    await chat.send(submitted, runtimeContext, $markdownFiles.files, webSearch);
+    await chat.send(submitted, runtimeContext, $markdownFiles.files, search);
     // Restore only when no newer draft was prepared during the failed request.
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
@@ -132,12 +132,12 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   }
 
   function regenerate(): void {
-    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, webSearch);
+    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search);
   }
 
   function editPrompt(userId: string, text: string): void {
     if (runtimeContext && filesReady) {
-      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, webSearch);
+      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, search);
     }
   }
 
@@ -179,7 +179,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />
-    <Composer bind:value={draft} bind:webSearch {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
+    <Composer bind:value={draft} bind:search {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
   <FilesPanel

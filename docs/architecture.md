@@ -91,12 +91,16 @@ untrusted reference data in one outgoing user-message copy; they are never
 uploaded into product storage or indexed by a retrieval service.
 
 Search is the only optional non-local Web path. The Rust host invokes the
-project's existing `curl` prerequisite without a shell to contact one fixed
-DuckDuckGo Lite HTTPS origin; it follows no redirects and never fetches a result
-URL. Explicit news and recency queries use the provider's one-day filter. Search
-snippets are framed as untrusted data with the validated browser-local request
-date and strict grounding instructions; they exist only in the engine-request
-copy, while transcript storage retains the visible prompt and response.
+project's existing `curl` prerequisite without a shell to contact a fixed
+DuckDuckGo Lite HTTPS origin and, after an unusable explicit news response, one
+fixed Google News RSS fallback origin. Programming intent similarly uses one
+fixed Brave Search fallback. The transport follows no redirects and never
+fetches a result URL. Explicit news and recency queries use a one-day filter and
+a language-matched long form of the validated browser-local date; programming
+queries preserve the original text and add an official-documentation hint.
+Search results are framed as untrusted data with strict grounding instructions;
+they exist only in the engine-request copy, while transcript storage retains the
+visible prompt and response.
 
 Reasoning markers remain ordinary raw assistant text in both surfaces. The CLI
 and browser derive visual THINK sections at presentation time without creating

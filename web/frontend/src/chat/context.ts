@@ -35,22 +35,18 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
 }
 
 function parseSearchCapability(value: unknown): RuntimeContext['search'] | null {
-  if (!isRecord(value) || typeof value.enabled !== 'boolean' ||
+  if (!isRecord(value) ||
       !(value.provider === null || typeof value.provider === 'string') ||
       !Number.isSafeInteger(value.max_query_characters) ||
       (value.max_query_characters as number) <= 0 ||
       !Number.isSafeInteger(value.max_context_characters) ||
-      (value.max_context_characters as number) <= 0 ||
-      typeof value.date_filters !== 'boolean' ||
-      value.enabled !== (value.provider !== null)) {
+      (value.max_context_characters as number) <= 0) {
     return null;
   }
   return {
-    enabled: value.enabled,
     provider: value.provider,
     maxQueryCharacters: value.max_query_characters as number,
-    maxContextCharacters: value.max_context_characters as number,
-    dateFilters: value.date_filters
+    maxContextCharacters: value.max_context_characters as number
   };
 }
 

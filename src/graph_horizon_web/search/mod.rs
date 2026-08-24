@@ -42,11 +42,9 @@ pub(super) enum Error {
 
 #[derive(Serialize)]
 pub(in crate::graph_horizon_web) struct Capability {
-    enabled: bool,
     provider: Option<String>,
     max_query_characters: usize,
     max_context_characters: usize,
-    date_filters: bool,
 }
 
 impl State {
@@ -59,14 +57,12 @@ impl State {
 
     pub(in crate::graph_horizon_web) fn capability(&self) -> Capability {
         Capability {
-            enabled: self.config.is_some(),
             provider: self
                 .config
                 .as_ref()
                 .map(|config| config.provider().to_string()),
             max_query_characters: request::MAX_QUERY_CHARACTERS,
             max_context_characters: MAX_CONTEXT_CHARACTERS,
-            date_filters: true,
         }
     }
 

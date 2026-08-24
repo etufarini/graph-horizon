@@ -82,11 +82,9 @@ export interface SearchReport {
 }
 
 export interface SearchCapability {
-  enabled: boolean;
   provider: string | null;
   maxQueryCharacters: number;
   maxContextCharacters: number;
-  dateFilters: boolean;
 }
 
 export interface SearchInput {

@@ -12,15 +12,13 @@ import type { RuntimeContext, WireMessage } from './types.ts';
 const context: RuntimeContext = {
   contextLimit: 2000,
   safePromptBudget: 1800,
-  search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+  search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
 };
 
 const capability = {
-  enabled: true,
   provider: 'search.example',
   max_query_characters: 512,
-  max_context_characters: 2800,
-  date_filters: true
+  max_context_characters: 2800
 };
 
 function user(content: string): WireMessage[] {
@@ -39,7 +37,18 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
       context: {
         contextLimit: 8192,
         safePromptBudget: 7372,
-        search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+        search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
+      }
+    }
+  );
+  assert.deepEqual(
+    parseRuntimeContext({ context_limit: 8192, search: { ...capability, provider: null } }),
+    {
+      ok: true,
+      context: {
+        contextLimit: 8192,
+        safePromptBudget: 7372,
+        search: { provider: null, maxQueryCharacters: 512, maxContextCharacters: 2800 }
       }
     }
   );
@@ -49,7 +58,7 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
       error: 'unavailable'
     });
   }
-  for (const search of [0, null, {}, { ...capability, enabled: false }, { ...capability, max_context_characters: 0 }]) {
+  for (const search of [0, null, {}, { ...capability, provider: 1 }, { ...capability, max_context_characters: 0 }]) {
     assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search }), {
       ok: false,
       error: 'unavailable'
@@ -120,7 +129,7 @@ test('maximum safe capacity uses exact quotient arithmetic', () => {
       context: {
         contextLimit: Number.MAX_SAFE_INTEGER,
         safePromptBudget: 8106479329266891,
-        search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+        search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
       }
     }
   );

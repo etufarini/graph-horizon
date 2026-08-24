@@ -49,8 +49,8 @@ pub(super) fn frame(results: &[SearchResult], request: &Request, provider: &str)
     if let Some(range) = request.published() {
         framed.push_str(&format!(
             "Requested UTC interval: [{} ms, {} ms).\n",
-            range.from_ms(),
-            range.to_ms()
+            range.start_ms(),
+            range.end_ms()
         ));
     }
     let mut characters = framed.chars().count() + FOOTER.chars().count();

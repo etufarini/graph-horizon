@@ -81,7 +81,7 @@ export function createGeneration(
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
-    if (search && !context.search.enabled) {
+    if (search && context.search.provider === null) {
       store.set({ ...current, status: 'error', error: 'Web search is not configured' });
       return;
     }

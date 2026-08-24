@@ -72,11 +72,11 @@ impl Request {
 }
 
 impl Published {
-    pub(super) fn from_ms(self) -> u64 {
+    pub(super) fn start_ms(self) -> u64 {
         self.from_ms
     }
 
-    pub(super) fn to_ms(self) -> u64 {
+    pub(super) fn end_ms(self) -> u64 {
         self.to_ms
     }
 
@@ -143,7 +143,7 @@ mod tests {
         let request = parse(r#"{"terms":" current Rust ","category":"news","language":"it-IT","reference_date":"2026-08-24","published":{"from_ms":1787522400000,"to_ms":1787608800000}}"#).unwrap();
         assert_eq!(request.terms(), "current Rust");
         assert_eq!(request.category(), Category::News);
-        assert_eq!(request.published().unwrap().from_ms(), 1_787_522_400_000);
+        assert_eq!(request.published().unwrap().start_ms(), 1_787_522_400_000);
     }
 
     #[test]

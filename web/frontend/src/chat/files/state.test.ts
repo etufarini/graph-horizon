@@ -14,7 +14,7 @@ const OTHER_ID = '00000000-0000-4000-8000-000000000002';
 const CONTEXT = {
   contextLimit: 32768,
   safePromptBudget: 29491,
-  search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+  search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
 };
 
 class MemoryStorage implements MarkdownFileStorage {

@@ -175,7 +175,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
 
     <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
     <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
-    <Transcript {messages} {streaming} searchEnabled={runtimeContext?.search.enabled === true} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
+    <Transcript {messages} {streaming} searchEnabled={runtimeContext !== null && runtimeContext.search.provider !== null} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
     {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
     <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
     <Metrics telemetry={$chat.telemetry} />

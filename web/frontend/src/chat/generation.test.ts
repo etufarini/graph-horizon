@@ -19,7 +19,7 @@ const id = '00000000-0000-4000-8000-000000000001';
 const context: RuntimeContext = {
   contextLimit: 4096,
   safePromptBudget: 3686,
-  search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+  search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
 };
 const encoder = new TextEncoder();
 const providerReport = {
@@ -203,6 +203,19 @@ test('Web search reserves its maximum context before visible mutation or fetch',
     get(store).error,
     'Insufficient context: ~3 estimated tokens exceed the safe budget of 1 tokens'
   );
+});
+
+test('Web search rejects a missing provider before fetch', async () => {
+  let fetches = 0;
+  fetchHandler = async () => { fetches += 1; throw new Error('unexpected fetch'); };
+  const { store, generation } = harness(snapshot([]));
+  await generation.send('current facts', {
+    ...context,
+    search: { ...context.search, provider: null }
+  }, [], defaultSearch());
+  assert.equal(fetches, 0);
+  assert.deepEqual(plain(get(store)), []);
+  assert.equal(get(store).error, 'Web search is not configured');
 });
 
 test('valid zero-delta completion retains the empty response and checkpoints', async () => {

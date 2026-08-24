@@ -13,7 +13,8 @@ documentation.
 Graph Horizon is a focused local text-to-text runtime with two interfaces: an
 interactive CLI and an integrated Web UI. Both run the model locally; there is
 no standalone server mode or supported public HTTP API. The Web UI can
-optionally send an explicit search query to DuckDuckGo; inference remains local.
+optionally send an explicit Web or News query to fixed keyless providers;
+inference remains local.
 
 The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. Ministral 3 is the model family currently used by Graph
@@ -132,13 +133,11 @@ graph-horizon --mode web \
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser. The interface
 is called Web UI, while its command-line mode is `web`. Its globe button enables
-one best-effort Web search for the next request without an account or API key.
-Current-day and explicit news queries use an Italian or English long form of the
-browser-local date and a one-day provider filter. A keyless Google News RSS feed
-backs up unusable DuckDuckGo news responses. Programming queries preserve their
-Italian or English text, add an official-documentation hint, and use a keyless
-Brave fallback when necessary. Answers are instructed to cite only the returned
-result snippets.
+one keyless search for the next request. The user explicitly chooses Web or News
+and any-time, recent, or custom publication dates; query text is never classified
+or rewritten from keywords. DuckDuckGo and Brave serve Web results, while Google
+News RSS is the primary News source. Answers are instructed to cite only the
+returned bounded snippets.
 
 ## Current scope
 

@@ -68,8 +68,13 @@ visible prompt separately from messages and file framing:
 ```json
 {
   "messages": [],
-  "search_query": "current information requested by the user",
-  "search_date": "2026-08-23"
+  "search": {
+    "terms": "current information requested by the user",
+    "category": "news",
+    "language": "it-IT",
+    "reference_date": "2026-08-23",
+    "published": { "from": "2026-08-17", "to": "2026-08-24" }
+  }
 }
 ```
 
@@ -128,48 +133,44 @@ response streams to prepare the next request. Send, regenerate, and
 edit-and-restart use its value at the moment they start. This is explicit prompt
 enrichment, not tool calling: the model cannot initiate another search.
 
-The browser sends only the trimmed visible user prompt as `search_query`; system
-text, prior messages, and expanded Markdown files never enter the query. It also
-sends `search_date`, the browser-local Gregorian date captured for that request.
-The two fields are required together, and the backend rejects malformed or
-impossible dates. The query must contain at most 512 Unicode code points (and
-therefore at most 2 KiB of UTF-8). When the button is inactive both fields are
-omitted and Graph Horizon performs no outbound request.
+The browser sends only the trimmed visible user prompt as `search.terms`;
+system text, prior messages, and expanded Markdown files never enter the query.
+The user chooses `web` or `news` and any time, today, the last 7 or 30 local
+calendar days, or an inclusive custom date range. The wire interval is expressed
+as validated half-open UTC dates (`from` inclusive, `to` exclusive), alongside
+the browser's BCP 47 language hint and local Gregorian `reference_date`. The
+query is limited to 512 Unicode code points. When the button is inactive the
+whole `search` object is omitted and Graph Horizon performs no outbound request.
+
+Category and publication scope are explicit controls. Neither browser nor host
+inspects terms such as `news`, `latest`, language names, error text, frameworks,
+or programming vocabulary to classify a request. Arbitrary-language terms,
+identifiers, versions, and error messages reach the selected provider unchanged.
+The only additions are provider-native date parameters: DuckDuckGo's `df` field
+or Google News `after:` and `before:` operators.
 
 The Rust host runs the `curl` already required by Graph Horizon without a shell,
-user configuration, cookies, implicit proxy, or redirect following. It sends a
-GET request to the fixed DuckDuckGo Lite HTTPS origin. Explicit news searches
-whose primary response fails or contains no usable results receive one fallback
-GET to the fixed Google News RSS HTTPS origin. Recognized programming searches
-receive one fallback GET to the fixed Brave Search HTTPS origin under the same
-condition; general searches never contact a fallback. `curl` must remain
-available on `PATH` when Web search is used; its absence affects search only.
-Each request has an eight-second timeout and a 512 KiB decoded-body limit, and
-only one search workflow runs at a time. At most ten distinct HTTP(S) results
-survive parsing. Each contains bounded plain-text title, URL, and snippet; Graph
-Horizon never visits or downloads a result URL.
+user configuration, cookies, implicit proxy, or redirect following. Web starts
+with a POST to fixed DuckDuckGo Lite; without a publication interval, an empty
+or unusable response falls back to a GET from fixed Brave Search. News starts
+with a GET from fixed Google News RSS; an any-time request may fall back through
+DuckDuckGo and then Brave. A request with dates never falls back to a provider
+that cannot prove those dates. Google News timestamps are parsed from RSS and
+checked against the requested interval; DuckDuckGo's Web interval is provider-
+filtered and its results therefore retain an unknown publication timestamp.
 
-Queries containing explicit news or recency words (`notizie`, `news`, `oggi`,
-`today`, `ultime`, `latest`, `recenti`, or `recent`) request DuckDuckGo's one-day
-filter, preventing current-news requests from defaulting to archive pages. The
-provider query receives the validated browser date in long Italian form when an
-Italian indicator is present, otherwise in long English form. A canonical
-`notizie` or `news` prefix improves news ranking while the original query remains
-intact.
-
-Programming intent is recognized from bounded whole-word indicators in Italian
-or English, including common code vocabulary, languages, package tools, and Web
-frameworks. Its provider query appends `official documentation` without removing
-or translating the original text, preserving identifiers, versions, and error
-messages. The technical fallback searches English-indexed documentation with an
-Italian or US country hint matching the detected query language. Returned code
-is untrusted reference text: Graph Horizon neither downloads result pages nor
-executes code obtained from search. Non-news, non-programming queries are
-unchanged.
+`curl` must remain available on `PATH` when search is used; its absence affects
+search only. Each request has an eight-second transfer timeout, a nine-second
+process ceiling, and a 512 KiB decoded-body limit. Only one search workflow runs
+at a time. HTTP status, malformed XML, block pages, and rate limits are handled
+as provider failures. At most ten distinct HTTP(S) results survive parsing.
+Title, URL, snippet, publisher, and publication time are separately bounded or
+marked unknown. Graph Horizon never visits or downloads a result URL.
 
 Validated results are prefixed only to the final outgoing user-message copy.
 The framing calls them untrusted, potentially stale reference data, states the
-browser-local date, and requires citations by result identifier (`[S1]`, `[S2]`).
+explicit category, browser-local date, requested interval, publisher and parsed
+publication time, and requires citations by result identifier (`[S1]`, `[S2]`).
 It instructs the model to use only facts supported by the returned snippets, not
 to name absent sources, and to acknowledge insufficient evidence rather than
 fill gaps from model memory. The complete added framing is limited to 12,288
@@ -183,14 +184,13 @@ toggle state are excluded from transcript, local storage, import, and export;
 the source list is retained as part of the visible assistant answer.
 
 Search is best-effort because DuckDuckGo and Brave public markup and rate limits
-and the Google News public feed are not stable API contracts. When both
-applicable providers time out, redirect, rate-limit, return malformed data, or
-contain no usable results, Graph Horizon reports that Web search is unavailable
-and that no answer was generated, then restores the submitted prompt when no
-newer draft exists. It never falls back to an unsearched answer. Enabling search
-sends the query and public source IP to DuckDuckGo and, only after a failed
-specialized search, to Google News or Brave; inference and stored chat history
-remain local.
+and the Google News public feed are not stable API contracts. When the applicable
+provider chain times out, redirects, rate-limits, returns malformed data, or has
+no usable results, Graph Horizon reports that Web search is unavailable and that
+no answer was generated, then restores the submitted prompt when no newer draft
+exists. It never falls back to an unsearched answer. Enabling search sends the
+query, language/region hint, selected dates, and public source IP to the selected
+providers; inference and stored chat history remain local.
 
 ### Saved Chat Persistence
 

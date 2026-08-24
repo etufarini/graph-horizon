@@ -127,6 +127,17 @@ export function replaceActiveTranscript(
   return { ...collection, chats };
 }
 
+export function replaceChatMessages(
+  collection: ChatCollection,
+  chatId: string,
+  messages: ChatMessage[]
+): ChatCollection {
+  return {
+    ...collection,
+    chats: collection.chats.map(chat => chat.id === chatId ? { ...chat, messages } : chat)
+  };
+}
+
 export function replaceActiveSystemPrompt(
   collection: ChatCollection,
   systemPrompt: string

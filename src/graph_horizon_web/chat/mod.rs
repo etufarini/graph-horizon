@@ -48,7 +48,7 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
     };
     let mut source_footer = None;
     if let Some(search) = parsed.search.take() {
-        let context = match state.search.context(&search.query, &search.date).await {
+        let context = match state.search.context(&search).await {
             Ok(context) => context,
             Err(search::Error::Busy) => {
                 return error_response(StatusCode::TOO_MANY_REQUESTS, "busy");

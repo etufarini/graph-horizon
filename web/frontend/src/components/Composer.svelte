@@ -7,17 +7,21 @@
   // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
   import logoUrl from '../../../../assets/graph-horizon-logo.svg';
   import { createEventDispatcher } from 'svelte';
+  import { defaultSearch, validSearch } from '../chat/search';
+  import type { SearchSelection } from '../chat/types';
+  import SearchOptions from './SearchOptions.svelte';
 
   export let value = '';
   export let streaming = false;
   export let contextAvailable = false;
-  export let webSearch = false;
+  export let search: SearchSelection | null = null;
 
   const dispatch = createEventDispatcher<{
     send: void;
     stop: void;
   }>();
-  $: canSend = value.trim().length > 0 && !streaming && contextAvailable;
+  $: canSend = value.trim().length > 0 && !streaming && contextAvailable &&
+    (search === null || validSearch(search));
 
   function submit(): void {
     // Whitespace-only drafts cannot be sent; streaming never submits here
@@ -47,12 +51,12 @@
   <div class="composer-bar">
     <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
     <button
-      class:search-active={webSearch}
+      class:search-active={search !== null}
       class="action action-search"
       type="button"
-      aria-pressed={webSearch}
-      aria-label={webSearch ? 'Disable Web search' : 'Enable Web search'}
-      on:click={() => { webSearch = !webSearch; }}
+      aria-pressed={search !== null}
+      aria-label={search ? 'Disable Web search' : 'Enable Web search'}
+      on:click={() => { search = search ? null : defaultSearch(); }}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="9" />
@@ -82,6 +86,9 @@
       </button>
     {/if}
   </div>
+  {#if search}
+    <SearchOptions value={search} on:change={event => { search = event.detail; }} />
+  {/if}
 </form>
 
 <style lang="scss">

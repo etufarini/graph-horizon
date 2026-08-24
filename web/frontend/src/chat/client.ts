@@ -5,16 +5,16 @@
  * controller keeps caller Stop distinct from inactivity cancellation.
  */
 import { parseRuntimeContext } from './context.ts';
+import { wireSearch } from './search.ts';
 import { readChatStream } from './stream.ts';
 import { parseRuntimeInfo } from './telemetry.ts';
-import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage } from './types';
+import type { ContextConfigResult, RuntimeInfoResult, SearchInput, StreamEvent, WireMessage } from './types';
 
 export const REQUEST_FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
 export const WEB_SEARCH_FAILED = 'Web search unavailable; no answer was generated';
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
-const MAX_SEARCH_QUERY_CHARACTERS = 512;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
   byte.toString(16).padStart(2, '0')
 ).join('');
@@ -54,7 +54,7 @@ export async function streamAssistant(
   messages: WireMessage[],
   onEvent: (event: StreamEvent) => void,
   signal: AbortSignal,
-  searchQuery: string | null = null
+  search: SearchInput | null = null
 ): Promise<void> {
   const controller = new AbortController();
   let cancellation: 'external' | 'timeout' | null = null;
@@ -75,15 +75,14 @@ export async function streamAssistant(
   signal.addEventListener('abort', stop, { once: true });
   if (signal.aborted) stop();
   try {
-    if (searchQuery !== null && (
-      !searchQuery ||
-      Array.from(searchQuery).length > MAX_SEARCH_QUERY_CHARACTERS
-    )) {
-      throw new Error(REQUEST_FAILED);
-    }
-    const body = JSON.stringify(searchQuery === null
+    const searchRequest = search === null ? null : wireSearch(
+      search.terms,
+      search.selection
+    );
+    if (search !== null && searchRequest === null) throw new Error(REQUEST_FAILED);
+    const body = JSON.stringify(searchRequest === null
       ? { messages }
-      : { messages, search_query: searchQuery, search_date: localDate(new Date()) });
+      : { messages, search: searchRequest });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
       throw new Error(REQUEST_FAILED);
     }
@@ -117,12 +116,4 @@ export async function streamAssistant(
     clearTimeout(timeout!);
     signal.removeEventListener('abort', stop);
   }
-}
-
-function localDate(date: Date): string {
-  // Local calendar getters preserve the meaning of "today" at the browser.
-  const year = String(date.getFullYear()).padStart(4, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }

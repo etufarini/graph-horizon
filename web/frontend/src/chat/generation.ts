@@ -4,7 +4,7 @@ import { get, type Writable } from 'svelte/store';
 import { REQUEST_FAILED, streamAssistant, WEB_SEARCH_FAILED } from './client.ts';
 import { admitMessages } from './context.ts';
 import { expandPromptWithMarkdownFiles } from './files/context.ts';
-import { activeChat } from './sessions.ts';
+import { activeChat, replaceChatMessages } from './sessions.ts';
 import {
   appendAssistant,
   findTurn,
@@ -13,7 +13,7 @@ import {
   replaceFromTurn,
   wireMessages
 } from './transcript.ts';
-import type { ChatCollection, ChatMessage, ChatSnapshot, RuntimeContext, StreamEvent } from './types.ts';
+import type { ChatSnapshot, RuntimeContext, SearchSelection, StreamEvent } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
 const INTERRUPTED = 'Response interrupted';
@@ -28,20 +28,20 @@ export function createGeneration(
     text: string,
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
-    await generate('append', text.trim(), context, '', files, webSearch);
+    await generate('append', text.trim(), context, '', files, search);
   }
 
   async function regenerate(
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
     const snapshot = get(store);
     const pair = finalPair(activeChat(snapshot.collection).messages);
     if (pair) {
-      await generate('replace', pair[0].content, context, pair[0].id, files, webSearch);
+      await generate('replace', pair[0].content, context, pair[0].id, files, search);
     }
   }
 
@@ -50,9 +50,9 @@ export function createGeneration(
     text: string,
     context: RuntimeContext,
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
-    await generate('replace', text.trim(), context, userId, files, webSearch);
+    await generate('replace', text.trim(), context, userId, files, search);
   }
 
   function stop(): void {
@@ -65,7 +65,7 @@ export function createGeneration(
     context: RuntimeContext,
     userId = '',
     files: MarkdownFileRecord[] = [],
-    webSearch = false
+    search: SearchSelection | null = null
   ): Promise<void> {
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
@@ -80,7 +80,7 @@ export function createGeneration(
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
-    const admission = admitMessages(wire, context, webSearch ? context.searchContextCharacters : 0);
+    const admission = admitMessages(wire, context, search ? context.searchContextCharacters : 0);
     if (!admission.ok) {
       store.set({
         ...current,
@@ -106,7 +106,7 @@ export function createGeneration(
     const request = controller;
     store.set({
       ...current,
-      collection: withMessages(current.collection, chatId, messages),
+      collection: replaceChatMessages(current.collection, chatId, messages),
       status: 'streaming',
       error: null,
       telemetry: {
@@ -121,7 +121,7 @@ export function createGeneration(
         wire,
         event => applyEvent(chatId, assistantId, event),
         request.signal,
-        webSearch ? prompt.trim() : null
+        search ? { terms: prompt.trim(), selection: search } : null
       );
       store.update(snapshot => ({
         ...snapshot,
@@ -144,7 +144,7 @@ export function createGeneration(
         const message = error instanceof Error ? error.message : '';
         store.update(snapshot => ({
           ...snapshot,
-          collection: withMessages(snapshot.collection, chatId, previousMessages),
+          collection: replaceChatMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
           error: message === REQUEST_FAILED || message === WEB_SEARCH_FAILED ? message : INTERRUPTED,
           telemetry: null
@@ -183,7 +183,7 @@ export function createGeneration(
       }
       return {
         ...snapshot,
-        collection: withMessages(
+        collection: replaceChatMessages(
           snapshot.collection,
           chatId,
           appendAssistant(chat.messages, event.content)
@@ -193,15 +193,4 @@ export function createGeneration(
   }
 
   return { send, regenerate, editPrompt, stop };
-}
-
-function withMessages(
-  collection: ChatCollection,
-  chatId: string,
-  messages: ChatMessage[]
-): ChatCollection {
-  return {
-    ...collection,
-    chats: collection.chats.map(chat => chat.id === chatId ? { ...chat, messages } : chat)
-  };
 }

@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { get, writable } from 'svelte/store';
 
 import { createGeneration } from './generation.ts';
+import { defaultSearch } from './search.ts';
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
 import { hydrateTranscript } from './transcript.ts';
 import type { ChatSnapshot, RuntimeContext } from './types.ts';
@@ -151,12 +152,12 @@ test('Web search sends the visible query apart from expanded Markdown context', 
     utf8Bytes: 7,
     addedAt: 1
   }];
-  const pending = generation.send(' visible question ', context, files, true);
+  const pending = generation.send(' visible question ', context, files, defaultSearch());
   await tick();
-  assert.equal(stream.body().search_query, 'visible question');
-  assert.match(stream.body().search_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal(stream.body().search.terms, 'visible question');
+  assert.match(stream.body().search.reference_date, /^\d{4}-\d{2}-\d{2}$/);
   assert.match(stream.body().messages.at(-1).content, /### File: note\.md/);
-  assert.deepEqual(Object.keys(stream.body()), ['messages', 'search_query', 'search_date']);
+  assert.deepEqual(Object.keys(stream.body()), ['messages', 'search']);
   stream.done();
   await pending;
 });
@@ -169,7 +170,7 @@ test('Web search reserves its maximum context before visible mutation or fetch',
     contextLimit: 10,
     safePromptBudget: 1,
     searchContextCharacters: 8
-  }, [], true);
+  }, [], defaultSearch());
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), []);
   assert.equal(
@@ -238,7 +239,7 @@ test('Web search failure rolls back with its specific generic error', async () =
   fetchHandler = async () => new Response(null, { status: 502 });
   const original = snapshot();
   const { store, checkpoints, generation } = harness(original);
-  await generation.send('needs current facts', context, [], true);
+  await generation.send('needs current facts', context, [], defaultSearch());
   assert.deepEqual(plain(get(store)), plain(original));
   assert.equal(get(store).error, 'Web search unavailable; no answer was generated');
   assert.deepEqual(checkpoints, []);

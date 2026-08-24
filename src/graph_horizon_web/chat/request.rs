@@ -11,8 +11,9 @@ use hyper::Request;
 use hyper::body::Incoming;
 use serde::Deserialize;
 
+use super::super::search;
+
 const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
-const MAX_SEARCH_QUERY_CHARACTERS: usize = 512;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Error {
@@ -24,10 +25,8 @@ pub(super) enum Error {
 #[serde(deny_unknown_fields)]
 struct ChatRequest {
     messages: Vec<WireMessage>,
-    #[serde(default, deserialize_with = "optional_string")]
-    search_query: Option<String>,
-    #[serde(default, deserialize_with = "optional_string")]
-    search_date: Option<String>,
+    #[serde(default, deserialize_with = "optional_search")]
+    search: Option<search::Request>,
 }
 
 #[derive(Deserialize)]
@@ -47,12 +46,7 @@ enum WireRole {
 
 pub(super) struct ParsedRequest {
     pub(super) engine: EngineRequest,
-    pub(super) search: Option<Search>,
-}
-
-pub(super) struct Search {
-    pub(super) query: String,
-    pub(super) date: String,
+    pub(super) search: Option<search::Request>,
 }
 
 pub(super) async fn parse(
@@ -95,21 +89,14 @@ fn parse_bytes(
             content: message.content,
         })
         .collect();
-    let search = match (request.search_query, request.search_date) {
-        (None, None) => None,
-        (Some(query), Some(date)) => {
-            let query = query.trim().to_string();
-            if query.is_empty()
-                || query.chars().count() > MAX_SEARCH_QUERY_CHARACTERS
-                || !valid_date(&date)
-                || !matches!(messages.last(), Some(message) if message.role == Role::User)
-            {
-                return Err(Error::Invalid);
-            }
-            Some(Search { query, date })
-        }
-        _ => return Err(Error::Invalid),
-    };
+    let search = request
+        .search
+        .map(search::Request::validated)
+        .transpose()
+        .map_err(|_| Error::Invalid)?;
+    if search.is_some() && !matches!(messages.last(), Some(message) if message.role == Role::User) {
+        return Err(Error::Invalid);
+    }
     Ok(ParsedRequest {
         engine: EngineRequest {
             messages,
@@ -120,37 +107,11 @@ fn parse_bytes(
     })
 }
 
-fn optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+fn optional_search<'de, D>(deserializer: D) -> Result<Option<search::Request>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    String::deserialize(deserializer).map(Some)
-}
-
-fn valid_date(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() != 10
-        || bytes[4] != b'-'
-        || bytes[7] != b'-'
-        || !bytes
-            .iter()
-            .enumerate()
-            .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
-    {
-        return false;
-    }
-    let year = value[0..4].parse::<u16>().unwrap_or(0);
-    let month = value[5..7].parse::<u8>().unwrap_or(0);
-    let day = value[8..10].parse::<u8>().unwrap_or(0);
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let days = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if leap => 29,
-        2 => 28,
-        _ => return false,
-    };
-    year != 0 && day != 0 && day <= days
+    search::Request::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]
@@ -185,40 +146,28 @@ mod tests {
             r#"{"messages":[],"max_tokens":12}"#,
             r#"{"messages":[{"role":"tool","content":"x"}]}"#,
             r#"{"messages":[{"role":"user","content":"x","tool_calls":[]}]}"#,
-            r#"{"messages":[{"role":"user","content":"x"}],"search_query":null}"#,
+            r#"{"messages":[{"role":"user","content":"x"}],"search":null}"#,
             r#"{"messages":[{"role":"user","content":"x"}],"search_query":"x"}"#,
             r#"{"messages":[{"role":"user","content":"x"}],"search_date":"2026-08-23"}"#,
-            r#"{"messages":[{"role":"assistant","content":"x"}],"search_query":"x","search_date":"2026-08-23"}"#,
+            r#"{"messages":[{"role":"assistant","content":"x"}],"search":{"terms":"x","category":"web","language":"it-IT","reference_date":"2026-08-23","published":null}}"#,
         ] {
             assert_eq!(parse(body).err(), Some(Error::Invalid));
         }
     }
 
     #[test]
-    fn search_query_is_separate_trimmed_and_bounded() {
+    fn structured_search_is_separate_from_engine_messages() {
         let request = parse(
-            r#"{"messages":[{"role":"user","content":"framed input"}],"search_query":"  visible query  ","search_date":"2024-02-29"}"#,
+            r#"{"messages":[{"role":"user","content":"framed input"}],"search":{"terms":"  visible query  ","category":"news","language":"it-IT","reference_date":"2024-02-29","published":{"from":"2024-02-19","to":"2024-02-20"}}}"#,
         )
         .unwrap();
-        let search = request.search.unwrap();
-        assert_eq!(search.query, "visible query");
-        assert_eq!(search.date, "2024-02-29");
+        assert!(request.search.is_some());
         assert_eq!(request.engine.messages[0].content, "framed input");
 
-        let long = "x".repeat(MAX_SEARCH_QUERY_CHARACTERS + 1);
+        let long = "x".repeat(513);
         let body = format!(
-            r#"{{"messages":[{{"role":"user","content":"x"}}],"search_query":"{long}","search_date":"2026-08-23"}}"#
+            r#"{{"messages":[{{"role":"user","content":"x"}}],"search":{{"terms":"{long}","category":"web","language":"en-US","reference_date":"2026-08-23","published":null}}}}"#
         );
         assert_eq!(parse(&body).err(), Some(Error::Invalid));
-    }
-
-    #[test]
-    fn search_date_is_a_real_gregorian_date() {
-        for date in ["", "2026-8-23", "0000-01-01", "2023-02-29", "2026-13-01"] {
-            assert!(!valid_date(date), "accepted {date}");
-        }
-        for date in ["2024-02-29", "2026-08-23", "2000-02-29"] {
-            assert!(valid_date(date), "rejected {date}");
-        }
     }
 }

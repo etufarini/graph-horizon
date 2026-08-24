@@ -37,8 +37,18 @@ impl State {
     pub(super) async fn context(&self, query: &str, date: &str) -> Result<context::Framed, Error> {
         // One best-effort request at a time avoids amplifying upstream rate limits.
         let _permit = self.admission.try_acquire().map_err(|_| Error::Busy)?;
-        let html = client::fetch(query).await.map_err(|_| Error::Unavailable)?;
-        let results = parser::parse(&html);
+        let mut results = match client::fetch(query, date).await {
+            Ok(html) => parser::parse(&html),
+            Err(()) => Vec::new(),
+        };
+        if results.is_empty()
+            && let Ok(Some(fallback)) = client::fetch_fallback(query, date).await
+        {
+            results = match fallback {
+                client::Fallback::News(xml) => parser::parse_news(&xml),
+                client::Fallback::Code(html) => parser::parse_code(&html),
+            };
+        }
         context::frame(&results, date).ok_or(Error::Unavailable)
     }
 }

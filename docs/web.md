@@ -137,18 +137,35 @@ therefore at most 2 KiB of UTF-8). When the button is inactive both fields are
 omitted and Graph Horizon performs no outbound request.
 
 The Rust host runs the `curl` already required by Graph Horizon without a shell,
-user configuration, cookies, implicit proxy, or redirect following, and sends a
-GET request to the fixed DuckDuckGo Lite HTTPS origin. `curl` must remain
+user configuration, cookies, implicit proxy, or redirect following. It sends a
+GET request to the fixed DuckDuckGo Lite HTTPS origin. Explicit news searches
+whose primary response fails or contains no usable results receive one fallback
+GET to the fixed Google News RSS HTTPS origin. Recognized programming searches
+receive one fallback GET to the fixed Brave Search HTTPS origin under the same
+condition; general searches never contact a fallback. `curl` must remain
 available on `PATH` when Web search is used; its absence affects search only.
-The complete request
-has an eight-second timeout, the decoded HTML body is limited to 512 KiB, and
-only one search runs at a time. At most ten non-sponsored, distinct HTTP(S)
-results survive parsing. Each contains bounded plain-text title, URL, and
-snippet; Graph Horizon never visits or downloads a result URL.
+Each request has an eight-second timeout and a 512 KiB decoded-body limit, and
+only one search workflow runs at a time. At most ten distinct HTTP(S) results
+survive parsing. Each contains bounded plain-text title, URL, and snippet; Graph
+Horizon never visits or downloads a result URL.
 
 Queries containing explicit news or recency words (`notizie`, `news`, `oggi`,
 `today`, `ultime`, `latest`, `recenti`, or `recent`) request DuckDuckGo's one-day
-filter, preventing current-news requests from defaulting to archive pages.
+filter, preventing current-news requests from defaulting to archive pages. The
+provider query receives the validated browser date in long Italian form when an
+Italian indicator is present, otherwise in long English form. A canonical
+`notizie` or `news` prefix improves news ranking while the original query remains
+intact.
+
+Programming intent is recognized from bounded whole-word indicators in Italian
+or English, including common code vocabulary, languages, package tools, and Web
+frameworks. Its provider query appends `official documentation` without removing
+or translating the original text, preserving identifiers, versions, and error
+messages. The technical fallback searches English-indexed documentation with an
+Italian or US country hint matching the detected query language. Returned code
+is untrusted reference text: Graph Horizon neither downloads result pages nor
+executes code obtained from search. Non-news, non-programming queries are
+unchanged.
 
 Validated results are prefixed only to the final outgoing user-message copy.
 The framing calls them untrusted, potentially stale reference data, states the
@@ -165,12 +182,14 @@ matching identifiers such as `[S3]` inside the answer. Search context, date, and
 toggle state are excluded from transcript, local storage, import, and export;
 the source list is retained as part of the visible assistant answer.
 
-Search is best-effort because DuckDuckGo's public markup and rate limits are not
-a stable API contract. A timeout, redirect, rate limit, malformed response, or
-absence of usable results reports that Web search is unavailable and that no
-answer was generated, then restores the submitted prompt when no newer draft
-exists. It never falls back to an unsearched answer. Enabling search sends the
-query and public source IP to DuckDuckGo; inference and stored chat history
+Search is best-effort because DuckDuckGo and Brave public markup and rate limits
+and the Google News public feed are not stable API contracts. When both
+applicable providers time out, redirect, rate-limit, return malformed data, or
+contain no usable results, Graph Horizon reports that Web search is unavailable
+and that no answer was generated, then restores the submitted prompt when no
+newer draft exists. It never falls back to an unsearched answer. Enabling search
+sends the query and public source IP to DuckDuckGo and, only after a failed
+specialized search, to Google News or Brave; inference and stored chat history
 remain local.
 
 ### Saved Chat Persistence

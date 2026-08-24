@@ -133,9 +133,12 @@ graph-horizon --mode web \
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser. The interface
 is called Web UI, while its command-line mode is `web`. Its globe button enables
 one best-effort Web search for the next request without an account or API key.
-Current-day and explicit news queries use the browser-local date and a one-day
-provider filter. Answers are instructed to cite only the returned result
-snippets.
+Current-day and explicit news queries use an Italian or English long form of the
+browser-local date and a one-day provider filter. A keyless Google News RSS feed
+backs up unusable DuckDuckGo news responses. Programming queries preserve their
+Italian or English text, add an official-documentation hint, and use a keyless
+Brave fallback when necessary. Answers are instructed to cite only the returned
+result snippets.
 
 ## Current scope
 

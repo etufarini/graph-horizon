@@ -17,13 +17,15 @@ test('any-time Web search preserves arbitrary-language terms', () => {
 });
 
 test('calendar presets produce exact half-open intervals', () => {
-  for (const [period, from, to] of [
-    ['day', '2026-08-24', '2026-08-25'],
-    ['week', '2026-08-18', '2026-08-25'],
-    ['month', '2026-07-26', '2026-08-25']
-  ] as const) {
-    const selection = { ...defaultSearch(), period, category: 'news' as const };
-    assert.deepEqual(wireSearch('query', selection, now)?.published, { from, to });
+  for (const category of ['web', 'news'] as const) {
+    for (const [period, from, to] of [
+      ['day', '2026-08-24', '2026-08-25'],
+      ['week', '2026-08-18', '2026-08-25'],
+      ['month', '2026-07-26', '2026-08-25']
+    ] as const) {
+      const selection = { ...defaultSearch(), period, category };
+      assert.deepEqual(wireSearch('query', selection, now)?.published, { from, to });
+    }
   }
 });
 
@@ -43,4 +45,5 @@ test('custom dates are inclusive in the UI and exclusive on the wire', () => {
 
   assert.equal(validSearch({ ...selection, from: '2026-02-29' }), false);
   assert.equal(validSearch({ ...selection, from: '2026-08-15' }), false);
+  assert.equal(validSearch({ ...selection, from: '9999-12-31', to: '9999-12-31' }), false);
 });

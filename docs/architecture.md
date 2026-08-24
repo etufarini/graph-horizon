@@ -73,7 +73,10 @@ promise for external clients.
 ```text
 browser assets --> browser state --> private same-origin transport --> engine
                          |                    |
-                         |                    +--> optional DuckDuckGo Lite search
+                         |                    +--> optional structured search
+                         |                         |--> DuckDuckGo Lite
+                         |                         |--> Google News RSS
+                         |                         +--> Brave Search
                          +--> localStorage chat archive
                          +--> IndexedDB Markdown files
 ```
@@ -92,12 +95,13 @@ uploaded into product storage or indexed by a retrieval service.
 
 Search is the only optional non-local Web path. The Rust host invokes the
 project's existing `curl` prerequisite without a shell to contact a fixed
-DuckDuckGo Lite HTTPS origin and, after an unusable explicit news response, one
-fixed Google News RSS fallback origin. Programming intent similarly uses one
-fixed Brave Search fallback. The transport follows no redirects and never
-fetches a result URL. Explicit news and recency queries use a one-day filter and
-a language-matched long form of the validated browser-local date; programming
-queries preserve the original text and add an official-documentation hint.
+DuckDuckGo Lite, Google News RSS, or Brave Search HTTPS origin. The browser
+chooses Web or News and an optional calendar interval explicitly; no term or
+keyword classification selects providers. Provider adapters preserve the raw
+terms, add only provider-native date parameters, and keep publisher/publication
+metadata separate from snippets. Google News timestamps are parsed and filtered
+against the requested half-open interval. The bounded transport follows no
+redirects and never fetches a result URL.
 Search results are framed as untrusted data with strict grounding instructions;
 they exist only in the engine-request copy, while transcript storage retains the
 visible prompt and response.

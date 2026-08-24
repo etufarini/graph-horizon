@@ -43,7 +43,8 @@ fn provider_request(request: &Request) -> transport::Request {
     let (language, region) = language_region(request.language());
     url.query_pairs_mut()
         .append_pair("q", &query)
-        .append_pair("hl", request.language())
+        // The feed canonicalizes regional `hl` values through a redirect.
+        .append_pair("hl", &language)
         .append_pair("gl", &region)
         .append_pair("ceid", &format!("{region}:{language}"));
     transport::Request {
@@ -146,6 +147,10 @@ mod tests {
         assert!(
             url.query_pairs()
                 .any(|(key, value)| key == "ceid" && value == "IT:it")
+        );
+        assert!(
+            url.query_pairs()
+                .any(|(key, value)| key == "hl" && value == "it")
         );
     }
 

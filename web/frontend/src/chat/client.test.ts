@@ -94,7 +94,7 @@ test('unsuccessful and bodyless responses use request failure', async () => {
   }
 });
 
-test('Web search adds only its bounded query and browser-local date', async () => {
+test('Web search adds only its structured bounded request', async () => {
   let request: unknown;
   globalThis.fetch = async (_input, init) => {
     request = JSON.parse(String(init?.body));

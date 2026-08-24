@@ -13,7 +13,7 @@ export function validSearch(selection: SearchSelection): boolean {
   if (selection.period !== 'custom') return true;
   const from = parseDate(selection.from);
   const to = parseDate(selection.to);
-  return from !== null && to !== null && selection.from <= selection.to;
+  return from !== null && to !== null && selection.from <= selection.to && selection.to < '9999-12-31';
 }
 
 export function wireSearch(
@@ -55,7 +55,8 @@ function browserLanguage(): string {
 function parseDate(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return null;
-  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const date = new Date(2000, Number(match[2]) - 1, Number(match[3]));
+  date.setFullYear(Number(match[1]));
   return localDate(date) === value ? date : null;
 }
 

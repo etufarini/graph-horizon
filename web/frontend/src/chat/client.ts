@@ -1,7 +1,7 @@
 /*
  * Web chat HTTP client.
  * Loads immutable context properties and posts admitted text requests with an
- * optional separate Web-search query and browser-local date. Its linked
+ * optional separate structured search request. Its linked
  * controller keeps caller Stop distinct from inactivity cancellation.
  */
 import { parseRuntimeContext } from './context.ts';

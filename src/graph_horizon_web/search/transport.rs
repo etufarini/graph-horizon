@@ -188,7 +188,6 @@ mod tests {
         let config = Config {
             endpoint: Url::parse(&endpoint).unwrap(),
             bearer: None,
-            provider: "127.0.0.1".into(),
         };
 
         assert_eq!(

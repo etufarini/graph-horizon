@@ -17,7 +17,6 @@ use crate::app::args;
 pub(in crate::graph_horizon_web) struct Config {
     pub(super) endpoint: Url,
     pub(super) bearer: Option<String>,
-    pub(super) provider: String,
 }
 
 impl Config {
@@ -31,21 +30,15 @@ impl Config {
                 let endpoint = valid_endpoint(&endpoint)
                     .ok_or_else(|| eyre!("invalid Web search provider URL"))?;
                 let bearer = key_file.as_deref().map(load_bearer).transpose()?;
-                let provider = endpoint
-                    .host_str()
-                    .expect("validated endpoint has a host")
-                    .to_string();
-                Ok(Some(Config {
-                    endpoint,
-                    bearer,
-                    provider,
-                }))
+                Ok(Some(Config { endpoint, bearer }))
             }
         }
     }
 
     pub(super) fn provider(&self) -> &str {
-        &self.provider
+        self.endpoint
+            .host_str()
+            .expect("validated endpoint has a host")
     }
 }
 

@@ -18,7 +18,7 @@ const id = '00000000-0000-4000-8000-000000000001';
 const context: RuntimeContext = {
   contextLimit: 4096,
   safePromptBudget: 3686,
-  searchContextCharacters: 6144
+  searchContextCharacters: 12288
 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -342,7 +342,7 @@ test('empty edits and capacity rejection perform no fetch, mutation, or checkpoi
   await generation.editPrompt(userId, 'far too long', {
     contextLimit: 4,
     safePromptBudget: 3,
-    searchContextCharacters: 6144
+    searchContextCharacters: 12288
   });
   assert.equal(fetches, 0);
   assert.deepEqual(plain(get(store)), plain(initial));

@@ -13,7 +13,7 @@ mod client;
 mod context;
 mod parser;
 
-pub(super) const MAX_CONTEXT_CHARACTERS: usize = 6_144;
+pub(super) const MAX_CONTEXT_CHARACTERS: usize = 12_288;
 const MAX_CONCURRENT: usize = 1;
 
 #[derive(Clone)]

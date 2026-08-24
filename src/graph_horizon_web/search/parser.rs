@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use scraper::{Html, Selector};
 use url::Url;
 
-const MAX_RESULTS: usize = 5;
+const MAX_RESULTS: usize = 10;
 const MAX_TITLE_CHARACTERS: usize = 160;
 const MAX_URL_CHARACTERS: usize = 2_048;
 const MAX_SNIPPET_CHARACTERS: usize = 600;

@@ -51,7 +51,7 @@ chat.subscribe(value => { snapshot = value; });
 const context: RuntimeContext = {
   contextLimit: 4096,
   safePromptBudget: 3686,
-  searchContextCharacters: 6144
+  searchContextCharacters: 12288
 };
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));

@@ -142,20 +142,20 @@ GET request to the fixed DuckDuckGo Lite HTTPS origin. `curl` must remain
 available on `PATH` when Web search is used; its absence affects search only.
 The complete request
 has an eight-second timeout, the decoded HTML body is limited to 512 KiB, and
-only one search runs at a time. At most five non-sponsored, distinct HTTP(S)
+only one search runs at a time. At most ten non-sponsored, distinct HTTP(S)
 results survive parsing. Each contains bounded plain-text title, URL, and
 snippet; Graph Horizon never visits or downloads a result URL.
 
-Queries containing the explicit word `oggi` or `today` request DuckDuckGo's
-one-day filter. This narrow rule avoids treating every Web query as news while
-preventing current-day requests from defaulting to almanac pages.
+Queries containing explicit news or recency words (`notizie`, `news`, `oggi`,
+`today`, `ultime`, `latest`, `recenti`, or `recent`) request DuckDuckGo's one-day
+filter, preventing current-news requests from defaulting to archive pages.
 
 Validated results are prefixed only to the final outgoing user-message copy.
 The framing calls them untrusted, potentially stale reference data, states the
 browser-local date, and requires citations by result identifier (`[S1]`, `[S2]`).
 It instructs the model to use only facts supported by the returned snippets, not
 to name absent sources, and to acknowledge insufficient evidence rather than
-fill gaps from model memory. The complete added framing is limited to 6,144
+fill gaps from model memory. The complete added framing is limited to 12,288
 Unicode characters. The browser reserves that maximum before creating a visible
 turn or starting `fetch`, so an admitted search result cannot silently exceed
 the displayed prompt budget. After successful generation, the backend appends a
@@ -393,7 +393,7 @@ prompt, every committed raw message, and the trimmed draft. Streaming occupancy
 includes the submitted user message and current partial raw assistant response.
 Both also include exactly one complete current Markdown-file framing and request
 heading when files exist. When Web search is active, both the visible estimate
-and admission also reserve the backend's complete 6,144-character result framing
+and admission also reserve the backend's complete 12,288-character result framing
 ceiling.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or

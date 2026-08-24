@@ -71,7 +71,8 @@ mod tests {
 
     #[test]
     fn framing_marks_results_untrusted_and_keeps_complete_entries() {
-        let framed = frame(&[result(1, 8), result(2, 8)], "2026-08-23").unwrap();
+        let results = (1..=10).map(|index| result(index, 8)).collect::<Vec<_>>();
+        let framed = frame(&results, "2026-08-23").unwrap();
         assert!(
             framed
                 .prompt
@@ -88,12 +89,11 @@ mod tests {
                 .contains("use only facts explicitly supported below")
         );
         assert!(framed.prompt.contains("### Result S1"));
-        assert!(framed.prompt.contains("### Result S2"));
+        assert!(framed.prompt.contains("### Result S10"));
         assert!(framed.prompt.ends_with("### Existing request context\n"));
-        assert_eq!(
-            framed.sources,
-            "\n\n### Sources\n- [S1](<https://example.com/1>)\n- [S2](<https://example.com/2>)\n\n[S1]: <https://example.com/1>\n[S2]: <https://example.com/2>\n"
-        );
+        assert!(framed.sources.contains("- [S1](<https://example.com/1>)"));
+        assert!(framed.sources.contains("- [S10](<https://example.com/10>)"));
+        assert!(framed.sources.contains("[S10]: <https://example.com/10>"));
     }
 
     #[test]

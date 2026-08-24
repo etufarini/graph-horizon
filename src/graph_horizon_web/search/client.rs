@@ -73,24 +73,30 @@ pub(super) async fn fetch(query: &str) -> Result<String, ()> {
 
 fn request_url(query: &str) -> String {
     let mut url = Url::parse(ENDPOINT).expect("fixed search endpoint is valid");
-    let today = requests_today(query);
+    let recent_news = requests_recent_news(query);
     let mut pairs = url.query_pairs_mut();
     pairs
         .append_pair("q", query)
         .append_pair("kl", "wt-wt")
         .append_pair("kp", "1");
-    if today {
-        // DuckDuckGo's day filter keeps explicit "today" queries out of almanacs.
+    if recent_news {
+        // The day filter keeps explicit news and recency queries out of archives.
         pairs.append_pair("df", "d");
     }
     drop(pairs);
     url.into()
 }
 
-fn requests_today(query: &str) -> bool {
+fn requests_recent_news(query: &str) -> bool {
     query
         .split(|character: char| !character.is_alphanumeric())
-        .any(|word| word.eq_ignore_ascii_case("oggi") || word.eq_ignore_ascii_case("today"))
+        .any(|word| {
+            [
+                "oggi", "today", "notizie", "news", "ultime", "latest", "recenti", "recent",
+            ]
+            .iter()
+            .any(|expected| word.eq_ignore_ascii_case(expected))
+        })
 }
 
 #[cfg(test)]
@@ -106,9 +112,11 @@ mod tests {
     }
 
     #[test]
-    fn explicit_current_day_queries_receive_the_day_filter() {
+    fn explicit_news_and_recency_queries_receive_the_day_filter() {
         assert!(request_url("Cosa è successo OGGI?").ends_with("&df=d"));
         assert!(request_url("News today").ends_with("&df=d"));
+        assert!(request_url("Ultime notizie di tecnologia").ends_with("&df=d"));
+        assert!(request_url("Recent technology announcements").ends_with("&df=d"));
         assert!(!request_url("History magazine").contains("&df=d"));
     }
 }

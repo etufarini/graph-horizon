@@ -12,7 +12,7 @@ import type { RuntimeContext, WireMessage } from './types.ts';
 const context: RuntimeContext = {
   contextLimit: 2000,
   safePromptBudget: 1800,
-  searchContextCharacters: 6144
+  searchContextCharacters: 12288
 };
 
 function user(content: string): WireMessage[] {
@@ -23,7 +23,7 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
   assert.deepEqual(
     parseRuntimeContext({
       context_limit: 8192,
-      search_context_characters: 6144,
+      search_context_characters: 12288,
       model_path: 'ignored'
     }),
     {
@@ -31,17 +31,17 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
       context: {
         contextLimit: 8192,
         safePromptBudget: 7372,
-        searchContextCharacters: 6144
+        searchContextCharacters: 12288
       }
     }
   );
   for (const context_limit of [0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ context_limit, search_context_characters: 6144 }), {
+    assert.deepEqual(parseRuntimeContext({ context_limit, search_context_characters: 12288 }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  for (const search_context_characters of [0, -1, 1.5, '6144', null]) {
+  for (const search_context_characters of [0, -1, 1.5, '12288', null]) {
     assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search_context_characters }), {
       ok: false,
       error: 'unavailable'
@@ -105,14 +105,14 @@ test('maximum safe capacity uses exact quotient arithmetic', () => {
   assert.deepEqual(
     parseRuntimeContext({
       context_limit: Number.MAX_SAFE_INTEGER,
-      search_context_characters: 6144
+      search_context_characters: 12288
     }),
     {
       ok: true,
       context: {
         contextLimit: Number.MAX_SAFE_INTEGER,
         safePromptBudget: 8106479329266891,
-        searchContextCharacters: 6144
+        searchContextCharacters: 12288
       }
     }
   );

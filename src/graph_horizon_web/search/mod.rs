@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
-mod client;
 mod context;
-mod parser;
+mod provider;
 mod request;
+mod transport;
 
 pub(in crate::graph_horizon_web) use request::Request;
 
@@ -40,18 +40,36 @@ impl State {
     pub(super) async fn context(&self, request: &Request) -> Result<context::Framed, Error> {
         // One best-effort request at a time avoids amplifying upstream rate limits.
         let _permit = self.admission.try_acquire().map_err(|_| Error::Busy)?;
-        let mut results = match client::fetch(request).await {
-            Ok(html) => parser::parse(&html),
-            Err(()) => Vec::new(),
+        let results = match request.category() {
+            request::Category::Web => web_results(request).await,
+            request::Category::News => news_results(request).await,
         };
-        if results.is_empty()
-            && let Ok(Some(fallback)) = client::fetch_fallback(request).await
-        {
-            results = match fallback {
-                client::Fallback::News(xml) => parser::parse_news(&xml),
-                client::Fallback::Code(html) => parser::parse_code(&html),
-            };
-        }
-        context::frame(&results, request.reference_date()).ok_or(Error::Unavailable)
+        context::frame(&results, request).ok_or(Error::Unavailable)
     }
+}
+
+async fn web_results(request: &Request) -> Vec<provider::Result> {
+    let results = provider::duckduckgo::search(request)
+        .await
+        .unwrap_or_default();
+    if !results.is_empty() || request.published().is_some() {
+        return results;
+    }
+    provider::brave::search(request).await.unwrap_or_default()
+}
+
+async fn news_results(request: &Request) -> Vec<provider::Result> {
+    let results = provider::google_news::search(request)
+        .await
+        .unwrap_or_default();
+    if !results.is_empty() || request.published().is_some() {
+        return results;
+    }
+    let results = provider::duckduckgo::search(request)
+        .await
+        .unwrap_or_default();
+    if !results.is_empty() {
+        return results;
+    }
+    provider::brave::search(request).await.unwrap_or_default()
 }

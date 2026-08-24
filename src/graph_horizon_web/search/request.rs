@@ -5,6 +5,7 @@
  */
 
 use serde::Deserialize;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_QUERY_CHARACTERS: usize = 512;
 const MAX_LANGUAGE_CHARACTERS: usize = 35;
@@ -78,6 +79,19 @@ impl Published {
     pub(super) fn to(&self) -> &str {
         &self.to
     }
+
+    pub(super) fn contains(&self, time: SystemTime) -> bool {
+        let Ok(seconds) = time.duration_since(UNIX_EPOCH) else {
+            return false;
+        };
+        let day = (seconds.as_secs() / 86_400) as i64;
+        date_day(&self.from).is_some_and(|from| from <= day)
+            && date_day(&self.to).is_some_and(|to| day < to)
+    }
+
+    pub(super) fn duckduckgo_filter(&self) -> String {
+        format!("{}..{}", self.from, previous_date(&self.to))
+    }
 }
 
 fn valid_language(value: &str) -> bool {
@@ -121,6 +135,44 @@ pub(super) fn valid_date(value: &str) -> bool {
         _ => return false,
     };
     year != 0 && day != 0 && day <= days
+}
+
+fn date_day(value: &str) -> Option<i64> {
+    valid_date(value).then_some(())?;
+    let mut year = value[0..4].parse::<i64>().ok()?;
+    let month = value[5..7].parse::<i64>().ok()?;
+    let day = value[8..10].parse::<i64>().ok()?;
+    year -= i64::from(month <= 2);
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = year - era * 400;
+    let shifted_month = month + if month > 2 { -3 } else { 9 };
+    let day_of_year = (153 * shifted_month + 2) / 5 + day - 1;
+    Some(
+        era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year
+            - 719_468,
+    )
+}
+
+fn previous_date(value: &str) -> String {
+    let year = value[0..4].parse::<u16>().expect("validated year");
+    let month = value[5..7].parse::<u8>().expect("validated month");
+    let day = value[8..10].parse::<u8>().expect("validated day");
+    if day > 1 {
+        return format!("{year:04}-{month:02}-{:02}", day - 1);
+    }
+    let (year, month) = if month == 1 {
+        (year - 1, 12)
+    } else {
+        (year, month - 1)
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let day = match month {
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => 31,
+    };
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 #[cfg(test)]
@@ -168,5 +220,26 @@ mod tests {
         ] {
             assert!(parse(body).is_err(), "accepted {body}");
         }
+    }
+
+    #[test]
+    fn publication_intervals_are_half_open_utc_days() {
+        let range = Published {
+            from: "2026-08-14".into(),
+            to: "2026-08-15".into(),
+        };
+        assert!(
+            range.contains(httpdate::parse_http_date("Fri, 14 Aug 2026 23:59:59 GMT").unwrap())
+        );
+        assert!(
+            !range.contains(httpdate::parse_http_date("Sat, 15 Aug 2026 00:00:00 GMT").unwrap())
+        );
+        assert_eq!(range.duckduckgo_filter(), "2026-08-14..2026-08-14");
+
+        let leap = Published {
+            from: "2024-02-28".into(),
+            to: "2024-03-01".into(),
+        };
+        assert_eq!(leap.duckduckgo_filter(), "2024-02-28..2024-02-29");
     }
 }

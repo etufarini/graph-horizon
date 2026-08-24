@@ -127,10 +127,11 @@ sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Web Search
 
-Search is disabled by default. `--search-url` enables the globe button and names
-one JSON provider; `--search-key-file` optionally supplies its bearer token.
-There are no built-in scrapers or fallback providers. The model cannot initiate
-a search, and a failed search never falls back to an unsearched answer.
+Search is available without flags. The globe button still makes it an explicit
+choice for one request: merely starting the Web UI never sends a query. A `web`
+request uses DuckDuckGo Lite and a `news` request uses Google News RSS. The
+category is never rerouted to the other service, the model cannot initiate a
+search, and a failed search never falls back to an unsearched answer.
 
 The composer shows the exact query that will leave the process. An empty search
 query means “use the visible message”; otherwise the explicit query is used.
@@ -141,7 +142,18 @@ days, or an inclusive custom date range. Calendar boundaries are transmitted as
 a half-open interval of Unix milliseconds derived from local midnights. Category
 and terms are never inferred or rewritten.
 
-Graph Horizon sends one POST with `content-type: application/json`:
+The host translates that validated request into one fixed provider request.
+DuckDuckGo receives an HTTPS form request containing the terms, locale, strict
+safe-search setting, and optional date filter. Google News receives an HTTPS RSS
+request containing the same explicit terms, locale, and an optional broadened
+date query. Graph Horizon then reapplies the original exact half-open interval:
+a dated result without a usable timestamp, or outside the interval, is dropped.
+This local check is authoritative even when a provider's date filter is coarse.
+
+`--search-url` is the advanced alternative. It replaces both built-in routes
+with one JSON endpoint; `--search-key-file` optionally supplies its bearer
+token. Graph Horizon sends the endpoint one POST with
+`content-type: application/json`:
 
 ```json
 {
@@ -153,7 +165,7 @@ Graph Horizon sends one POST with `content-type: application/json`:
 }
 ```
 
-The provider must return exactly this response shape:
+The JSON override must return exactly this response shape:
 
 ```json
 {
@@ -167,19 +179,20 @@ The provider must return exactly this response shape:
 }
 ```
 
-Unknown response fields reject the whole response. Graph Horizon keeps at most
-five distinct HTTP(S) URLs, bounds title, excerpt, publisher, and URL lengths,
-and never visits result URLs. With a requested interval, a result is retained
-only when it has a timestamp inside that exact half-open interval. A `429`,
-timeout, invalid response, unavailable provider, and zero usable results produce
-distinct fixed UI errors.
+All adapters converge on this bounded internal shape. Unknown fields from a
+JSON override reject its whole response. Graph Horizon keeps at most five
+distinct HTTP(S) URLs, bounds title, excerpt, publisher, and URL lengths, and
+never visits result URLs. With a requested interval, a result is retained only
+when it has a timestamp inside that exact half-open interval. A public-engine
+challenge or `429`, timeout, invalid response, unavailable provider, and zero
+usable results produce distinct fixed UI errors.
 
 The host invokes `curl` without a shell, user curl configuration, cookies,
-proxy, or redirects. The bearer token is supplied through curl configuration on
-stdin, not its process arguments. Each request has an eight-second transfer
-timeout, a nine-second process ceiling, and a 512 KiB response limit. Only one
-search runs at a time. `curl` must remain on `PATH` when configured search is
-used.
+proxy, or redirects. An override bearer token is supplied through curl
+configuration on stdin, not its process arguments. Each request has an
+eight-second transfer timeout, a nine-second process ceiling, and a 512 KiB
+response limit. Only one search runs at a time. The installer therefore treats
+`curl` on `PATH` as a runtime prerequisite.
 
 Validated excerpts are framed as untrusted data only in the final outgoing user
 copy. The framing requires `[S1]` citations, includes no result URL, and is
@@ -190,9 +203,19 @@ labelled `Cited`; the rest remain `Search result`. Provenance is persisted and
 exported with the assistant message, but `wireMessages` projects only role and
 content, so it can never become later model history.
 
-Enabling search sends the displayed query, language hint, category, selected
-interval, local reference date, and public source IP to the configured provider.
-Inference, system prompt, chat history, files, and stored archives remain local.
+Enabling search sends the displayed query, language hint, selected interval,
+and public source IP to DuckDuckGo, Google News, or the configured override. An
+override also receives category and local reference date in its structured
+body. Inference, system prompt, chat history, files, and stored archives remain
+local.
+
+The keyless behavior is a concrete dependency on public result pages and feeds,
+not a service-level agreement. Their markup, availability, rate limits, result
+ranking, and terms can change independently of Graph Horizon. The fixed adapters
+fail closed when a response no longer matches; there is no hidden second
+provider. Snippets are search-engine extracts, not downloaded source pages, so
+citations expose provenance but do not by themselves prove that every generated
+claim is correct. Users should open cited sources for consequential claims.
 
 ### Saved Chat Persistence
 

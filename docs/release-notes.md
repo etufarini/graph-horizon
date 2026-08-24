@@ -1,8 +1,17 @@
 <!--
-These notes describe the released user-facing v0.1.1 contract, installation,
-packaging correction, capabilities, and limitations. Qualification mechanics
-belong in docs/validation.md.
+These notes describe unreleased user-facing changes and the released v0.1.1
+contract. Qualification mechanics belong in docs/validation.md.
 -->
+
+# Unreleased
+
+The integrated Web UI now provides explicit Web and News search without setup:
+DuckDuckGo Lite serves Web requests and Google News RSS serves News requests.
+`--search-url` remains an advanced replacement for both routes, with the same
+strict JSON contract and optional protected bearer-token file. Search framing,
+bounded snippets, separate provenance, citation labels, and the rule that no
+result page is downloaded remain unchanged. `curl` is now checked as an
+installed runtime prerequisite.
 
 # Graph Horizon v0.1.1
 

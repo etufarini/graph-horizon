@@ -36,7 +36,7 @@ export function parseRuntimeContext(payload: unknown): ContextConfigResult {
 
 function parseSearchCapability(value: unknown): RuntimeContext['search'] | null {
   if (!isRecord(value) ||
-      !(value.provider === null || typeof value.provider === 'string') ||
+      typeof value.provider !== 'string' || !value.provider || value.provider.length > 100 ||
       !Number.isSafeInteger(value.max_query_characters) ||
       (value.max_query_characters as number) <= 0 ||
       !Number.isSafeInteger(value.max_context_characters) ||

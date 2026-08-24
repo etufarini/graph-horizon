@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub(super) const MAX_QUERY_CHARACTERS: usize = 512;
 pub(super) const MAX_TIMESTAMP_BOUND_MS: u64 = 253_402_300_800_000;
 const MAX_LANGUAGE_CHARACTERS: usize = 35;
+const MILLISECONDS_PER_DAY: u64 = 86_400_000;
+const LAST_SUPPORTED_DAY: u64 = MAX_TIMESTAMP_BOUND_MS / MILLISECONDS_PER_DAY - 1;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -83,6 +85,34 @@ impl Published {
     pub(super) fn contains(self, time_ms: u64) -> bool {
         self.from_ms <= time_ms && time_ms < self.to_ms
     }
+
+    pub(super) fn duckduckgo_filter(self) -> String {
+        let first = self.from_ms / MILLISECONDS_PER_DAY;
+        let last = self.to_ms.saturating_sub(1) / MILLISECONDS_PER_DAY;
+        format!("{}..{}", utc_date(first), utc_date(last))
+    }
+
+    pub(super) fn google_dates(self) -> (String, String) {
+        let first = (self.from_ms / MILLISECONDS_PER_DAY).saturating_sub(1);
+        let after_last =
+            (self.to_ms.saturating_sub(1) / MILLISECONDS_PER_DAY + 2).min(LAST_SUPPORTED_DAY);
+        (utc_date(first), utc_date(after_last))
+    }
+}
+
+fn utc_date(days: u64) -> String {
+    let z = days as i64 + 719_468;
+    let era = z / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let mut year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let shifted_month = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
+    let month = shifted_month + if shifted_month < 10 { 3 } else { -9 };
+    year += i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 fn valid_language(value: &str) -> bool {
@@ -168,5 +198,24 @@ mod tests {
         assert!(range.contains(100));
         assert!(range.contains(199));
         assert!(!range.contains(200));
+    }
+
+    #[test]
+    fn provider_dates_cover_the_exact_millisecond_interval() {
+        let range = Published {
+            from_ms: 1_787_522_400_000,
+            to_ms: 1_787_608_800_000,
+        };
+        assert_eq!(range.duckduckgo_filter(), "2026-08-23..2026-08-24");
+        assert_eq!(
+            range.google_dates(),
+            ("2026-08-22".into(), "2026-08-26".into())
+        );
+
+        let upper = Published {
+            from_ms: MAX_TIMESTAMP_BOUND_MS - MILLISECONDS_PER_DAY,
+            to_ms: MAX_TIMESTAMP_BOUND_MS,
+        };
+        assert_eq!(upper.google_dates().1, "9999-12-31");
     }
 }

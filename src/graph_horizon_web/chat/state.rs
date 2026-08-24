@@ -25,7 +25,7 @@ pub(in crate::graph_horizon_web) struct State {
 impl State {
     pub(in crate::graph_horizon_web) fn new(
         engine: Arc<Engine>,
-        search: Option<search::Config>,
+        search: search::Config,
         max_tokens: usize,
     ) -> State {
         State {

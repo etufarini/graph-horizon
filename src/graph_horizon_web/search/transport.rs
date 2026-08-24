@@ -1,8 +1,7 @@
 /*
- * Bounded JSON-provider transport
- * Executes one fixed configured HTTPS POST without shell, redirects, user curl
- * settings, proxies, or cookies. An optional bearer token reaches curl only
- * through its stdin configuration and never appears in process arguments.
+ * Bounded search-provider transport
+ * Executes one typed HTTP request through curl without a shell, redirects,
+ * user configuration, proxies, or cookies and enforces fixed time/body limits.
  */
 
 use std::process::Stdio;
@@ -12,10 +11,27 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::time::timeout;
 
-use super::config::Config;
-
 const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const PROCESS_TIMEOUT: Duration = Duration::from_secs(9);
+
+pub(super) enum Accept {
+    Html,
+    Json,
+    Xml,
+}
+
+pub(super) enum Body {
+    Empty,
+    Form(Vec<(String, String)>),
+    Json(String),
+}
+
+pub(super) struct Request {
+    pub(super) url: String,
+    pub(super) accept: Accept,
+    pub(super) body: Body,
+    pub(super) bearer: Option<String>,
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Error {
@@ -26,7 +42,7 @@ pub(super) enum Error {
     Invalid,
 }
 
-pub(super) async fn fetch(config: &Config, body: String) -> Result<String, Error> {
+pub(super) async fn fetch(request: Request) -> Result<String, Error> {
     let mut command = Command::new("curl");
     command
         // `-q` must be first so ~/.curlrc cannot widen this fixed request.
@@ -43,25 +59,42 @@ pub(super) async fn fetch(config: &Config, body: String) -> Result<String, Error
             "--max-filesize",
         ])
         .arg(MAX_RESPONSE_BYTES.to_string())
+        .args(["--noproxy", "*", "--proto", "=http,https", "--header"])
+        .arg(match request.accept {
+            Accept::Html => "accept: text/html",
+            Accept::Json => "accept: application/json",
+            Accept::Xml => "accept: application/rss+xml, application/xml",
+        })
         .args([
-            "--noproxy",
-            "*",
-            "--proto",
-            "=http,https",
-            "--request",
-            "POST",
-            "--header",
-            "content-type: application/json",
-            "--header",
-            "accept: application/json",
             "--user-agent",
             concat!("graph-horizon/", env!("CARGO_PKG_VERSION")),
             "--write-out",
             "%{http_code}",
-            "--data-binary",
-        ])
-        .arg(body)
-        .arg(config.endpoint.as_str())
+        ]);
+
+    match request.body {
+        Body::Empty => {}
+        Body::Form(fields) => {
+            for (name, value) in fields {
+                command
+                    .arg("--data-urlencode")
+                    .arg(format!("{name}={value}"));
+            }
+        }
+        Body::Json(body) => {
+            command
+                .args([
+                    "--request",
+                    "POST",
+                    "--header",
+                    "content-type: application/json",
+                    "--data-binary",
+                ])
+                .arg(body);
+        }
+    }
+    command
+        .arg(request.url)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -69,15 +102,15 @@ pub(super) async fn fetch(config: &Config, body: String) -> Result<String, Error
 
     let mut child = command.spawn().map_err(|_| Error::Unavailable)?;
     let mut stdin = child.stdin.take().ok_or(Error::Unavailable)?;
-    if let Some(token) = &config.bearer {
+    if let Some(token) = request.bearer {
         stdin
             .write_all(format!("header = \"Authorization: Bearer {token}\"\n").as_bytes())
             .await
             .map_err(|_| Error::Unavailable)?;
     }
     stdin.shutdown().await.map_err(|_| Error::Unavailable)?;
-    // curl parses `--config -` only after EOF; releasing the pipe is the EOF
-    // invariant even on runtimes where AsyncWriteExt::shutdown only flushes.
+    // curl parses `--config -` only after EOF; dropping the pipe is required
+    // even when the asynchronous shutdown operation only flushes it.
     drop(stdin);
     let stdout = child.stdout.take().ok_or(Error::Unavailable)?;
 
@@ -130,16 +163,13 @@ fn response(mut output: Vec<u8>) -> Result<String, Error> {
 mod tests {
     use super::*;
     use tokio::net::TcpListener;
-    use url::Url;
 
     #[test]
-    fn response_separates_status_from_arbitrary_json_bytes() {
-        assert_eq!(
-            response(br#"{"results":[]}200"#.to_vec()),
-            Ok(r#"{"results":[]}"#.into())
-        );
+    fn response_separates_status_from_arbitrary_bytes() {
+        assert_eq!(response(b"body200".to_vec()), Ok("body".into()));
         assert_eq!(response(b"{}429".to_vec()), Err(Error::Http(429)));
         assert_eq!(response(b"20".to_vec()), Err(Error::Invalid));
+        assert_eq!(response(vec![0xff, b'2', b'0', b'0']), Err(Error::Invalid));
     }
 
     #[test]
@@ -161,11 +191,10 @@ mod tests {
                 let mut chunk = [0; 4096];
                 let count = socket.read(&mut chunk).await.unwrap();
                 request.extend_from_slice(&chunk[..count]);
-                let Some(headers_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
-                else {
+                let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") else {
                     continue;
                 };
-                let headers = String::from_utf8_lossy(&request[..headers_end]);
+                let headers = String::from_utf8_lossy(&request[..end]);
                 let length = headers
                     .lines()
                     .find_map(|line| {
@@ -175,25 +204,24 @@ mod tests {
                     })
                     .and_then(|value| value.parse::<usize>().ok())
                     .unwrap();
-                if request.len() >= headers_end + 4 + length {
+                if request.len() >= end + 4 + length {
                     break;
                 }
             }
             socket
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 14\r\n\r\n{\"results\":[]}")
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody")
                 .await
                 .unwrap();
             String::from_utf8(request).unwrap()
         });
-        let config = Config {
-            endpoint: Url::parse(&endpoint).unwrap(),
+        let request = Request {
+            url: endpoint,
+            accept: Accept::Json,
+            body: Body::Json(r#"{"query":"exact"}"#.into()),
             bearer: None,
         };
 
-        assert_eq!(
-            fetch(&config, r#"{"query":"exact"}"#.into()).await.unwrap(),
-            r#"{"results":[]}"#
-        );
+        assert_eq!(fetch(request).await.unwrap(), "body");
         assert!(server.await.unwrap().ends_with(r#"{"query":"exact"}"#));
     }
 }

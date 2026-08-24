@@ -76,9 +76,10 @@ dalla radice e privo di componenti `.` o `..`; `--prefix` prevale su
 `GRAPH_HORIZON_INSTALL_PREFIX`, che prevale su `$HOME/.local`. Nessuno dei due
 script invoca `sudo`.
 
-`install.sh` esegue `npm ci` dal lockfile, poi il solo script `build`, e infine
-una build Cargo `--locked`. Gli script npm disponibili sono `dev`, `check`,
-`test` e `build`.
+`install.sh` verifica anche `curl`, necessario a runtime per i provider di
+ricerca pubblici, esegue `npm ci` dal lockfile, poi il solo script `build`, e
+infine una build Cargo `--locked`. Gli script npm disponibili sono `dev`,
+`check`, `test` e `build`.
 Il binario canonico installato è `graph-horizon`; gli asset compilati della Web
 UI sono installati in `<prefix>/share/graph-horizon/web` e vengono risolti
 rispetto all'eseguibile, indipendentemente dalla directory corrente. Il nome

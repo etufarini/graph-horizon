@@ -133,7 +133,7 @@ test('invalid Web query is rejected before fetch', async () => {
   assert.equal(fetches, 0);
 });
 
-test('configured search failures retain distinct fixed messages', async () => {
+test('search failures retain distinct fixed messages', async () => {
   const cases = [
     [422, 'web search returned no results', 'Web search returned no usable results; no answer was generated'],
     [429, 'web search rate limited', 'Web search was rate limited; no answer was generated'],

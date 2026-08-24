@@ -13,7 +13,6 @@ import type { ContextConfigResult, RuntimeInfoResult, SearchInput, StreamEvent, 
 export const REQUEST_FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
 const SEARCH_FAILURES: Record<string, string> = {
-  'web search not configured': 'Web search is not configured',
   'web search returned no results': 'Web search returned no usable results; no answer was generated',
   'web search rate limited': 'Web search was rate limited; no answer was generated',
   'web search timed out': 'Web search timed out; no answer was generated',

@@ -48,9 +48,6 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
             Err(search::Error::Busy) => {
                 return error_response(StatusCode::TOO_MANY_REQUESTS, "busy");
             }
-            Err(search::Error::NotConfigured) => {
-                return error_response(StatusCode::BAD_REQUEST, "web search not configured");
-            }
             Err(search::Error::NoResults) => {
                 return error_response(
                     StatusCode::UNPROCESSABLE_ENTITY,

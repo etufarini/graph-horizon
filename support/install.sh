@@ -72,7 +72,7 @@ while [[ "${prefix}" != "/" && "${prefix}" == */ ]]; do
 done
 [[ "${prefix}" != "/" ]] || fail "invalid install prefix"
 
-for prerequisite in bash uname install npm cargo rustc find; do
+for prerequisite in bash uname install npm cargo rustc find curl; do
     command -v "${prerequisite}" >/dev/null 2>&1 || fail "${prerequisite} is required"
 done
 

@@ -24,7 +24,7 @@
   $: searchTerms = search ? search.query.trim() || value.trim() : '';
   $: queryTooLong = search !== null && searchCapability !== null &&
     Array.from(searchTerms).length > searchCapability.maxQueryCharacters;
-  $: searchAvailable = searchCapability !== null && searchCapability.provider !== null;
+  $: searchAvailable = searchCapability !== null;
   $: canSend = value.trim().length > 0 && !streaming && contextAvailable &&
     (search === null || (searchAvailable && !queryTooLong && validSearch(search)));
 
@@ -97,7 +97,7 @@
   {#if search}
     <SearchOptions
       value={search}
-      provider={searchCapability?.provider ?? 'the configured provider'}
+      provider={searchCapability?.provider ?? 'the search provider'}
       maxQueryCharacters={searchCapability?.maxQueryCharacters ?? 512}
       on:change={event => { search = event.detail; }}
     />

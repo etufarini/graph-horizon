@@ -75,6 +75,46 @@ del catalogo. La richiesta Web ha restituito HTTP 200 per UI, contesto e runtime
 e ha completato `OK.` con statistiche e frame terminale `done`. Questo verifica
 il confine di packaging e prodotto; non è una nuova campagna di parità o qualità.
 
+## Ricerca pubblica non rilasciata
+
+Questa evidenza appartiene alla working tree del 25 agosto 2026, non al tag
+immutabile `v0.1.1`. Ambiente: Linux x86_64 7.0.0-30, Rust 1.95.0 con verifica
+aggiuntiva su Rust 1.88.0, Node.js 25.9.0, npm 11.12.1 e curl 8.18.0.
+
+La ricerca Web DuckDuckGo Lite e la ricerca Google News RSS sono state eseguite
+contro Internet senza chiavi. Tre round consecutivi per adapter sono passati;
+il run finale con le asserzioni complete ha prodotto `3 passed`: risultati reali
+non vuoti, massimo cinque URL HTTP(S), titoli ed estratti non vuoti, publisher
+presenti e risultati Web/News datati tutti provvisti di timestamp dentro
+l'intervallo locale esatto richiesto. I test restano `#[ignore]` nella suite
+ordinaria perché dipendono da servizi e rete esterni.
+
+```sh
+cargo test --locked --no-default-features --features cpu -p graph-horizon
+cargo test --locked --no-default-features --features cpu -p graph-horizon \
+  live_ -- --ignored
+cd web/frontend && npm test && npm run check && npm run build
+```
+
+| Gate ricerca/Web UI | Esito |
+|---|---|
+| suite Rust ordinaria | PASS: 166, con 3 live ignorati |
+| provider reali Web con date, News e News con date | PASS: 3/3 per tre round consecutivi |
+| errori deterministici: 429, timeout, oversize, feed/JSON invalido, zero risultati | PASS |
+| frontend | PASS: 132 test, 0 errori/warning Svelte, build |
+| Clippy CPU `-D warnings` e check Rust 1.88 | PASS |
+| installer CPU `fast` in prefisso pulito, binario e asset installati | PASS |
+| dipendenze dirette | `scraper` 0.27.0 ISC; `roxmltree` 0.20.0 e `httpdate` 1.0.3 MIT/Apache-2.0 |
+
+La qualità strutturale delle citazioni è coperta: il contesto ordina identificatori
+`[S1]`, mantiene gli URL fuori dal testo affidato al modello, conserva provenienza
+separata e marca come `Cited` solo gli identificatori presenti nella risposta
+visibile. La working tree non contiene un GGUF, quindi la valutazione semantica
+di una risposta realmente generata con queste fonti resta **external
+verification**; non viene trasformata in PASS usando un modello diverso o una
+risposta simulata. Inoltre gli estratti appartengono ai motori di ricerca, non
+alle pagine originali: una citazione ben formata non prova da sola ogni claim.
+
 ## Contratto minimo Rust
 
 Graph Horizon supporta Rust e Cargo 1.88 o successivi. Rust 1.85 è il minimo per

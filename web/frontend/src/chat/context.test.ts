@@ -41,24 +41,13 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
       }
     }
   );
-  assert.deepEqual(
-    parseRuntimeContext({ context_limit: 8192, search: { ...capability, provider: null } }),
-    {
-      ok: true,
-      context: {
-        contextLimit: 8192,
-        safePromptBudget: 7372,
-        search: { provider: null, maxQueryCharacters: 512, maxContextCharacters: 2800 }
-      }
-    }
-  );
   for (const context_limit of [0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
     assert.deepEqual(parseRuntimeContext({ context_limit, search: capability }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  for (const search of [0, null, {}, { ...capability, provider: 1 }, { ...capability, max_context_characters: 0 }]) {
+  for (const search of [0, null, {}, { ...capability, provider: null }, { ...capability, provider: '' }, { ...capability, provider: 1 }, { ...capability, max_context_characters: 0 }]) {
     assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search }), {
       ok: false,
       error: 'unavailable'

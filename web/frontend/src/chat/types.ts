@@ -82,7 +82,7 @@ export interface SearchReport {
 }
 
 export interface SearchCapability {
-  provider: string | null;
+  provider: string;
   maxQueryCharacters: number;
   maxContextCharacters: number;
 }

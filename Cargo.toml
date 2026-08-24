@@ -45,4 +45,7 @@ hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 bytes = "1"
+scraper = { version = "0.27.0", default-features = false }
 url = "2.5.8"
+roxmltree = "0.20.0"
+httpdate = "1.0.3"

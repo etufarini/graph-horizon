@@ -1,8 +1,7 @@
 /*
- * Configured JSON search provider
- * Validates one fixed endpoint and optionally loads one bearer token from a
- * permission-restricted file before the listener starts. Secrets never enter
- * process arguments, logs, errors, or browser-visible runtime metadata.
+ * Web search provider configuration
+ * Selects the fixed keyless public provider by default or validates one
+ * explicit JSON override. Optional secrets never enter arguments or metadata.
  */
 
 use std::fs;
@@ -14,31 +13,37 @@ use url::{Host, Url};
 use crate::app::args;
 
 #[derive(Clone)]
-pub(in crate::graph_horizon_web) struct Config {
-    pub(super) endpoint: Url,
-    pub(super) bearer: Option<String>,
+pub(in crate::graph_horizon_web) enum Config {
+    Public,
+    Json {
+        endpoint: Url,
+        bearer: Option<String>,
+    },
 }
 
 impl Config {
-    pub(in crate::graph_horizon_web) fn from_args() -> Result<Option<Config>> {
+    pub(in crate::graph_horizon_web) fn from_args() -> Result<Config> {
         let endpoint = args::value("--search-url");
         let key_file = args::value("--search-key-file");
         match (endpoint, key_file) {
-            (None, None) => Ok(None),
+            (None, None) => Ok(Config::Public),
             (None, Some(_)) => Err(eyre!("--search-key-file requires --search-url")),
             (Some(endpoint), key_file) => {
                 let endpoint = valid_endpoint(&endpoint)
                     .ok_or_else(|| eyre!("invalid Web search provider URL"))?;
                 let bearer = key_file.as_deref().map(load_bearer).transpose()?;
-                Ok(Some(Config { endpoint, bearer }))
+                Ok(Config::Json { endpoint, bearer })
             }
         }
     }
 
-    pub(super) fn provider(&self) -> &str {
-        self.endpoint
-            .host_str()
-            .expect("validated endpoint has a host")
+    pub(super) fn capability_label(&self) -> &str {
+        match self {
+            Config::Public => "DuckDuckGo / Google News",
+            Config::Json { endpoint, .. } => {
+                endpoint.host_str().expect("validated endpoint has a host")
+            }
+        }
     }
 }
 
@@ -104,5 +109,13 @@ mod tests {
         ] {
             assert!(valid_endpoint(invalid).is_none(), "accepted {invalid}");
         }
+    }
+
+    #[test]
+    fn public_provider_has_a_stable_browser_label() {
+        assert_eq!(
+            Config::Public.capability_label(),
+            "DuckDuckGo / Google News"
+        );
     }
 }

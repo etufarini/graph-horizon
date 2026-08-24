@@ -12,9 +12,9 @@ documentation.
 
 Graph Horizon is a focused local text-to-text runtime with two interfaces: an
 interactive CLI and an integrated Web UI. Both run the model locally; there is
-no standalone server mode or supported public HTTP API. The Web UI can
-optionally send an explicit Web or News query to a configured JSON provider;
-inference remains local.
+no standalone server mode or supported public HTTP API. The Web UI can send an
+explicit Web query to DuckDuckGo Lite or a News query to Google News without a
+key or additional configuration; inference remains local.
 
 The current model integration is Ministral 3 Instruct and Reasoning 2512 in the
 3B, 8B, and 14B sizes. Ministral 3 is the model family currently used by Graph
@@ -27,7 +27,7 @@ The installer builds Graph Horizon from source. Before running it, install:
 - Rust and Cargo 1.88 or newer;
 - Node.js and npm 22.12 or newer;
 - `bash`, `curl`, `tar`, `find`, `awk`, `mktemp`, `uname`, `install`, and either
-  `sha256sum` or `shasum`; keep `curl` available to use optional Web search;
+  `sha256sum` or `shasum`; `curl` remains a runtime prerequisite for search;
 - the platform requirements listed below.
 
 The default installation directory is `$HOME/.local/bin`. The installer does
@@ -132,12 +132,12 @@ graph-horizon --mode web \
 ```
 
 Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in a browser. The interface
-is called Web UI, while its command-line mode is `web`. Configure search with
-`--search-url https://search.example/v1/search` and, when needed,
-`--search-key-file /path/to/key`. Its globe button then enables one explicit
-search for the next request. The query shown in the composer is the only chat
-text sent to that provider; inference, history, and files remain local. See the
-[Web search contract](docs/web.md#web-search).
+is called Web UI, while its command-line mode is `web`. Search is ready as soon
+as the UI starts: the globe button enables one explicit search for the next
+request. The query shown in the composer is the only chat text sent to the
+selected public provider; inference, history, and files remain local.
+`--search-url` and `--search-key-file` remain an advanced override for a
+compatible JSON provider. See the [Web search contract](docs/web.md#web-search).
 
 ## Current scope
 

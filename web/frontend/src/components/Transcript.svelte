@@ -50,7 +50,7 @@ history, transcript repair, and persistence remain outside this component.
       <span class="empty-mark" aria-hidden="true"></span>
       <h2>Inference engine ready</h2>
       <p>{searchEnabled
-        ? 'Inference stays local. Web search sends only the displayed query to its configured provider.'
+        ? 'Inference stays local. Search sends only the displayed query to the selected provider.'
         : 'Send a message to start the local session.'}</p>
     </div>
   {:else}

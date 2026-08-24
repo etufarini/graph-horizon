@@ -205,19 +205,6 @@ test('Web search reserves its maximum context before visible mutation or fetch',
   );
 });
 
-test('Web search rejects a missing provider before fetch', async () => {
-  let fetches = 0;
-  fetchHandler = async () => { fetches += 1; throw new Error('unexpected fetch'); };
-  const { store, generation } = harness(snapshot([]));
-  await generation.send('current facts', {
-    ...context,
-    search: { ...context.search, provider: null }
-  }, [], defaultSearch());
-  assert.equal(fetches, 0);
-  assert.deepEqual(plain(get(store)), []);
-  assert.equal(get(store).error, 'Web search is not configured');
-});
-
 test('valid zero-delta completion retains the empty response and checkpoints', async () => {
   const stream = controlledFetch();
   const { store, checkpoints, generation } = harness();

@@ -6,6 +6,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Bubble from './Bubble.svelte';
+  import SearchSources from './SearchSources.svelte';
   import type { ChatMessage } from '../chat/types';
 
   export let user: ChatMessage;
@@ -80,6 +81,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   <div class="message message-assistant">
     <Bubble message={assistant} streaming={streaming && final} />
+    {#if assistant.search}<SearchSources report={assistant.search} answer={assistant.content} />{/if}
     {#if final}
       <div class="actions">
         <button type="button" disabled={streaming} on:click={() => dispatch('regenerate')}>Regenerate</button>

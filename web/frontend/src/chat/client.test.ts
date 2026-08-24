@@ -116,7 +116,7 @@ test('Web search adds only its structured bounded request', async () => {
   globalThis.fetch = async () => new Response(null, { status: 502 });
   await assert.rejects(
     streamAssistant(messages, () => {}, new AbortController().signal, search),
-    { message: 'Web search unavailable; no answer was generated' }
+    { message: 'Web search is unavailable; no answer was generated' }
   );
 });
 
@@ -131,6 +131,23 @@ test('invalid Web query is rejected before fetch', async () => {
     { message: 'Request failed' }
   );
   assert.equal(fetches, 0);
+});
+
+test('configured search failures retain distinct fixed messages', async () => {
+  const cases = [
+    [422, 'web search returned no results', 'Web search returned no usable results; no answer was generated'],
+    [429, 'web search rate limited', 'Web search was rate limited; no answer was generated'],
+    [504, 'web search timed out', 'Web search timed out; no answer was generated'],
+    [502, 'invalid web search response', 'The Web search provider returned invalid data; no answer was generated']
+  ] as const;
+  for (const [status, error, message] of cases) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error }), {
+      status, headers: { 'content-type': 'application/json' }
+    });
+    await assert.rejects(streamAssistant(messages, () => {}, new AbortController().signal, {
+      terms: 'query', selection: defaultSearch()
+    }), { message });
+  }
 });
 
 test('an oversized assembled JSON body is rejected before fetch', async () => {

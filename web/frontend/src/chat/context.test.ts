@@ -12,7 +12,15 @@ import type { RuntimeContext, WireMessage } from './types.ts';
 const context: RuntimeContext = {
   contextLimit: 2000,
   safePromptBudget: 1800,
-  searchContextCharacters: 12288
+  search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
+};
+
+const capability = {
+  enabled: true,
+  provider: 'search.example',
+  max_query_characters: 512,
+  max_context_characters: 2800,
+  date_filters: true
 };
 
 function user(content: string): WireMessage[] {
@@ -23,7 +31,7 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
   assert.deepEqual(
     parseRuntimeContext({
       context_limit: 8192,
-      search_context_characters: 12288,
+      search: capability,
       model_path: 'ignored'
     }),
     {
@@ -31,18 +39,18 @@ test('context accepts positive safe capacities and ignores extra fields', () => 
       context: {
         contextLimit: 8192,
         safePromptBudget: 7372,
-        searchContextCharacters: 12288
+        search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
       }
     }
   );
   for (const context_limit of [0, 1, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '4096', null]) {
-    assert.deepEqual(parseRuntimeContext({ context_limit, search_context_characters: 12288 }), {
+    assert.deepEqual(parseRuntimeContext({ context_limit, search: capability }), {
       ok: false,
       error: 'unavailable'
     });
   }
-  for (const search_context_characters of [0, -1, 1.5, '12288', null]) {
-    assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search_context_characters }), {
+  for (const search of [0, null, {}, { ...capability, enabled: false }, { ...capability, max_context_characters: 0 }]) {
+    assert.deepEqual(parseRuntimeContext({ context_limit: 8192, search }), {
       ok: false,
       error: 'unavailable'
     });
@@ -105,14 +113,14 @@ test('maximum safe capacity uses exact quotient arithmetic', () => {
   assert.deepEqual(
     parseRuntimeContext({
       context_limit: Number.MAX_SAFE_INTEGER,
-      search_context_characters: 12288
+      search: capability
     }),
     {
       ok: true,
       context: {
         contextLimit: Number.MAX_SAFE_INTEGER,
         safePromptBudget: 8106479329266891,
-        searchContextCharacters: 12288
+        search: { enabled: true, provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800, dateFilters: true }
       }
     }
   );

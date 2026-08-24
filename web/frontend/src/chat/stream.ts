@@ -5,6 +5,7 @@
  * before done. Fetch effects remain outside.
  */
 import { parseGenerationStats } from './telemetry.ts';
+import { parseSearchReport } from './search.ts';
 import type { StreamEvent } from './types';
 
 const INTERRUPTED = 'Connection interrupted';
@@ -18,10 +19,18 @@ export async function readChatStream(
   const decoder = new TextDecoder();
   let buffer = '';
   let finished = false;
+  let began = false;
+  let searchSeen = false;
   const emit = (event: StreamEvent) => {
     // Usage is terminal telemetry: accepting later deltas would make the
     // rendered response disagree with the exact counters just published.
     if (finished) throw new Error(INTERRUPTED);
+    if (event.type === 'search') {
+      if (began || searchSeen) throw new Error(INTERRUPTED);
+      searchSeen = true;
+    } else {
+      began = true;
+    }
     if (event.type === 'stats') finished = true;
     onEvent(event);
   };
@@ -83,6 +92,13 @@ function consumeDataLine(
     const phase = parsed.phase;
     if (phase !== 'prefill' && phase !== 'decode') throw new Error(INTERRUPTED);
     onEvent({ type: 'phase', phase });
+    return false;
+  }
+
+  if (only(parsed, 'search')) {
+    const search = parseSearchReport(parsed.search);
+    if (!search) throw new Error(INTERRUPTED);
+    onEvent({ type: 'search', search });
     return false;
   }
 

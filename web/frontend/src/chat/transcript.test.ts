@@ -27,13 +27,10 @@ const plain = [
 test('validation preserves complete alternating Unicode transcripts exactly', () => {
   assert.deepEqual(validateTranscript(plain), plain);
   assert.deepEqual(validateTranscript([]), []);
-  assert.deepEqual(
-    validateTranscript([
-      { role: 'user', content: 'x', ignored: true },
-      { role: 'assistant', content: '', ignored: true }
-    ]),
-    [{ role: 'user', content: 'x' }, { role: 'assistant', content: '' }]
-  );
+  assert.equal(validateTranscript([
+    { role: 'user', content: 'x', ignored: true },
+    { role: 'assistant', content: '', ignored: true }
+  ]), null);
 });
 
 test('validation rejects the whole invalid transcript without a valid prefix', () => {
@@ -50,9 +47,9 @@ test('validation rejects the whole invalid transcript without a valid prefix', (
   assert.equal(validateTranscript({}), null);
 });
 
-test('file transfer keeps version 1 and delegates complete-pair validation', () => {
+test('file transfer emits version 2 and delegates complete-pair validation', () => {
   const text = serializeChat(hydrateTranscript(plain), '  system  ');
-  assert.match(text, /^\{\n  "version": 1,/);
+  assert.match(text, /^\{\n  "version": 2,/);
   assert.deepEqual(parseChatFile(text), {
     ok: true,
     payload: { systemPrompt: '  system  ', messages: plain }

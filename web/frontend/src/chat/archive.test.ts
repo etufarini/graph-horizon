@@ -23,6 +23,11 @@ const plain = [
   { role: 'user' as const, content: 'hello 🧠' },
   { role: 'assistant' as const, content: '[THINK]π[/THINK]' }
 ];
+const report = {
+  query: 'Rust', category: 'web' as const, referenceDate: '2026-08-24',
+  published: null, provider: 'search.example',
+  sources: [{ id: 'S1', title: 'Result', url: 'https://example.com/', publisher: null, publishedAtMs: null }]
+};
 
 function validRecord() {
   return {
@@ -38,7 +43,7 @@ function validRecord() {
   };
 }
 
-test('version-3 parsing accepts only the exact per-chat prompt shape', () => {
+test('version-4 parsing accepts only the exact per-chat prompt shape', () => {
   assert.equal(STORAGE_KEY, 'graph-horizon.conversation');
   const result = parseArchive(JSON.stringify(validRecord()));
   assert.equal(result.kind, 'current');
@@ -57,7 +62,7 @@ test('malformed, unknown, missing, and extra top-level fields are invalid', () =
   const invalid = [
     '{',
     'null',
-    JSON.stringify({ ...record, version: 4 }),
+    JSON.stringify({ ...record, version: 5 }),
     JSON.stringify({ version: 2, activeChatId: firstId }),
     JSON.stringify({ ...record, extra: true }),
     JSON.stringify({ ...record, chats: [] })
@@ -153,14 +158,14 @@ test('legacy recognition rejects extra fields and invalid message objects', () =
   }
 });
 
-test('serialization strips runtime IDs and emits version 3 per-chat prompts', () => {
+test('serialization strips runtime IDs and emits version 4 per-chat prompts', () => {
   let collection = createCollection(42, source(firstId), 'system');
   collection = replaceActiveTranscript(collection, hydrateTranscript(plain), 43);
   const serialized = serializeArchive(collection);
   assert.equal(serialized.ok, true);
   if (!serialized.ok) return;
   assert.deepEqual(JSON.parse(serialized.raw), {
-    version: 3,
+    version: 4,
     activeChatId: firstId,
     chats: [{
       id: firstId,
@@ -170,6 +175,19 @@ test('serialization strips runtime IDs and emits version 3 per-chat prompts', ()
       updatedAt: 43
     }]
   });
+});
+
+test('version 4 persists strict assistant provenance while version 3 rejects it', () => {
+  const record: any = validRecord();
+  record.chats[0].messages = [plain[0], { ...plain[1], search: report }];
+  const parsed = parseArchive(JSON.stringify(record));
+  assert.equal(parsed.kind, 'current');
+  if (parsed.kind !== 'current') return;
+  assert.deepEqual(parsed.collection.chats[0].messages[1].search, report);
+  assert.deepEqual(parseArchive(JSON.stringify({ ...record, version: 3 })), { kind: 'invalid' });
+  const serialized = serializeArchive(parsed.collection);
+  assert.equal(serialized.ok, true);
+  if (serialized.ok) assert.deepEqual(JSON.parse(serialized.raw).chats[0].messages[1].search, report);
 });
 
 test('serialization accepts exactly 4 MiB and rejects one UTF-8 byte over', () => {

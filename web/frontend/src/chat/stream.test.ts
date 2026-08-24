@@ -9,6 +9,11 @@ import assert from 'node:assert/strict';
 import { readChatStream } from './stream.ts';
 
 const encoder = new TextEncoder();
+const search = {
+  query: 'Rust 1.97', category: 'news', reference_date: '2026-08-24',
+  published: null, provider: 'search.example',
+  sources: [{ id: 'S1', title: 'Rust release', url: 'https://example.com/rust', publisher: 'Example', published_at_ms: 1787522400000 }]
+};
 
 function body(chunks: string[], onCancel: () => void = () => {}): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -97,6 +102,23 @@ test('phase, exact stats and done frames emit typed telemetry', async () => {
     event => events.push(event.type)
   );
   assert.deepEqual(events, ['phase', 'phase', 'stats']);
+});
+
+test('strict search provenance is accepted once before generation frames', async () => {
+  const events: string[] = [];
+  await readChatStream(body([
+    `data: ${JSON.stringify({ search })}\n`,
+    'data: {"phase":"prefill"}\n',
+    'data: {"phase":"decode"}\n',
+    'data: {"stats":{"prompt_tokens":2,"prefill_tokens":1,"completion_tokens":1,"prefill_ms":10,"decode_ms":20}}\n',
+    'data: {"done":true}\n'
+  ]), event => events.push(event.type));
+  assert.deepEqual(events, ['search', 'phase', 'phase', 'stats']);
+
+  await assert.rejects(readChatStream(body([
+    'data: {"phase":"prefill"}\n',
+    `data: ${JSON.stringify({ search })}\n`
+  ]), () => {}), { message: 'Connection interrupted' });
 });
 
 test('stats reject later content or phase frames', async t => {

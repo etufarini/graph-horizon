@@ -158,7 +158,7 @@ mod tests {
     #[test]
     fn structured_search_is_separate_from_engine_messages() {
         let request = parse(
-            r#"{"messages":[{"role":"user","content":"framed input"}],"search":{"terms":"  visible query  ","category":"news","language":"it-IT","reference_date":"2024-02-29","published":{"from":"2024-02-19","to":"2024-02-20"}}}"#,
+            r#"{"messages":[{"role":"user","content":"framed input"}],"search":{"terms":"  visible query  ","category":"news","language":"it-IT","reference_date":"2024-02-29","published":{"from_ms":1708300800000,"to_ms":1708387200000}}}"#,
         )
         .unwrap();
         assert!(request.search.is_some());

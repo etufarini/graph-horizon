@@ -30,9 +30,11 @@ contract](../crates/graph_horizon_engine/README.md).
 | `--mode <cli\|web>` | `cli` | Selects the supported surface |
 | `--host <host>` | `127.0.0.1` | Web UI bind host; ignored by CLI |
 | `--port <value>` | `8080` | Web UI bind port; ignored by CLI |
+| `--search-url <url>` | none | Web JSON search endpoint; HTTPS except HTTP loopback |
+| `--search-key-file <path>` | none | Optional bearer token file; requires `--search-url` |
 | `--context-tokens <n>` | engine policy | Exact positive context request |
 | `--system-prompt <text>` | none | CLI-only system prompt |
-| `--max-tokens <n>` | `2048` | CLI response reserve; ignored by Web UI |
+| `--max-tokens <n>` | CLI: `2048`; Web: context limit | Maximum generated tokens |
 | `--vram-weights-percent <n>` | automatic | Explicit `0..=100` hybrid weight-placement limit |
 | `--vram-reserve-mib <n>` | engine policy | Non-negative hybrid VRAM reserve |
 | `--cpu-threads <n>` | host parallelism | CPU workers, integer `>= 1` |
@@ -57,7 +59,16 @@ bind value fails startup. Binding outside loopback deliberately makes the Web UI
 reachable from that network; Graph Horizon does not add TLS or authentication.
 
 The Web UI uses the engine's resolved context and model-profile sampling.
-`--system-prompt` and `--max-tokens` are CLI-only and have no Web effect.
+`--system-prompt` remains CLI-only. `--max-tokens` bounds Web generation too;
+when omitted, Web uses the resolved context limit as its existing default.
+
+Search is disabled unless `--search-url` is present. The URL may contain a path
+but no credentials, query, or fragment. It must use HTTPS, except that HTTP is
+accepted for `localhost`, `127.0.0.1`, and `::1` to support local adapters and
+tests. `--search-key-file` contains one bearer token; on Unix it must be a
+regular file with no group or other permission bits. Configuration errors stop
+startup before the listener opens. The provider contract and privacy boundary
+are documented in [web.md](web.md#web-search).
 
 ## Build And Environment
 

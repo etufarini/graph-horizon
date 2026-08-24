@@ -74,9 +74,7 @@ promise for external clients.
 browser assets --> browser state --> private same-origin transport --> engine
                          |                    |
                          |                    +--> optional structured search
-                         |                         |--> DuckDuckGo Lite
-                         |                         |--> Google News RSS
-                         |                         +--> Brave Search
+                         |                         +--> configured JSON provider
                          +--> localStorage chat archive
                          +--> IndexedDB Markdown files
 ```
@@ -94,17 +92,14 @@ untrusted reference data in one outgoing user-message copy; they are never
 uploaded into product storage or indexed by a retrieval service.
 
 Search is the only optional non-local Web path. The Rust host invokes the
-project's existing `curl` prerequisite without a shell to contact a fixed
-DuckDuckGo Lite, Google News RSS, or Brave Search HTTPS origin. The browser
-chooses Web or News and an optional calendar interval explicitly; no term or
-keyword classification selects providers. Provider adapters preserve the raw
-terms, add only provider-native date parameters, and keep publisher/publication
-metadata separate from snippets. Google News timestamps are parsed and filtered
-against the requested half-open interval. The bounded transport follows no
-redirects and never fetches a result URL.
-Search results are framed as untrusted data with strict grounding instructions;
-they exist only in the engine-request copy, while transcript storage retains the
-visible prompt and response.
+project's existing `curl` prerequisite without a shell to contact one configured
+JSON endpoint. The browser chooses Web or News, an exact displayed query, and an
+optional calendar interval; no term classification or fallback selects another
+provider. Strict response parsing keeps provenance separate from snippets and
+requires timestamp proof for dated results. The bounded transport follows no
+redirects and never fetches a result URL. Search excerpts exist only in the
+engine-request copy. Structured provenance is stored for display but projected
+out of every later model-history request.
 
 Reasoning markers remain ordinary raw assistant text in both surfaces. The CLI
 and browser derive visual THINK sections at presentation time without creating

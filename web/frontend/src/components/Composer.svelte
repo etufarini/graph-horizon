@@ -8,20 +8,25 @@
   import logoUrl from '../../../../assets/graph-horizon-logo.svg';
   import { createEventDispatcher } from 'svelte';
   import { defaultSearch, validSearch } from '../chat/search';
-  import type { SearchSelection } from '../chat/types';
+  import type { SearchCapability, SearchSelection } from '../chat/types';
   import SearchOptions from './SearchOptions.svelte';
 
   export let value = '';
   export let streaming = false;
   export let contextAvailable = false;
   export let search: SearchSelection | null = null;
+  export let searchCapability: SearchCapability | null = null;
 
   const dispatch = createEventDispatcher<{
     send: void;
     stop: void;
   }>();
+  $: searchTerms = search ? search.query.trim() || value.trim() : '';
+  $: queryTooLong = search !== null && searchCapability !== null &&
+    Array.from(searchTerms).length > searchCapability.maxQueryCharacters;
+  $: searchAvailable = searchCapability?.enabled === true;
   $: canSend = value.trim().length > 0 && !streaming && contextAvailable &&
-    (search === null || validSearch(search));
+    (search === null || (searchAvailable && !queryTooLong && validSearch(search)));
 
   function submit(): void {
     // Whitespace-only drafts cannot be sent; streaming never submits here
@@ -54,8 +59,9 @@
       class:search-active={search !== null}
       class="action action-search"
       type="button"
+      disabled={!searchAvailable}
       aria-pressed={search !== null}
-      aria-label={search ? 'Disable Web search' : 'Enable Web search'}
+      aria-label={!searchAvailable ? 'Web search is not configured' : search ? 'Disable Web search' : 'Enable Web search'}
       on:click={() => { search = search ? null : defaultSearch(); }}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -64,7 +70,9 @@
       </svg>
     </button>
     <span class="composer-hint">
-      {streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
+      {queryTooLong
+        ? `Search query exceeds ${searchCapability?.maxQueryCharacters} characters`
+        : streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
     </span>
     {#if streaming}
       <button
@@ -87,7 +95,12 @@
     {/if}
   </div>
   {#if search}
-    <SearchOptions value={search} on:change={event => { search = event.detail; }} />
+    <SearchOptions
+      value={search}
+      provider={searchCapability?.provider ?? 'the configured provider'}
+      maxQueryCharacters={searchCapability?.maxQueryCharacters ?? 512}
+      on:change={event => { search = event.detail; }}
+    />
   {/if}
 </form>
 
@@ -164,6 +177,11 @@
   .action-search.search-active {
     border-color: var(--gn-accent);
     color: var(--gn-text-primary);
+  }
+
+  .action-search:disabled {
+    border-color: var(--gn-border); color: var(--gn-text-muted);
+    box-shadow: none; cursor: default; opacity: 0.55;
   }
 
   .action-search.search-active {

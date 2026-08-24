@@ -76,7 +76,8 @@ and the positive search-framing ceiling through its private same-origin
 transport before enabling Send.
 
 The CLI reserve is configured by `--max-tokens`. The browser uses only the 90%
-prompt budget for local admission; the backend owns the generation limit.
+prompt budget for local admission; the backend applies `--max-tokens` to Web
+generation, defaulting to the resolved context limit when the flag is absent.
 
 Web disables its composer and shows `Context configuration unavailable`
 for invalid context data or a zero safe prompt budget. The CLI retains

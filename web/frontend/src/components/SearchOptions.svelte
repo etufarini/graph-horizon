@@ -5,6 +5,8 @@
   import type { SearchCategory, SearchPeriod, SearchSelection } from '../chat/types';
 
   export let value: SearchSelection;
+  export let provider: string;
+  export let maxQueryCharacters: number;
   const dispatch = createEventDispatcher<{ change: SearchSelection }>();
 
   function category(event: Event): void {
@@ -19,12 +21,26 @@
     change({ [field]: (event.currentTarget as HTMLInputElement).value });
   }
 
+  function query(event: Event): void {
+    change({ query: (event.currentTarget as HTMLInputElement).value });
+  }
+
   function change(update: Partial<SearchSelection>): void {
     dispatch('change', { ...value, ...update });
   }
 </script>
 
 <div class="search-options" aria-label="Web search options">
+  <label class="query">
+    <span>Search query</span>
+    <input
+      type="text"
+      value={value.query}
+      maxlength={maxQueryCharacters + 1}
+      placeholder="Use the message text"
+      on:input={query}
+    />
+  </label>
   <label>
     <span>Source</span>
     <select value={value.category} on:change={category}>
@@ -52,6 +68,7 @@
       <input type="date" value={value.to} min={value.from || undefined} on:input={event => date('to', event)} />
     </label>
   {/if}
+  <p>Only this query is sent to {provider}; the conversation and files stay local.</p>
 </div>
 
 <style lang="scss">
@@ -64,6 +81,8 @@
     background: var(--gn-bg-panel-raised);
   }
   label { display: flex; align-items: center; gap: var(--gn-space-xs); }
+  label.query { flex: 1 1 100%; }
+  label.query input { flex: 1 1 auto; min-width: 160px; }
   span {
     color: var(--gn-text-muted);
     font-family: var(--gn-font-mono);
@@ -80,6 +99,10 @@
   select:focus-visible, input:focus-visible {
     outline: none;
     box-shadow: var(--gn-focus-ring);
+  }
+  p {
+    flex: 1 1 100%; margin: 0; color: var(--gn-text-muted);
+    font-size: var(--gn-text-xs);
   }
   @media (max-width: 720px) {
     .search-options { align-items: stretch; }

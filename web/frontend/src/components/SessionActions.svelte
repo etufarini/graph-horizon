@@ -9,6 +9,14 @@ replacement confirmation remain outside this props-in/events-out component.
   export let importDisabled = false;
   const dispatch = createEventDispatcher<{ export: void; import: string }>();
   let picker: HTMLInputElement;
+  let disclosure: HTMLDetailsElement;
+  let summary: HTMLElement;
+
+  function exportChat(): void {
+    dispatch('export');
+    disclosure.open = false;
+    summary.focus();
+  }
 
   async function selected(): Promise<void> {
     const file = picker.files?.[0];
@@ -19,13 +27,28 @@ replacement confirmation remain outside this props-in/events-out component.
       // Read failure emits nothing; selecting the same file is the retry path.
     } finally {
       picker.value = '';
+      disclosure.open = false;
+      summary.focus();
+    }
+  }
+
+  function keydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && disclosure.open) {
+      event.preventDefault();
+      disclosure.open = false;
+      summary.focus();
     }
   }
 </script>
 
 <div class="session-actions">
-  <button type="button" on:click={() => dispatch('export')}>Export</button>
-  <button type="button" disabled={importDisabled} on:click={() => picker.click()}>Import</button>
+  <details bind:this={disclosure}>
+    <summary bind:this={summary} on:keydown={keydown}>Chat data</summary>
+    <div class="action-menu">
+      <button type="button" on:click={exportChat} on:keydown={keydown}>Export</button>
+      <button type="button" disabled={importDisabled} on:click={() => picker.click()} on:keydown={keydown}>Import</button>
+    </div>
+  </details>
   <input type="file" accept=".json,application/json" bind:this={picker} on:change={selected} aria-hidden="true" tabindex="-1" />
 </div>
 
@@ -33,24 +56,31 @@ replacement confirmation remain outside this props-in/events-out component.
   .session-actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--gn-space-sm);
   }
-  button {
-    border: var(--gn-border-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
+  details { position: relative; }
+  summary, button {
+    min-height: var(--gn-control-height);
+    border: var(--gn-rule-width) solid var(--gn-border);
     background: var(--gn-bg-panel);
     padding: var(--gn-space-xs) var(--gn-space-sm);
     cursor: pointer;
     color: var(--gn-text-muted);
-    box-shadow: var(--gn-shadow-small);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 650;
   }
-  button:hover:not(:disabled) { border-color: var(--gn-accent-ink); color: var(--gn-accent-ink); }
-  button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring), var(--gn-shadow-small); }
+  summary { list-style: none; border-width: var(--gn-border-width); box-shadow: var(--gn-shadow-small); font-family: var(--gn-font-mono); }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "▾"; margin-left: var(--gn-space-sm); }
+  details[open] summary::after { content: "▴"; }
+  summary:hover, button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
+  summary:focus-visible, button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
+  .action-menu {
+    position: absolute; z-index: 12; top: calc(100% + var(--gn-space-xs)); right: 0;
+    display: flex; gap: var(--gn-space-xs);
+    border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel);
+    box-shadow: var(--gn-shadow-hard); padding: var(--gn-space-xs);
+  }
   button:disabled {
     background: var(--gn-bg-panel-raised);
     color: var(--gn-text-muted);
@@ -58,4 +88,7 @@ replacement confirmation remain outside this props-in/events-out component.
     cursor: default;
   }
   input { display: none; }
+  @media (max-width: 640px) {
+    summary, button { min-height: var(--gn-touch-height); }
+  }
 </style>

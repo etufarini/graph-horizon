@@ -10,13 +10,14 @@ history, transcript repair, and persistence remain outside this component.
 
   export let messages: ChatMessage[] = [];
   export let streaming = false;
+  export let searchEnabled = false;
 
   const dispatch = createEventDispatcher<{
     regenerate: void;
     edit: { userId: string; text: string };
     delete: void;
   }>();
-  let transcript: HTMLDivElement;
+  let transcript: HTMLElement;
   let pinned = true;
   let firstId: string | undefined;
   let lastId: string | undefined;
@@ -43,12 +44,14 @@ history, transcript repair, and persistence remain outside this component.
   });
 </script>
 
-<div class="transcript" bind:this={transcript} on:scroll={onScroll}>
+<section class="transcript" aria-label="Conversation" bind:this={transcript} on:scroll={onScroll}>
   {#if turns.length === 0}
     <div class="empty-state">
       <span class="empty-mark" aria-hidden="true"></span>
       <h2>Inference engine ready</h2>
-      <p>Send a message to start the session. Everything runs locally.</p>
+      <p>{searchEnabled
+        ? 'Inference stays local. Search sends only the displayed query to the selected provider.'
+        : 'Send a message to start the local session.'}</p>
     </div>
   {:else}
     {#each turns as turn, index (turn[0].id)}
@@ -63,7 +66,7 @@ history, transcript repair, and persistence remain outside this component.
       />
     {/each}
   {/if}
-</div>
+</section>
 
 <style lang="scss">
   .transcript {
@@ -72,7 +75,7 @@ history, transcript repair, and persistence remain outside this component.
     display: flex;
     flex-direction: column;
     gap: var(--gn-space-md);
-    padding: var(--gn-space-sm) var(--gn-space-xs);
+    padding: var(--gn-space-sm) var(--gn-space-xs) var(--gn-space-md);
   }
 
   .empty-state {
@@ -84,9 +87,10 @@ history, transcript repair, and persistence remain outside this component.
 
   .empty-mark {
     display: inline-block;
-    width: 16px;
-    height: 16px;
+    width: 12px;
+    height: 12px;
     margin-bottom: var(--gn-space-md);
+    border-radius: 0;
     background: var(--gn-ready);
     animation: idle-pulse var(--gn-motion-idle) ease-in-out infinite;
   }
@@ -102,8 +106,9 @@ history, transcript repair, and persistence remain outside this component.
     color: var(--gn-ready-ink);
     font-family: var(--gn-font-mono);
     font-size: var(--gn-text-lg);
+    font-weight: 700;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    letter-spacing: 0.12em;
   }
 
   .empty-state p {

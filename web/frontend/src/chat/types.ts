@@ -8,6 +8,7 @@ export type Role = 'system' | 'user' | 'assistant';
 export interface TranscriptMessage {
   role: Exclude<Role, 'system'>;
   content: string;
+  search?: SearchReport;
 }
 
 export interface ChatMessage extends TranscriptMessage {
@@ -28,7 +29,7 @@ export interface ChatCollection {
 }
 
 export interface ChatArchiveRecord {
-  version: 3;
+  version: 4;
   activeChatId: string;
   chats: Array<{
     id: string;
@@ -42,6 +43,49 @@ export interface ChatArchiveRecord {
 export interface WireMessage {
   role: Role;
   content: string;
+}
+
+export type SearchCategory = 'web' | 'news';
+
+export interface SearchSelection {
+  query: string;
+  category: SearchCategory;
+}
+
+export interface WireSearch {
+  terms: string;
+  category: SearchCategory;
+  language: string;
+  reference_date: string;
+  published: { from_ms: number; to_ms: number } | null;
+}
+
+export interface SearchSource {
+  id: string;
+  title: string;
+  url: string;
+  publisher: string | null;
+  publishedAtMs: number | null;
+}
+
+export interface SearchReport {
+  query: string;
+  category: SearchCategory;
+  referenceDate: string;
+  published: { fromMs: number; toMs: number } | null;
+  provider: string;
+  sources: SearchSource[];
+}
+
+export interface SearchCapability {
+  provider: string;
+  maxQueryCharacters: number;
+  maxContextCharacters: number;
+}
+
+export interface SearchInput {
+  terms: string;
+  selection: SearchSelection;
 }
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
@@ -58,6 +102,7 @@ export type ChatSaveResult = PersistenceWarning | null;
 export interface RuntimeContext {
   contextLimit: number;
   safePromptBudget: number;
+  search: SearchCapability;
 }
 
 export interface ContextUsage {
@@ -140,6 +185,7 @@ export interface ChatSnapshot {
 }
 
 export type StreamEvent =
+  | { type: 'search'; search: SearchReport }
   | { type: 'content'; content: string }
   | { type: 'phase'; phase: Exclude<GenerationPhase, 'waiting'> }
   | { type: 'stats'; stats: GenerationStats };

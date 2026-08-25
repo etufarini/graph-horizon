@@ -64,7 +64,8 @@
   }
 
   blockquote {
-    border-left: var(--gn-border-width) solid var(--gn-accent-ink);
+    border-left: 2px solid var(--gn-accent);
+    border-radius: 0 var(--gn-radius-sm) var(--gn-radius-sm) 0;
     background: var(--gn-bg-panel-raised);
     padding: var(--gn-space-xs) var(--gn-space-md);
     color: var(--gn-text-muted);
@@ -86,8 +87,8 @@
 
   th,
   td {
-    border: var(--gn-rule-width) solid var(--gn-border);
-    padding: var(--gn-space-xs) var(--gn-space-sm);
+    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    padding: var(--gn-space-sm);
     text-align: left;
   }
 
@@ -105,8 +106,8 @@
 
   pre {
     background: var(--gn-bg-panel-raised);
-    border: var(--gn-rule-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
+    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border-radius: var(--gn-radius-md);
     padding: var(--gn-space-md);
     /* Long lines scroll instead of stretching the bubble. */
     overflow-x: auto;

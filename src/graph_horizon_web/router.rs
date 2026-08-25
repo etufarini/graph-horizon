@@ -34,6 +34,7 @@ pub(super) async fn handle(
         InternalRoute::Chat => super::chat::handle(req, chat).await,
         InternalRoute::Context => json_response(&serde_json::json!({
             "context_limit": chat.engine.context_limit(),
+            "search": chat.search.capability(),
         })),
         InternalRoute::Runtime => {
             let bytes = serde_json::to_vec(&super::runtime::payload(&chat.engine))

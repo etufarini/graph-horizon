@@ -1,8 +1,8 @@
 <!--
 This document owns the current local browser UI, static assets, multi-chat
-history, Markdown files, turn controls, browser persistence, Reasoning
-presentation, and transfer format. It does not own engine model policy or
-describe removed tool/workspace capabilities.
+history, optional Web search, Markdown files, turn controls, browser
+persistence, Reasoning presentation, and transfer format. It does not own
+engine model policy or describe removed tool/workspace capabilities.
 -->
 
 # Local Web UI
@@ -62,6 +62,22 @@ Every generation sends the strict private body:
 }
 ```
 
+When the composer Web-search button is active, the same body adds its displayed
+query separately from messages and file framing:
+
+```json
+{
+  "messages": [],
+  "search": {
+    "terms": "current information requested by the user",
+    "category": "news",
+    "language": "it-IT",
+    "reference_date": "2026-08-23",
+    "published": { "from_ms": 1786917600000, "to_ms": 1787522400000 }
+  }
+}
+```
+
 The page also sends one random lowercase-hex `x-graph-horizon-cache` key for
 its lifetime. On standalone Vulkan and Metal profiles, the engine retains one
 KV allocation and reuses only an exact rendered-token prefix with the same key.
@@ -70,14 +86,14 @@ prior caller's prefix, although the standalone GPU engine may retain its one KV
 allocation. CPU and hybrid profiles do not reuse prefixes.
 
 On page initialization the browser requests context and runtime facts, each
-with a three-second timeout. Send remains disabled until the context is a safe
-integer greater than one. A failed, timed-out, malformed, unsafe, or invalid
-context response shows `Context configuration unavailable`. Runtime metadata is
-informational and is omitted when unavailable;
-it does not weaken the capacity gate.
+with a three-second timeout. Send remains disabled until the context limit and
+the advertised maximum Web-search framing reserve are safe positive integers.
+A failed, timed-out, malformed, unsafe, or invalid context response shows
+`Context configuration unavailable`. Runtime metadata is informational and is
+omitted when unavailable; it does not weaken the capacity gate.
 
-The browser consumes only the private content, ordered prefill/decode, exact
-statistics, and terminal frames emitted by the bundled backend. Statistics must
+The browser consumes only the private search-provenance, content, ordered
+prefill/decode, exact statistics, and terminal frames emitted by the bundled backend. Statistics must
 contain non-negative prompt, prefill, completion, prefill-time, and decode-time
 values; prefill tokens cannot exceed prompt tokens. Data after statistics,
 invalid JSON, error objects, unknown fields, and unexpected frames interrupt the
@@ -94,6 +110,28 @@ editor is also disabled so prompt persistence cannot checkpoint a partial
 assistant response. A failed request restores its submitted prompt only when no
 newer draft has been entered.
 
+### Collapsible workspace
+
+Saved chats and Markdown files own their open/close controls; the application
+header contains no duplicate workspace toggles. Both panels start closed, so
+the chat owns the full dynamic viewport by default. Compact edge tabs retain
+the chat or file count without creating ghost columns. Only one side panel can
+be open at a time: at 1200 CSS pixels and above it is docked, while below that
+breakpoint it becomes a drawer. Escape and the backdrop close an open drawer,
+and focus returns to its edge tab. Coarse pointers and narrow viewports use
+44-pixel touch targets.
+
+The expanded system-prompt editor has a labelled pixel-style close button; both
+it and Escape restore focus to the collapsed trigger. Its compact trigger keeps
+whether a prompt is set visible. Persisted search sources use the same semantic
+chevron language and retain the provider, query, source count, and active-answer
+status. When outgoing search is active, its query and category remain visible
+in one compact composer strip and return to separate rows only on narrow
+viewports. Collapsing presentation never stops generation or discards valid
+data. Panel and section expansion is intentionally page-session UI state and is
+not written to chat persistence. A newly created search report starts expanded;
+viewport changes do not reset side-panel state.
+
 The browser transcript permits an empty assistant so Stop and a valid
 zero-delta completion can retain a complete pair. The local engine does not
 accept an empty assistant as prior model history. Before sending another message
@@ -101,7 +139,7 @@ after such a turn, regenerate it, edit its user prompt, or delete it; otherwise
 the backend opens the stream with a generic engine error and the UI reports
 `Response interrupted` while preserving the empty pair.
 
-`--max-tokens` is a CLI setting and is ignored in Web mode.
+`--max-tokens` bounds Web generation; without it Web uses the resolved context limit.
 `--context-tokens`, KV, threads, and placement configure the local engine. The
 browser uses 90% of the resolved context as its conservative prompt budget and
 rejects an assembled UTF-8 JSON body above the backend's 4 MiB limit before
@@ -109,16 +147,119 @@ rejects an assembled UTF-8 JSON body above the backend's 4 MiB limit before
 Instruct sampling remains greedy, while a loaded Reasoning profile uses the
 sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
+### Web Search
+
+Search is available without flags. The labelled globe control visibly reports
+`Search off`, `Search on`, or `Search unavailable` and still makes search an
+explicit choice for one request: merely starting the Web UI never sends a
+query. A `web` request uses DuckDuckGo Lite and a `news` request uses Google
+News RSS. The category is never rerouted to the other service, the model cannot
+initiate a search, and a failed search never falls back to an unsearched answer.
+
+The composer shows the exact query that will leave the process. An empty search
+query means “use the visible message”; otherwise the explicit query is used.
+System text, prior messages, Markdown files, and the rest of the prompt never
+enter it. The query is trimmed and limited to 512 Unicode code points. The user
+chooses only `web` or `news`; publication periods remain natural-language intent
+in the visible prompt rather than a second set of calendar controls. Category
+and terms are never inferred or rewritten. Concise explicit keywords remain
+available when a full conversational prompt is too restrictive for a provider.
+
+The host translates that validated request into one fixed provider request.
+New browser requests send `published: null`, so DuckDuckGo and Google News
+receive the exact terms and locale without generated date syntax. Search
+evidence retains each usable publication timestamp and the browser-local
+reference date. The model is instructed to apply any period expressed in the
+user request against those dates, ignore sources outside it, and report when the
+remaining evidence is insufficient. Historical provenance containing an exact
+range remains valid on restore and import.
+
+`--search-url` is the advanced alternative. It replaces both built-in routes
+with one JSON endpoint; `--search-key-file` optionally supplies its bearer
+token. Graph Horizon sends the endpoint one POST with
+`content-type: application/json`:
+
+```json
+{
+  "query": "Rust 1.97 release",
+  "category": "news",
+  "language": "it-IT",
+  "reference_date": "2026-08-24",
+  "published": null
+}
+```
+
+The JSON override must return exactly this response shape:
+
+```json
+{
+  "results": [{
+    "title": "Rust 1.97 released",
+    "url": "https://example.com/rust-1-97",
+    "excerpt": "A bounded factual excerpt.",
+    "publisher": "Example",
+    "published_at_ms": 1787565600000
+  }]
+}
+```
+
+All adapters converge on this bounded internal shape. Unknown fields from a
+JSON override reject its whole response. Graph Horizon keeps at most five
+distinct HTTP(S) URLs, bounds title, excerpt, publisher, and URL lengths, and
+never visits result URLs. With a requested interval, a result is retained only
+when it has a timestamp inside that exact half-open interval. A public-engine
+challenge or `429`, timeout, invalid response, unavailable provider, and zero
+usable results produce distinct fixed UI errors.
+
+The host invokes `curl` without a shell, user curl configuration, cookies,
+proxy, or redirects. An override bearer token is supplied through curl
+configuration on stdin, not its process arguments. Each request has an
+eight-second transfer timeout, a nine-second process ceiling, and a 512 KiB
+response limit. Only one search runs at a time. The installer therefore treats
+`curl` on `PATH` as a runtime prerequisite.
+
+Validated excerpts are framed as untrusted data only in the final outgoing user
+copy. The framing requires `[S1]` citations, includes no result URL, and is
+limited to 2,800 Unicode characters; the browser reserves that maximum before
+fetch. Provenance arrives in a separate strict stream event and is rendered
+outside assistant Markdown. Only identifiers present in the visible answer are
+labelled `Cited`; the rest remain `Search result`. Provenance is persisted and
+exported with the assistant message, but `wireMessages` projects only role and
+content, so it can never become later model history.
+
+Editing or regenerating a turn creates a fresh assistant identity and removes
+the prior response and search report before the replacement request begins.
+The new report therefore mounts with fresh expanded UI state and contains only
+the replacement query and provenance. A failed replacement restores the exact
+previous transcript; Stop keeps the replacement pair without stale provenance.
+Streaming guards prevent concurrent edits, and every stream event is accepted
+only when its chat and assistant identity still match, so a late event from an
+obsolete request cannot overwrite the current turn. This invalidation is
+deterministic even when the visible query text did not change.
+
+Enabling search sends the displayed query, category, language hint, local
+reference date, and public source IP to DuckDuckGo, Google News, or the
+configured override. Inference, system prompt, chat history, files, and stored
+archives remain local.
+
+The keyless behavior is a concrete dependency on public result pages and feeds,
+not a service-level agreement. Their markup, availability, rate limits, result
+ranking, and terms can change independently of Graph Horizon. The fixed adapters
+fail closed when a response no longer matches; there is no hidden second
+provider. Snippets are search-engine extracts, not downloaded source pages, so
+citations expose provenance but do not by themselves prove that every generated
+claim is correct. Users should open cited sources for consequential claims.
+
 ### Saved Chat Persistence
 
 The browser restores one chat collection synchronously from the origin-scoped
 `localStorage` key `graph-horizon.conversation`. A different scheme, host, or
 port therefore selects a different archive. The private compact record is
-distinct from import/export and has exactly this version-3 shape:
+distinct from import/export and has exactly this version-4 shape:
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "activeChatId": "00000000-0000-4000-8000-000000000001",
   "chats": [
     {
@@ -140,7 +281,8 @@ exactly one member. Every transcript is empty or consists of complete, strictly
 alternating `user`/`assistant` pairs. Titles contain 1–80 Unicode code points;
 each `systemPrompt` is a string; `updatedAt` is a non-negative safe Unix time in
 milliseconds. Runtime message IDs are regenerated on restore and never enter
-the archive.
+the archive. An assistant message may additionally contain one strict `search`
+provenance object; a user message cannot.
 
 The serialized archive is limited to 4,194,304 UTF-8 bytes. A missing key
 creates, activates, and immediately attempts to save one empty `New chat`.
@@ -171,10 +313,11 @@ filesystem write.
 
 ### Markdown Files
 
-Every chat owns zero or more Markdown reference files. The desktop surface shows
-them in a right panel; at 1180 CSS pixels or narrower that panel becomes a fixed
-right drawer over the shared backdrop. `Files · N` toggles it from the chat
-header. The panel accepts multiple native picker selections and drag-and-drop,
+Every chat owns zero or more Markdown reference files. At 1200 CSS pixels or
+wider the selected file panel docks on the right; below that width it becomes a
+fixed drawer over the shared backdrop. Its counted edge tab toggles it without
+occupying the chat header. The panel accepts multiple native picker selections
+and drag-and-drop,
 lists stored names and UTF-8 sizes, and provides a sanitized rendered preview,
 download, and confirmed irreversible deletion. Panel open state and preview
 selection are presentation-only and are not persisted.
@@ -233,16 +376,17 @@ chunking, embedding, retrieval, RAG, backend upload, or backend-side file copy.
 
 ### Legacy Conversation Migration
 
-The loader recognizes the exact version-2 multi-chat archive and the exact
-version-1 private record `{"version":1,"messages":[...]}` with a valid complete
-transcript. During either migration, the former global value under
+The loader recognizes the exact version-3 per-chat-prompt archive, version-2
+multi-chat archive, and version-1 private record
+`{"version":1,"messages":[...]}` with a valid complete transcript. Version 3
+preserves its prompts. During version-1 or version-2 migration, the former global value under
 `graph-horizon.system-prompt`, or an empty string when absent, is copied into
 every migrated chat. Version 1 becomes one active chat whose title is derived
-from the first user message. The loader then attempts one version-3 `setItem` on
+from the first user message. The loader then attempts one version-4 `setItem` on
 the conversation key.
 
 The replacement is atomic from the application's perspective: the legacy value
-is replaced only when the version-3 write succeeds. Only after that write does
+is replaced only when the version-4 write succeeds. Only after that write does
 the loader remove the obsolete global-prompt key. If serialization or the write
 fails, the migrated collection remains usable in memory, the exact legacy
 archive and global prompt remain stored, and persistence is reported
@@ -302,20 +446,20 @@ are never persisted.
 
 ### Responsive Panels
 
-Above 720 CSS pixels, the bounded application shows a collapsible
-264-pixel history column beside the chat surface; closing it lets the chat use
-the released width. At 720 pixels or narrower, history starts closed and opens
-as a fixed left drawer over a backdrop. Selection, backdrop activation, and
-Escape close the mobile drawer and return focus to the accessible history
-toggle. The chat list and transcript scroll independently while the document
-body and composer remain fixed in the viewport. Collapse state is not stored.
+The application fills the viewport without a maximum-width card or decorative
+outer margin. Chat history and Markdown files both start closed. Their fixed
+edge tabs reserve only the narrow header space required to avoid overlapping
+the product identity and runtime summary.
 
-The application maximum is 1640 pixels so a wide viewport can retain the
-history, chat, and 304-pixel file panel without shrinking the former chat
-surface. At 1180 pixels or narrower files start closed in the fixed right
-drawer. Opening one overlay closes the other when necessary; backdrop and
-Escape close the file drawer and return focus to its toggle. File list, preview,
-history, and transcript own independent bounded scrolling.
+At 1200 CSS pixels and above, the selected panel docks beside the chat as a
+216-pixel history column or 280-pixel file column. Below 1200 pixels it opens as
+a fixed drawer over a backdrop. Opening either panel closes the other.
+Selection, backdrop activation, Escape, and each visible close action dismiss
+the applicable drawer and return focus to its accessible edge tab. Overlay
+drawers expose dialog semantics and make the obscured chat inert. File list,
+preview, history, and transcript own independent bounded scrolling while the
+document body and composer remain fixed in the dynamic viewport. Panel state is
+page-session state and is not stored or reset at breakpoint changes.
 
 All history, file, and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
@@ -323,33 +467,35 @@ treatment, and remain visible when eligible rather than depending on hover.
 ## Context And Generation Status
 
 The canonical estimate and capacity gate are defined in
-[context.md](context.md). The browser compares estimated prompt occupancy alone
+[context.md](context.md). The browser compares estimated outgoing occupancy
 with the 90% safe prompt budget. Idle occupancy includes the trimmed system
-prompt, every committed
-raw message, and the trimmed draft. Streaming occupancy includes the submitted
-user message and current partial raw assistant response. Both also include
-exactly one complete current Markdown-file framing and request heading when
-files exist.
+prompt, every committed raw message, and the trimmed draft. Streaming occupancy
+includes the submitted user message and current partial raw assistant response.
+Both also include exactly one complete current Markdown-file framing and request
+heading when files exist. When Web search is active, both the visible estimate
+and admission also reserve the backend's complete 2,800-character result framing
+ceiling.
 
 Admission runs before creating the user/assistant pair, `AbortController`, or
 chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
 the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
-Whenever configuration is valid, `Context ≈N / M tokens · P%` appears above a
-horizontal progress bar, where `N` is the estimated current occupancy and `M`
-is the immutable context limit. The approximation marker distinguishes this
+Whenever configuration is valid, `Context ≈N / M · P%` appears beside a compact
+horizontal progress bar in the status rail, where `N` is the estimated current
+occupancy and `M` is the immutable context limit. The approximation marker distinguishes this
 live capacity estimate from exact post-generation engine metrics. The visible
 percentage is not capped. The fill is normal below 80%, warning from 80% through
 99%, and error at 100% or above; its width and ARIA current value are capped at
 100. The element exposes `role="progressbar"`, minimum 0, maximum 100, and the
 accessible name `Context usage`.
 
-The header keeps immutable runtime identity separate from per-request status. It
-shows the loaded GGUF `general.name` when safe, otherwise `Local model`, then
-the compile-time backend, retained model weights, full-context KV capacity, and
-effective placement. The weight/KV summary is present for every backend and
-uses exact decimal bytes on the wire plus IEC units in the UI. It describes
+The header keeps immutable runtime identity separate from per-request status. At
+a glance it shows the loaded GGUF `general.name` when safe, otherwise `Local
+model`, plus the compile-time backend. One overlaying `Runtime details` disclosure contains
+retained model weights, full-context KV capacity, effective mode, and placement.
+The weight/KV summary is present for every backend and uses exact decimal bytes
+on the wire plus IEC units in the UI. It describes
 load-time planning rather than process RSS or live allocator state. Hybrid
 profiles additionally expose layer counts and a collapsed budget breakdown
 split by CPU and accelerator owner: weights, KV, scratch, fixed, staging,
@@ -360,9 +506,10 @@ because no placement report exists.
 
 An admitted request first shows `Waiting`, then the engine-emitted `Prefill` and
 `Decode` phases. A monotonic display timer refreshes every 250 ms for the active
-phase only. After exact usage arrives, the live phase is replaced by four compact
-cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
-tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
+phase only. After exact usage arrives, one compact strip keeps output tokens and
+decode timing visible. Its `Details` disclosure adds prompt tokens,
+actually-prefilled tokens, and both rates without increasing the default status
+height. Zero-duration rates render as unavailable;
 cached prompt reuse is visible because prefill tokens may be lower than prompt
 tokens. Stop, inactivity, missing statistics or terminal frame, invalid ordering, and
 failure clear request telemetry. A capacity rejection preserves the previous
@@ -405,7 +552,7 @@ The web UI exports a versioned JSON object:
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "systemPrompt": "",
   "messages": [
     { "role": "user", "content": "..." },
@@ -414,15 +561,16 @@ The web UI exports a versioned JSON object:
 }
 ```
 
-Import requires `version: 1`, strings for the system prompt and message content,
-and complete `user`/`assistant` pairs. A valid file creates and activates a new
+Import accepts legacy `version: 1` and current `version: 2`, strings for the
+system prompt and message content, and complete `user`/`assistant` pairs. Version
+2 may contain strict assistant search provenance. A valid file creates and activates a new
 chat, derives its title, and stores the imported system prompt only on that chat.
 An imported empty transcript still creates a new empty chat. Invalid or
 unreadable files leave the collection, active selection, archive, and every
 system prompt unchanged. No replacement confirmation is shown.
 
-Export serializes only the active chat. Unlike the private version-3 browser
-archive, the exported file remains version 1 and includes `systemPrompt`; private
+Export serializes only the active chat. Unlike the private version-4 browser
+archive, the exported file is version 2 and includes `systemPrompt`; private
 chat IDs, titles, timestamps, and inactive chats never enter it. Both formats
 share complete-pair transcript validation, but neither is the JSON array used by
 TUI `/export` and `/import`. Markdown files are excluded from chat import/export;
@@ -431,15 +579,16 @@ each file has its own download action.
 ## Errors And Limits
 
 The private chat body and the separate browser conversation record are each
-limited to 4 MiB under their respective contracts. Markdown files have the
-smaller per-file and per-chat limits above. Transport errors become short
-UI messages; parser, engine, browser storage, and filesystem details are not
-shown. The Web gate rejects over-budget or oversized requests before transport.
+limited to 4 MiB under their respective contracts. Markdown files and Web
+queries have the smaller limits above. Transport errors become short UI
+messages; search, parser, engine, browser storage, and filesystem details are
+not shown. The Web gate rejects over-budget or oversized requests before
+transport.
 
 The Web UI has no backend persistence, accounts, authentication, account or
-cross-tab synchronization/merge, response-version or branch history, chat
-search, pins, archive folders, bulk deletion, or model selection for
-regenerate. It also has no credential flow, tool calling, workspace, separate
-Reasoning protocol/state channel, or advanced sampling controls.
+cross-tab synchronization/merge, response-version or branch history,
+chat-history search, pins, archive folders, bulk deletion, or model selection
+for regenerate. It also has no credential flow, tool calling, workspace,
+separate Reasoning protocol/state channel, or advanced sampling controls.
 Markdown files are full-context references, not a general document library or
 retrieval system.

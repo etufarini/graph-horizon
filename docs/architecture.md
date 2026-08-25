@@ -33,7 +33,7 @@ code. Both surfaces load it in-process and run one local generation at a time.
 |---|---|---|
 | `app` | Parses a closed flag table, validates common options, and selects `cli` or `web` | [configuration.md](configuration.md) |
 | `graph_horizon_cli` | Manages input, history, transcripts, attachments, and local generation | [console.md](console.md), [commands.md](commands.md) |
-| `graph_horizon_web` | Serves bundled assets and owns a private browser-to-engine transport | [web.md](web.md) |
+| `graph_horizon_web` | Serves bundled assets and owns private browser generation plus optional bounded search | [web.md](web.md) |
 | `graph_horizon_engine` | Validates a supported GGUF and runs prefill/decode on the compiled backend | [backend.md](backend.md) |
 
 `main` installs error handling and parses flags before a model or surface is
@@ -72,20 +72,37 @@ promise for external clients.
 
 ```text
 browser assets --> browser state --> private same-origin transport --> engine
-                         |
+                         |                    |
+                         |                    +--> optional structured search
+                         |                         +--> DuckDuckGo Lite (Web)
+                         |                         +--> Google News RSS (News)
+                         |                         +--> JSON override (advanced)
                          +--> localStorage chat archive
                          +--> IndexedDB Markdown files
 ```
 
 The browser loads engine capacity before enabling Send, admits the outgoing
-prompt locally, and then starts generation. One mutex protects engine state and
-a semaphore bounds active plus waiting browser work. Static asset paths reject
-traversal; chat request bodies are size-limited and reject unknown fields.
+prompt locally, and then starts generation. When explicitly enabled, a separate
+raw query obtains bounded snippets before the engine mutex is acquired; there is
+no model-directed tool loop. One mutex protects engine state and semaphores bound
+browser work and outbound search. Static asset paths reject traversal; chat
+request bodies are size-limited and reject unknown fields.
 
 Browser conversation and Markdown-file persistence remain origin-scoped. No
 engine, CLI, or filesystem component reads browser archives. Files are framed as
 untrusted reference data in one outgoing user-message copy; they are never
 uploaded into product storage or indexed by a retrieval service.
+
+Search is the only optional non-local Web path. The Rust host invokes `curl`
+without a shell and dispatches an explicit Web request to DuckDuckGo Lite or an
+explicit News request to Google News RSS. `--search-url` replaces that fixed
+dispatch with one JSON endpoint. The browser chooses the category and exact
+displayed query; no term classification or cross-provider fallback changes
+that choice. Strict parsing keeps provenance
+separate from snippets and requires timestamp proof for dated results. The
+bounded transport follows no redirects and never fetches a result URL. Search
+excerpts exist only in the engine-request copy. Structured provenance is stored
+for display but projected out of every later model-history request.
 
 Reasoning markers remain ordinary raw assistant text in both surfaces. The CLI
 and browser derive visual THINK sections at presentation time without creating

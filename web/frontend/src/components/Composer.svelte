@@ -1,22 +1,34 @@
 <script lang="ts">
   /*
    * Composer.svelte
-   * Single responsibility: keep the next draft editable while exposing send
-   * only when the runtime is idle and available, alongside the stop action.
+   * Single responsibility: keep the next draft and its explicit Web-search
+   * choice editable while exposing send or stop for the active request.
    */
-  // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
-  import logoUrl from '../../../../assets/graph-horizon-logo.svg';
   import { createEventDispatcher } from 'svelte';
+  import { defaultSearch, validSearch } from '../chat/search';
+  import type { SearchCapability, SearchSelection } from '../chat/types';
+  import SearchOptions from './SearchOptions.svelte';
 
   export let value = '';
   export let streaming = false;
   export let contextAvailable = false;
+  export let search: SearchSelection | null = null;
+  export let searchCapability: SearchCapability | null = null;
 
   const dispatch = createEventDispatcher<{
     send: void;
     stop: void;
   }>();
-  $: canSend = value.trim().length > 0 && !streaming && contextAvailable;
+  $: searchTerms = search ? search.query.trim() || value.trim() : '';
+  $: queryTooLong = search !== null && searchCapability !== null &&
+    Array.from(searchTerms).length > searchCapability.maxQueryCharacters;
+  $: searchAvailable = searchCapability !== null;
+  $: searchState = !searchAvailable ? 'Search unavailable' : search ? 'Search on' : 'Search off';
+  $: searchAction = !searchAvailable
+    ? 'Web search is not configured'
+    : search ? 'Disable Web search' : 'Enable Web search';
+  $: canSend = value.trim().length > 0 && !streaming && contextAvailable &&
+    (search === null || (searchAvailable && !queryTooLong && validSearch(search)));
 
   function submit(): void {
     // Whitespace-only drafts cannot be sent; streaming never submits here
@@ -36,25 +48,29 @@
 </script>
 
 <form class="composer" on:submit|preventDefault={submit}>
-  <textarea
-    bind:value
-    rows="3"
-    on:keydown={keydown}
-    aria-label="Message"
-    placeholder="Message Graph Horizon…"
-  ></textarea>
+  <textarea bind:value rows="2" on:keydown={keydown} aria-label="Message"
+    placeholder="Message Graph Horizon…"></textarea>
   <div class="composer-bar">
-    <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
+    <button
+      class:search-active={search !== null} class="action action-search" type="button"
+      disabled={!searchAvailable} aria-pressed={search !== null}
+      aria-label={searchAction} title={searchAction}
+      on:click={() => { search = search ? null : defaultSearch(); }}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
+      </svg>
+      <span>{searchState}</span>
+    </button>
     <span class="composer-hint">
-      {streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
+      {queryTooLong
+        ? `Search query exceeds ${searchCapability?.maxQueryCharacters} characters`
+        : streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
     </span>
     {#if streaming}
-      <button
-        class="action action-stop"
-        type="button"
-        on:click={() => dispatch('stop')}
-        aria-label="Stop"
-      >
+      <button class="action action-stop" type="button"
+        on:click={() => dispatch('stop')} aria-label="Stop">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <rect x="6" y="6" width="12" height="12" rx="1" />
         </svg>
@@ -68,37 +84,37 @@
       </button>
     {/if}
   </div>
+  {#if search}
+    <SearchOptions
+      value={search}
+      provider={searchCapability?.provider ?? 'the search provider'}
+      maxQueryCharacters={searchCapability?.maxQueryCharacters ?? 512}
+      on:change={event => { search = event.detail; }}
+    />
+  {/if}
 </form>
 
 <style lang="scss">
-  /* The panel is the single visual unit: textarea and action bar live
-     inside it, and focus styling applies to the whole group. */
+  /* Textarea and action bar form one focusable visual unit. */
   .composer {
     border: var(--gn-border-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
-    background: var(--gn-bg-panel);
-    /* The grouped composer owns the theme's single stepped corner. */
-    clip-path: var(--gn-panel-clip);
+    border-radius: var(--gn-radius-md);
+    background: var(--gn-bg-panel); clip-path: var(--gn-panel-clip);
+    overflow: hidden;
   }
 
-  .composer:focus-within {
-    box-shadow: var(--gn-focus-inset);
-  }
+  .composer:focus-within { border-color: var(--gn-accent); box-shadow: var(--gn-focus-inset); }
 
   textarea {
     display: block;
     width: 100%;
-    min-height: 56px;
-    max-height: 160px;
+    min-height: 72px;
+    max-height: 30dvh;
     resize: vertical;
     box-sizing: border-box;
     border: none;
     outline: none;
-    background-color: transparent;
-    background-image: var(--gn-color-rail);
-    background-position: left bottom;
-    background-repeat: no-repeat;
-    background-size: 100% var(--gn-color-rail-height);
+    background: transparent var(--gn-color-rail) left bottom / 100% var(--gn-color-rail-height) no-repeat;
     padding: var(--gn-space-sm) var(--gn-space-md);
     color: var(--gn-text-primary);
     font-family: var(--gn-font-sans);
@@ -111,7 +127,8 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--gn-space-sm);
-    padding: 0 var(--gn-space-sm) var(--gn-space-sm) var(--gn-space-md);
+    min-height: var(--gn-control-height);
+    padding: var(--gn-space-xs) var(--gn-space-sm) var(--gn-space-sm);
   }
 
   .composer-hint {
@@ -126,11 +143,33 @@
     white-space: nowrap;
   }
 
-  .composer-logo {
-    width: var(--gn-composer-logo-size);
-    height: var(--gn-composer-logo-size);
-    flex: 0 0 auto;
-    object-fit: contain;
+  .action-search { border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); }
+
+  .action.action-search {
+    width: auto;
+    min-width: var(--gn-control-height);
+    gap: var(--gn-space-xs);
+    padding: 0 var(--gn-space-sm);
+    font-family: var(--gn-font-sans);
+    font-size: var(--gn-text-xs);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .action-search:hover,
+  .action-search.search-active {
+    border-color: var(--gn-accent);
+    color: var(--gn-accent-ink);
+  }
+
+  .action-search:disabled {
+    border-color: var(--gn-border); color: var(--gn-text-muted);
+    box-shadow: none; cursor: default; opacity: 0.55;
+  }
+
+  .action-search.search-active {
+    background: var(--gn-accent);
+    color: var(--gn-bg-panel);
   }
 
   .action {
@@ -146,19 +185,14 @@
   }
 
   .action-send {
-    border: var(--gn-border-width) solid var(--gn-border);
+    border: var(--gn-border-width) solid var(--gn-accent);
     background: var(--gn-accent);
-    color: var(--gn-text-primary);
+    color: var(--gn-bg-panel);
   }
 
-  .action-send:hover:not(:disabled) {
-    background: var(--gn-accent-bright);
-  }
+  .action-send:hover:not(:disabled) { background: var(--gn-accent-ink); }
 
-  .action:focus-visible {
-    outline: none;
-    box-shadow: var(--gn-focus-ring), var(--gn-shadow-small);
-  }
+  .action:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
 
   .action-send:disabled {
     border-color: var(--gn-border);
@@ -175,14 +209,10 @@
     color: var(--gn-error-fg);
   }
 
-  .action-stop:hover {
-    background: var(--gn-bg-panel-raised);
-  }
+  .action-stop:hover { background: var(--gn-bg-panel-raised); }
 
-  @media (max-width: 720px) {
-    .composer-logo {
-      width: var(--gn-composer-logo-size-mobile);
-      height: var(--gn-composer-logo-size-mobile);
-    }
+  @media (max-width: 640px) {
+    .action { width: var(--gn-touch-height); height: var(--gn-touch-height); }
+    .composer-bar { min-height: var(--gn-touch-height); }
   }
 </style>

@@ -18,12 +18,10 @@ export type ChatParseResult =
 
 export function serializeChat(messages: ChatMessage[], systemPrompt: string): string {
   const file = {
-    version: 1,
+    version: 2,
     systemPrompt,
-    messages: messages.map(message => ({
-      role: message.role,
-      content: message.content
-    }))
+    messages: messages.map(({ role, content, search }) =>
+      search ? { role, content, search } : { role, content })
   };
   return JSON.stringify(file, null, 2);
 }
@@ -40,7 +38,11 @@ export function parseChatFile(text: string): ChatParseResult {
     return { ok: false, error: 'invalid-format' };
   }
   const file = root as Record<string, unknown>;
-  if (file.version !== 1 || typeof file.systemPrompt !== 'string') {
+  if ((file.version !== 1 && file.version !== 2) || typeof file.systemPrompt !== 'string') {
+    return { ok: false, error: 'invalid-format' };
+  }
+  if (file.version === 1 && Array.isArray(file.messages) &&
+      file.messages.some(message => typeof message === 'object' && message !== null && 'search' in message)) {
     return { ok: false, error: 'invalid-format' };
   }
   const messages = validateTranscript(file.messages);

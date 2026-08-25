@@ -15,6 +15,8 @@ const FLAGS: &[&str] = &[
     "--mode",
     "--host",
     "--port",
+    "--search-url",
+    "--search-key-file",
     "--context-tokens",
     "--system-prompt",
     "--max-tokens",
@@ -125,6 +127,8 @@ mod tests {
         assert!(FLAGS.contains(&"--max-tokens"));
         assert!(FLAGS.contains(&"--cpu-threads"));
         assert!(FLAGS.contains(&"--kv-quant"));
+        assert!(FLAGS.contains(&"--search-url"));
+        assert!(FLAGS.contains(&"--search-key-file"));
         for removed in [
             "--provider",
             "--base-url",
@@ -148,6 +152,8 @@ mod tests {
             "--vram-reserve-mib",
             "--cpu-threads",
             "--kv-quant",
+            "--search-url",
+            "--search-key-file",
         ] {
             assert!(u.contains(f), "usage missing {f}");
         }

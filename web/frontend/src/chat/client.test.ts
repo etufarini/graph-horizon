@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { MAX_REQUEST_BYTES, streamAssistant } from './client.ts';
+import { defaultSearch } from './search.ts';
 
 const messages = [{ role: 'user' as const, content: 'hello' }];
 const originalFetch = globalThis.fetch;
@@ -90,6 +91,62 @@ test('unsuccessful and bodyless responses use request failure', async () => {
       streamAssistant(messages, () => {}, new AbortController().signal),
       { message: 'Request failed' }
     );
+  }
+});
+
+test('Web search adds only its structured bounded request', async () => {
+  let request: unknown;
+  globalThis.fetch = async (_input, init) => {
+    request = JSON.parse(String(init?.body));
+    return new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(finished));
+        controller.close();
+      }
+    }));
+  };
+  const search = { terms: 'fresh query', selection: defaultSearch() };
+  await streamAssistant(messages, () => {}, new AbortController().signal, search);
+  assert.deepEqual(Object.keys(request as object), ['messages', 'search']);
+  assert.equal((request as any).search.terms, 'fresh query');
+  assert.equal((request as any).search.category, 'web');
+  assert.match((request as any).search.reference_date, /^\d{4}-\d{2}-\d{2}$/);
+  assert.equal((request as any).search.published, null);
+
+  globalThis.fetch = async () => new Response(null, { status: 502 });
+  await assert.rejects(
+    streamAssistant(messages, () => {}, new AbortController().signal, search),
+    { message: 'Web search is unavailable; no answer was generated' }
+  );
+});
+
+test('invalid Web query is rejected before fetch', async () => {
+  let fetches = 0;
+  globalThis.fetch = async () => { fetches += 1; throw new Error('unexpected fetch'); };
+  await assert.rejects(
+    streamAssistant(messages, () => {}, new AbortController().signal, {
+      terms: 'x'.repeat(513),
+      selection: defaultSearch()
+    }),
+    { message: 'Request failed' }
+  );
+  assert.equal(fetches, 0);
+});
+
+test('search failures retain distinct fixed messages', async () => {
+  const cases = [
+    [422, 'web search returned no results', 'Web search returned no usable results; no answer was generated'],
+    [429, 'web search rate limited', 'Web search was rate limited; no answer was generated'],
+    [504, 'web search timed out', 'Web search timed out; no answer was generated'],
+    [502, 'invalid web search response', 'The Web search provider returned invalid data; no answer was generated']
+  ] as const;
+  for (const [status, error, message] of cases) {
+    globalThis.fetch = async () => new Response(JSON.stringify({ error }), {
+      status, headers: { 'content-type': 'application/json' }
+    });
+    await assert.rejects(streamAssistant(messages, () => {}, new AbortController().signal, {
+      terms: 'query', selection: defaultSearch()
+    }), { message });
   }
 });
 

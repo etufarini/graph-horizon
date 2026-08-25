@@ -1,116 +1,136 @@
+<!--
+SystemPrompt.svelte presents the collapsible editor for one chat. It owns only
+open state; value, availability, persistence, and chat selection stay outside.
+-->
 <script lang="ts">
-  /*
-   * Presentational collapsible editor for the active chat's system prompt.
-   * Owns only open state; value and streaming availability flow through props,
-   * and edits leave through one typed event. Store and persistence stay outside.
-   */
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, tick } from 'svelte';
 
   export let value = '';
   export let disabled = false;
+  // Open state is bindable so the parent can give the editor the full toolbar row.
+  export let open = false;
 
   const dispatch = createEventDispatcher<{ change: string }>();
+  let trigger: HTMLButtonElement;
+  let editor: HTMLTextAreaElement;
 
-  // Collapsed by default on every load; open/closed state is not persisted.
-  let open = false;
+  async function show(): Promise<void> {
+    open = true;
+    await tick();
+    editor?.focus();
+  }
+
+  async function close(): Promise<void> {
+    open = false;
+    await tick();
+    trigger?.focus();
+  }
+
+  function keydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      void close();
+    }
+  }
 </script>
 
-<div class="system-prompt">
-  <button type="button" class="panel-header" aria-expanded={open} on:click={() => (open = !open)}>
-    <span class="chevron" class:open aria-hidden="true"></span>
-    <span class="panel-label">System prompt</span>
-    {#if !open && value.trim() !== ''}
-      <!-- Static dot (no pulse): signals a set prompt, not activity. -->
-      <span class="dot" aria-hidden="true"></span>
-    {/if}
-  </button>
+<div class:open class="system-prompt">
   {#if open}
-    <div class="panel-body">
-      <textarea
-        bind:value
-        {disabled}
-        on:input={() => dispatch('change', value)}
-        rows="3"
-        aria-label="System prompt"
-        placeholder="Instructions for the model…"
-      ></textarea>
-    </div>
+    <section id="system-prompt-editor" aria-label="System prompt editor">
+      <header>
+        <div class="panel-title">
+          <strong>System prompt</strong>
+          <small>Saved with this chat</small>
+        </div>
+        <button class="close" type="button" title="Close system prompt" aria-label="Close system prompt" on:click={close} on:keydown={keydown}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M3 3l10 10M13 3L3 13" />
+          </svg>
+        </button>
+      </header>
+      <div class="panel-body">
+        <textarea
+          bind:this={editor}
+          bind:value
+          {disabled}
+          on:input={() => dispatch('change', value)}
+          on:keydown={keydown}
+          rows="3"
+          aria-label="System prompt"
+          placeholder="Instructions for the model…"
+        ></textarea>
+      </div>
+    </section>
+  {:else}
+    <button bind:this={trigger} class="prompt-trigger" type="button" aria-expanded="false"
+      aria-controls="system-prompt-editor" on:click={show}>
+      <span class="panel-label">System prompt</span>
+      {#if value.trim() !== ''}<span class="prompt-state">Set</span>{/if}
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="m5 3 5 5-5 5" />
+      </svg>
+    </button>
   {/if}
 </div>
 
 <style lang="scss">
-  .system-prompt {
+  .system-prompt { min-width: 0; }
+  .system-prompt.open {
     border: var(--gn-border-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
-    box-shadow: var(--gn-shadow-hard);
+    box-shadow: var(--gn-shadow-small);
   }
-
-  .panel-header {
+  .prompt-trigger, header {
+    width: 100%; min-width: 0; min-height: var(--gn-control-height);
     display: flex;
     align-items: center;
-    gap: var(--gn-space-xs);
-    width: 100%;
+    gap: var(--gn-space-sm);
     padding: var(--gn-space-xs) var(--gn-space-sm);
-    border: none;
-    background: none;
-    cursor: pointer;
-    font-family: var(--gn-font-mono);
-    font-size: var(--gn-text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--gn-text-muted);
-    text-align: left;
   }
-
-  .panel-header:focus-visible {
-    outline: none;
-    box-shadow: var(--gn-focus-inset);
-  }
-
-  .chevron {
-    width: 0;
-    height: 0;
-    border-top: 4px solid transparent;
-    border-bottom: 4px solid transparent;
-    border-left: 5px solid var(--gn-text-muted);
-    transition: transform var(--gn-motion-fast) ease;
-  }
-
-  .chevron.open {
-    transform: rotate(90deg);
-  }
-
-  .dot {
-    width: 0.5em;
-    height: 0.5em;
-    margin-left: var(--gn-space-xs);
-    background: var(--gn-accent);
-  }
-
-  .panel-body {
-    padding: 0 var(--gn-space-sm) var(--gn-space-sm);
-  }
-
-  textarea {
-    display: block;
-    width: 100%;
-    resize: vertical;
-    box-sizing: border-box;
-    border: var(--gn-rule-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
-    outline: none;
+  .prompt-trigger {
+    border: var(--gn-border-width) solid var(--gn-border);
     background: var(--gn-bg-panel);
-    padding: var(--gn-space-sm) var(--gn-space-md);
-    color: var(--gn-text-primary);
-    font-family: var(--gn-font-sans);
-    font-size: var(--gn-text-md);
-    line-height: var(--gn-line-height);
+    box-shadow: var(--gn-shadow-small);
+    color: var(--gn-text-muted);
+    cursor: pointer;
+    font: 650 var(--gn-text-xs) var(--gn-font-mono);
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
   }
-
-  textarea:focus {
-    border-color: var(--gn-border);
-    box-shadow: var(--gn-focus-inset);
+  .prompt-trigger:hover { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
+  .prompt-trigger:focus-visible, .close:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
+  .panel-label { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--gn-text-primary); text-overflow: ellipsis; white-space: nowrap; }
+  .prompt-state {
+    flex: 0 0 auto; border: var(--gn-rule-width) solid var(--gn-accent);
+    background: var(--gn-accent-soft); padding: 1px var(--gn-space-xs);
+    color: var(--gn-accent-ink); font-size: var(--gn-text-xs);
+  }
+  header { border-bottom: var(--gn-rule-width) solid var(--gn-border-subtle); }
+  .panel-title { min-width: 0; flex: 1 1 auto; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--gn-space-xs) var(--gn-space-sm); }
+  strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+  small { color: var(--gn-text-muted); font-size: var(--gn-text-xs); }
+  .close {
+    width: var(--gn-control-height); height: var(--gn-control-height); flex: 0 0 auto;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel);
+    box-shadow: var(--gn-shadow-small); color: var(--gn-text-primary); cursor: pointer;
+  }
+  .close:hover { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
+  .close:active { transform: translate(2px, 2px); box-shadow: none; }
+  .panel-body { padding: var(--gn-space-md); }
+  textarea {
+    display: block; width: 100%; min-height: 72px; max-height: 30dvh;
+    resize: vertical; overflow: auto;
+    border: var(--gn-rule-width) solid var(--gn-border); outline: none; background: var(--gn-bg-panel);
+    padding: var(--gn-space-sm) var(--gn-space-md);
+    color: var(--gn-text-primary); font: var(--gn-text-md)/var(--gn-line-height) var(--gn-font-sans);
+  }
+  textarea:focus { border-color: var(--gn-accent); box-shadow: var(--gn-focus-inset); }
+  @media (max-width: 640px) {
+    .prompt-trigger, header { min-height: var(--gn-touch-height); }
+    .close { width: var(--gn-touch-height); height: var(--gn-touch-height); }
+    .panel-title { display: grid; gap: 0; }
   }
 </style>

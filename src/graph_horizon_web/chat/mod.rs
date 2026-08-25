@@ -1,17 +1,16 @@
 /*
  * Graph Horizon Web chat pipeline
- * Validates one bundled-frontend request, acquires bounded engine access, and
- * returns the private streaming response. Listener and asset routing are owned
- * by the surrounding Web domain.
+ * Validates one bundled-frontend request, optionally adds bounded Web-search
+ * context before acquiring the engine mutex, and returns the private stream.
  */
 
 use std::sync::Arc;
 
 use hyper::body::Incoming;
 use hyper::{HeaderMap, Request, Response, StatusCode, header};
-use tokio::sync::{OwnedMutexGuard, OwnedSemaphorePermit};
 
 use super::router::{ResponseBody, error_response};
+use super::search;
 
 mod request;
 mod state;
@@ -26,26 +25,66 @@ pub(super) async fn handle(request: Request<Incoming>, state: State) -> Response
         Ok(key) => key,
         Err(()) => return error_response(StatusCode::BAD_REQUEST, "invalid request"),
     };
-    let engine_request = match request::parse(
-        request,
-        state.engine.context_limit() as usize,
-        state.engine.default_sampling(),
-    )
-    .await
-    {
-        Ok(request) => request,
-        Err(request::Error::TooLarge) => {
-            return error_response(StatusCode::PAYLOAD_TOO_LARGE, "request too large");
-        }
-        Err(request::Error::Invalid) => {
-            return error_response(StatusCode::BAD_REQUEST, "invalid request");
-        }
+    let mut parsed =
+        match request::parse(request, state.max_tokens, state.engine.default_sampling()).await {
+            Ok(request) => request,
+            Err(request::Error::TooLarge) => {
+                return error_response(StatusCode::PAYLOAD_TOO_LARGE, "request too large");
+            }
+            Err(request::Error::Invalid) => {
+                return error_response(StatusCode::BAD_REQUEST, "invalid request");
+            }
+        };
+    // Admission covers both remote search and generation, but the engine mutex
+    // remains free while an explicitly requested search waits on the network.
+    let permit = match Arc::clone(&state.admission).try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => return error_response(StatusCode::TOO_MANY_REQUESTS, "busy"),
     };
-    let (guard, permit) = match acquire(state.clone()).await {
-        Some(gates) => gates,
-        None => return error_response(StatusCode::TOO_MANY_REQUESTS, "busy"),
-    };
-    let body = stream::body(state.engine, engine_request, cache_key, guard, permit);
+    let mut search_report = None;
+    if let Some(search) = parsed.search.take() {
+        let context = match state.search.context(&search).await {
+            Ok(context) => context,
+            Err(search::Error::Busy) => {
+                return error_response(StatusCode::TOO_MANY_REQUESTS, "busy");
+            }
+            Err(search::Error::NoResults) => {
+                return error_response(
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "web search returned no results",
+                );
+            }
+            Err(search::Error::RateLimited) => {
+                return error_response(StatusCode::TOO_MANY_REQUESTS, "web search rate limited");
+            }
+            Err(search::Error::Timeout) => {
+                return error_response(StatusCode::GATEWAY_TIMEOUT, "web search timed out");
+            }
+            Err(search::Error::Invalid) => {
+                return error_response(StatusCode::BAD_GATEWAY, "invalid web search response");
+            }
+            Err(search::Error::Unavailable) => {
+                return error_response(StatusCode::BAD_GATEWAY, "web search unavailable");
+            }
+        };
+        // Search queries are accepted only when the final engine message is User.
+        let message = parsed
+            .engine
+            .messages
+            .last_mut()
+            .expect("validated Web search has a final user message");
+        message.content.insert_str(0, &context.prompt);
+        search_report = Some(context.report);
+    }
+    let guard = Arc::clone(&state.serialize).lock_owned().await;
+    let body = stream::body(
+        state.engine,
+        parsed.engine,
+        search_report,
+        cache_key,
+        guard,
+        permit,
+    );
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "text/event-stream")
@@ -74,13 +113,6 @@ fn cache_key(headers: &HeaderMap) -> Result<[u8; 16], ()> {
         key[index] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
     }
     Ok(key)
-}
-
-async fn acquire(state: State) -> Option<(OwnedMutexGuard<()>, OwnedSemaphorePermit)> {
-    // Admission precedes serialization and both gates are transferred to the stream.
-    let permit = Arc::clone(&state.admission).try_acquire_owned().ok()?;
-    let guard = Arc::clone(&state.serialize).lock_owned().await;
-    Some((guard, permit))
 }
 
 #[cfg(test)]

@@ -86,9 +86,9 @@ function write(
 
 function removeLegacyPrompt(storage: Storage): void {
   try {
-    // Once version 3 is durable, failure to remove the ignored old key is benign.
+    // Once version 4 is durable, failure to remove the ignored old key is benign.
     storage.removeItem(LEGACY_SYSTEM_PROMPT_KEY);
   } catch {
-    // A version-3 archive remains authoritative.
+    // A version-4 archive remains authoritative.
   }
 }

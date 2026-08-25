@@ -110,6 +110,13 @@ approved, ensure that every file adheres to the following checklist:
 
 ## Design Rules
 
+### Web UI visual style
+
+- For every component and UI change under `web/frontend`, preserve the product's established pixel-art aesthetic. Reuse the existing design tokens, typography, icons, square borders, hard shadows, discrete spacing grid, and interaction patterns.
+- Do not replace this visual language with generic SaaS styling, glassmorphism, soft gradients, diffuse shadows, excessive rounded corners, incompatible icon sets, or decorative effects.
+- Controls inside panels, including close buttons, must use the same pixel-art component language, spacing grid, dimensions, alignment, accessible names, focus treatment, and interaction states.
+- Any intentional departure from the established pixel-art style requires explicit user approval.
+
 - Start from the most direct working model.
 - Use data representations that make invalid states hard to express.
 - Use dedicated types, structures, interfaces, modules, and restricted visibility to protect invariants.

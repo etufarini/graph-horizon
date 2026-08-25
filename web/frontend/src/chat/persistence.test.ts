@@ -1,5 +1,5 @@
 /*
- * Deterministic in-memory storage coverage for version-3 collection startup,
+ * Deterministic in-memory storage coverage for version-4 collection startup,
  * stable saves, invalid cleanup, and global-prompt migration. Real browser,
  * filesystem, and network I/O are excluded.
  */
@@ -77,7 +77,7 @@ test('missing storage creates and immediately persists one empty collection', ()
   assert.equal(result.collection.chats[0].systemPrompt, '');
   assert.deepEqual(result.collection.chats[0].messages, []);
   assert.equal(storage.setCalls.length, 1);
-  assert.equal(JSON.parse(storage.setCalls[0][1]).version, 3);
+  assert.equal(JSON.parse(storage.setCalls[0][1]).version, 4);
 });
 
 test('a valid archive loads without storage mutation and hydrates IDs', () => {
@@ -130,7 +130,7 @@ test('legacy migration replaces the exact value only after a successful write', 
   assert.equal(result.collection.activeChatId, secondId);
   assert.equal(result.collection.chats[0].systemPrompt, 'legacy prompt');
   assert.equal(storage.setCalls.length, 1);
-  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).version, 3);
+  assert.equal(JSON.parse(storage.values.get(STORAGE_KEY)!).version, 4);
   assert.equal(storage.values.has(LEGACY_SYSTEM_PROMPT_KEY), false);
 
   const failed = new MemoryStorage();

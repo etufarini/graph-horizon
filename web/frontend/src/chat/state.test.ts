@@ -48,7 +48,11 @@ const { chat } = await import('./state.ts');
 let snapshot: ChatSnapshot;
 chat.subscribe(value => { snapshot = value; });
 
-const context: RuntimeContext = { contextLimit: 4096, safePromptBudget: 3686 };
+const context: RuntimeContext = {
+  contextLimit: 4096,
+  safePromptBudget: 3686,
+  search: { provider: 'search.example', maxQueryCharacters: 512, maxContextCharacters: 2800 }
+};
 const encoder = new TextEncoder();
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const active = () => snapshot.collection.chats.find(
@@ -101,7 +105,7 @@ test('startup migrates into one canonical active collection', () => {
   assert.deepEqual(plain(), restored);
   assert.equal(active().systemPrompt, 'restored system');
   assert.equal(snapshot.persistenceWarning, null);
-  assert.equal(JSON.parse(storage.values.get(CONVERSATION_KEY)!).version, 3);
+  assert.equal(JSON.parse(storage.values.get(CONVERSATION_KEY)!).version, 4);
   assert.equal(storage.values.has(SYSTEM_KEY), false);
 });
 
@@ -181,7 +185,7 @@ test('valid import creates a new active chat and invalid import changes no durab
   assert.deepEqual(active().messages, []);
 });
 
-test('invalid JSON preserves prompt and archive while export stays public version 1', () => {
+test('invalid JSON preserves prompt and archive while export stays version 2', () => {
   const collection = snapshot.collection;
   const systemPrompt = active().systemPrompt;
   const archive = storage.values.get(CONVERSATION_KEY);
@@ -195,7 +199,7 @@ test('invalid JSON preserves prompt and archive while export stays public versio
 
   const exported = JSON.parse(serializeChat(active().messages, active().systemPrompt));
   assert.deepEqual(exported, {
-    version: 1,
+    version: 2,
     systemPrompt,
     messages: plain()
   });

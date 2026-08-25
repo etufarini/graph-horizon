@@ -19,10 +19,12 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::super::router::ResponseBody;
+use super::super::search::Report;
 
 pub(super) fn body(
     engine: Arc<Engine>,
     request: Request,
+    search_report: Option<Report>,
     cache_key: [u8; 16],
     guard: OwnedMutexGuard<()>,
     permit: OwnedSemaphorePermit,
@@ -32,7 +34,13 @@ pub(super) fn body(
         // Both gates live exactly as long as generation, including cancellation.
         let _guard = guard;
         let _permit = permit;
-        engine.generate_cached(cache_key, request, &mut WebSink { tx });
+        let mut sink = WebSink { tx };
+        if let Some(report) = search_report
+            && !sink.send(&SearchFrame { search: &report })
+        {
+            return;
+        }
+        engine.generate_cached(cache_key, request, &mut sink);
     });
 
     let stream =
@@ -107,6 +115,11 @@ struct ErrorFrame<'a> {
 }
 
 #[derive(Serialize)]
+struct SearchFrame<'a> {
+    search: &'a Report,
+}
+
+#[derive(Serialize)]
 struct StatsFrame {
     stats: Stats,
 }
@@ -136,5 +149,25 @@ mod tests {
         let mut sink = WebSink { tx };
         assert!(!sink.emit(Event::TextDelta("ignored".into())));
         assert!(sink.cancelled());
+    }
+
+    #[test]
+    fn terminal_frames_contain_no_appended_assistant_content() {
+        let (tx, mut rx) = mpsc::channel(3);
+        let mut sink = WebSink { tx };
+        assert!(
+            !sink.emit(Event::Finished(graph_horizon_engine::GenerationStats {
+                prompt_tokens: 2,
+                prefill_tokens: 2,
+                completion_tokens: 1,
+                prefill_ms: 10,
+                decode_ms: 20,
+            }))
+        );
+        drop(sink);
+
+        assert!(rx.blocking_recv().unwrap().contains("\"stats\""));
+        assert!(rx.blocking_recv().unwrap().contains("\"done\":true"));
+        assert!(rx.blocking_recv().is_none());
     }
 }

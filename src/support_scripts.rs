@@ -833,11 +833,11 @@ fn installer_rejects_unsafe_prefixes_before_build() {
 }
 
 #[test]
-fn installer_reports_missing_prerequisite_before_build() {
+fn installer_reports_missing_prerequisites_before_build() {
     let (fixture, root, _, log) = installer_fixture("installer missing prerequisite");
     let isolated = fixture.join("isolated bin");
     fs::create_dir(&isolated).unwrap();
-    for tool in ["bash", "uname", "install", "cargo"] {
+    for tool in ["bash", "uname", "install", "cargo", "rustc", "find"] {
         write_executable(&isolated.join(tool), b"#!/bin/sh\nexit 0\n");
     }
     let prefix = fixture.join("prefix");
@@ -851,6 +851,19 @@ fn installer_reports_missing_prerequisite_before_build() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("npm is required"));
+    assert!(!log.exists());
+
+    write_executable(&isolated.join("npm"), b"#!/bin/sh\nexit 0\n");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(["--backend", "cpu", "--prefix", prefix.to_str().unwrap()])
+        .env("PATH", &isolated)
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("curl is required"));
     assert!(!log.exists());
     fs::remove_dir_all(fixture).unwrap();
 }

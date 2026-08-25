@@ -1,10 +1,7 @@
-<!--
-Chat.svelte is the sole Web UI composition boundary for active-chat prompt,
-transcript, Markdown files, responsive panels, context, transfer, status, and
-gated submission. Collection rules, transport, and storage schemas remain outside.
--->
+<!-- Chat.svelte composes the active chat, optional Web search, files, panels,
+context, transfer, status, and gated submission; domain rules remain outside. -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import ChatHistory from '../ChatHistory.svelte';
   import Composer from '../Composer.svelte';
   import FilesPanel from '../files/Panel.svelte';
@@ -22,36 +19,25 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
   import { activeChat, orderedChats } from '../../chat/sessions';
   import { chat, wireMessages } from '../../chat/state';
   import { serializeChat } from '../../chat/transfer';
-  import type { RuntimeContext, RuntimeInfo } from '../../chat/types';
+  import type { RuntimeContext, RuntimeInfo, SearchSelection } from '../../chat/types';
 
   let draft = '';
   let runtimeContext: RuntimeContext | null = null;
   let runtimeInfo: RuntimeInfo | null = null;
   let configurationError: string | null = null;
   let historyOpen = false;
-  let mobile = false;
   let filesOpen = false;
-  let filesOverlay = false;
+  let panelsOverlay = false;
+  let systemPromptOpen = false;
+  let search: SearchSelection | null = null;
   let selectedFileChat = '';
-  let historyToggle: HTMLButtonElement;
-  let filesToggle: HTMLButtonElement;
   const contextController = new AbortController();
 
   onMount(() => {
-    const historyMedia = matchMedia('(max-width: 720px)');
-    const filesMedia = matchMedia('(max-width: 1180px)');
-    const applyHistoryBreakpoint = () => {
-      mobile = historyMedia.matches;
-      historyOpen = !mobile;
-    };
-    const applyFilesBreakpoint = () => {
-      filesOverlay = filesMedia.matches;
-      filesOpen = !filesOverlay;
-    };
-    applyHistoryBreakpoint();
-    applyFilesBreakpoint();
-    historyMedia.addEventListener('change', applyHistoryBreakpoint);
-    filesMedia.addEventListener('change', applyFilesBreakpoint);
+    const panelMedia = matchMedia('(max-width: 1199px)');
+    const applyPanelBreakpoint = () => { panelsOverlay = panelMedia.matches; };
+    applyPanelBreakpoint();
+    panelMedia.addEventListener('change', applyPanelBreakpoint);
     void markdownFiles.reconcile($chat.collection.chats.map(chat => chat.id));
     void loadRuntimeContext(contextController.signal).then(result => {
       if (contextController.signal.aborted) return;
@@ -62,8 +48,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
       if (!contextController.signal.aborted && result.ok) runtimeInfo = result.info;
     });
     return () => {
-      historyMedia.removeEventListener('change', applyHistoryBreakpoint);
-      filesMedia.removeEventListener('change', applyFilesBreakpoint);
+      panelMedia.removeEventListener('change', applyPanelBreakpoint);
       contextController.abort();
     };
   });
@@ -85,7 +70,7 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     ...(fileOverhead ? [{ role: 'user' as const, content: fileOverhead }] : [])
   ];
   $: usage = runtimeContext
-    ? contextUsage(occupancyMessages, runtimeContext)
+    ? contextUsage(occupancyMessages, runtimeContext, search ? runtimeContext.search.maxContextCharacters : 0)
     : null;
   $: persistenceWarning = $chat.persistenceWarning === 'invalid-record'
     ? 'Invalid chat archive: starting with a new chat'
@@ -101,46 +86,28 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
     const submitted = draft;
     draft = '';
     if (!runtimeContext || !filesReady) return;
-    await chat.send(submitted, runtimeContext, $markdownFiles.files);
+    await chat.send(submitted, runtimeContext, $markdownFiles.files, search);
     // Restore only when no newer draft was prepared during the failed request.
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
 
-  function closeHistory(): void {
-    historyOpen = false;
-    void tick().then(() => historyToggle?.focus());
-  }
-
-  function closeFiles(): void {
-    filesOpen = false;
-    void tick().then(() => filesToggle?.focus());
-  }
-
   function toggleHistory(): void {
+    // Workspace invariant: opening either side panel always closes the other.
     const opening = !historyOpen;
     historyOpen = opening;
-    if (opening && filesOverlay) filesOpen = false;
+    if (opening) filesOpen = false;
   }
 
   function toggleFiles(): void {
     const opening = !filesOpen;
     filesOpen = opening;
-    if (opening && mobile) historyOpen = false;
+    if (opening) historyOpen = false;
   }
 
-  function selectChat(id: string): void {
-    chat.selectChat(id);
-    if (mobile) closeHistory();
-  }
-
-  function regenerate(): void {
-    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files);
-  }
+  function regenerate(): void { if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search); }
 
   function editPrompt(userId: string, text: string): void {
-    if (runtimeContext && filesReady) {
-      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files);
-    }
+    if (runtimeContext && filesReady) void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, search);
   }
 
   function addFiles(selected: File[]): void {
@@ -150,69 +117,66 @@ gated submission. Collection rules, transport, and storage schemas remain outsid
   }
 </script>
 
-<section class="application">
-  <ChatHistory
-    {chats}
-    activeId={$chat.collection.activeChatId}
-    open={historyOpen}
-    streaming={chatLocked}
-    on:new={() => chat.newChat()}
-    on:select={event => selectChat(event.detail)}
-    on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
-    on:delete={event => chat.deleteChat(event.detail)}
-    on:close={closeHistory}
-  />
+<section class:history-closed={!historyOpen} class:files-closed={!filesOpen} class="application">
+  <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={panelsOverlay}
+    blocked={filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
+    on:select={event => chat.selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
+    on:delete={event => chat.deleteChat(event.detail)} on:toggle={toggleHistory} on:close={() => historyOpen = false} />
 
-  <section class="chat-layout">
-    <Header
-      bind:historyToggle
-      bind:filesToggle
-      {historyOpen}
-      {filesOpen}
-      fileCount={$markdownFiles.files.length}
-      {runtimeInfo}
-      on:history={toggleHistory}
-      on:files={toggleFiles}
-    />
+  <section class="chat-layout" inert={panelsOverlay && (historyOpen || filesOpen)}>
+    <Header {runtimeInfo} />
 
-    <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
-    <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
-    <Transcript {messages} {streaming} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
-    {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
-    <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
-    <Metrics telemetry={$chat.telemetry} />
-    <Composer bind:value={draft} {streaming} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
+    <div class:prompt-open={systemPromptOpen} class="chat-tools">
+      <SystemPrompt bind:open={systemPromptOpen} value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
+      <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
+    </div>
+    <Transcript {messages} {streaming} searchEnabled={runtimeContext !== null} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
+    <div class="feedback">
+      {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
+      <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
+      <Metrics telemetry={$chat.telemetry} />
+    </div>
+    <Composer bind:value={draft} bind:search {streaming} searchCapability={runtimeContext?.search ?? null} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
-  <FilesPanel
-    files={$markdownFiles.files}
-    open={filesOpen}
-    overlay={filesOverlay}
-    disabled={streaming || runtimeContext === null}
-    busy={$markdownFiles.busy}
-    ready={filesLoaded}
-    on:add={event => addFiles(event.detail)}
-    on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
-    on:delete={event => markdownFiles.remove(event.detail)}
-    on:close={closeFiles}
-  />
+  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={panelsOverlay} blocked={historyOpen}
+    disabled={streaming || runtimeContext === null} busy={$markdownFiles.busy} ready={filesLoaded}
+    on:add={event => addFiles(event.detail)} on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
+    on:delete={event => markdownFiles.remove(event.detail)} on:toggle={toggleFiles} on:close={() => filesOpen = false} />
 </section>
 
 <style lang="scss">
   .application {
-    width: min(var(--gn-application-width), 100%);
+    width: 100%;
     height: 100%; min-height: 0; min-width: 0;
-    display: flex; gap: var(--gn-space-md);
+    display: flex; gap: 0;
+    overflow: hidden;
+    --gn-header-start-reserve: 0px;
+    --gn-header-end-reserve: 0px;
   }
+  .application.history-closed { --gn-header-start-reserve: calc(var(--gn-panel-rail-width) + var(--gn-space-sm)); }
+  .application.files-closed { --gn-header-end-reserve: calc(var(--gn-panel-rail-width) + var(--gn-space-sm)); }
   .chat-layout {
     flex: 1; min-width: 0; height: 100%; min-height: 0;
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto auto;
-    gap: var(--gn-space-md);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    background: var(--gn-bg-page);
+    padding: var(--gn-space-sm) var(--gn-space-md);
+    row-gap: var(--gn-space-sm);
   }
+  .chat-tools { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gn-space-sm); }
+  .chat-tools.prompt-open { grid-template-columns: 1fr; }
+  .prompt-open :global(.session-actions) { display: none; }
+  .feedback { min-width: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gn-space-xs) var(--gn-space-lg); border-top: var(--gn-rule-width) solid var(--gn-border-subtle); background: var(--gn-bg-panel); }
+  .feedback :global(.status-stack) { min-width: min(280px, 100%); flex: 1 1 320px; }
+  .feedback :global(.metrics) { min-width: min(320px, 100%); flex: 1 1 420px; }
   .persistence-warning {
-    border: var(--gn-border-width) solid var(--gn-streaming); background: var(--gn-bg-panel);
-    padding: var(--gn-space-sm) var(--gn-space-md); color: var(--gn-text-primary);
+    flex: 1 0 100%;
+    border: var(--gn-rule-width) solid var(--gn-warning); border-radius: var(--gn-radius-sm); background: var(--gn-warning-bg);
+    padding: var(--gn-space-sm); color: var(--gn-warning);
     font-size: var(--gn-text-sm); font-weight: 600;
+  }
+  @media (max-width: 640px) {
+    .chat-layout { padding: var(--gn-space-sm); }
   }
 </style>

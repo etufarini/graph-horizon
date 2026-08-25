@@ -8,39 +8,39 @@ description: >-
 ---
 
 <!--
-Questa skill possiede il ciclo locale misura-candidato-gate-decisione per le
-ottimizzazioni autorizzate; delega criteri numerici e misure ai riferimenti.
+This skill owns the local measure-candidate-gate-decision loop for authorized
+optimizations; numeric criteria and measurements live in its references.
 -->
 
 # Safe Optimization Loop
 
-Rispondi sempre in italiano. Mantieni comandi e identificatori nella lingua del
-codice.
+Always communicate in English. Keep commands and identifiers in the language of
+the code.
 
-Obbedisci ad `AGENTS.md`. Un candidato che viola struttura approvata, singola
-responsabilità o limite produttivo di 200 linee è fallito quanto un test rosso.
+Obey `AGENTS.md`. A candidate that violates the approved structure, single
+responsibility, or 200-productive-line limit has failed just like a red test.
 
-Ripeti:
+Repeat:
 
 ```text
-misura -> cambia una cosa -> prova correttezza -> rimisura -> commit o ripristino
+measure -> change one thing -> prove correctness -> remeasure -> commit or restore
 ```
 
-## Regole
+## Rules
 
-1. La correttezza blocca il commit.
-2. Non modificare test, riferimenti o soglie per far passare un candidato.
-3. Un'ottimizzazione logicamente indipendente corrisponde a un commit.
-4. Mantieni identici modello, prompt, contesto, KV, feature, profilo e hardware
-   tra baseline e candidato.
-5. Cambi di ordine floating point, layout o precisione non sono presumibilmente
-   bit-exact. Esplorali solo con un oracle approvato e una soglia dichiarata
-   prima della misura; altrimenti non committarli.
-6. Non introdurre dipendenze o astrazioni per un guadagno ipotetico.
+1. Correctness blocks the commit.
+2. Do not change tests, references, or thresholds to make a candidate pass.
+3. One logically independent optimization corresponds to one commit.
+4. Keep the model, prompt, context, KV, features, profile, and hardware identical
+   between the baseline and candidate.
+5. Floating-point ordering, layout, or precision changes are not presumed
+   bit-exact. Explore them only with an approved oracle and a threshold declared
+   before measurement; otherwise do not commit them.
+6. Do not introduce dependencies or abstractions for a hypothetical gain.
 
-## Fase 0 — Baseline
+## Phase 0 — Baseline
 
-Verifica il tree e la feature target:
+Check the tree and target feature:
 
 ```sh
 git status --short
@@ -48,50 +48,49 @@ cargo test --workspace --no-default-features --features cpu
 cargo check --workspace --no-default-features --features <cpu|vulkan|vulkan-hybrid|metal|metal-hybrid>
 ```
 
-Usa un artefatto 3B Q4_K_M autenticato da `support/models.tsv`. Q8_0 è soltanto
-un caso negativo del gate pubblico e non è un target di parity reale. Registra
-SHA, contesto, KV e commit.
+Use a 3B Q4_K_M artifact authenticated by `support/models.tsv`. Q8_0 is only a
+negative case for the public gate, not a real parity target. Record its SHA,
+context, KV, and commit.
 
-Leggi [references/correctness-oracle.md](references/correctness-oracle.md) per
-la matrice esatta e
+Read [references/correctness-oracle.md](references/correctness-oracle.md) for
+the exact matrix and
 [references/measuring-prefill-decode.md](references/measuring-prefill-decode.md)
-per la misura.
+for measurement instructions.
 
-## Fase 1 — Profilo
+## Phase 1 — Profile
 
-Misura l'API pubblica:
+Measure the public API:
 
 ```sh
 support/profiling/profile.sh --model "$GRAPH_HORIZON_MODEL" \
   --backend <backend> --context 4096 --kv f16
 ```
 
-Individua il costo dominante da dati osservabili: prefill, TTFT, decode, memoria
-o placement. Consulta
+Identify the dominant cost from observable data: prefill, TTFT, decode, memory,
+or placement. Read
 [references/rust-optimization-catalog.md](references/rust-optimization-catalog.md)
-solo dopo il profilo.
+only after profiling.
 
-## Fase 2 — Classificazione
+## Phase 2 — Classification
 
-- Bit-exact: elimina lavoro, allocazioni, copie o sincronizzazioni senza
-  riordinare l'aritmetica. Richiede un gate che prometta uguaglianza esatta.
-- Layout/numerica: cambia raggruppamento, FMA, SIMD reduction, tiling, precisione
-  o quantizzazione. Usa il gate numerico bounded già approvato soltanto quando
-  misura il rischio del candidato; altrimenti serve una soglia specifica
-  predefinita.
-- Architetturale: cambia ownership, threading model o orchestrazione. Resta nel
-  loop quando il mandato prestazionale esplicito lo include e passa i gate
-  mirati di eventi, cancellazione, placement e capacità. Dipendenze e API
-  pubbliche richiedono invece scope esplicito.
+- Bit-exact: remove work, allocations, copies, or synchronization without
+  reordering arithmetic. This requires a gate that proves exact equality.
+- Layout/numeric: change grouping, FMA, SIMD reduction, tiling, precision, or
+  quantization. Use an approved bounded numeric gate only when it measures the
+  candidate's risk; otherwise define a specific threshold in advance.
+- Architectural: change ownership, threading model, or orchestration. Keep this
+  inside the loop when the explicit performance mandate includes it and the
+  candidate passes targeted event, cancellation, placement, and capacity gates.
+  Dependencies and public APIs still require explicit scope.
 
-## Fase 3 — Modifica
+## Phase 3 — Change
 
-Applica il diff minimo. Non fare cleanup opportunistici. Verifica ogni file Rust
-toccato contro `AGENTS.md` e documenta invarianti nei punti di mutazione.
+Apply the smallest diff. Do not perform opportunistic cleanup. Check every
+touched Rust file against `AGENTS.md` and document invariants at mutation points.
 
-## Fase 4 — Gate
+## Phase 4 — Gate
 
-Esegui prima la correttezza:
+Run correctness first:
 
 ```sh
 cargo fmt --check
@@ -103,22 +102,23 @@ support/testing/parity-check.sh \
   --reference-server "$GRAPH_HORIZON_REFERENCE_SERVER"
 ```
 
-Per un backend ibrido mixed aggiungi `--weights-percent 25 --expect-mode mixed`
-e richiedi layer CPU e GPU positivi. Non trasformare E15 Vulkan in fallback CPU.
+For a mixed hybrid backend, add `--weights-percent 25 --expect-mode mixed` and
+require positive CPU and GPU layer counts. Do not turn Vulkan E15 into CPU
+fallback.
 
-Solo dopo un gate verde rimisura con lo stesso comando baseline. Un guadagno
-deve superare la varianza osservata e non peggiorare metriche o memoria fuori
-dal rumore.
+Only after a green gate, remeasure with the same baseline command. A gain must
+exceed observed variance without degrading non-target metrics or memory beyond
+noise.
 
-## Fase 5 — Decisione
+## Phase 5 — Decision
 
-- Tutti i gate applicabili verdi e guadagno reale: commit immediato con metrica
-  prima/dopo.
-- Divergenza, regressione o guadagno nel rumore: ripristina solo il candidato e
-  registrane il motivo.
-- Candidato senza un gate approvato adeguato: non lasciarlo nel tree; riportalo
-  come proposta non applicata.
+- All applicable gates green and a real gain: commit immediately with before
+  and after metrics.
+- Divergence, regression, or a gain within noise: restore only the candidate and
+  record why.
+- Candidate without an adequate approved gate: do not leave it in the tree;
+  report it as an unapplied proposal.
 
-Ferma il loop quando non restano candidati misurati, l'oracle è instabile o il
-budget richiesto è esaurito. Alla fine ripeti matrice test, parity e benchmark,
-poi riporta baseline, stato finale e commit mantenuti.
+Stop the loop when no measured candidates remain, the oracle is unstable, or
+the requested budget is exhausted. Finally repeat the test matrix, parity, and
+benchmark, then report the baseline, final state, and retained commits.

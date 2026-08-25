@@ -1,32 +1,22 @@
-/*
- * Transactional generation lifecycle: admits prompt occupancy before visible
- * mutation, then owns one request, timing, deltas, append/restart rollback,
- * voluntary Stop commit, and stable checkpoint signals. Chat-list, storage,
- * Reasoning presentation, and UI are excluded.
- */
+/* Transactional generation lifecycle: admits local plus optional search context,
+ * then owns one streamed request, rollback, Stop, timing, and checkpoints. */
 import { get, type Writable } from 'svelte/store';
-import { streamAssistant } from './client.ts';
+import { isExpectedFailure, streamAssistant } from './client.ts';
 import { admitMessages } from './context.ts';
 import { expandPromptWithMarkdownFiles } from './files/context.ts';
-import { activeChat } from './sessions.ts';
+import { activeChat, replaceChatMessages } from './sessions.ts';
 import {
   appendAssistant,
+  attachAssistantSearch,
   findTurn,
   finalPair,
   hydrateTranscript,
   replaceFromTurn,
   wireMessages
 } from './transcript.ts';
-import type {
-  ChatCollection,
-  ChatMessage,
-  ChatSnapshot,
-  RuntimeContext,
-  StreamEvent
-} from './types.ts';
+import type { ChatSnapshot, RuntimeContext, SearchSelection, StreamEvent } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
-const FAILED = 'Request failed';
 const INTERRUPTED = 'Response interrupted';
 
 export function createGeneration(
@@ -38,19 +28,21 @@ export function createGeneration(
   async function send(
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    search: SearchSelection | null = null
   ): Promise<void> {
-    await generate('append', text.trim(), context, '', files);
+    await generate('append', text.trim(), context, '', files, search);
   }
 
   async function regenerate(
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    search: SearchSelection | null = null
   ): Promise<void> {
     const snapshot = get(store);
     const pair = finalPair(activeChat(snapshot.collection).messages);
     if (pair) {
-      await generate('replace', pair[0].content, context, pair[0].id, files);
+      await generate('replace', pair[0].content, context, pair[0].id, files, search);
     }
   }
 
@@ -58,9 +50,10 @@ export function createGeneration(
     userId: string,
     text: string,
     context: RuntimeContext,
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    search: SearchSelection | null = null
   ): Promise<void> {
-    await generate('replace', text.trim(), context, userId, files);
+    await generate('replace', text.trim(), context, userId, files, search);
   }
 
   function stop(): void {
@@ -72,7 +65,8 @@ export function createGeneration(
     prompt: string,
     context: RuntimeContext,
     userId = '',
-    files: MarkdownFileRecord[] = []
+    files: MarkdownFileRecord[] = [],
+    search: SearchSelection | null = null
   ): Promise<void> {
     const current = get(store);
     if (!prompt || current.status === 'streaming') {
@@ -87,7 +81,7 @@ export function createGeneration(
     const prior = turn ? previousMessages.slice(0, turn.index) : previousMessages;
     const wire = wireMessages(prior, chat.systemPrompt);
     wire.push({ role: 'user', content: expandPromptWithMarkdownFiles(prompt, files) });
-    const admission = admitMessages(wire, context);
+    const admission = admitMessages(wire, context, search ? context.search.maxContextCharacters : 0);
     if (!admission.ok) {
       store.set({
         ...current,
@@ -97,23 +91,21 @@ export function createGeneration(
       return;
     }
 
-    // Replacement IDs remain stable so only its newly trailing assistant can stream.
-    const pair = mode === 'append'
-      ? hydrateTranscript([
+    // The user identity locates the causal cut; replaceFromTurn creates a fresh
+    // assistant identity so old request events cannot target the new version.
+    const messages = mode === 'append'
+      ? [...previousMessages, ...hydrateTranscript([
           { role: 'user', content: prompt },
           { role: 'assistant', content: '' }
-        ])
-      : [turn!.user, turn!.assistant];
-    const messages = mode === 'append'
-      ? [...previousMessages, ...pair]
-      : replaceFromTurn(previousMessages, pair[0].id, prompt, '');
+        ])]
+      : replaceFromTurn(previousMessages, turn!.user.id, prompt, '');
     const chatId = chat.id;
-    const assistantId = pair[1].id;
+    const assistantId = messages.at(-1)!.id;
     controller = new AbortController();
     const request = controller;
     store.set({
       ...current,
-      collection: withMessages(current.collection, chatId, messages),
+      collection: replaceChatMessages(current.collection, chatId, messages),
       status: 'streaming',
       error: null,
       telemetry: {
@@ -127,7 +119,8 @@ export function createGeneration(
       await streamAssistant(
         wire,
         event => applyEvent(chatId, assistantId, event),
-        request.signal
+        request.signal,
+        search ? { terms: search.query.trim() || prompt.trim(), selection: search } : null
       );
       store.update(snapshot => ({
         ...snapshot,
@@ -147,11 +140,12 @@ export function createGeneration(
         }));
         checkpoint(chatId);
       } else {
+        const message = error instanceof Error ? error.message : '';
         store.update(snapshot => ({
           ...snapshot,
-          collection: withMessages(snapshot.collection, chatId, previousMessages),
+          collection: replaceChatMessages(snapshot.collection, chatId, previousMessages),
           status: 'error',
-          error: error instanceof Error && error.message === FAILED ? FAILED : INTERRUPTED,
+          error: isExpectedFailure(message) ? message : INTERRUPTED,
           telemetry: null
         }));
       }
@@ -169,6 +163,16 @@ export function createGeneration(
         return snapshot;
       }
       if (snapshot.telemetry?.stats) throw new Error(INTERRUPTED);
+      if (event.type === 'search') {
+        return {
+          ...snapshot,
+          collection: replaceChatMessages(
+            snapshot.collection,
+            chatId,
+            attachAssistantSearch(chat.messages, event.search)
+          )
+        };
+      }
       if (event.type === 'phase') {
         const prior = snapshot.telemetry?.phase;
         const valid = (prior === 'waiting' && event.phase === 'prefill') ||
@@ -188,7 +192,7 @@ export function createGeneration(
       }
       return {
         ...snapshot,
-        collection: withMessages(
+        collection: replaceChatMessages(
           snapshot.collection,
           chatId,
           appendAssistant(chat.messages, event.content)
@@ -198,15 +202,4 @@ export function createGeneration(
   }
 
   return { send, regenerate, editPrompt, stop };
-}
-
-function withMessages(
-  collection: ChatCollection,
-  chatId: string,
-  messages: ChatMessage[]
-): ChatCollection {
-  return {
-    ...collection,
-    chats: collection.chats.map(chat => chat.id === chatId ? { ...chat, messages } : chat)
-  };
 }

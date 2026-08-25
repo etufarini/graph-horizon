@@ -1,17 +1,24 @@
 /*
  * Web chat HTTP client.
- * Loads immutable context properties and posts admitted text-only requests.
- * Generation uses a linked internal controller so caller Stop remains distinct
- * from five-minute inactivity cancellation; activity resets that watchdog, which
- * is not a total-generation timeout.
+ * Loads immutable context properties and posts admitted text requests with an
+ * optional separate structured search request. Its linked
+ * controller keeps caller Stop distinct from inactivity cancellation.
  */
 import { parseRuntimeContext } from './context.ts';
+import { wireSearch } from './search.ts';
 import { readChatStream } from './stream.ts';
 import { parseRuntimeInfo } from './telemetry.ts';
-import type { ContextConfigResult, RuntimeInfoResult, StreamEvent, WireMessage } from './types';
+import type { ContextConfigResult, RuntimeInfoResult, SearchInput, StreamEvent, WireMessage } from './types';
 
-const FAILED = 'Request failed';
+export const REQUEST_FAILED = 'Request failed';
 const INTERRUPTED = 'Connection interrupted';
+const SEARCH_FAILURES: Record<string, string> = {
+  'web search returned no results': 'Web search returned no usable results; no answer was generated',
+  'web search rate limited': 'Web search was rate limited; no answer was generated',
+  'web search timed out': 'Web search timed out; no answer was generated',
+  'invalid web search response': 'The Web search provider returned invalid data; no answer was generated',
+  'web search unavailable': 'Web search is unavailable; no answer was generated'
+};
 const INACTIVITY_MS = 5 * 60_000;
 export const MAX_REQUEST_BYTES = 4 * 1024 * 1024;
 const CACHE_KEY = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte =>
@@ -52,7 +59,8 @@ async function loadProperties<T>(
 export async function streamAssistant(
   messages: WireMessage[],
   onEvent: (event: StreamEvent) => void,
-  signal: AbortSignal
+  signal: AbortSignal,
+  search: SearchInput | null = null
 ): Promise<void> {
   const controller = new AbortController();
   let cancellation: 'external' | 'timeout' | null = null;
@@ -73,9 +81,16 @@ export async function streamAssistant(
   signal.addEventListener('abort', stop, { once: true });
   if (signal.aborted) stop();
   try {
-    const body = JSON.stringify({ messages });
+    const searchRequest = search === null ? null : wireSearch(
+      search.terms,
+      search.selection
+    );
+    if (search !== null && searchRequest === null) throw new Error(REQUEST_FAILED);
+    const body = JSON.stringify(searchRequest === null
+      ? { messages }
+      : { messages, search: searchRequest });
     if (new TextEncoder().encode(body).byteLength > MAX_REQUEST_BYTES) {
-      throw new Error(FAILED);
+      throw new Error(REQUEST_FAILED);
     }
     const response = await fetch('/internal/chat', {
       method: 'POST',
@@ -88,7 +103,8 @@ export async function streamAssistant(
     });
 
     if (!response.ok || !response.body) {
-      throw new Error(FAILED);
+      if (search !== null) throw new Error(await searchFailure(response));
+      throw new Error(REQUEST_FAILED);
     }
 
     await readChatStream(response.body, onEvent, resetWatchdog);
@@ -104,4 +120,21 @@ export async function streamAssistant(
     clearTimeout(timeout!);
     signal.removeEventListener('abort', stop);
   }
+}
+
+export function isExpectedFailure(message: string): boolean {
+  return message === REQUEST_FAILED || Object.values(SEARCH_FAILURES).includes(message);
+}
+
+async function searchFailure(response: Response): Promise<string> {
+  try {
+    const value: unknown = await response.json();
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const error = (value as Record<string, unknown>).error;
+      if (typeof error === 'string' && SEARCH_FAILURES[error]) return SEARCH_FAILURES[error];
+    }
+  } catch {
+    // Provider and server details are intentionally replaced by a fixed message.
+  }
+  return 'Web search is unavailable; no answer was generated';
 }

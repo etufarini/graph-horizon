@@ -6,6 +6,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import Bubble from './Bubble.svelte';
+  import SearchSources from './SearchSources.svelte';
   import type { ChatMessage } from '../chat/types';
 
   export let user: ChatMessage;
@@ -80,6 +81,11 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   <div class="message message-assistant">
     <Bubble message={assistant} streaming={streaming && final} />
+    {#key assistant.id}
+      {#if assistant.search}
+        <SearchSources report={assistant.search} answer={assistant.content} messageId={assistant.id} streaming={streaming && final} />
+      {/if}
+    {/key}
     {#if final}
       <div class="actions">
         <button type="button" disabled={streaming} on:click={() => dispatch('regenerate')}>Regenerate</button>
@@ -92,7 +98,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   .turn {
     display: flex;
     flex-direction: column;
-    gap: var(--gn-space-md);
+    gap: var(--gn-space-sm);
   }
 
   .message {
@@ -108,32 +114,31 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   .actions {
     display: flex;
-    gap: var(--gn-space-sm);
+    gap: var(--gn-space-xs);
   }
 
   button {
-    border: var(--gn-border-width) solid var(--gn-border);
+    min-height: var(--gn-control-height);
+    border: var(--gn-rule-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
     padding: var(--gn-space-xs) var(--gn-space-sm);
     color: var(--gn-text-muted);
-    box-shadow: var(--gn-shadow-small);
     cursor: pointer;
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 650;
   }
 
   button:hover:not(:disabled) {
-    border-color: var(--gn-accent-ink);
+    border-color: var(--gn-accent);
+    background: var(--gn-accent-soft);
     color: var(--gn-accent-ink);
   }
 
   button:focus-visible {
     outline: none;
-    box-shadow: var(--gn-focus-ring), var(--gn-shadow-small);
+    box-shadow: var(--gn-focus-ring);
   }
 
   button:disabled {
@@ -150,23 +155,21 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   }
 
   .editor {
-    width: min(78%, 760px);
+    width: min(88%, 840px);
     box-sizing: border-box;
-    border: var(--gn-border-width) solid var(--gn-user-border);
+    border: var(--gn-rule-width) solid var(--gn-user-border);
+    border-radius: var(--gn-radius-md);
     background: var(--gn-user-bg);
     padding: var(--gn-space-sm) var(--gn-space-md);
-    box-shadow: var(--gn-shadow-hard);
   }
 
   label {
     display: block;
     margin-bottom: var(--gn-space-xs);
     color: var(--gn-text-muted);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
     font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
   }
 
   textarea {
@@ -188,9 +191,10 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
     box-shadow: var(--gn-focus-inset);
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 640px) {
     .editor {
       width: 100%;
     }
+    button { min-height: var(--gn-touch-height); }
   }
 </style>

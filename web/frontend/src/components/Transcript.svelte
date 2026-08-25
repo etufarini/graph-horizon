@@ -90,7 +90,7 @@ history, transcript repair, and persistence remain outside this component.
     width: 12px;
     height: 12px;
     margin-bottom: var(--gn-space-md);
-    border-radius: 50%;
+    border-radius: 0;
     background: var(--gn-ready);
     animation: idle-pulse var(--gn-motion-idle) ease-in-out infinite;
   }
@@ -104,9 +104,11 @@ history, transcript repair, and persistence remain outside this component.
   .empty-state h2 {
     margin: 0 0 var(--gn-space-sm);
     color: var(--gn-ready-ink);
-    font-family: var(--gn-font-sans);
+    font-family: var(--gn-font-mono);
     font-size: var(--gn-text-lg);
     font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   .empty-state p {

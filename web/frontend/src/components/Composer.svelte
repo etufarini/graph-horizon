@@ -104,15 +104,15 @@
 <style lang="scss">
   /* Textarea and action bar form one focusable visual unit. */
   .composer {
-    border: var(--gn-rule-width) solid var(--gn-border);
+    border: var(--gn-border-width) solid var(--gn-border);
     border-radius: var(--gn-radius-md);
-    background: var(--gn-bg-panel);
+    background: var(--gn-bg-panel); clip-path: var(--gn-panel-clip);
     overflow: hidden;
   }
 
   .composer:focus-within {
     border-color: var(--gn-accent);
-    box-shadow: var(--gn-focus-ring);
+    box-shadow: var(--gn-focus-inset);
   }
 
   textarea {
@@ -154,7 +154,7 @@
   }
 
   .action-search {
-    border: var(--gn-rule-width) solid var(--gn-border);
+    border: var(--gn-border-width) solid var(--gn-border);
     background: var(--gn-bg-panel-raised);
     color: var(--gn-text-muted);
   }
@@ -182,12 +182,13 @@
     align-items: center;
     justify-content: center;
     border-radius: var(--gn-radius-sm);
+    box-shadow: var(--gn-shadow-small);
     cursor: pointer;
     flex: 0 0 auto;
   }
 
   .action-send {
-    border: var(--gn-rule-width) solid var(--gn-accent);
+    border: var(--gn-border-width) solid var(--gn-accent);
     background: var(--gn-accent);
     color: var(--gn-bg-panel);
   }
@@ -206,7 +207,7 @@
 
   /* Stop remains distinct from Send through its outlined panel treatment. */
   .action-stop {
-    border: var(--gn-rule-width) solid var(--gn-error-border);
+    border: var(--gn-border-width) solid var(--gn-error-border);
     background: var(--gn-error-bg);
     color: var(--gn-error-fg);
   }

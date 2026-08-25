@@ -62,9 +62,9 @@
 {/if}
 
 <style lang="scss">
-  .metrics { min-width: 0; box-sizing: border-box; border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-sm); background: var(--gn-bg-panel); color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); font-variant-numeric: tabular-nums; }
+  .metrics { min-width: 0; box-sizing: border-box; border: var(--gn-border-width) solid var(--gn-border); border-radius: var(--gn-radius-sm); background: var(--gn-bg-panel); box-shadow: var(--gn-shadow-small); color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); font-variant-numeric: tabular-nums; }
   .metrics-live { min-height: var(--gn-control-height); display: flex; align-items: center; gap: var(--gn-space-xs); padding: var(--gn-space-xs) var(--gn-space-sm); font-weight: 700; }
-  .phase-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--gn-text-muted); }
+  .phase-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 0; background: var(--gn-text-muted); }
   .phase-prefill { background: var(--gn-streaming); }
   .phase-decode { background: var(--gn-accent); }
   .phase-label { color: var(--gn-text-primary); }
@@ -74,7 +74,7 @@
   .metrics-final dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--gn-space-xs) 0; }
   .metrics-final div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px var(--gn-space-sm); padding: 2px var(--gn-space-sm); border-left: var(--gn-rule-width) solid var(--gn-border-subtle); }
   .metrics-final div:first-child { border-left: 0; }
-  dt { font-weight: 650; }
+  dt { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
   dd { min-width: 0; max-width: 100%; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--gn-space-xs); text-align: right; }
   strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); white-space: nowrap; }
   .metric-primary strong { color: var(--gn-accent-ink); }

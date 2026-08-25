@@ -51,7 +51,7 @@
     max-width: min(88%, 840px);
     min-width: 120px;
     box-sizing: border-box;
-    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border: var(--gn-border-width) solid var(--gn-border);
     border-radius: var(--gn-radius-md);
     padding: var(--gn-space-sm) var(--gn-space-md);
     background: var(--gn-bg-panel);
@@ -59,20 +59,24 @@
 
   .bubble-assistant {
     align-self: flex-start;
-    border-left: 2px solid var(--gn-accent);
+    border-left-color: var(--gn-accent);
+    clip-path: var(--gn-panel-clip);
   }
 
   .bubble-user {
     align-self: flex-end;
     background: var(--gn-user-bg);
     border-color: var(--gn-user-border);
+    box-shadow: var(--gn-shadow-small);
   }
 
   .bubble-label {
     margin-bottom: var(--gn-space-xs);
-    font-family: var(--gn-font-sans);
+    font-family: var(--gn-font-mono);
     font-size: var(--gn-text-xs);
     font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     color: var(--gn-text-muted);
   }
 

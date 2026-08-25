@@ -8,24 +8,23 @@
 
   export let value = '';
   export let disabled = false;
+  // Open state is bindable so the parent can give the editor the full toolbar row.
+  export let open = false;
 
   const dispatch = createEventDispatcher<{ change: string }>();
 
-  // Collapsed by default on every load; open/closed state is not persisted.
-  let open = false;
 </script>
 
 <div class="system-prompt">
-  <button type="button" class="panel-header" aria-expanded={open} on:click={() => (open = !open)}>
+  <button type="button" class="panel-header" aria-expanded={open} aria-controls="system-prompt-editor" on:click={() => (open = !open)}>
     <span class="chevron" class:open aria-hidden="true"></span>
     <span class="panel-label">System prompt</span>
     {#if !open && value.trim() !== ''}
-      <!-- Static dot (no pulse): signals a set prompt, not activity. -->
-      <span class="dot" aria-hidden="true"></span>
+      <span class="prompt-state">Set</span>
     {/if}
   </button>
   {#if open}
-    <div class="panel-body">
+    <div id="system-prompt-editor" class="panel-body">
       <textarea
         bind:value
         {disabled}
@@ -40,10 +39,10 @@
 
 <style lang="scss">
   .system-prompt {
-    border: var(--gn-border-width) solid var(--gn-border);
+    min-width: 0;
+    border: var(--gn-rule-width) solid var(--gn-border-subtle);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
-    box-shadow: var(--gn-shadow-hard);
   }
 
   .panel-header {
@@ -51,22 +50,24 @@
     align-items: center;
     gap: var(--gn-space-xs);
     width: 100%;
+    min-height: var(--gn-control-height);
     padding: var(--gn-space-xs) var(--gn-space-sm);
     border: none;
     background: none;
     cursor: pointer;
-    font-family: var(--gn-font-mono);
+    border-radius: var(--gn-radius-sm);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
+    font-weight: 650;
     color: var(--gn-text-muted);
     text-align: left;
   }
 
+  .panel-header:hover { background: var(--gn-bg-panel-raised); color: var(--gn-text-primary); }
+
   .panel-header:focus-visible {
     outline: none;
-    box-shadow: var(--gn-focus-inset);
+    box-shadow: var(--gn-focus-ring);
   }
 
   .chevron {
@@ -82,12 +83,7 @@
     transform: rotate(90deg);
   }
 
-  .dot {
-    width: 0.5em;
-    height: 0.5em;
-    margin-left: var(--gn-space-xs);
-    background: var(--gn-accent);
-  }
+  .prompt-state { margin-left: auto; border-radius: 999px; background: var(--gn-accent-soft); padding: 1px var(--gn-space-xs); color: var(--gn-accent-ink); font-size: var(--gn-text-xs); }
 
   .panel-body {
     padding: 0 var(--gn-space-sm) var(--gn-space-sm);
@@ -110,7 +106,11 @@
   }
 
   textarea:focus {
-    border-color: var(--gn-border);
+    border-color: var(--gn-accent);
     box-shadow: var(--gn-focus-inset);
+  }
+
+  @media (max-width: 640px) {
+    .panel-header { min-height: var(--gn-touch-height); }
   }
 </style>

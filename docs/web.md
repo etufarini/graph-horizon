@@ -280,10 +280,11 @@ filesystem write.
 
 ### Markdown Files
 
-Every chat owns zero or more Markdown reference files. The desktop surface shows
-them in a right panel; at 1180 CSS pixels or narrower that panel becomes a fixed
-right drawer over the shared backdrop. `Files · N` toggles it from the chat
-header. The panel accepts multiple native picker selections and drag-and-drop,
+Every chat owns zero or more Markdown reference files. At 1440 CSS pixels or
+wider the desktop surface shows them in a right panel; below that width the
+panel becomes a fixed right drawer over the shared backdrop. `Files · N` toggles
+it from the chat header. The panel accepts multiple native picker selections
+and drag-and-drop,
 lists stored names and UTF-8 sizes, and provides a sanitized rendered preview,
 download, and confirmed irreversible deletion. Panel open state and preview
 selection are presentation-only and are not persisted.
@@ -412,20 +413,23 @@ are never persisted.
 
 ### Responsive Panels
 
-Above 720 CSS pixels, the bounded application shows a collapsible
-264-pixel history column beside the chat surface; closing it lets the chat use
-the released width. At 720 pixels or narrower, history starts closed and opens
+Above 900 CSS pixels, the bounded application shows a collapsible
+240-pixel history column beside the chat surface; closing it lets the chat use
+the released width. At 900 pixels or narrower, history starts closed and opens
 as a fixed left drawer over a backdrop. Selection, backdrop activation, and
 Escape close the mobile drawer and return focus to the accessible history
-toggle. The chat list and transcript scroll independently while the document
-body and composer remain fixed in the viewport. Collapse state is not stored.
+toggle. Overlay drawers expose dialog semantics, make the obscured chat inert,
+and include a visible close action. The chat list and transcript scroll
+independently while the document body and composer remain fixed in the
+viewport. Collapse state is not stored.
 
-The application maximum is 1640 pixels so a wide viewport can retain the
-history, chat, and 304-pixel file panel without shrinking the former chat
-surface. At 1180 pixels or narrower files start closed in the fixed right
-drawer. Opening one overlay closes the other when necessary; backdrop and
-Escape close the file drawer and return focus to its toggle. File list, preview,
-history, and transcript own independent bounded scrolling.
+The application maximum is 1760 pixels. At 1440 pixels or wider it can retain
+the history, chat, and 288-pixel file panel while preserving at least an
+840-pixel central surface. Below 1440 pixels files start closed in the fixed
+right drawer. Opening one overlay closes or temporarily blocks the other when
+necessary; backdrop, the visible close action, and Escape close the file drawer
+and return focus to its toggle. File list, preview, history, and transcript own
+independent bounded scrolling.
 
 All history, file, and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
@@ -447,20 +451,21 @@ chat `fetch`. Rejection therefore leaves messages and draft unchanged and shows
 the estimate and safe prompt budget. Imported conversations may display over
 100%; import remains valid, but the next oversized submission is rejected.
 
-Whenever configuration is valid, `Context ≈N / M tokens · P%` appears above a
-horizontal progress bar, where `N` is the estimated current occupancy and `M`
-is the immutable context limit. The approximation marker distinguishes this
+Whenever configuration is valid, `Context ≈N / M · P%` appears beside a compact
+horizontal progress bar in the status rail, where `N` is the estimated current
+occupancy and `M` is the immutable context limit. The approximation marker distinguishes this
 live capacity estimate from exact post-generation engine metrics. The visible
 percentage is not capped. The fill is normal below 80%, warning from 80% through
 99%, and error at 100% or above; its width and ARIA current value are capped at
 100. The element exposes `role="progressbar"`, minimum 0, maximum 100, and the
 accessible name `Context usage`.
 
-The header keeps immutable runtime identity separate from per-request status. It
-shows the loaded GGUF `general.name` when safe, otherwise `Local model`, then
-the compile-time backend, retained model weights, full-context KV capacity, and
-effective placement. The weight/KV summary is present for every backend and
-uses exact decimal bytes on the wire plus IEC units in the UI. It describes
+The header keeps immutable runtime identity separate from per-request status. At
+a glance it shows the loaded GGUF `general.name` when safe, otherwise `Local
+model`, plus the compile-time backend. One `Runtime details` disclosure contains
+retained model weights, full-context KV capacity, effective mode, and placement.
+The weight/KV summary is present for every backend and uses exact decimal bytes
+on the wire plus IEC units in the UI. It describes
 load-time planning rather than process RSS or live allocator state. Hybrid
 profiles additionally expose layer counts and a collapsed budget breakdown
 split by CPU and accelerator owner: weights, KV, scratch, fixed, staging,
@@ -471,9 +476,11 @@ because no placement report exists.
 
 An admitted request first shows `Waiting`, then the engine-emitted `Prefill` and
 `Decode` phases. A monotonic display timer refreshes every 250 ms for the active
-phase only. After exact usage arrives, the live phase is replaced by four compact
-cells: prompt tokens, actually-prefilled tokens with time and tok/s, output
-tokens, and decode time with tok/s. Zero-duration rates render as unavailable;
+phase only. After exact usage arrives, the live phase is replaced by an adaptive
+definition-list strip with four compact cells: prompt tokens,
+actually-prefilled tokens with time and tok/s, output tokens, and decode time
+with tok/s. The strip uses one row when space permits and a two-by-two layout on
+narrow surfaces. All values remain visible. Zero-duration rates render as unavailable;
 cached prompt reuse is visible because prefill tokens may be lower than prompt
 tokens. Stop, inactivity, missing statistics or terminal frame, invalid ordering, and
 failure clear request telemetry. A capacity rejection preserves the previous

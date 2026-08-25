@@ -30,7 +30,8 @@
   }
 </script>
 
-<div class="search-options" aria-label="Web search options">
+<fieldset class="search-options">
+  <legend>Web search</legend>
   <label class="query">
     <span>Search query</span>
     <input
@@ -69,28 +70,33 @@
     </label>
   {/if}
   <p>Only this query is sent to {provider}; the conversation and files stay local.</p>
-</div>
+</fieldset>
 
 <style lang="scss">
   .search-options {
+    min-width: 0;
+    box-sizing: border-box;
+    margin: 0;
     display: flex;
     flex-wrap: wrap;
     gap: var(--gn-space-sm);
-    border-top: var(--gn-border-width) solid var(--gn-border);
+    border: 0;
+    border-top: var(--gn-rule-width) solid var(--gn-border-subtle);
     padding: var(--gn-space-sm) var(--gn-space-md);
     background: var(--gn-bg-panel-raised);
   }
+  legend { float: left; margin: 0 var(--gn-space-sm) 0 0; padding: 0; color: var(--gn-text-primary); font: 650 var(--gn-text-xs) var(--gn-font-sans); }
   label { display: flex; align-items: center; gap: var(--gn-space-xs); }
   label.query { flex: 1 1 100%; }
   label.query input { flex: 1 1 auto; min-width: 160px; }
   span {
     color: var(--gn-text-muted);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
   }
   select, input {
-    min-height: 30px;
-    border: var(--gn-border-width) solid var(--gn-border);
+    min-height: var(--gn-control-height);
+    border: var(--gn-rule-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
     color: var(--gn-text-primary);
@@ -104,8 +110,9 @@
     flex: 1 1 100%; margin: 0; color: var(--gn-text-muted);
     font-size: var(--gn-text-xs);
   }
-  @media (max-width: 720px) {
+  @media (max-width: 640px) {
     .search-options { align-items: stretch; }
     label { flex: 1 1 140px; justify-content: space-between; }
+    select, input { min-height: var(--gn-touch-height); }
   }
 </style>

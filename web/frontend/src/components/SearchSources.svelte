@@ -32,14 +32,13 @@ cited and opens validated provider URLs without sharing an opener.
 
 <style lang="scss">
   .sources {
-    width: min(78%, 760px); box-sizing: border-box;
-    border: var(--gn-border-width) solid var(--gn-border);
+    width: min(88%, 840px); box-sizing: border-box;
+    border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md);
     background: var(--gn-bg-panel-raised); padding: var(--gn-space-sm) var(--gn-space-md);
   }
   header { display: flex; flex-wrap: wrap; gap: var(--gn-space-xs) var(--gn-space-sm); }
   header strong, li > span {
-    font-family: var(--gn-font-mono); font-size: var(--gn-text-xs);
-    letter-spacing: 0.06em; text-transform: uppercase;
+    font-family: var(--gn-font-sans); font-size: var(--gn-text-xs); font-weight: 650;
   }
   header span, small { color: var(--gn-text-muted); font-size: var(--gn-text-xs); }
   ol { margin: var(--gn-space-sm) 0 0; padding-left: 1.25rem; }
@@ -48,5 +47,5 @@ cited and opens validated provider URLs without sharing an opener.
   li > span.cited { color: var(--gn-accent-ink); }
   a { color: var(--gn-text-primary); overflow-wrap: anywhere; }
   small { display: block; margin-left: 0; }
-  @media (max-width: 720px) { .sources { width: 100%; } }
+  @media (max-width: 640px) { .sources { width: 100%; } }
 </style>

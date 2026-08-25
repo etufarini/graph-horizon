@@ -16,6 +16,7 @@ body {
   font-family: var(--gn-font-sans);
   font-size: var(--gn-text-md);
   line-height: var(--gn-line-height);
+  color-scheme: light;
   /* The page itself stays fixed; scrollable panels own their overflow. */
   overflow: hidden;
 }
@@ -29,15 +30,14 @@ body {
   padding: var(--gn-space-lg) var(--gn-space-xl);
 }
 
-/* Shared square surface for panels that do not own component-specific rules. */
+/* Shared neutral surface for panels that do not own component-specific rules. */
 .gn-panel {
   background: var(--gn-bg-panel);
-  border: var(--gn-border-width) solid var(--gn-border);
-  border-radius: var(--gn-radius-sm);
-  clip-path: var(--gn-panel-clip);
+  border: var(--gn-border-width) solid var(--gn-border-subtle);
+  border-radius: var(--gn-radius-md);
 }
 
-/* Pixel scrollbars stay rectangular and inherit the light theme surfaces. */
+/* Compact scrollbars inherit the light theme surfaces. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--gn-border) var(--gn-bg-page);
@@ -54,7 +54,13 @@ body {
 
 *::-webkit-scrollbar-thumb {
   background: var(--gn-border);
-  border-radius: var(--gn-radius-sm);
+  border-radius: 999px;
+}
+
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--gn-accent);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -67,8 +73,14 @@ body {
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 900px) {
   .app-shell {
     padding: var(--gn-space-md);
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: var(--gn-space-sm);
   }
 }

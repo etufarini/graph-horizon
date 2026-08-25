@@ -48,36 +48,31 @@
 <style lang="scss">
   .bubble {
     width: fit-content;
-    max-width: min(78%, 760px);
+    max-width: min(88%, 840px);
     min-width: 120px;
     box-sizing: border-box;
-    border: var(--gn-border-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
+    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border-radius: var(--gn-radius-md);
     padding: var(--gn-space-sm) var(--gn-space-md);
     background: var(--gn-bg-panel);
   }
 
   .bubble-assistant {
     align-self: flex-start;
-    border-left-color: var(--gn-accent-ink);
-    /* The assistant surface owns the theme's single stepped corner. */
-    clip-path: var(--gn-panel-clip);
+    border-left: 2px solid var(--gn-accent);
   }
 
   .bubble-user {
     align-self: flex-end;
     background: var(--gn-user-bg);
     border-color: var(--gn-user-border);
-    box-shadow: var(--gn-shadow-hard);
   }
 
   .bubble-label {
     margin-bottom: var(--gn-space-xs);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
     font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
     color: var(--gn-text-muted);
   }
 
@@ -100,6 +95,7 @@
   .reasoning {
     margin-bottom: var(--gn-space-sm);
     border-left: var(--gn-border-width) solid var(--gn-text-muted);
+    border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel-raised);
     padding: var(--gn-space-xs) var(--gn-space-sm);
     color: var(--gn-text-muted);
@@ -133,9 +129,10 @@
     }
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 640px) {
     .bubble {
       max-width: 100%;
     }
+    .reasoning summary { min-height: var(--gn-touch-height); display: flex; align-items: center; }
   }
 </style>

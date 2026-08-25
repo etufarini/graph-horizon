@@ -4,8 +4,6 @@
    * Single responsibility: keep the next draft and its explicit Web-search
    * choice editable while exposing send or stop for the active request.
    */
-  // @ts-expect-error Vite resolves this local asset and fails the build if it is missing.
-  import logoUrl from '../../../../assets/graph-horizon-logo.svg';
   import { createEventDispatcher } from 'svelte';
   import { defaultSearch, validSearch } from '../chat/search';
   import type { SearchCapability, SearchSelection } from '../chat/types';
@@ -54,7 +52,6 @@
     placeholder="Message Graph Horizon…"
   ></textarea>
   <div class="composer-bar">
-    <img class="composer-logo" src={logoUrl} alt="" aria-hidden="true" />
     <button
       class:search-active={search !== null}
       class="action action-search"
@@ -105,34 +102,29 @@
 </form>
 
 <style lang="scss">
-  /* The panel is the single visual unit: textarea and action bar live
-     inside it, and focus styling applies to the whole group. */
+  /* Textarea and action bar form one focusable visual unit. */
   .composer {
-    border: var(--gn-border-width) solid var(--gn-border);
-    border-radius: var(--gn-radius-sm);
+    border: var(--gn-rule-width) solid var(--gn-border);
+    border-radius: var(--gn-radius-md);
     background: var(--gn-bg-panel);
-    /* The grouped composer owns the theme's single stepped corner. */
-    clip-path: var(--gn-panel-clip);
+    overflow: hidden;
   }
 
   .composer:focus-within {
-    box-shadow: var(--gn-focus-inset);
+    border-color: var(--gn-accent);
+    box-shadow: var(--gn-focus-ring);
   }
 
   textarea {
     display: block;
     width: 100%;
-    min-height: 56px;
+    min-height: 52px;
     max-height: 160px;
     resize: vertical;
     box-sizing: border-box;
     border: none;
     outline: none;
-    background-color: transparent;
-    background-image: var(--gn-color-rail);
-    background-position: left bottom;
-    background-repeat: no-repeat;
-    background-size: 100% var(--gn-color-rail-height);
+    background: transparent var(--gn-color-rail) left bottom / 100% var(--gn-color-rail-height) no-repeat;
     padding: var(--gn-space-sm) var(--gn-space-md);
     color: var(--gn-text-primary);
     font-family: var(--gn-font-sans);
@@ -145,7 +137,8 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--gn-space-sm);
-    padding: 0 var(--gn-space-sm) var(--gn-space-sm) var(--gn-space-md);
+    min-height: var(--gn-control-height);
+    padding: var(--gn-space-xs) var(--gn-space-sm) var(--gn-space-sm);
   }
 
   .composer-hint {
@@ -160,15 +153,8 @@
     white-space: nowrap;
   }
 
-  .composer-logo {
-    width: var(--gn-composer-logo-size);
-    height: var(--gn-composer-logo-size);
-    flex: 0 0 auto;
-    object-fit: contain;
-  }
-
   .action-search {
-    border: var(--gn-border-width) solid var(--gn-border);
+    border: var(--gn-rule-width) solid var(--gn-border);
     background: var(--gn-bg-panel-raised);
     color: var(--gn-text-muted);
   }
@@ -176,7 +162,7 @@
   .action-search:hover,
   .action-search.search-active {
     border-color: var(--gn-accent);
-    color: var(--gn-text-primary);
+    color: var(--gn-accent-ink);
   }
 
   .action-search:disabled {
@@ -186,6 +172,7 @@
 
   .action-search.search-active {
     background: var(--gn-accent);
+    color: var(--gn-bg-panel);
   }
 
   .action {
@@ -195,25 +182,19 @@
     align-items: center;
     justify-content: center;
     border-radius: var(--gn-radius-sm);
-    box-shadow: var(--gn-shadow-small);
     cursor: pointer;
     flex: 0 0 auto;
   }
 
   .action-send {
-    border: var(--gn-border-width) solid var(--gn-border);
+    border: var(--gn-rule-width) solid var(--gn-accent);
     background: var(--gn-accent);
-    color: var(--gn-text-primary);
+    color: var(--gn-bg-panel);
   }
 
-  .action-send:hover:not(:disabled) {
-    background: var(--gn-accent-bright);
-  }
+  .action-send:hover:not(:disabled) { background: var(--gn-accent-ink); }
 
-  .action:focus-visible {
-    outline: none;
-    box-shadow: var(--gn-focus-ring), var(--gn-shadow-small);
-  }
+  .action:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
 
   .action-send:disabled {
     border-color: var(--gn-border);
@@ -225,19 +206,15 @@
 
   /* Stop remains distinct from Send through its outlined panel treatment. */
   .action-stop {
-    border: var(--gn-border-width) solid var(--gn-error-border);
+    border: var(--gn-rule-width) solid var(--gn-error-border);
     background: var(--gn-error-bg);
     color: var(--gn-error-fg);
   }
 
-  .action-stop:hover {
-    background: var(--gn-bg-panel-raised);
-  }
+  .action-stop:hover { background: var(--gn-bg-panel-raised); }
 
-  @media (max-width: 720px) {
-    .composer-logo {
-      width: var(--gn-composer-logo-size-mobile);
-      height: var(--gn-composer-logo-size-mobile);
-    }
+  @media (max-width: 640px) {
+    .action { width: var(--gn-touch-height); height: var(--gn-touch-height); }
+    .composer-bar { min-height: var(--gn-touch-height); }
   }
 </style>

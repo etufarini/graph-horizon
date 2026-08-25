@@ -1,15 +1,28 @@
+# This manifest owns the Rust workspace metadata, the root application package,
+# backend feature forwarding, build profiles, and direct dependencies.
+
 [workspace]
 members = [".", "crates/graph_horizon_engine"]
 resolver = "3"
 
 [workspace.package]
+edition = "2024"
 rust-version = "1.88"
+license = "Apache-2.0"
+repository = "https://github.com/etufarini/graph-horizon"
+homepage = "https://github.com/etufarini/graph-horizon"
 
 [package]
 name = "graph-horizon"
 version = "0.1.2"
-edition = "2024"
+edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Local text-to-text runtime with terminal and integrated web interfaces."
+readme = "README.md"
+publish = false
 
 [features]
 # Forward exactly one explicit backend profile to graph_horizon_engine. There is no

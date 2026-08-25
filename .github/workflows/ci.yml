@@ -1,0 +1,53 @@
+# This workflow owns the reproducible CPU and frontend checks required for every
+# change to main. It intentionally excludes GPU validation and deployment.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  rust-cpu:
+    name: Rust CPU
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Rust 1.88.0
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
+          rustup default 1.88.0
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Lint CPU workspace
+        run: cargo clippy --workspace --all-targets --locked --no-default-features --features cpu -- -D warnings
+      - name: Test CPU workspace
+        run: cargo test --workspace --locked --no-default-features --features cpu
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web/frontend
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js 22.12.0
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.12.0
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Test frontend
+        run: npm test
+      - name: Check frontend
+        run: npm run check
+      - name: Build frontend
+        run: npm run build

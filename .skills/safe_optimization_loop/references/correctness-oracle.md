@@ -1,13 +1,13 @@
 <!--
-Questo riferimento definisce i gate di correttezza usati dal loop di
-ottimizzazione; descrive protocollo e limiti, non risultati di qualifica.
+This reference defines the correctness gates used by the optimization loop. It
+describes the protocol and limits, not qualification results.
 -->
 
-# Oracle di correttezza
+# Correctness Oracle
 
-## Gate locale
+## Local gate
 
-La base obbligatoria non richiede modelli:
+The mandatory baseline does not require models:
 
 ```sh
 cargo test --workspace --no-default-features --features cpu
@@ -15,24 +15,25 @@ cargo test -p graph_horizon_engine --no-default-features --features vulkan error
 cargo test -p graph_horizon_engine --no-default-features --features vulkan-hybrid error_matrix
 ```
 
-I test sintetici coprono dimensioni 3B/8B/14B, rifiuto Q8_0, profilo Q4_K_M,
-KV f16/int8 e formati backend interni.
+The synthetic tests cover 3B/8B/14B dimensions, Q8_0 rejection, the Q4_K_M
+profile, f16/int8 KV, and internal backend formats.
 
-## Gate reale
+## Real-model gate
 
-Usa soltanto gli artefatti Q4_K_M con dimensione e SHA fissati in
-`support/models.tsv`. Un file capability-compatible ma non corrispondente resta
+Use only Q4_K_M artifacts whose size and SHA are fixed in `support/models.tsv`.
+A capability-compatible file that does not match remains
 `compatible/unverified`.
 
-`support/testing/parity-check.sh` invoca i test ignorati con:
+`support/testing/parity-check.sh` invokes the ignored tests with:
 
-- template fisso e prompt ID esatti contro il tokenizer di riferimento;
-- sedici token oracle ottenuti dal riferimento e applicati in teacher forcing;
-- presenza di ogni token oracle nella top two locale deterministica, con
-  registrazione separata degli ID top-1 locali;
-- feature backend e contesto espliciti.
+- a fixed template and exact prompt IDs against the reference tokenizer;
+- sixteen oracle tokens obtained from the reference and applied with teacher
+  forcing;
+- every oracle token present in the deterministic local top two, with local
+  top-1 IDs recorded separately;
+- an explicit backend feature and context.
 
-Esempio:
+Example:
 
 ```sh
 support/testing/parity-check.sh \
@@ -42,34 +43,34 @@ support/testing/parity-check.sh \
   --reference-server "$GRAPH_HORIZON_REFERENCE_SERVER"
 ```
 
-Ripeti per f16/int8 quando il candidato tocca la KV. Ripeti per entrambi i
-profili quando tocca formati o dispatch. Per Vulkan, E15 è un risultato atteso
-se il file non entra; non è autorizzazione a cambiare backend. Una riga hybrid
-mixed usa lo stesso Q4_K_M autenticato, contesto esplicito, 25% e richiede layer
-positivi su entrambi i lati.
+Repeat for f16/int8 when the candidate touches KV. Repeat for both profiles when
+it touches formats or dispatch. For Vulkan, E15 is expected when the file does
+not fit; it does not authorize switching backends. A mixed hybrid row uses the
+same authenticated Q4_K_M, an explicit context, 25%, and requires positive layer
+counts on both sides.
 
-## Determinismo
+## Determinism
 
-Mantieni costanti:
+Keep these constant:
 
-- byte e SHA del GGUF;
-- prompt e system prompt;
-- contesto e `max_tokens`;
-- schema KV;
-- feature/backend e profilo Cargo;
-- riferimento e commit;
-- hardware e condizioni termiche.
+- GGUF bytes and SHA;
+- prompt and system prompt;
+- context and `max_tokens`;
+- KV scheme;
+- feature/backend and Cargo profile;
+- reference and commit;
+- hardware and thermal conditions.
 
-Non rigenerare un riferimento per accettare un candidato. L'assenza di un token
-oracle dalla top two locale blocca la riga; una differenza negli ID top-1
-registrati non fallisce da sola questo gate bounded. Se il candidato promette
-identità esatta, deve passare anche il gate esatto scelto prima della misura.
+Do not regenerate a reference to accept a candidate. An oracle token missing
+from the local top two fails the row; a difference in recorded top-1 IDs alone
+does not fail this bounded gate. If the candidate promises exact identity, it
+must also pass the exact gate selected before measurement.
 
-## Candidati numerici
+## Numeric candidates
 
-Il protocollo corrente conserva un oracle bounded top-two per sedici passi
-teacher-forced. Non è una tolleranza universale: un candidato che cambia ordine,
-layout o precisione può usarlo solo quando quel criterio misura il rischio
-dichiarato. Modifiche KV richiedono inoltre i propri gate di payload, layout e
-qualità; ogni altra divergenza numerica richiede metrica e soglia approvate prima
-di osservare il risultato.
+The current protocol retains a bounded top-two oracle for sixteen teacher-forced
+steps. This is not a universal tolerance: a candidate that changes ordering,
+layout, or precision may use it only when that criterion measures the declared
+risk. KV changes also require their own payload, layout, and quality gates; any
+other numeric divergence requires an approved metric and threshold before the
+result is observed.

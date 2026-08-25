@@ -42,15 +42,23 @@
     <span aria-hidden="true">· {seconds(elapsed)}</span>
   </section>
 {:else if stats}
-  <dl class="metrics metrics-final" aria-label="Latest generation metrics">
-    <div><dt>Prompt</dt><dd><strong>{stats.promptTokens} tok</strong></dd></div>
-    <div><dt>Prefill</dt><dd><strong>{stats.prefillTokens} tok</strong><small>{seconds(stats.prefillMs)} · {rate(prefillRate)}</small></dd></div>
-    <div class="metric-primary"><dt>Output</dt><dd><strong>{stats.completionTokens} tok</strong></dd></div>
-    <div class="metric-primary">
-      <dt>Decode</dt>
-      <dd><strong aria-label={decodeRate === null ? 'Decode rate unavailable' : undefined}>{rate(decodeRate)}</strong><small>{seconds(stats.decodeMs)}</small></dd>
-    </div>
-  </dl>
+  <section class="metrics metrics-final" aria-label="Latest generation metrics">
+    <dl>
+      <div><dt>Prompt</dt><dd><strong>{stats.promptTokens} tok</strong></dd></div>
+      <div>
+        <dt>Prefill</dt>
+        <dd>
+          <strong>{stats.prefillTokens} tok</strong>
+          <small class="rate-details"><span>{seconds(stats.prefillMs)}</span><span>· {rate(prefillRate)}</span></small>
+        </dd>
+      </div>
+      <div class="metric-primary"><dt>Output</dt><dd><strong>{stats.completionTokens} tok</strong></dd></div>
+      <div class="metric-primary">
+        <dt>Decode</dt>
+        <dd><strong aria-label={decodeRate === null ? 'Decode rate unavailable' : undefined}>{rate(decodeRate)}</strong><small>{seconds(stats.decodeMs)}</small></dd>
+      </div>
+    </dl>
+  </section>
 {/if}
 
 <style lang="scss">
@@ -60,17 +68,28 @@
   .phase-prefill { background: var(--gn-streaming); }
   .phase-decode { background: var(--gn-accent); }
   .phase-label { color: var(--gn-text-primary); }
-  .metrics-final { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--gn-space-xs) 0; }
+  /* The metrics share a responsive parent grid, so their own width—not the
+     viewport—determines whether four, two, or one columns are safe. */
+  .metrics-final { container-type: inline-size; }
+  .metrics-final dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--gn-space-xs) 0; }
   .metrics-final div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px var(--gn-space-sm); padding: 2px var(--gn-space-sm); border-left: var(--gn-rule-width) solid var(--gn-border-subtle); }
   .metrics-final div:first-child { border-left: 0; }
   dt { font-weight: 650; }
-  dd { min-width: 0; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--gn-space-xs); text-align: right; overflow-wrap: anywhere; }
-  strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); }
+  dd { min-width: 0; max-width: 100%; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--gn-space-xs); text-align: right; }
+  strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); white-space: nowrap; }
   .metric-primary strong { color: var(--gn-accent-ink); }
-  small { font: inherit; white-space: nowrap; }
-  @media (min-width: 901px) and (max-width: 1050px), (max-width: 640px) {
-    .metrics-final { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  small { min-width: 0; max-width: 100%; font: inherit; white-space: nowrap; }
+  .rate-details { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; column-gap: var(--gn-space-xs); white-space: normal; }
+  .rate-details span { white-space: nowrap; }
+  @container (max-width: 839px) {
+    .metrics-final dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .metrics-final div:nth-child(odd) { border-left: 0; }
     .metrics-final div:nth-child(n + 3) { border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }
+  }
+  @container (max-width: 419px) {
+    .metrics-final dl { grid-template-columns: 1fr; }
+    .metrics-final div { grid-template-columns: 1fr; border-left: 0; }
+    .metrics-final div:nth-child(n + 2) { border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }
+    dd, .rate-details { justify-content: flex-start; text-align: left; }
   }
 </style>

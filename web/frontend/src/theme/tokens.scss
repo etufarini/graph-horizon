@@ -3,48 +3,49 @@
  * global/component styles without owning selectors or runtime theme switching.
  */
 :root {
-  /* Surfaces, text, and state colors. */
-  --gn-bg-page: #f4f8fb;
+  /* Logo colors stay exact; semantic variants preserve readable contrast. */
+  --gn-brand-cyan: #00c2ff;
+  --gn-brand-coral: #ff5a36;
+  --gn-bg-page: #ebf8ff;
   --gn-bg-panel: #ffffff;
-  --gn-bg-panel-raised: #eaf2f7;
-  --gn-text-primary: #102a43;
-  --gn-text-muted: #486581;
-  --gn-border: #102a43;
-  --gn-border-subtle: #7890a8;
-  --gn-accent: #006d9c;
-  --gn-accent-bright: #008bc7;
-  --gn-accent-soft: #dff3fc;
-  --gn-accent-ink: #005b82;
-  --gn-user-bg: #dff3fc;
-  --gn-user-border: #006d9c;
-  --gn-streaming: #006d9c;
+  --gn-bg-panel-raised: #e0f5ff;
+  --gn-text-primary: #072346;
+  --gn-text-muted: #405d78;
+  --gn-border: #072346;
+  --gn-border-subtle: #6f879e;
+  --gn-accent: #007a9e;
+  --gn-accent-soft: #d9f6ff;
+  --gn-accent-ink: #005f7a;
+  --gn-user-bg: #fff0ec;
+  --gn-user-border: #ad3218;
+  --gn-streaming: var(--gn-brand-coral);
   --gn-ready: #137752;
   --gn-ready-ink: #137752;
   --gn-warning: #8a4b08;
   --gn-warning-bg: #fff7e6;
-  --gn-link: #005b82;
-  --gn-link-hover-bg: #dff3fc;
+  --gn-link: #006783;
+  --gn-link-hover-bg: #d9f6ff;
   --gn-error-vivid: #b42318;
   --gn-error-fg: #b42318;
   --gn-error-bg: #fef3f2;
   --gn-error-border: #b42318;
 
   /* Sanitized Markdown syntax roles. */
-  --gn-syntax-keyword: #005b82;
-  --gn-syntax-string: #146c73;
-  --gn-syntax-number: #006d9c;
-  --gn-syntax-comment: #486581;
-  --gn-syntax-title: #174f78;
-  --gn-syntax-variable: #00637f;
+  --gn-syntax-keyword: #005f7a;
+  --gn-syntax-string: #a63b22;
+  --gn-syntax-number: #007a9e;
+  --gn-syntax-comment: #405d78;
+  --gn-syntax-title: #ad3218;
+  --gn-syntax-variable: #006783;
 
-  /* Composer accent rail and its three equal Azure segments. */
+  /* Composer rail repeats the logo's navy, cyan, and coral identity. */
   --gn-brand-logo-size: 28px;
   --gn-color-rail-height: 3px;
   --gn-color-rail: linear-gradient(
     to right,
     var(--gn-text-primary) 0 calc(100% / 3),
-    var(--gn-accent) calc(100% / 3) calc(200% / 3),
-    var(--gn-accent-bright) calc(200% / 3) 100%
+    var(--gn-brand-cyan) calc(100% / 3) calc(200% / 3),
+    var(--gn-brand-coral) calc(200% / 3) 100%
   );
 
   /* Pixel geometry stays square while layout and focus behavior remain modern. */
@@ -67,7 +68,7 @@
   --gn-history-width: 216px;
   --gn-files-width: 280px;
   --gn-panel-rail-width: 44px;
-  --gn-history-backdrop: rgb(16 42 67 / 55%);
+  --gn-history-backdrop: rgb(7 35 70 / 55%);
   --gn-control-height: 36px;
   --gn-touch-height: 44px;
 

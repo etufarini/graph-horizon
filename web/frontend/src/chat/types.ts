@@ -46,14 +46,10 @@ export interface WireMessage {
 }
 
 export type SearchCategory = 'web' | 'news';
-export type SearchPeriod = 'any' | 'day' | 'week' | 'month' | 'custom';
 
 export interface SearchSelection {
   query: string;
   category: SearchCategory;
-  period: SearchPeriod;
-  from: string;
-  to: string;
 }
 
 export interface WireSearch {

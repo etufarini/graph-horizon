@@ -1,7 +1,7 @@
 <!-- Chat.svelte composes the active chat, optional Web search, files, panels,
 context, transfer, status, and gated submission; domain rules remain outside. -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import ChatHistory from '../ChatHistory.svelte';
   import Composer from '../Composer.svelte';
   import FilesPanel from '../files/Panel.svelte';
@@ -30,8 +30,6 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   let search: SearchSelection | null = null;
   let systemPromptOpen = false;
   let selectedFileChat = '';
-  let historyToggle: HTMLButtonElement;
-  let filesToggle: HTMLButtonElement;
   const contextController = new AbortController();
 
   onMount(() => {
@@ -103,8 +101,8 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
 
-  function closeHistory(): void { historyOpen = false; void tick().then(() => historyToggle?.focus()); }
-  function closeFiles(): void { filesOpen = false; void tick().then(() => filesToggle?.focus()); }
+  function closeHistory(): void { historyOpen = false; }
+  function closeFiles(): void { filesOpen = false; }
 
   function toggleHistory(): void {
     const opening = !historyOpen;
@@ -118,7 +116,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if (opening && mobile) historyOpen = false;
   }
 
-  function selectChat(id: string): void { chat.selectChat(id); if (mobile) closeHistory(); }
+  function selectChat(id: string): void { chat.selectChat(id); }
   function regenerate(): void { if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search); }
 
   function editPrompt(userId: string, text: string): void {
@@ -136,11 +134,10 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={mobile}
     blocked={filesOverlay && filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
     on:select={event => selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
-    on:delete={event => chat.deleteChat(event.detail)} on:close={closeHistory} />
+    on:delete={event => chat.deleteChat(event.detail)} on:toggle={toggleHistory} on:close={closeHistory} />
 
   <section class="chat-layout" inert={(mobile && historyOpen) || (filesOverlay && filesOpen)}>
-    <Header bind:historyToggle bind:filesToggle {historyOpen} {filesOpen}
-      fileCount={$markdownFiles.files.length} {runtimeInfo} on:history={toggleHistory} on:files={toggleFiles} />
+    <Header {runtimeInfo} />
 
     <div class:tools-open={systemPromptOpen} class="chat-tools">
       <SystemPrompt bind:open={systemPromptOpen} value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
@@ -155,10 +152,10 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     <Composer bind:value={draft} bind:search {streaming} searchCapability={runtimeContext?.search ?? null} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
-  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={filesOverlay}
+  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={filesOverlay} blocked={mobile && historyOpen}
     disabled={streaming || runtimeContext === null} busy={$markdownFiles.busy} ready={filesLoaded}
     on:add={event => addFiles(event.detail)} on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
-    on:delete={event => markdownFiles.remove(event.detail)} on:close={closeFiles} />
+    on:delete={event => markdownFiles.remove(event.detail)} on:toggle={toggleFiles} on:close={closeFiles} />
 </section>
 
 <style lang="scss">

@@ -110,6 +110,27 @@ editor is also disabled so prompt persistence cannot checkpoint a partial
 assistant response. A failed request restores its submitted prompt only when no
 newer draft has been entered.
 
+### Collapsible workspace
+
+Saved chats and Markdown files own their open/close controls; the application
+header contains no duplicate workspace toggles. On wide screens they are
+independent side panels and collapse to 44-pixel labelled rails, retaining the
+chat or file count. At 1439 pixels and below the file panel becomes a right
+drawer; at 900 pixels and below chat history also becomes a left drawer. Only
+one overlay drawer is interactive at a time. Escape and the backdrop close an
+open drawer, and focus returns to its rail control. At 640 pixels and below the
+controls use 44-pixel touch targets.
+
+The system prompt, outgoing Web-search options, and persisted search sources
+use the same semantic chevron control. Their compact headers retain the state
+needed for orientation: whether a system prompt is set, the selected search
+category and query, or the provider, query, source count, and active-answer
+status. Collapsing presentation never stops generation or discards valid data.
+Panel and section expansion is intentionally page-session UI state and is not
+written to chat persistence. A newly created search report starts expanded.
+Viewport breakpoint changes restore the layout default for the affected side
+panel.
+
 The browser transcript permits an empty assistant so Stop and a valid
 zero-delta completion can retain a complete pair. The local engine does not
 accept an empty assistant as prior model history. Before sending another message
@@ -203,6 +224,16 @@ outside assistant Markdown. Only identifiers present in the visible answer are
 labelled `Cited`; the rest remain `Search result`. Provenance is persisted and
 exported with the assistant message, but `wireMessages` projects only role and
 content, so it can never become later model history.
+
+Editing or regenerating a turn creates a fresh assistant identity and removes
+the prior response and search report before the replacement request begins.
+The new report therefore mounts with fresh expanded UI state and contains only
+the replacement query and provenance. A failed replacement restores the exact
+previous transcript; Stop keeps the replacement pair without stale provenance.
+Streaming guards prevent concurrent edits, and every stream event is accepted
+only when its chat and assistant identity still match, so a late event from an
+obsolete request cannot overwrite the current turn. This invalidation is
+deterministic even when the visible query text did not change.
 
 Enabling search sends the displayed query, language hint, selected interval,
 and public source IP to DuckDuckGo, Google News, or the configured override. An

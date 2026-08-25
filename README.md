@@ -23,7 +23,7 @@ API.
 
 The installer builds Graph Horizon from source and installs it in
 `$HOME/.local/bin` by default. Review the complete
-[prerequisites and installation options](support/README.md) before running it.
+[prerequisites and installation options](docs/installation.md) before running it.
 
 On Apple Silicon macOS with the Xcode command-line Metal tools:
 
@@ -59,8 +59,9 @@ Download the `Q4_K_M` GGUF file from one of the supported repositories:
 | 8B | [Ministral 3 8B Instruct](https://huggingface.co/unsloth/Ministral-3-8B-Instruct-2512-GGUF) | [Ministral 3 8B Reasoning](https://huggingface.co/unsloth/Ministral-3-8B-Reasoning-2512-GGUF) |
 | 14B | [Ministral 3 14B Instruct](https://huggingface.co/unsloth/Ministral-3-14B-Instruct-2512-GGUF) | [Ministral 3 14B Reasoning](https://huggingface.co/unsloth/Ministral-3-14B-Reasoning-2512-GGUF) |
 
-Other quantizations are not supported. The exact model and format contract is
-documented by the [engine library](crates/graph_horizon_engine/README.md#ministral-contract).
+Other quantizations are not supported. See
+[supported models and formats](docs/supported-models-and-formats.md) for the
+complete public contract and artifact-validation boundary.
 
 ## CLI
 
@@ -93,18 +94,20 @@ The interactive terminal recognizes these local commands:
 | `/export [path]` | Save the conversation as JSON |
 | `/import <path>` | Restore a conversation from JSON |
 
-See the [runtime configuration](docs/configuration.md) and
-[CLI command guide](docs/commands.md) for all options and behavior.
+See the [runtime option reference](docs/command-line/runtime-options.md) and
+[slash-command guide](docs/command-line/slash-commands-and-file-attachments.md)
+for all options and behavior.
 
 ## Documentation
 
 - [Complete documentation index](docs/README.md)
-- [Installation and operational support](support/README.md)
-- [CLI interface](docs/console.md) and [commands](docs/commands.md)
-- [Web UI](docs/web.md)
-- [Runtime configuration](docs/configuration.md)
-- [Architecture](docs/architecture.md) and [backend contract](docs/backend.md)
-- [Validation evidence](docs/validation.md) and [release notes](docs/release-notes.md)
+- [Installation](docs/installation.md) and [support](SUPPORT.md)
+- [Command-line interface](docs/command-line/README.md) and [runtime options](docs/command-line/runtime-options.md)
+- [Local Web interface](docs/web-interface/README.md)
+- [Supported models and formats](docs/supported-models-and-formats.md)
+- [Architecture](docs/engine/architecture.md) and [backend support status](docs/engine/backend-support-status.md)
+- [Validation evidence](docs/project-status/validation-evidence.md) and [release notes](docs/project-status/release-notes.md)
 - [Engine library](crates/graph_horizon_engine/README.md)
 - [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
 - [License](LICENSE)

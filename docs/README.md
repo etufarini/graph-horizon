@@ -1,82 +1,73 @@
 <!--
-This index owns navigation for the repository documentation. It separates stable,
-model-neutral behavior from the current support contract and validation evidence.
+This index owns navigation for repository documentation. It separates user
+tasks, stable technical contracts, maintainer processes, current project
+status, and historical investigation records.
 -->
 
 # Documentation
 
-These pages describe Graph Horizon surfaces and processes without assuming a
-specific model family, size, or release. Examples therefore use the
-`<model.gguf>` placeholder.
+Graph Horizon documentation is organized by reader goal. Start with installation
+and the interface you intend to use; consult development processes and evidence
+only when maintaining or qualifying the project.
 
-Ministral 3 is the model family integrated by the current implementation. It is
-not part of the Graph Horizon project name or a separate product edition.
+The implementation currently integrates Ministral 3, but the Graph Horizon
+project name and model-neutral architecture do not imply a separate edition.
 
-Concrete support changes with the code: currently accepted architectures, GGUF
-profiles, and limits are defined in the
-[library contract](../crates/graph_horizon_engine/README.md), while reviewed results
-belong in the [validation register](validation.md).
-
-Performance and cleanup reports preserve measurements at their recorded SHAs.
-Their mission-close Git state is historical; later push and merge status is
-recorded in each affected report and summarized in
-[current-optimization-state.md](current-optimization-state.md).
-
-## Repository
+## Start Here
 
 | Document | Contents |
 |---|---|
-| [Main README](../README.md) | Project overview, quick installation, supported models, and CLI entry points |
-| [Engine library](../crates/graph_horizon_engine/README.md) | Public Rust API, model contract, memory, and backend features |
-| [Engine source ownership](../crates/graph_horizon_engine/src/README.md) | Maintainer-facing module responsibility map |
-| [Operational support](../support/README.md) | Installer, profiling, validation scripts, and security invariants |
-| [Contributing](../CONTRIBUTING.md) | Change, verification, and performance-investigation rules |
-| [License](../LICENSE) | Project license |
+| [Main README](../README.md) | Project overview and shortest supported path |
+| [Installation](installation.md) | Prerequisites, build backend, profile, prefix, and verification |
+| [Supported models and formats](supported-models-and-formats.md) | Accepted model family, sizes, and GGUF profile |
+| [Command-line interface](command-line/README.md) | Runtime options, terminal controls, slash commands, and attachments |
+| [Local Web interface](web-interface/README.md) | Browser chat, persistence, Markdown files, search, and privacy |
 
-## Usage And Structure
-
-| Document | Contents |
-|---|---|
-| [configuration.md](configuration.md) | Runtime flags, defaults, and build-time backend selection |
-| [architecture.md](architecture.md) | Workspace layout and application flows |
-| [backend.md](backend.md) | CPU, Vulkan, Metal, hybrid placement, and KV cache |
-| [web.md](web.md) | Local Web UI, assets, and browser behavior |
-| [context.md](context.md) | Shared context estimate and request admission rules |
-
-## Console
+## Engine Reference
 
 | Document | Contents |
 |---|---|
-| [console.md](console.md) | TUI session, keyboard controls, rendering, and status bar |
-| [commands.md](commands.md) | Slash commands, transcripts, and local attachments |
+| [Architecture](engine/architecture.md) | Workspace boundaries and application flows |
+| [Backend support status](engine/backend-support-status.md) | Build profiles and current support labels |
+| [Hybrid placement and memory](engine/hybrid-placement-and-memory.md) | Immutable placement, budgets, KV, and failure policy |
+| [Context capacity and admission](engine/context-capacity-and-admission.md) | Shared estimate and request-admission arithmetic |
+| [Engine crate](../crates/graph_horizon_engine/README.md) | Public Rust API and engine contract |
+| [Engine module ownership](../crates/graph_horizon_engine/src/module-ownership.md) | Maintainer-facing source responsibility map |
 
-## Development And Validation
-
-| Document | Contents |
-|---|---|
-| [model-addition-process.md](model-addition-process.md) | Process for adding a family or profile |
-| [backend-addition-process.md](backend-addition-process.md) | Process for adding a compute backend |
-| [model-validation-process.md](model-validation-process.md) | Repeatable technical and semantic qualification |
-| [kv-quant-mistral-validation.md](kv-quant-mistral-validation.md) | Ministral f16/int8 KV comparison contract |
-| [oracle-validation-process.md](oracle-validation-process.md) | Numeric and external-oracle comparison process |
-| [performance-investigation-process.md](performance-investigation-process.md) | Correctness-gated performance investigation |
-| [vulkan-nvidia-long-context-prefill.md](vulkan-nvidia-long-context-prefill.md) | NVIDIA Vulkan long-context prefill attribution, routing fix, and quantitative stop checkpoint |
-| [vulkan-nvidia-long-context-decode.md](vulkan-nvidia-long-context-decode.md) | NVIDIA Vulkan long-context decode attribution and final routing checkpoint |
-| [metal-llamacpp-competitive-optimization.md](metal-llamacpp-competitive-optimization.md) | Metal performance comparison and optimization checkpoint against llama.cpp Metal |
-| [metal-vulkan-optimization-parity.md](metal-vulkan-optimization-parity.md) | Vulkan-to-Metal capability mapping, retained candidates, and global-stop evidence |
-| [metal-long-context-prefill-optimization.md](metal-long-context-prefill-optimization.md) | Apple Metal long-context prefill attribution, retained attention optimization, and final checkpoint |
-| [metal-long-context-decode-optimization.md](metal-long-context-decode-optimization.md) | Completed Apple Metal long-context decode checkpoint and candidate ledger |
-| [throughput-bench.md](throughput-bench.md) | End-to-end benchmark of the engine library |
-| [vulkan-amd-long-context-decode.md](vulkan-amd-long-context-decode.md) | AMD Vulkan long-context decode investigation and checkpoint |
-| [vulkan-amd-long-context-prefill.md](vulkan-amd-long-context-prefill.md) | AMD Vulkan long-context prefill attribution, split-GQA route, and qualification |
-| [final-backend-model-family-cleanup.md](final-backend-model-family-cleanup.md) | Cleanup-candidate ownership inventory, decisions, qualification snapshot, and later repair link |
-| [amd-deep-clean-regression-repair.md](amd-deep-clean-regression-repair.md) | AMD post-cleanup correctness diagnosis, repair, and qualification evidence |
-
-## Reviewed Evidence
+## Development
 
 | Document | Contents |
 |---|---|
-| [Current optimization state](current-optimization-state.md) | Retained CPU, Vulkan, AMD, and Metal results and remaining bottlenecks |
-| [Validation register](validation.md) | Artifact identities, reviewed qualification evidence, and current release state |
-| [Pre-release qualification](release-qualification.md) | Historical v0.1.0 candidate gates and subsequent tag-derived evidence |
-| [Release notes](release-notes.md) | Released user-facing v0.1.2 contract, installation, capabilities, and limitations |
+| [Contributing](../CONTRIBUTING.md) | Change discipline and verification expectations |
+| [Model-support addition](development/model-support-addition.md) | Process for adding a family or profile |
+| [Compute-backend addition](development/compute-backend-addition.md) | Process for adding a hardware backend |
+| [Model-support validation](development/model-support-validation.md) | Technical and semantic qualification process |
+| [Oracle comparison](development/oracle-comparison.md) | Numeric and external-oracle evidence |
+| [Ministral KV-cache validation](development/ministral-kv-cache-validation.md) | Repeatable f16/int8 KV comparison |
+| [Performance investigation](development/performance-investigation.md) | Correctness-gated optimization process |
+| [End-to-end throughput benchmark](development/end-to-end-throughput-benchmark.md) | Public-event benchmark interface |
+| [Support script command reference](../support/script-command-reference.md) | Exact profiling and validation-script arguments |
+| [Implementation decision log](development/implementation-decision-log.md) | Durable repository implementation decisions |
+
+## Current Project Status
+
+| Document | Contents |
+|---|---|
+| [Project-status index](project-status/README.md) | Authority and freshness boundaries |
+| [Validation evidence](project-status/validation-evidence.md) | Artifact identities and reviewed qualification results |
+| [Current performance status](project-status/current-performance-status.md) | Retained optimizations and remaining bottlenecks |
+| [Release notes](project-status/release-notes.md) | Released user-facing changes and limitations |
+| [v0.1.0 release qualification](project-status/v0.1.0-release-qualification.md) | Historical candidate and tag-derived gates |
+
+## Historical Investigations
+
+Detailed performance and cleanup reports preserve measurements and decisions at
+their recorded revisions. They do not override current support or release
+status. Browse the [investigation report index](investigation-reports/README.md).
+
+## Repository Policies
+
+- [Support](../SUPPORT.md)
+- [Security](../SECURITY.md)
+- [Contributing](../CONTRIBUTING.md)
+- [License](../LICENSE)

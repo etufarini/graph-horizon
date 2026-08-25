@@ -1,7 +1,7 @@
 <!--
 This report preserves the AMD cleanup-regression diagnosis, accepted repair,
 qualification evidence, and later repository integration. Current release and
-support status belong to docs/validation.md.
+support status belong to docs/project-status/validation-evidence.md.
 -->
 
 # AMD deep-clean regression repair

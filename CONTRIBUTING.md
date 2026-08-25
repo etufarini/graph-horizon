@@ -22,6 +22,29 @@ Repeat Clippy and tests for every affected profile. A missing device,
 toolchain, authenticated model, or pinned oracle is `external verification`;
 an assertion, comparison, placement, or lifecycle mismatch is a failure.
 
+## Documentation Changes
+
+Use [`docs/README.md`](docs/README.md) as the documentation map. Reserve
+`README.md` for repository, crate, or multi-file domain entry points; give every
+leaf page a descriptive kebab-case noun name. Keep user tasks, stable reference,
+development process, current project status, and historical investigation
+records in their existing domains.
+
+Each contract has one canonical owner. Summaries may link to that owner but must
+not duplicate tables merely to satisfy a test. When runtime options change,
+update `docs/command-line/runtime-options.md`; `docs_contract` derives the
+accepted flag names from `src/app/args.rs` and checks that reference directly.
+
+After moving or editing Markdown, run:
+
+```sh
+cargo test -p graph_horizon_engine --no-default-features --features cpu \
+  --test family_agnostic docs_contract -- --exact
+```
+
+The test includes tracked and untracked Markdown so new pages cannot bypass the
+local-link check before they are staged.
+
 Orchestration stays under 200 productive lines. Every category-K file must be a
 single-operation dense numeric kernel and declare exactly one
 `// AGENTS deroga K: <nota>` marker. Every category-I file must contain only one

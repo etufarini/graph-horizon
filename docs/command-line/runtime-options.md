@@ -1,9 +1,10 @@
 <!--
-This document owns the current CLI and Web runtime flags plus installer inputs.
-Model support details and validation-only variables are delegated.
+This document owns every runtime option accepted by the `graph-horizon`
+executable. Installer, build, and validation-script options are documented
+separately.
 -->
 
-# Configuration
+# Runtime Options
 
 The binary reads runtime configuration only from flags. Use `--flag value`;
 `--flag=value` is not accepted. Unknown flags and missing values fail before a
@@ -19,8 +20,8 @@ graph-horizon --model /path/to/model.gguf
 graph-horizon --mode web --model /path/to/model.gguf
 ```
 
-The file must satisfy the current [engine crate
-contract](../crates/graph_horizon_engine/README.md).
+The file must satisfy the current [supported model and format
+contract](../supported-models-and-formats.md).
 
 ## Accepted Flags
 
@@ -49,7 +50,7 @@ The CLI always loads the model in-process. Without `--context-tokens`, the
 engine applies its versioned policy within the GGUF maximum. `--max-tokens`
 reserves response capacity; startup fails before terminal initialization when
 that reserve leaves no safe prompt space. Complete estimation and admission
-rules are in [context.md](context.md).
+rules are in [context capacity and admission](../engine/context-capacity-and-admission.md).
 
 ## Web UI
 
@@ -73,24 +74,10 @@ HTTPS, except that HTTP is accepted for `localhost`, `127.0.0.1`, and `::1` to
 support local adapters and tests. `--search-key-file` contains one bearer token;
 on Unix it must be a regular file with no group or other permission bits.
 Configuration errors stop startup before the listener opens. The provider
-contract and privacy boundary are documented in [web.md](web.md#web-search).
+contract and privacy boundary are documented in
+[Web search and privacy](../web-interface/web-search-and-privacy.md).
 
-## Build And Environment
-
-```sh
-support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
-  [--profile release|fast] [--prefix /path/to/prefix]
-```
-
-The backend is required and selected at build time. The prefix must be absolute,
-non-root, and contain no `.` or `..` component. An explicit `--prefix` wins over
-`GRAPH_HORIZON_INSTALL_PREFIX`, which wins over `$HOME/.local`.
-
-| Platform | Accepted build backends |
-|---|---|
-| macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
-| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
-
-Build acceptance does not assign production, qualified, or reference status;
-see the [backend contract](backend.md#support-status). Variables used by profiling, testing, and
-oracle scripts are development interfaces, not binary runtime configuration.
+Installer options are in the [installation guide](../installation.md). Build
+and validation-script parameters are development interfaces documented in the
+[support script reference](../../support/script-command-reference.md); they are
+not binary runtime configuration.

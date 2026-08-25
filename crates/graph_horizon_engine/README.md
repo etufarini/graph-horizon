@@ -40,7 +40,7 @@ repair SHA, but requires a fresh campaign on the selected final commit and
 intended production tuple for promotion. `reference` is a numeric role rather
 than a lower maturity tier and carries no performance promise. The normative
 definitions and exact scope are in the
-[backend contract](../../docs/backend.md#support-status).
+[backend contract](../../docs/engine/backend-support-status.md#support-status).
 
 The hybrid plan is immutable after loading. Only the mixed plan copies the
 residual from CPU to GPU, once per pass; each layer's KV remains on its backend.
@@ -68,18 +68,19 @@ operational success for the runner even when a model does not pass the semantic
 gate. The runtime continues to emit raw text and does not own this assessment
 policy.
 
-The [validation log](../../docs/validation.md) records the most recent reviewed
-campaign and its exact source revision. Those historical results do not qualify
-later runtime changes or a future release tag. The Web UI selects the same
-sampling parameters for a Reasoning profile, but the complete gate remains
-owned by the harness because it also fixes context, KV, placement, and corpus.
+The [validation evidence](../../docs/project-status/validation-evidence.md)
+records the most recent reviewed campaign and its exact source revision. Those
+historical results do not qualify later runtime changes or a future release
+tag. The Web UI selects the same sampling parameters for a Reasoning profile,
+but the complete gate remains owned by the harness because it also fixes
+context, KV, placement, and corpus.
 
 `Engine::memory()` provides retained model weights and full-context KV capacity
 for every backend profile. `Engine::placement()` provides the final hybrid
 placement and its complete planned breakdown. Neither method exposes process
 RSS, live allocator state, or raw available VRAM. An error after final selection
 remains a failure with no retry or fallback. The command and operational
-protocol are in the [script guide](../../support/README.md).
+protocol are in the [script guide](../../support/script-command-reference.md).
 
 ## Ministral contract
 
@@ -236,6 +237,8 @@ GRAPH_HORIZON_REFERENCE_PROMPT_IDS="..." GRAPH_HORIZON_REFERENCE_COMPLETION_IDS=
 ```
 
 The complete interfaces of the 74-row matrix and semantic acceptance are
-described in the [script guide](../../support/README.md); reviewed results belong
-in the [validation log](../../docs/validation.md). Maintainer-facing source ownership
-is mapped separately in [`src/README.md`](src/README.md).
+described in the [script guide](../../support/script-command-reference.md);
+reviewed results belong in the
+[validation evidence](../../docs/project-status/validation-evidence.md).
+Maintainer-facing source ownership is mapped separately in
+[`src/module-ownership.md`](src/module-ownership.md).

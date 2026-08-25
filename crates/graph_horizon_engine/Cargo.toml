@@ -1,8 +1,17 @@
+# This manifest owns the inference engine package metadata, backend feature
+# profiles, and the engine's direct and build-time dependencies.
+
 [package]
 name = "graph_horizon_engine"
 version = "0.1.2"
-edition = "2024"
+edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Text-to-text inference engine for Ministral 3 GGUF models."
+readme = "README.md"
+publish = false
 
 [package.metadata.cargo-machete]
 # cargo-machete does not inspect build.rs, where this dependency is consumed.

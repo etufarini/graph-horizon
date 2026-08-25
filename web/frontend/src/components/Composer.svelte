@@ -23,6 +23,10 @@
   $: queryTooLong = search !== null && searchCapability !== null &&
     Array.from(searchTerms).length > searchCapability.maxQueryCharacters;
   $: searchAvailable = searchCapability !== null;
+  $: searchState = !searchAvailable ? 'Search unavailable' : search ? 'Search on' : 'Search off';
+  $: searchAction = !searchAvailable
+    ? 'Web search is not configured'
+    : search ? 'Disable Web search' : 'Enable Web search';
   $: canSend = value.trim().length > 0 && !streaming && contextAvailable &&
     (search === null || (searchAvailable && !queryTooLong && validSearch(search)));
 
@@ -44,27 +48,20 @@
 </script>
 
 <form class="composer" on:submit|preventDefault={submit}>
-  <textarea
-    bind:value
-    rows="3"
-    on:keydown={keydown}
-    aria-label="Message"
-    placeholder="Message Graph Horizon…"
-  ></textarea>
+  <textarea bind:value rows="2" on:keydown={keydown} aria-label="Message"
+    placeholder="Message Graph Horizon…"></textarea>
   <div class="composer-bar">
     <button
-      class:search-active={search !== null}
-      class="action action-search"
-      type="button"
-      disabled={!searchAvailable}
-      aria-pressed={search !== null}
-      aria-label={!searchAvailable ? 'Web search is not configured' : search ? 'Disable Web search' : 'Enable Web search'}
+      class:search-active={search !== null} class="action action-search" type="button"
+      disabled={!searchAvailable} aria-pressed={search !== null}
+      aria-label={searchAction} title={searchAction}
       on:click={() => { search = search ? null : defaultSearch(); }}
     >
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="12" cy="12" r="9" />
         <path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18" />
       </svg>
+      <span>{searchState}</span>
     </button>
     <span class="composer-hint">
       {queryTooLong
@@ -72,12 +69,8 @@
         : streaming ? 'Generating… prepare your next message' : 'Ctrl/⌘ + Enter to send'}
     </span>
     {#if streaming}
-      <button
-        class="action action-stop"
-        type="button"
-        on:click={() => dispatch('stop')}
-        aria-label="Stop"
-      >
+      <button class="action action-stop" type="button"
+        on:click={() => dispatch('stop')} aria-label="Stop">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <rect x="6" y="6" width="12" height="12" rx="1" />
         </svg>
@@ -157,6 +150,17 @@
     border: var(--gn-border-width) solid var(--gn-border);
     background: var(--gn-bg-panel-raised);
     color: var(--gn-text-muted);
+  }
+
+  .action.action-search {
+    width: auto;
+    min-width: var(--gn-control-height);
+    gap: var(--gn-space-xs);
+    padding: 0 var(--gn-space-sm);
+    font-family: var(--gn-font-sans);
+    font-size: var(--gn-text-xs);
+    font-weight: 700;
+    white-space: nowrap;
   }
 
   .action-search:hover,

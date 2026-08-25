@@ -13,24 +13,23 @@ orientation boundary.
 </script>
 
 <header>
-  <div class="main">
-    <div class="identity">
-      <img src={logoUrl} alt="" aria-hidden="true" />
-      <h1><span>Graph Horizon</span><small>Local inference</small></h1>
-    </div>
+  <div class="identity">
+    <img src={logoUrl} alt="" aria-hidden="true" />
+    <h1><span>Graph Horizon</span><small>Local inference</small></h1>
   </div>
   {#if runtimeInfo}<Runtime info={runtimeInfo} />{/if}
 </header>
 
 <style lang="scss">
-  header { min-width: 0; display: grid; gap: var(--gn-space-xs); border-bottom: var(--gn-border-width) solid var(--gn-border); padding-bottom: var(--gn-space-sm); }
-  .main { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--gn-space-sm); }
+  header { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--gn-space-xs) var(--gn-space-lg); border-bottom: var(--gn-border-width) solid var(--gn-border); padding-bottom: var(--gn-space-sm); }
   .identity { min-width: 0; display: flex; align-items: center; gap: var(--gn-space-sm); }
+  header > :global(.runtime) { min-width: 0; flex: 1 1 360px; justify-content: flex-end; }
   img { width: var(--gn-brand-logo-size); height: var(--gn-brand-logo-size); flex: 0 0 auto; object-fit: contain; }
   h1 { min-width: 0; margin: 0; display: flex; align-items: baseline; gap: var(--gn-space-sm); color: var(--gn-text-primary); font-size: var(--gn-text-md); line-height: 1.2; }
   h1 span { font-family: var(--gn-font-mono); font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
   h1 small { color: var(--gn-text-muted); font-family: var(--gn-font-mono); font-size: var(--gn-text-xs); font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
   @media (max-width: 640px) {
     h1 small { display: none; }
+    header > :global(.runtime) { flex-basis: 100%; justify-content: flex-start; }
   }
 </style>

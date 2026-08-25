@@ -98,7 +98,7 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
   .turn {
     display: flex;
     flex-direction: column;
-    gap: var(--gn-space-md);
+    gap: var(--gn-space-sm);
   }
 
   .message {

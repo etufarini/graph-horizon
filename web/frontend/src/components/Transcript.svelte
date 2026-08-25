@@ -74,7 +74,7 @@ history, transcript repair, and persistence remain outside this component.
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--gn-space-lg);
+    gap: var(--gn-space-md);
     padding: var(--gn-space-sm) var(--gn-space-xs) var(--gn-space-md);
   }
 

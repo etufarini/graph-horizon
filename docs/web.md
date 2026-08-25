@@ -121,13 +121,14 @@ one overlay drawer is interactive at a time. Escape and the backdrop close an
 open drawer, and focus returns to its rail control. At 640 pixels and below the
 controls use 44-pixel touch targets.
 
-The system prompt, outgoing Web-search options, and persisted search sources
-use the same semantic chevron control. Their compact headers retain the state
-needed for orientation: whether a system prompt is set, the selected search
-category and query, or the provider, query, source count, and active-answer
-status. Collapsing presentation never stops generation or discards valid data.
-Panel and section expansion is intentionally page-session UI state and is not
-written to chat persistence. A newly created search report starts expanded.
+The system prompt and persisted search sources use the same semantic chevron
+control. Their compact headers retain the state needed for orientation: whether
+a system prompt is set, or the provider, query, source count, and active-answer
+status. When outgoing search is active, its query and category remain visible
+in one compact composer strip and return to separate rows only on narrow
+viewports. Collapsing presentation never stops generation or discards valid
+data. Panel and section expansion is intentionally page-session UI state and is
+not written to chat persistence. A newly created search report starts expanded.
 Viewport breakpoint changes restore the layout default for the affected side
 panel.
 
@@ -148,11 +149,12 @@ sampling policy defined by the qualification protocol, with `temperature=0.7`.
 
 ### Web Search
 
-Search is available without flags. The globe button still makes it an explicit
-choice for one request: merely starting the Web UI never sends a query. A `web`
-request uses DuckDuckGo Lite and a `news` request uses Google News RSS. The
-category is never rerouted to the other service, the model cannot initiate a
-search, and a failed search never falls back to an unsearched answer.
+Search is available without flags. The labelled globe control visibly reports
+`Search off`, `Search on`, or `Search unavailable` and still makes search an
+explicit choice for one request: merely starting the Web UI never sends a
+query. A `web` request uses DuckDuckGo Lite and a `news` request uses Google
+News RSS. The category is never rerouted to the other service, the model cannot
+initiate a search, and a failed search never falls back to an unsearched answer.
 
 The composer shows the exact query that will leave the process. An empty search
 query means “use the visible message”; otherwise the explicit query is used.

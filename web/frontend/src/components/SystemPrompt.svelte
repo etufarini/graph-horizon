@@ -34,7 +34,7 @@ open state; value, availability, persistence, and chat selection stay outside.
       bind:value
       {disabled}
       on:input={() => dispatch('change', value)}
-      rows="3"
+      rows="2"
       aria-label="System prompt"
       placeholder="Instructions for the model…"
     ></textarea>
@@ -57,7 +57,7 @@ open state; value, availability, persistence, and chat selection stay outside.
     width: 100%;
     box-sizing: border-box;
     min-height: var(--gn-control-height);
-    padding: var(--gn-space-xs) var(--gn-space-sm);
+    padding: 0 var(--gn-space-sm);
     font-family: var(--gn-font-mono);
     font-size: var(--gn-text-xs);
     font-weight: 650;

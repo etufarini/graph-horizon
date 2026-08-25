@@ -8,13 +8,14 @@ log grezzi e decisioni sperimentali restano nella cronologia Git.
 
 ## Stato corrente
 
-Graph Horizon `v0.1.1` è stato rilasciato dal tag annotato e immutabile
-`v0.1.1` come correzione di packaging della Web UI. La GitHub Release contiene
-`graph-horizon-0.1.1.tar.gz` e il relativo record SHA-256. Il tag `v0.1.0` e i
-suoi asset restano immutati e possiedono la qualifica numerica storica.
+Graph Horizon `v0.1.2` è stato rilasciato dal tag annotato e immutabile
+`v0.1.2` con ricerca Web/News esplicita e il workspace Web revisionato. La
+GitHub Release contiene `graph-horizon-0.1.2.tar.gz` e il relativo record
+SHA-256. Il tag `v0.1.0` e i suoi asset restano immutati e possiedono la
+qualifica numerica storica; anche `v0.1.1` e i suoi asset restano immutati.
 
-Le versioni Cargo e frontend correnti sono `0.1.1`; l'identità della patch è
-esclusivamente il commit risolto da `v0.1.1^{commit}`. La campagna finale
+Le versioni Cargo e frontend correnti sono `0.1.2`; l'identità della release è
+esclusivamente il commit risolto da `v0.1.2^{commit}`. La campagna finale
 v0.1.0 sostituisce, per il proprio contratto, le campagne preliminari sui runtime
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` ed
 `e7edc8315d397f6eb34c5efb91a9ae20b9b59bc4`; l'evidenza precedente resta
@@ -27,20 +28,21 @@ qualificato; un risultato storico non qualifica una sorgente successiva.
 ## Identità canonica della release
 
 Questo file è il registro canonico dello stato di qualifica, ma non duplica
-identità che possono divergere. Il commit sorgente della patch si ricava con
-`git rev-parse v0.1.1^{commit}`: il tag annotato immutabile è il riferimento
+identità che possono divergere. Il commit sorgente della release si ricava con
+`git rev-parse v0.1.2^{commit}`: il tag annotato immutabile è il riferimento
 autoritativo e punta al commit che contiene questo registro. Nessun hash
 intermedio costituisce l'identità della release.
 
-L'artefatto corrente è `graph-horizon-0.1.1.tar.gz`, generato con `git archive`
+L'artefatto corrente è `graph-horizon-0.1.2.tar.gz`, generato con `git archive`
 dal tag. Il solo valore SHA-256 autoritativo è il record affiancato
-`graph-horizon-0.1.1.tar.gz.sha256`; il digest non viene copiato in questo file.
+`graph-horizon-0.1.2.tar.gz.sha256`; il digest non viene copiato in questo file.
 Archivio, record e annotazione riportano lo stesso nome/versione, mentre
 l'header Git dell'archivio risolve allo stesso commit del tag.
 
-`v0.1.0`, `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256` restano
-l'identità autoritativa della campagna numerica descritta più avanti. La patch
-non sposta il tag né sostituisce quegli asset.
+`v0.1.1` conserva l'identità della correzione di packaging descritta più avanti.
+`v0.1.0`, `graph-horizon-0.1.0.tar.gz` e il relativo `.sha256` restano l'identità
+autoritativa della campagna numerica. La release non sposta i tag né sostituisce
+asset storici.
 
 ## Correzione di packaging v0.1.1
 
@@ -75,11 +77,14 @@ del catalogo. La richiesta Web ha restituito HTTP 200 per UI, contesto e runtime
 e ha completato `OK.` con statistiche e frame terminale `done`. Questo verifica
 il confine di packaging e prodotto; non è una nuova campagna di parità o qualità.
 
-## Ricerca pubblica non rilasciata
+## Ricerca pubblica e Web UI v0.1.2
 
-Questa evidenza appartiene alla working tree del 25 agosto 2026, non al tag
-immutabile `v0.1.1`. Ambiente: Linux x86_64 7.0.0-30, Rust 1.95.0 con verifica
-aggiuntiva su Rust 1.88.0, Node.js 25.9.0, npm 11.12.1 e curl 8.18.0.
+Questa release aggiunge ricerca pubblica esplicita e senza chiavi, conserva il
+trasporto browser privato per l'inferenza locale e revisiona il workspace Web.
+L'evidenza appartiene esclusivamente al commit risolto da `v0.1.2^{commit}`.
+Ambiente del 25 agosto 2026: Linux x86_64 7.0.0-30, Rust/Cargo 1.97.1 con
+verifica aggiuntiva su Rust/Cargo 1.88.0, Node.js 24.18.0, npm 11.16.0 e curl
+8.18.0.
 
 La ricerca Web DuckDuckGo Lite e la ricerca Google News RSS sono state eseguite
 contro Internet senza chiavi. Tre round consecutivi per adapter sono passati;
@@ -96,14 +101,16 @@ cargo test --locked --no-default-features --features cpu -p graph-horizon \
 cd web/frontend && npm test && npm run check && npm run build
 ```
 
-| Gate ricerca/Web UI | Esito |
+| Gate release v0.1.2 | Esito |
 |---|---|
-| suite Rust ordinaria | PASS: 166, con 3 live ignorati |
+| formato Rust, sintassi shell e diff | PASS |
+| Clippy CPU `-D warnings` e build release CPU | PASS |
+| suite Rust bloccata | PASS: app 166, engine 163, integration 5+12; test dipendenti da modello/rete ignorati |
+| Rust 1.88: suite CPU; check Vulkan e Vulkan-hybrid | PASS |
 | provider reali Web con date, News e News con date | PASS: 3/3 per tre round consecutivi |
 | errori deterministici: 429, timeout, oversize, feed/JSON invalido, zero risultati | PASS |
-| frontend | PASS: 132 test, 0 errori/warning Svelte, build |
-| Clippy CPU `-D warnings` e check Rust 1.88 | PASS |
-| installer CPU `fast` in prefisso pulito, binario e asset installati | PASS |
+| frontend | PASS: 135 test, 0 errori/warning Svelte, build, 0 vulnerabilità |
+| installer CPU `fast` in prefisso pulito, versione binario e asset Web installati | PASS |
 | dipendenze dirette | `scraper` 0.27.0 ISC; `roxmltree` 0.20.0 e `httpdate` 1.0.3 MIT/Apache-2.0 |
 
 La qualità strutturale delle citazioni è coperta: il contesto ordina identificatori

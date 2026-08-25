@@ -1,17 +1,42 @@
 <!--
-These notes describe unreleased user-facing changes and the released v0.1.1
+These notes describe unreleased user-facing changes and the released v0.1.2
 contract. Qualification mechanics belong in docs/validation.md.
 -->
 
 # Unreleased
 
-The integrated Web UI now provides explicit Web and News search without setup:
-DuckDuckGo Lite serves Web requests and Google News RSS serves News requests.
+# Graph Horizon v0.1.2
+
+Graph Horizon v0.1.2 adds explicit Web and News search to the integrated Web UI.
+DuckDuckGo Lite serves Web requests and Google News RSS serves News requests
+without setup or API keys. Search is opt-in for each message, returns bounded
+snippets, preserves source provenance and citation labels, and never downloads
+result pages. Inference, chat history, and attached files remain local.
+
 `--search-url` remains an advanced replacement for both routes, with the same
-strict JSON contract and optional protected bearer-token file. Search framing,
-bounded snippets, separate provenance, citation labels, and the rule that no
-result page is downloaded remain unchanged. `curl` is now checked as an
-installed runtime prerequisite.
+strict JSON contract and optional protected bearer-token file. `curl` is now an
+installed runtime prerequisite and is checked by the local installer.
+
+The Web workspace retains its pixel-art design while improving responsive
+layout, compact controls, search options and sources, transcript rendering,
+session actions, metrics, status, and collapsible side panels.
+
+The release passed the locked CPU workspace suite, warnings-denied Clippy,
+Rust 1.88 compatibility checks for CPU, Vulkan, and Vulkan-hybrid, all frontend
+tests and diagnostics, three consecutive live Web/News provider rounds, and a
+clean-prefix installed-product CLI/Web asset smoke. No model was present, so
+semantic generation with retrieved sources remains external verification.
+
+The repository, tag, and release assets are public. Install anonymously with:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.2/install.sh | bash -s -- --backend vulkan-hybrid
+```
+
+The model/backend qualification evidence remains attached to immutable
+`v0.1.0`; v0.1.2 does not relabel that historical campaign as a new numerical
+qualification. The accepted artifacts remain the six exact Ministral 3 2512
+Q4_K_M files listed in [validation.md](validation.md).
 
 # Graph Horizon v0.1.1
 

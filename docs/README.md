@@ -68,7 +68,7 @@ recorded in each affected report and summarized in
 | [Current optimization state](current-optimization-state.md) | Retained CPU, Vulkan, AMD, and Metal results and remaining bottlenecks |
 | [Validation register](validation.md) | Artifact identities, reviewed qualification evidence, and current release state |
 | [Pre-release qualification](release-qualification.md) | Historical v0.1.0 candidate gates and subsequent tag-derived evidence |
-| [Release notes](release-notes.md) | Released user-facing v0.1.1 contract, installation, capabilities, and limitations |
+| [Release notes](release-notes.md) | Released user-facing v0.1.2 contract, installation, capabilities, and limitations |
 
 For installation, catalogs, and operational scripts, also see
 [support/README.md](../support/README.md).

@@ -84,7 +84,7 @@ fn list_matches(
                 continue;
             }
             if is_dir {
-                matches.push(format!("{}/", name));
+                matches.push(format!("{name}/"));
             } else if only_ext.is_none_or(|ext| has_extension(&name, ext)) {
                 matches.push(name);
             }

@@ -574,8 +574,7 @@ fn artifact_helpers_support_gnu_and_bsd_tools() {
     write_executable(
         &shasum,
         format!(
-            "#!/bin/bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{}  %s\\n' \"${{!#}}\"\n",
-            digest
+            "#!/bin/bash\n[[ \"$1 $2\" == '-a 256' ]] || exit 2\nprintf '{digest}  %s\\n' \"${{!#}}\"\n"
         )
         .as_bytes(),
     );

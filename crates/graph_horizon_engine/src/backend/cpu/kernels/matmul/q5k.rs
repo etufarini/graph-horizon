@@ -254,9 +254,7 @@ mod tests {
             let tol = 8e-2 * want.abs().max(1e-3);
             assert!(
                 (value - want).abs() <= tol,
-                "row {o}: fused {} vs ref {} (tol {tol})",
-                value,
-                want
+                "row {o}: fused {value} vs ref {want} (tol {tol})"
             );
         }
     }
@@ -303,12 +301,7 @@ mod tests {
         for (o, &value) in got.iter().enumerate().take(out_dim) {
             let want = reference_row(&xw, &w, o, in_dim);
             let tol = 8e-2 * want.abs().max(1e-3);
-            assert!(
-                (value - want).abs() <= tol,
-                "logit {o}: {} vs {}",
-                value,
-                want
-            );
+            assert!((value - want).abs() <= tol, "logit {o}: {value} vs {want}");
         }
     }
 }

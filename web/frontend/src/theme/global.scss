@@ -30,14 +30,14 @@ body {
   padding: var(--gn-space-lg) var(--gn-space-xl);
 }
 
-/* Shared neutral surface for panels that do not own component-specific rules. */
+/* Shared square surface for panels that do not own component-specific rules. */
 .gn-panel {
   background: var(--gn-bg-panel);
   border: var(--gn-border-width) solid var(--gn-border-subtle);
   border-radius: var(--gn-radius-md);
 }
 
-/* Compact scrollbars inherit the light theme surfaces. */
+/* Compact square scrollbars inherit the light theme surfaces. */
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--gn-border) var(--gn-bg-page);
@@ -54,7 +54,7 @@ body {
 
 *::-webkit-scrollbar-thumb {
   background: var(--gn-border);
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 a:focus-visible,

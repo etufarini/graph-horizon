@@ -40,9 +40,10 @@
 <style lang="scss">
   .system-prompt {
     min-width: 0;
-    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border: var(--gn-border-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
+    box-shadow: var(--gn-shadow-small);
   }
 
   .panel-header {
@@ -56,9 +57,11 @@
     background: none;
     cursor: pointer;
     border-radius: var(--gn-radius-sm);
-    font-family: var(--gn-font-sans);
+    font-family: var(--gn-font-mono);
     font-size: var(--gn-text-xs);
     font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--gn-text-muted);
     text-align: left;
   }
@@ -83,7 +86,7 @@
     transform: rotate(90deg);
   }
 
-  .prompt-state { margin-left: auto; border-radius: 999px; background: var(--gn-accent-soft); padding: 1px var(--gn-space-xs); color: var(--gn-accent-ink); font-size: var(--gn-text-xs); }
+  .prompt-state { margin-left: auto; border: var(--gn-rule-width) solid var(--gn-accent); border-radius: 0; background: var(--gn-accent-soft); padding: 1px var(--gn-space-xs); color: var(--gn-accent-ink); font-size: var(--gn-text-xs); }
 
   .panel-body {
     padding: 0 var(--gn-space-sm) var(--gn-space-sm);
@@ -94,7 +97,7 @@
     width: 100%;
     resize: vertical;
     box-sizing: border-box;
-    border: var(--gn-rule-width) solid var(--gn-border);
+    border: var(--gn-border-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     outline: none;
     background: var(--gn-bg-panel);

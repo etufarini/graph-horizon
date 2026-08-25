@@ -9,8 +9,8 @@
   --gn-bg-panel-raised: #eaf2f7;
   --gn-text-primary: #102a43;
   --gn-text-muted: #486581;
-  --gn-border: #7890a8;
-  --gn-border-subtle: #cbd8e3;
+  --gn-border: #102a43;
+  --gn-border-subtle: #7890a8;
   --gn-accent: #006d9c;
   --gn-accent-bright: #008bc7;
   --gn-accent-soft: #dff3fc;
@@ -47,13 +47,16 @@
     var(--gn-accent-bright) calc(200% / 3) 100%
   );
 
-  /* Quiet geometry keeps information dense without flattening focus states. */
-  --gn-radius-sm: 6px;
-  --gn-radius-md: 8px;
-  --gn-border-width: 1px;
+  /* Pixel geometry stays square while layout and focus behavior remain modern. */
+  --gn-radius-sm: 0;
+  --gn-radius-md: 0;
+  --gn-border-width: 2px;
   --gn-rule-width: 1px;
-  --gn-shadow-hard: 0 16px 40px rgb(16 42 67 / 18%);
-  --gn-focus-ring: 0 0 0 3px rgb(0 109 156 / 32%);
+  --gn-cut-size: 8px;
+  --gn-panel-clip: polygon(0 0, calc(100% - var(--gn-cut-size)) 0, 100% var(--gn-cut-size), 100% 100%, 0 100%);
+  --gn-shadow-small: 2px 2px 0 var(--gn-border);
+  --gn-shadow-hard: 5px 5px 0 var(--gn-border);
+  --gn-focus-ring: 0 0 0 2px var(--gn-bg-panel), 0 0 0 4px var(--gn-accent);
   --gn-focus-inset: inset 0 0 0 2px var(--gn-accent);
   /* Motion is centralized so reduced-motion rules can disable every effect. */
   --gn-motion-fast: 150ms;

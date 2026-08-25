@@ -1,6 +1,11 @@
-# Misurare prefill e decode
+<!--
+This reference defines reproducible prefill and decode measurement hygiene for
+the safe optimization loop; it does not choose optimization candidates.
+-->
 
-Usa gli esempi pubblici mantenuti, non timer ad hoc.
+# Measuring Prefill and Decode
+
+Use the maintained public examples, not ad hoc timers.
 
 ```sh
 support/profiling/profile.sh --model "$GRAPH_HORIZON_MODEL" \
@@ -8,36 +13,35 @@ support/profiling/profile.sh --model "$GRAPH_HORIZON_MODEL" \
 
 cargo run --release --no-default-features --features <backend> \
   --example bench -- "$GRAPH_HORIZON_MODEL" --context 4096 --kv f16 \
-  --prompt "Ciao" --max-tokens 32 --warmup 1 --reps 5
+  --prompt "Hello" --max-tokens 32 --warmup 1 --reps 5
 ```
 
-Registra:
+Record:
 
-- prompt tokens e prompt tok/s;
+- prompt tokens and prompt tok/s;
 - TTFT;
 - decode tok/s;
-- modalità e layer CPU/GPU;
-- breakdown pesi, KV, scratch, fixed, staging, crossing e reserve;
-- media/deviazione e numero di ripetizioni.
+- mode and CPU/GPU layers;
+- weights, KV, scratch, fixed, staging, crossing, and reserve breakdown;
+- mean/deviation and repetition count.
 
-## Igiene
+## Measurement hygiene
 
-Usa build release o fast identiche tra baseline e candidato. Esegui warmup,
-mantieni la macchina inattiva e controlla throttling. Non confrontare run con
-contesto, KV o placement diversi.
+Use identical release or fast builds for the baseline and candidate. Warm up,
+keep the machine idle, and check for throttling. Do not compare runs with
+different contexts, KV, or placement.
 
-Un miglioramento deve superare il rumore della baseline. Controlla anche metriche
-non target e memoria: un guadagno decode che peggiora prefill o trasforma il
-placement non è automaticamente accettabile.
+An improvement must exceed baseline noise. Also check non-target metrics and
+memory: a decode gain that degrades prefill or changes placement is not
+automatically acceptable.
 
-## Diagnosi
+## Diagnosis
 
-- TTFT alto: concentra il profilo su prompt/prefill.
-- Decode lento: aumenta `max_tokens` mantenendo fisso il prompt.
-- Mixed lento: confronta crossing e numero layer, senza cambiare split tra
-  baseline e candidato.
-- Crescita con contesto: confronta f16/int8 separatamente; non mescolare i
-  risultati.
+- High TTFT: focus the profile on prompt/prefill.
+- Slow decode: increase `max_tokens` while keeping the prompt fixed.
+- Slow mixed mode: compare crossing and layer count without changing the split
+  between baseline and candidate.
+- Context growth: compare f16/int8 separately; do not mix results.
 
-Non aggiungere tracing permanente per un'unica misura. Se manca attribuzione,
-preferisci un contatore temporaneo ristretto e rimuovilo prima del commit.
+Do not add permanent tracing for a single measurement. If attribution is
+missing, prefer a narrow temporary counter and remove it before committing.

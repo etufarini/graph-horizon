@@ -1,6 +1,6 @@
 <!--
-Questo catalogo classifica candidati Rust per rischio e gate richiesto; non
-autorizza modifiche né assegna risultati prestazionali.
+This catalog classifies Rust candidates by risk and required gate; it neither
+authorizes changes nor assigns performance results.
 -->
 
 # Rust Optimization Catalog (inference hot paths)

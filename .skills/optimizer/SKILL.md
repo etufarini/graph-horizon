@@ -1,4 +1,18 @@
-# optimizer.md
+---
+name: optimizer
+description: >-
+  Optimize existing implemented code while preserving approved behavior and
+  public interfaces. Use for scoped performance, resource-usage, or local
+  algorithmic-efficiency work after implementation, especially when candidates
+  must be measured and rejected unless correctness remains proven.
+---
+
+<!--
+This skill owns conservative optimization of implemented code; planning,
+feature implementation, and final verification remain separate concerns.
+-->
+
+# Optimizer
 
 This file defines the protocol the agent must follow when optimizing existing implemented code.
 
@@ -6,7 +20,7 @@ The agent following this protocol is an **optimizer** — not a planner, not a f
 
 The agent runs with minimal supervision (including overnight). Because "optimizing" is the easiest place to introduce subtle regressions, this skill is **conservative by default**: the bar to actually change code is high, and anything below it is reported as a candidate, not applied. Its default is to classify and keep going, not to stop and wait. It halts the whole run only when nothing can be optimized at all.
 
-The agent always communicates with the user in Italian. Technical identifiers (file/function/class/module names, commands, metrics, profiling output, existing project terms) may stay in English when appropriate.
+The agent always communicates with the user in English.
 
 ---
 
@@ -87,7 +101,7 @@ Unless given a narrower scope, compute the branch scope with read-only git (`git
 Inspect the in-scope files and nearby code only where needed, against the Optimization Targets: hot paths, repeated work, expensive loops, repeated I/O/queries, excessive allocations, avoidable full scans, inefficient local structures, and existing tests/benchmarks/style. Do not inspect unrelated areas unless required to understand direct calls from the optimized code.
 
 ### PHASE 3 — Plan
-Give a short plan in Italian: files to inspect, files that may be modified, suspected targets, validation/benchmark commands to run. Continue after presenting it — no approval needed.
+Give a short plan in English: files to inspect, files that may be modified, suspected targets, and validation or benchmark commands to run. Continue after presenting it; no approval is needed.
 
 ### PHASE 4 — Optimization
 Apply only findings classified as Optimization (or clearly local Correctness Risk) that meet the two-legged bar. Keep changes local; preserve behavior, public APIs, errors, ordering, validation, and security; avoid broad rewrites, speculative abstractions, and unrelated formatting; keep the code readable; prefer simple standard-library or existing-project patterns; comment only non-obvious changes. Apply the retry/never-force rule to each. Anything unsafe or unproven → Speculative, reported, untouched.
@@ -95,7 +109,7 @@ Apply only findings classified as Optimization (or clearly local Correctness Ris
 ### PHASE 5 — Validation
 Run validation that is spec-listed or project-standard, targeted to the optimized area, safe and non-destructive: format/lint/type/unit/integration/build, plus existing benchmarks and targeted microbenchmarks when the project already supports them. **For each applied change, confirm both legs:** tests still pass identically (behavior preserved) and the measurement or complexity argument holds (gain real). Fix validation failures only when local, safe, and behavior-preserving under the retry rule; otherwise revert the change and downgrade it to Speculative. If validation or benchmarking cannot run, say why — and do not auto-apply changes whose safety depended on it.
 
-### PHASE 6 — Final Report (always, in Italian)
+### PHASE 6 — Final Report (always in English)
 1. files inspected;
 2. files modified;
 3. bottlenecks / inefficiencies found;
@@ -113,6 +127,6 @@ Run validation that is spec-listed or project-standard, targeted to the optimize
 
 If the user asks the optimizer to change behavior, add features, refactor broadly, alter public APIs, introduce dependencies, change architecture, or optimize unrelated areas:
 
-> Questa richiesta supera il ruolo di optimizer. Torna al planner per aggiornare la specifica, oppure fornisci una nuova specifica approvata prima di procedere.
+> This request exceeds the optimizer role. Return to the planner to update the specification, or provide a newly approved specification before proceeding.
 
 If the request is a small safe optimization within the approved implementation area, the optimizer may proceed and document it in the final report.

@@ -5,7 +5,7 @@ documentation.
 -->
 
 <p align="center">
-  <img src="assets/graph-horizon-logo.svg" alt="Graph Horizon logo" width="220">
+  <img src="assets/graph-horizon-logo.svg?v=842e249" alt="Graph Horizon logo" width="220">
 </p>
 
 # Graph Horizon

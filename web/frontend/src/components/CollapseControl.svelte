@@ -30,7 +30,7 @@ the component that contains this control.
   title={label}
   on:click={() => dispatch('toggle')}
 >
-  <svg class="direction-{direction}" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+  <svg class="direction-{direction}" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
     <path d="m9 18 6-6-6-6" />
   </svg>
 </button>
@@ -62,12 +62,21 @@ the component that contains this control.
     box-shadow: var(--gn-focus-ring);
   }
 
+  button:active {
+    transform: translate(2px, 2px);
+    box-shadow: none;
+  }
+
   svg { transition: transform var(--gn-motion-fast) ease; }
   .direction-down { transform: rotate(90deg); }
   .direction-left { transform: rotate(180deg); }
   .direction-up { transform: rotate(270deg); }
 
   @media (max-width: 640px) {
+    button { width: var(--gn-touch-height); height: var(--gn-touch-height); }
+  }
+
+  @media (pointer: coarse) {
     button { width: var(--gn-touch-height); height: var(--gn-touch-height); }
   }
 </style>

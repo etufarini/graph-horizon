@@ -103,16 +103,13 @@
     overflow: hidden;
   }
 
-  .composer:focus-within {
-    border-color: var(--gn-accent);
-    box-shadow: var(--gn-focus-inset);
-  }
+  .composer:focus-within { border-color: var(--gn-accent); box-shadow: var(--gn-focus-inset); }
 
   textarea {
     display: block;
     width: 100%;
-    min-height: 52px;
-    max-height: 160px;
+    min-height: 72px;
+    max-height: 30dvh;
     resize: vertical;
     box-sizing: border-box;
     border: none;
@@ -146,11 +143,7 @@
     white-space: nowrap;
   }
 
-  .action-search {
-    border: var(--gn-border-width) solid var(--gn-border);
-    background: var(--gn-bg-panel-raised);
-    color: var(--gn-text-muted);
-  }
+  .action-search { border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); }
 
   .action.action-search {
     width: auto;

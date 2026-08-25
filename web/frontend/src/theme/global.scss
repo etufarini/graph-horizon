@@ -9,6 +9,12 @@ body,
   height: 100%;
 }
 
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   margin: 0;
   background: var(--gn-bg-page);
@@ -24,10 +30,9 @@ body {
 .app-shell {
   /* Fixed to the viewport height so the composer can never leave the window. */
   height: 100%;
-  box-sizing: border-box;
   display: flex;
   justify-content: center;
-  padding: var(--gn-space-lg) var(--gn-space-xl);
+  padding: var(--gn-space-md) var(--gn-space-lg);
 }
 
 /* Shared square surface for panels that do not own component-specific rules. */
@@ -74,12 +79,6 @@ summary:focus-visible {
 }
 
 @media (max-width: 900px) {
-  .app-shell {
-    padding: var(--gn-space-md);
-  }
-}
-
-@media (max-width: 640px) {
   .app-shell {
     padding: var(--gn-space-sm);
   }

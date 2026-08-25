@@ -117,11 +117,11 @@ Store access, persistence, sorting, and collection mutation are excluded.
     <div class="history-header">
       <strong>Chats</strong>
       <span>{chats.length}</span>
+      <button class="new-chat" type="button" disabled={streaming} aria-label="New chat" on:click={() => dispatch('new')}>+ New</button>
       <CollapseControl bind:element={closeButton} expanded={true} controls="chat-history"
         openLabel="Open chat history" closeLabel="Close chat history"
         expandDirection="right" collapseDirection="left" on:toggle={toggle} />
     </div>
-    <button class="new-chat" type="button" disabled={streaming} on:click={() => dispatch('new')}>New chat</button>
     <div class="chat-list">
       {#each chats as chat (chat.id)}
         <div class:active={chat.id === activeId} class="chat-row">
@@ -185,7 +185,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
   .history-header { display: flex; align-items: center; gap: var(--gn-space-xs); }
   .history-header strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); }
   .history-header > span { margin-left: auto; color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
-  .new-chat { padding: var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); }
+  .new-chat { padding: var(--gn-space-xs) var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); white-space: nowrap; }
   button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
   .new-chat:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   button:focus-visible, input:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }

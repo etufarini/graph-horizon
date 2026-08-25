@@ -30,9 +30,9 @@ selection, persistence, confirmation, and responsive panel state are excluded.
 
 <style lang="scss">
   .preview { min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }
-  header { min-width: 0; display: grid; gap: var(--gn-space-sm); padding: var(--gn-space-sm) 2px; }
-  strong { min-width: 0; overflow: hidden; color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); text-overflow: ellipsis; white-space: nowrap; }
-  .actions { display: flex; gap: var(--gn-space-xs); }
+  header { min-width: 0; display: flex; align-items: center; gap: var(--gn-space-sm); padding: var(--gn-space-xs) 2px; }
+  strong { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); text-overflow: ellipsis; white-space: nowrap; }
+  .actions { flex: 0 0 auto; display: flex; gap: var(--gn-space-xs); }
   button { min-height: var(--gn-control-height); border: var(--gn-rule-width) solid var(--gn-border); border-radius: var(--gn-radius-sm); background: var(--gn-bg-panel); padding: var(--gn-space-xs) var(--gn-space-sm); color: var(--gn-text-muted); cursor: pointer; font: 650 var(--gn-text-xs) var(--gn-font-sans); }
   button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
   button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }

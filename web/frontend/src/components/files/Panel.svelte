@@ -96,10 +96,13 @@ prompt projection, downloads, and chat lifecycle remain outside.
     on:dragleave={() => dragging = false}
     on:drop|preventDefault={dropped}>
     <header>
-      <div>
+      <div class="panel-title">
         <strong>Markdown files</strong>
         <span>{files.length} / 10</span>
       </div>
+      <button class="add" type="button" disabled={disabled || busy || !ready} aria-label="Add Markdown files" on:click={() => picker.click()}>
+        {busy ? 'Saving…' : ready ? '+ Add' : 'Loading…'}
+      </button>
       <CollapseControl
         bind:element={closeButton}
         expanded={true}
@@ -111,9 +114,6 @@ prompt projection, downloads, and chat lifecycle remain outside.
         on:toggle={toggle}
       />
     </header>
-    <button class="add" type="button" disabled={disabled || busy || !ready} on:click={() => picker.click()}>
-      {busy ? 'Saving…' : ready ? '+ Add .md' : 'Loading…'}
-    </button>
     <input type="file" accept=".md,text/markdown,text/plain" multiple bind:this={picker} on:change={picked} aria-hidden="true" tabindex="-1" />
     <p class="hint">Drop UTF-8 files here. They will provide context for future requests.</p>
     <div class="file-list" aria-label="Saved files">
@@ -135,14 +135,16 @@ prompt projection, downloads, and chat lifecycle remain outside.
   .files-shell { width: var(--gn-files-width); min-width: var(--gn-files-width); height: 100%; min-height: 0; }
   .files-shell.closed { width: var(--gn-panel-rail-width); min-width: var(--gn-panel-rail-width); }
   .files-shell.overlay { width: 0; min-width: 0; }
-  aside { width: 100%; min-width: 100%; min-height: 0; box-sizing: border-box; display: none; grid-template-rows: auto auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md); background: var(--gn-bg-panel); padding: var(--gn-space-md); }
+  aside { width: 100%; min-width: 100%; min-height: 0; display: none; grid-template-rows: auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md); background: var(--gn-bg-panel); padding: var(--gn-space-md); }
   aside.open { display: grid; }
   aside.dragging { box-shadow: var(--gn-focus-inset); background: var(--gn-bg-panel-raised); }
-  header, header div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--gn-space-sm); }
-  header strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); }
+  header, .panel-title { min-width: 0; display: flex; align-items: center; gap: var(--gn-space-sm); }
+  .panel-title { flex: 1 1 auto; }
+  .panel-title span { margin-left: auto; }
+  header strong { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); text-overflow: ellipsis; white-space: nowrap; }
   header span { color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
   button { border-radius: var(--gn-radius-sm); font-family: var(--gn-font-mono); }
-  .add { min-height: var(--gn-control-height); border: var(--gn-rule-width) solid var(--gn-accent); border-radius: var(--gn-radius-sm); background: var(--gn-accent); padding: var(--gn-space-sm); color: var(--gn-bg-panel); cursor: pointer; font-size: var(--gn-text-xs); font-weight: 700; }
+  .add { min-height: var(--gn-control-height); flex: 0 0 auto; border: var(--gn-rule-width) solid var(--gn-accent); border-radius: var(--gn-radius-sm); background: var(--gn-accent); padding: var(--gn-space-xs) var(--gn-space-sm); color: var(--gn-bg-panel); cursor: pointer; font-size: var(--gn-text-xs); font-weight: 700; white-space: nowrap; }
   .add:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   .add:disabled { background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); box-shadow: none; cursor: default; }
   button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }

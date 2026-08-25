@@ -28,7 +28,6 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   let historyOpen = false, mobile = false;
   let filesOpen = false, filesOverlay = false;
   let search: SearchSelection | null = null;
-  let systemPromptOpen = false;
   let selectedFileChat = '';
   const contextController = new AbortController();
 
@@ -139,8 +138,8 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   <section class="chat-layout" inert={(mobile && historyOpen) || (filesOverlay && filesOpen)}>
     <Header {runtimeInfo} />
 
-    <div class:tools-open={systemPromptOpen} class="chat-tools">
-      <SystemPrompt bind:open={systemPromptOpen} value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
+    <div class="chat-tools">
+      <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
       <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
     </div>
     <Transcript {messages} {streaming} searchEnabled={runtimeContext !== null} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
@@ -171,13 +170,15 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     gap: var(--gn-space-sm);
   }
   .chat-tools { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gn-space-sm); }
-  .chat-tools.tools-open { grid-template-columns: 1fr; }
-  .tools-open :global(.session-actions) { justify-content: flex-start; }
   .feedback { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--gn-space-sm); }
   .persistence-warning {
     grid-column: 1 / -1;
     border: var(--gn-rule-width) solid var(--gn-warning); border-radius: var(--gn-radius-sm); background: var(--gn-warning-bg);
     padding: var(--gn-space-sm); color: var(--gn-warning);
     font-size: var(--gn-text-sm); font-weight: 600;
+  }
+  @media (max-width: 520px) {
+    .chat-tools { grid-template-columns: 1fr; }
+    .chat-tools :global(.session-actions) { justify-content: flex-start; }
   }
 </style>

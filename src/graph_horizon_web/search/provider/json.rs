@@ -74,7 +74,9 @@ fn parse(body: &str, request: &Request) -> Result<Vec<SearchResult>, Error> {
             std::iter::once(result.excerpt.as_str()),
             MAX_EXCERPT_CHARACTERS,
         );
-        let url = result_url(&result.url, "https://invalid.example/", false);
+        let Some(url) = result_url(&result.url, "https://invalid.example/", false) else {
+            continue;
+        };
         let publisher = result
             .publisher
             .map(|value| normalized(std::iter::once(value.as_str()), MAX_PUBLISHER_CHARACTERS))
@@ -82,13 +84,13 @@ fn parse(body: &str, request: &Request) -> Result<Vec<SearchResult>, Error> {
         push(
             &mut results,
             &mut urls,
-            url.map(|url| SearchResult {
+            SearchResult {
                 title,
                 url,
                 excerpt,
                 publisher,
                 published_at_ms: result.published_at_ms,
-            }),
+            },
             request.published(),
         );
         if results.len() == MAX_RESULTS {

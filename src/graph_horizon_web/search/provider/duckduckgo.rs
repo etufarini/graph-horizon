@@ -103,13 +103,13 @@ fn parse(html: &str, request: &Request) -> Vec<SearchResult> {
         push(
             &mut results,
             &mut urls,
-            Some(SearchResult {
+            SearchResult {
                 title,
                 url,
                 excerpt,
                 publisher,
                 published_at_ms,
-            }),
+            },
             request.published(),
         );
         if results.len() == MAX_RESULTS {

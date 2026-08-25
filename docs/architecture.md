@@ -96,9 +96,9 @@ uploaded into product storage or indexed by a retrieval service.
 Search is the only optional non-local Web path. The Rust host invokes `curl`
 without a shell and dispatches an explicit Web request to DuckDuckGo Lite or an
 explicit News request to Google News RSS. `--search-url` replaces that fixed
-dispatch with one JSON endpoint. The browser chooses the category, exact
-displayed query, and optional calendar interval; no term classification or
-cross-provider fallback changes that choice. Strict parsing keeps provenance
+dispatch with one JSON endpoint. The browser chooses the category and exact
+displayed query; no term classification or cross-provider fallback changes
+that choice. Strict parsing keeps provenance
 separate from snippets and requires timestamp proof for dated results. The
 bounded transport follows no redirects and never fetches a result URL. Search
 excerpts exist only in the engine-request copy. Structured provenance is stored

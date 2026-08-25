@@ -237,11 +237,10 @@ only when its chat and assistant identity still match, so a late event from an
 obsolete request cannot overwrite the current turn. This invalidation is
 deterministic even when the visible query text did not change.
 
-Enabling search sends the displayed query, language hint, selected interval,
-and public source IP to DuckDuckGo, Google News, or the configured override. An
-override also receives category and local reference date in its structured
-body. Inference, system prompt, chat history, files, and stored archives remain
-local.
+Enabling search sends the displayed query, category, language hint, local
+reference date, and public source IP to DuckDuckGo, Google News, or the
+configured override. Inference, system prompt, chat history, files, and stored
+archives remain local.
 
 The keyless behavior is a concrete dependency on public result pages and feeds,
 not a service-level agreement. Their markup, availability, rate limits, result

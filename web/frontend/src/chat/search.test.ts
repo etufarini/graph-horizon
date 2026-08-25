@@ -1,11 +1,10 @@
-/* Provider-neutral search request tests use fixed local calendar values only. */
+/* Provider-neutral search request tests preserve exact terms without date UI. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { defaultSearch, validSearch, wireSearch } from './search.ts';
 
 const now = new Date(2026, 7, 24, 12);
-const ms = (year: number, month: number, day: number) => new Date(year, month - 1, day).getTime();
 
 test('any-time Web search preserves arbitrary-language terms', () => {
   const terms = 'noticias de hace diez días error class latest';
@@ -17,34 +16,19 @@ test('any-time Web search preserves arbitrary-language terms', () => {
   assert.ok(request.language.length >= 2);
 });
 
-test('calendar presets produce exact half-open intervals', () => {
+test('new browser searches never add a publication range', () => {
+  const terms = 'Notizie Tuscania (VT, Italia) ultima settimana';
   for (const category of ['web', 'news'] as const) {
-    for (const [period, from_ms, to_ms] of [
-      ['day', ms(2026, 8, 24), ms(2026, 8, 25)],
-      ['week', ms(2026, 8, 18), ms(2026, 8, 25)],
-      ['month', ms(2026, 7, 26), ms(2026, 8, 25)]
-    ] as const) {
-      const selection = { ...defaultSearch(), period, category };
-      assert.deepEqual(wireSearch('query', selection, now)?.published, { from_ms, to_ms });
-    }
+    const selection = { ...defaultSearch(), category };
+    const request = wireSearch(terms, selection, now)!;
+    assert.equal(request.terms, terms);
+    assert.equal(request.category, category);
+    assert.equal(request.published, null);
   }
 });
 
-test('custom dates are inclusive in the UI and exclusive on the wire', () => {
-  const selection = {
-    ...defaultSearch(),
-    category: 'news' as const,
-    period: 'custom' as const,
-    from: '2026-08-14',
-    to: '2026-08-14'
-  };
-  assert.equal(validSearch(selection), true);
-  assert.deepEqual(wireSearch('query', selection, now)?.published, {
-    from_ms: ms(2026, 8, 14),
-    to_ms: ms(2026, 8, 15)
-  });
-
-  assert.equal(validSearch({ ...selection, from: '2026-02-29' }), false);
-  assert.equal(validSearch({ ...selection, from: '2026-08-15' }), false);
-  assert.equal(validSearch({ ...selection, from: '9999-12-31', to: '9999-12-31' }), false);
+test('selection validation only bounds the optional explicit query', () => {
+  assert.equal(validSearch(defaultSearch()), true);
+  assert.equal(validSearch({ ...defaultSearch(), query: 'x'.repeat(512) }), true);
+  assert.equal(validSearch({ ...defaultSearch(), query: 'x'.repeat(513) }), false);
 });

@@ -1,8 +1,8 @@
 <script lang="ts">
-  /* Explicit Web-search category and calendar scope; query interpretation and
-     transport remain outside this presentation component. */
+  /* Explicit Web-search query and category; query interpretation and transport
+     remain outside this presentation component. */
   import { createEventDispatcher } from 'svelte';
-  import type { SearchCategory, SearchPeriod, SearchSelection } from '../chat/types';
+  import type { SearchCategory, SearchSelection } from '../chat/types';
 
   export let value: SearchSelection;
   export let provider: string;
@@ -11,14 +11,6 @@
 
   function category(event: Event): void {
     change({ category: (event.currentTarget as HTMLSelectElement).value as SearchCategory });
-  }
-
-  function period(event: Event): void {
-    change({ period: (event.currentTarget as HTMLSelectElement).value as SearchPeriod });
-  }
-
-  function date(field: 'from' | 'to', event: Event): void {
-    change({ [field]: (event.currentTarget as HTMLInputElement).value });
   }
 
   function query(event: Event): void {
@@ -49,27 +41,7 @@
       <option value="news">News</option>
     </select>
   </label>
-  <label>
-    <span>Published</span>
-    <select value={value.period} on:change={period}>
-      <option value="any">Any time</option>
-      <option value="day">Today</option>
-      <option value="week">Last 7 days</option>
-      <option value="month">Last 30 days</option>
-      <option value="custom">Custom dates</option>
-    </select>
-  </label>
-  {#if value.period === 'custom'}
-    <label>
-      <span>From</span>
-      <input type="date" value={value.from} on:input={event => date('from', event)} />
-    </label>
-    <label>
-      <span>To</span>
-      <input type="date" value={value.to} min={value.from || undefined} on:input={event => date('to', event)} />
-    </label>
-  {/if}
-  <p>Only this query is sent to {provider}; the conversation and files stay local.</p>
+  <p>{value.category === 'news' ? 'Use concise keywords for focused News results. ' : ''}Only this query is sent to {provider}; the conversation and files stay local.</p>
 </fieldset>
 
 <style lang="scss">

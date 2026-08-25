@@ -1,23 +1,18 @@
 /*
  * Provider-neutral browser search options.
- * Validates explicit category and calendar controls, then builds the strict
- * wire request without interpreting or rewriting the user's terms.
+ * Validates the explicit category and optional query, then builds the strict
+ * range-free wire request without interpreting or rewriting the user's terms.
  */
 import type { SearchReport, SearchSelection, SearchSource, WireSearch } from './types.ts';
 
 const MAX_TIMESTAMP_BOUND_MS = 253_402_300_800_000;
 
 export function defaultSearch(): SearchSelection {
-  return { query: '', category: 'web', period: 'any', from: '', to: '' };
+  return { query: '', category: 'web' };
 }
 
 export function validSearch(selection: SearchSelection): boolean {
-  if (Array.from(selection.query.trim()).length > 512) return false;
-  if (selection.period !== 'custom') return true;
-  const from = parseDate(selection.from);
-  const to = parseDate(selection.to);
-  return from !== null && to !== null && selection.from <= selection.to &&
-    selection.from >= '1970-01-01' && selection.to < '9999-12-31';
+  return Array.from(selection.query.trim()).length <= 512;
 }
 
 export function wireSearch(
@@ -28,23 +23,14 @@ export function wireSearch(
   const query = terms.trim();
   if (!query || Array.from(query).length > 512 || !validSearch(selection)) return null;
   const reference = localDate(now);
-  let published: WireSearch['published'] = null;
-  if (selection.period === 'day') {
-    published = interval(dayStart(now), addDays(dayStart(now), 1));
-  } else if (selection.period === 'week') {
-    published = interval(addDays(dayStart(now), -6), addDays(dayStart(now), 1));
-  } else if (selection.period === 'month') {
-    published = interval(addDays(dayStart(now), -29), addDays(dayStart(now), 1));
-  } else if (selection.period === 'custom') {
-    const inclusiveTo = parseDate(selection.to)!;
-    published = interval(parseDate(selection.from)!, addDays(inclusiveTo, 1));
-  }
   return {
     terms: query,
     category: selection.category,
     language: browserLanguage(),
     reference_date: reference,
-    published
+    // Retain the private wire field for compatibility; the simplified UI no
+    // longer turns natural-language time intent into provider date syntax.
+    published: null
   };
 }
 
@@ -159,14 +145,6 @@ function exact(value: Record<string, unknown>, keys: string[]): boolean {
   return actual.length === keys.length && keys.every(key => actual.includes(key));
 }
 
-function interval(from: Date, to: Date): NonNullable<WireSearch['published']> {
-  return { from_ms: from.getTime(), to_ms: to.getTime() };
-}
-
-function dayStart(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
 function browserLanguage(): string {
   const language = globalThis.navigator?.language || 'en-US';
   try {
@@ -182,12 +160,6 @@ function parseDate(value: string): Date | null {
   const date = new Date(2000, Number(match[2]) - 1, Number(match[3]));
   date.setFullYear(Number(match[1]));
   return localDate(date) === value ? date : null;
-}
-
-function addDays(date: Date, days: number): Date {
-  // Local calendar arithmetic preserves the user's definition of each day
-  // across daylight-saving transitions.
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
 
 function localDate(date: Date): string {

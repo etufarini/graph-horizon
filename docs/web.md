@@ -137,18 +137,19 @@ The composer shows the exact query that will leave the process. An empty search
 query means “use the visible message”; otherwise the explicit query is used.
 System text, prior messages, Markdown files, and the rest of the prompt never
 enter it. The query is trimmed and limited to 512 Unicode code points. The user
-also chooses `web` or `news` plus any time, today, the last 7 or 30 local calendar
-days, or an inclusive custom date range. Calendar boundaries are transmitted as
-a half-open interval of Unix milliseconds derived from local midnights. Category
-and terms are never inferred or rewritten.
+chooses only `web` or `news`; publication periods remain natural-language intent
+in the visible prompt rather than a second set of calendar controls. Category
+and terms are never inferred or rewritten. Concise explicit keywords remain
+available when a full conversational prompt is too restrictive for a provider.
 
 The host translates that validated request into one fixed provider request.
-DuckDuckGo receives an HTTPS form request containing the terms, locale, strict
-safe-search setting, and optional date filter. Google News receives an HTTPS RSS
-request containing the same explicit terms, locale, and an optional broadened
-date query. Graph Horizon then reapplies the original exact half-open interval:
-a dated result without a usable timestamp, or outside the interval, is dropped.
-This local check is authoritative even when a provider's date filter is coarse.
+New browser requests send `published: null`, so DuckDuckGo and Google News
+receive the exact terms and locale without generated date syntax. Search
+evidence retains each usable publication timestamp and the browser-local
+reference date. The model is instructed to apply any period expressed in the
+user request against those dates, ignore sources outside it, and report when the
+remaining evidence is insufficient. Historical provenance containing an exact
+range remains valid on restore and import.
 
 `--search-url` is the advanced alternative. It replaces both built-in routes
 with one JSON endpoint; `--search-key-file` optionally supplies its bearer
@@ -161,7 +162,7 @@ token. Graph Horizon sends the endpoint one POST with
   "category": "news",
   "language": "it-IT",
   "reference_date": "2026-08-24",
-  "published": { "from_ms": 1787522400000, "to_ms": 1787608800000 }
+  "published": null
 }
 ```
 

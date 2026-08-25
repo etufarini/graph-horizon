@@ -96,5 +96,5 @@ approximation marker remains visible because the estimate is not tokenizer
 output. The percentage may exceed 100%; its accessible graphical value and fill
 are clamped to 100.
 
-See [console.md](console.md) for the terminal label and [web.md](web.md) for the
+See [terminal interface](../command-line/terminal-interface.md) for the terminal label and [browser chat interface](../web-interface/browser-chat-interface.md) for the
 browser bar, colors, and timing presentation.

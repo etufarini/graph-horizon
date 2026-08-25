@@ -1,10 +1,10 @@
 <!--
-This document owns the interactive console lifecycle, controls, rendering,
+This document owns the interactive terminal lifecycle, controls, rendering,
 derived THINK section, and compact status. Capacity arithmetic is delegated to
 the canonical context contract.
 -->
 
-# Console: TUI, Streaming, And Status Bar
+# Terminal Interface
 
 The TUI lives under `src/graph_horizon_cli/console/`, loads the selected model
 in-process, and alternates between input and streaming.
@@ -13,7 +13,8 @@ in-process, and alternates between input and streaming.
 
 1. **Input**: editing, history, completion, and scrolling. Empty input is ignored.
 2. **Admission**: attachment expansion, complete request assembly, and the
-   checked capacity gate from [context.md](context.md).
+   checked capacity gate from
+   [context-capacity-and-admission.md](../engine/context-capacity-and-admission.md).
 3. **Streaming**: request opening, incremental text consumption, and periodic rendering.
 
 A completed non-empty turn enters model history as the raw user prompt and raw
@@ -38,7 +39,8 @@ commits the raw `@path` spelling.
 | `Esc` | Closes the application |
 
 Typing after recalling a prompt separates the draft from history. Completion is
-described in [commands.md](commands.md).
+described in
+[slash-commands-and-file-attachments.md](slash-commands-and-file-attachments.md).
 
 ## Keyboard During Streaming
 

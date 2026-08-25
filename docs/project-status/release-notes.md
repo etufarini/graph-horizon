@@ -1,11 +1,13 @@
 <!--
-These notes describe unreleased user-facing changes and the released v0.1.2
-contract. Qualification mechanics belong in docs/validation.md.
+These notes describe unreleased and released user-facing changes. Qualification
+mechanics belong in `docs/project-status/validation-evidence.md`.
 -->
 
-# Unreleased
+# Release Notes
 
-# Graph Horizon v0.1.2
+## Unreleased
+
+## Graph Horizon v0.1.2
 
 Graph Horizon v0.1.2 adds explicit Web and News search to the integrated Web UI.
 DuckDuckGo Lite serves Web requests and Google News RSS serves News requests
@@ -36,9 +38,9 @@ curl --fail --location --silent --show-error https://raw.githubusercontent.com/e
 The model/backend qualification evidence remains attached to immutable
 `v0.1.0`; v0.1.2 does not relabel that historical campaign as a new numerical
 qualification. The accepted artifacts remain the six exact Ministral 3 2512
-Q4_K_M files listed in [validation.md](validation.md).
+Q4_K_M files listed in [validation evidence](validation-evidence.md).
 
-# Graph Horizon v0.1.1
+## Graph Horizon v0.1.1
 
 Graph Horizon v0.1.1 is a packaging patch for the local text-to-text runtime.
 It corrects the installed Web UI without changing numeric engine operations,
@@ -72,7 +74,7 @@ Web smoke served the frontend from outside the checkout and completed a real
 The model/backend qualification evidence remains attached to immutable
 `v0.1.0`; v0.1.1 does not relabel that historical campaign as a new numerical
 qualification. The accepted artifacts remain the six exact Ministral 3 2512
-Q4_K_M files listed in [validation.md](validation.md).
+Q4_K_M files listed in [validation evidence](validation-evidence.md).
 
 Known limitations remain unchanged: one generation at a time; compile-time
 backend selection; no runtime fallback; no tools, multimodal input, or separate

@@ -4,7 +4,7 @@ optimizations and their measured boundaries. Detailed experiment logs remain
 available in Git history.
 -->
 
-# Current Optimization State
+# Current Performance Status
 
 ## Scope
 
@@ -38,8 +38,8 @@ pushed and integrated as follows.
 The package version is `0.1.2`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 and `v0.1.2` adds explicit Web and News search plus the revised Web workspace.
-[`validation.md`](validation.md) owns all tag-derived identities and their
-distinct evidence boundaries.
+[Validation evidence](validation-evidence.md) owns all tag-derived identities
+and their distinct evidence boundaries.
 
 ## Retained Improvements
 
@@ -180,8 +180,8 @@ than in the working documentation.
 ## Remaining Limit
 
 Fresh RTX 3060 long-context profiling is recorded in
-[the NVIDIA prefill checkpoint](vulkan-nvidia-long-context-prefill.md) and
-[the NVIDIA decode checkpoint](vulkan-nvidia-long-context-decode.md).
+[the NVIDIA prefill checkpoint](../investigation-reports/vulkan-nvidia-long-context-prefill.md) and
+[the NVIDIA decode checkpoint](../investigation-reports/vulkan-nvidia-long-context-decode.md).
 The motivating 15,435-token prefill symptom no longer reproduces: fresh 8B
 all-GPU hybrid TTFT is 22.062 s at 699.63 tok/s, and the matching 14B/16K
 capacity row is 33.945 s. Current 512-row timestamps attribute 8B/28K prefill
@@ -210,14 +210,14 @@ other work 0.77%. Four history splits regressed about 39%, larger Q4/Q6 tiles
 regressed, exact Q6 staging gained only 2.15% historically, and lossy Q6 failed
 quality. The detailed route, Amdahl model, thermal tradeoff, model controls, and
 stop decision are in
-[the AMD prefill checkpoint](vulkan-amd-long-context-prefill.md). Long
+[the AMD prefill checkpoint](../investigation-reports/vulkan-amd-long-context-prefill.md). Long
 decode retains wave32 GQA/Q6 and remains guarded through KV depth 28K.
 
 CPU prefill remains dominated by attention and quantized matrix multiplication;
 the next material designs require new packed-GEMM or query-tiled-attention
 subsystems. Metal's retained pipelined C64 QK schedule removes 44.4% of 15K
 attention time; the complete evidence is in
-[the Metal prefill checkpoint](metal-long-context-prefill-optimization.md).
+[the Metal prefill checkpoint](../investigation-reports/metal-long-context-prefill.md).
 The remaining Metal gap is exact attention's quadratic term, but grouped GQA,
 wider/split ownership, PV pipelining, and head-major KV have the wrong measured
 sign or fail to reproduce. INT8 remains on its correct separate non-tiled route.

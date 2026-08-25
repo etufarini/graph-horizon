@@ -595,7 +595,7 @@ The 3B Reasoning miss is S10's understandable but non-idiomatic Italian phrase
 cases, and the aggregate semantic gate all pass. The runner summary is six
 qualified, zero not-qualified, zero external. This current result does not
 silently rewrite the release record's historical support status; release policy
-still belongs to `docs/validation.md` and requires its own final qualification.
+still belongs to `docs/project-status/validation-evidence.md` and requires its own final qualification.
 
 ### Performance preservation
 
@@ -859,4 +859,4 @@ lineage was pushed and merged by PR #41. The final tag-derived campaign then
 qualified all six model entries semantically and completed every locally
 available technical-matrix row without failure. The immutable annotated
 `v0.1.0` tag and its GitHub Release are published; current terminal status is
-owned by [`validation.md`](validation.md), not this cleanup snapshot.
+owned by [validation evidence](../project-status/validation-evidence.md), not this cleanup snapshot.

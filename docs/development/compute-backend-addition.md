@@ -8,7 +8,7 @@ defines implementation boundaries and evidence gates, not current support scope.
 This process applies when adding a hardware-facing implementation to
 `graph_horizon_engine`. It does not claim that a proposed backend is supported. Current
 build features and support limits remain in the
-[engine documentation](../crates/graph_horizon_engine/README.md).
+[engine documentation](../../crates/graph_horizon_engine/README.md).
 
 Backend selection is currently a build-time contract. Runtime backend switching
 must not be introduced unless it is the explicitly approved feature.
@@ -125,7 +125,7 @@ Cargo feature and build-profile conditions gate availability, dependencies,
 and loaders; they must not select a numeric operation variant. A placement
 exception must be local to one operation, selected from immutable effective
 `Mixed` placement, and backed by a terminal `keep` result from the
-[performance investigation process](performance-investigation-process.md).
+[performance investigation process](performance-investigation.md).
 Backend-wide or profile-wide numeric exceptions are prohibited.
 
 ## Phase 5: Integrate Loading And Combined Modes
@@ -141,7 +141,7 @@ not retry with a different split after observing an error.
 
 Adding a backend does not add a model family. Validate every family and profile
 claimed for the backend through the
-[model addition process](model-addition-process.md).
+[model addition process](model-support-addition.md).
 
 ## Phase 6: Run Synthetic Gates
 
@@ -205,7 +205,7 @@ throughput, and capacity failures. Performance does not override correctness.
 
 ## Phase 9: Assign Support Status
 
-Use the definitions in the [backend contract](backend.md#support-status). Build
+Use the definitions in the [backend contract](../engine/backend-support-status.md#support-status). Build
 or installer availability alone never assigns a status.
 
 - Assign **reference** only when the backend is intentionally the canonical
@@ -223,7 +223,7 @@ A combined profile is promoted independently from its component backends. Its
 all-device and all-host endpoints may inherit their numeric paths, but true
 mixed placement must complete its own real-model campaign before the profile
 becomes production. A status change updates the normative backend table and its
-public summaries in the same change; `docs/validation.md` remains the evidence
+public summaries in the same change; `docs/project-status/validation-evidence.md` remains the evidence
 register rather than the status authority.
 
 ## Documentation And Evidence
@@ -233,8 +233,8 @@ Before claiming support, update:
 - the engine README support table and limitations;
 - root configuration and installation instructions;
 - `support/install.sh` and profiling or validation scripts, when applicable;
-- `docs/validation.md` with one terminal state per approved matrix row;
-- [backend.md](backend.md) and benchmark notes when their current contracts change.
+- `docs/project-status/validation-evidence.md` with one terminal state per approved matrix row;
+- [backend support status](../engine/backend-support-status.md) and benchmark notes when their current contracts change.
 
 Do not list speculative platforms, SDKs, devices, or formats as supported. A
 future backend may be discussed only as an example until its implementation and

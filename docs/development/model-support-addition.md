@@ -174,7 +174,7 @@ After acceptance, update:
 - the engine README support contract;
 - `support/models.tsv` and operational scripts when the catalog changes;
 - runtime flags only when their behavior changes;
-- `docs/validation.md` with artifact, matrix, thresholds and results;
+- `docs/project-status/validation-evidence.md` with artifact, matrix, thresholds and results;
 - benchmark notes when performance was measured;
 - this process only when the reusable method changes.
 

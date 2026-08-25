@@ -12,7 +12,7 @@ authenticate an artifact, compare revisions, or assign a performance verdict.
 Focused temporary instrumentation may supplement it under the performance
 investigation process when a task requires phase or GPU attribution.
 
-The [performance investigation process](performance-investigation-process.md)
+The [performance investigation process](performance-investigation.md)
 owns tuple authentication, A/B comparability, thresholds, correctness gates,
 time budget, and terminal states.
 

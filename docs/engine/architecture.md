@@ -31,10 +31,10 @@ code. Both surfaces load it in-process and run one local generation at a time.
 
 | Domain | Responsibility | Reference |
 |---|---|---|
-| `app` | Parses a closed flag table, validates common options, and selects `cli` or `web` | [configuration.md](configuration.md) |
-| `graph_horizon_cli` | Manages input, history, transcripts, attachments, and local generation | [console.md](console.md), [commands.md](commands.md) |
-| `graph_horizon_web` | Serves bundled assets and owns private browser generation plus optional bounded search | [web.md](web.md) |
-| `graph_horizon_engine` | Validates a supported GGUF and runs prefill/decode on the compiled backend | [backend.md](backend.md) |
+| `app` | Parses a closed flag table, validates common options, and selects `cli` or `web` | [runtime options](../command-line/runtime-options.md) |
+| `graph_horizon_cli` | Manages input, history, transcripts, attachments, and local generation | [terminal interface](../command-line/terminal-interface.md), [slash commands and file attachments](../command-line/slash-commands-and-file-attachments.md) |
+| `graph_horizon_web` | Serves bundled assets and owns private browser generation plus optional bounded search | [local Web interface](../web-interface/README.md) |
+| `graph_horizon_engine` | Validates a supported GGUF and runs prefill/decode on the compiled backend | [backend support status](backend-support-status.md) |
 
 `main` installs error handling and parses flags before a model or surface is
 initialized. `app::run` validates common engine options and dispatches exactly
@@ -125,4 +125,4 @@ family -> runtime <- backend
 
 Static backend selection keeps each build to one dependency and resource
 policy. Supported families, profiles, and the Rust library facade are defined
-in the [engine crate contract](../crates/graph_horizon_engine/README.md).
+in the [engine crate contract](../../crates/graph_horizon_engine/README.md).

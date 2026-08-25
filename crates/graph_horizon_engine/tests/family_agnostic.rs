@@ -321,56 +321,59 @@ fn docs_contract() {
     let readme = fs::read_to_string(root.join("README.md")).expect("root README");
     let engine = fs::read_to_string(root.join("crates/graph_horizon_engine/README.md"))
         .expect("engine README");
-    let backend = fs::read_to_string(root.join("docs/backend.md")).expect("backend docs");
-    let config =
-        fs::read_to_string(root.join("docs/configuration.md")).expect("configuration docs");
+    let models = fs::read_to_string(root.join("docs/supported-models-and-formats.md"))
+        .expect("supported-model docs");
+    let backend = fs::read_to_string(root.join("docs/engine/backend-support-status.md"))
+        .expect("backend support docs");
+    let runtime = fs::read_to_string(root.join("docs/command-line/runtime-options.md"))
+        .expect("runtime option docs");
     let architecture =
-        fs::read_to_string(root.join("docs/architecture.md")).expect("architecture docs");
-    let ownership = fs::read_to_string(root.join("crates/graph_horizon_engine/src/README.md"))
-        .expect("source ownership");
-    let support = fs::read_to_string(root.join("support/README.md")).expect("support docs");
-    let validation =
-        fs::read_to_string(root.join("docs/validation.md")).expect("validation register");
-    let kv = fs::read_to_string(root.join("docs/kv-quant-mistral-validation.md"))
-        .expect("KV validation docs");
+        fs::read_to_string(root.join("docs/engine/architecture.md")).expect("architecture docs");
+    let ownership =
+        fs::read_to_string(root.join("crates/graph_horizon_engine/src/module-ownership.md"))
+            .expect("source ownership");
+    let support = fs::read_to_string(root.join("support/script-command-reference.md"))
+        .expect("support script docs");
+    let validation = fs::read_to_string(root.join("docs/project-status/validation-evidence.md"))
+        .expect("validation evidence");
+    let kv = fs::read_to_string(root.join("docs/development/ministral-kv-cache-validation.md"))
+        .expect("KV validation process");
     let args = fs::read_to_string(root.join("src/app/args.rs")).expect("runtime arguments");
     let readme_flat = readme.split_whitespace().collect::<Vec<_>>().join(" ");
     let engine_flat = engine.split_whitespace().collect::<Vec<_>>().join(" ");
+    let models_flat = models.split_whitespace().collect::<Vec<_>>().join(" ");
     let backend_flat = backend.split_whitespace().collect::<Vec<_>>().join(" ");
-    let config_flat = config.split_whitespace().collect::<Vec<_>>().join(" ");
+    let runtime_flat = runtime.split_whitespace().collect::<Vec<_>>().join(" ");
     let architecture_flat = architecture
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
     let support_flat = support.split_whitespace().collect::<Vec<_>>().join(" ");
 
-    for required in [
-        "only Ministral 3 2512 `Q4_K_M` GGUF files",
-        "final v0.1.0 campaign authenticated all six entries",
-        "qualified all six artifacts in the semantic gate",
-        "A Q8 profile is rejected before backend allocation",
-        "maximum possible contiguous GPU suffix",
-        "Reasoning output, including `[THINK]` and `[/THINK]`, remains ordinary raw text",
-        "lesser of 32,768 tokens and the GGUF context maximum",
-        "floor(MemAvailable × 90 / 100)",
+    for entrypoint in [
+        "docs/installation.md",
+        "docs/command-line/runtime-options.md",
+        "docs/supported-models-and-formats.md",
+        "docs/web-interface/README.md",
+        "docs/engine/backend-support-status.md",
+        "docs/project-status/validation-evidence.md",
     ] {
         assert!(
-            readme_flat.contains(required),
-            "root README missing contract phrase: {required}"
+            readme.contains(entrypoint),
+            "root README missing entry point: {entrypoint}"
         );
     }
+    assert!(models_flat.contains("Ministral 3 Instruct and Reasoning 2512"));
+    assert!(models_flat.contains("Only the public `Q4_K_M` profile is accepted"));
+    assert!(models_flat.contains("Q8, are rejected before backend allocation"));
     assert!(engine_flat.contains("synthetic suite"));
     assert!(engine_flat.contains("EngineConfig.context_tokens = None"));
     assert!(engine_flat.contains("floor(MemAvailable × 90 / 100)"));
     assert!(engine_flat.contains("src/family/mistral/version.rs"));
     assert!(engine_flat.contains("The only public GGUF profile is `Q4_K_M`"));
     assert!(engine_flat.contains("`GgmlType::Q8_0`"));
-    assert!(backend_flat.contains("Build Backends"));
-    assert!(backend_flat.contains("The library crate has no default feature"));
-    assert!(
-        backend_flat.contains("exactly three numeric backend families: CPU, Vulkan, and Metal")
-    );
-    assert!(backend_flat.contains("public composition profiles, not numeric backend families"));
+    assert!(backend_flat.contains("three numeric backend families: CPU, Vulkan, and Metal"));
+    assert!(backend_flat.contains("composition profiles, not additional numeric backend families"));
     for status in [
         "| `cpu` | **reference** |",
         "| `vulkan` | **production** |",
@@ -378,30 +381,37 @@ fn docs_contract() {
         "| `metal` | **qualified** |",
         "| `metal-hybrid` | **qualified** |",
     ] {
-        assert!(readme.contains(status), "root README missing {status}");
-        assert!(engine.contains(status), "engine README missing {status}");
         assert!(
             backend.contains(status),
             "backend contract missing {status}"
         );
     }
-    assert!(
-        config.contains(
-            "Build acceptance does not assign production, qualified, or reference status"
-        )
-    );
-    assert!(
-        backend_flat
-            .contains("Capability-specific wider routes include their scratch in admission")
-    );
-    assert!(config_flat.contains("Graph Horizon supports exactly two modes"));
-    assert!(config_flat.contains("`--context-tokens <n>`"));
+    assert!(runtime_flat.contains("Graph Horizon supports exactly two modes"));
     assert!(ownership.contains("family/mistral/version.rs"));
-    assert!(config_flat.contains("`--vram-weights-percent <n>`"));
-    assert!(kv.contains("contesto `4096`"));
+    let production_args = args.split("#[cfg(test)]").next().unwrap();
+    let flag_block = production_args
+        .split("const FLAGS")
+        .nth(1)
+        .and_then(|rest| rest.split("];").next())
+        .expect("runtime flag table");
+    for line in flag_block.lines() {
+        let Some(flag) = line
+            .trim()
+            .strip_suffix(',')
+            .and_then(|line| line.strip_prefix('"'))
+            .and_then(|line| line.strip_suffix('"'))
+        else {
+            continue;
+        };
+        assert!(
+            runtime.contains(&format!("`{flag} <")),
+            "runtime option docs missing {flag}"
+        );
+    }
+    assert!(kv.contains("context `4096`"));
     assert!(kv.contains("cpu_layers"));
     assert!(kv.contains("gpu_layers"));
-    assert!(kv.contains("non dichiara superate prove che non sono state eseguite"));
+    assert!(kv.contains("does not claim that an unexecuted check passed"));
     assert!(engine_flat.contains("`general.name`. The latter selects only the chat policy"));
     assert!(engine_flat.contains("`tokenizer.chat_template` is not executed"));
     assert!(engine_flat.contains(
@@ -416,14 +426,15 @@ fn docs_contract() {
     assert!(ownership.contains("family/mistral/tokenizer/profile.rs"));
     assert!(ownership.contains("family/mistral/parity.rs"));
     assert!(support_flat.contains("parity-check.sh --models-dir DIR --model-id ID"));
-    assert!(support_flat.contains("Tenta 74 righe seriali"));
-    assert!(support_flat.contains("sequenza completa di 16 `local_ids`"));
-    let addition = fs::read_to_string(root.join("docs/backend-addition-process.md"))
+    assert!(support_flat.contains("matrix attempts 74 serial rows"));
+    assert!(support_flat.contains("complete sequence of 16 `local_ids`"));
+    let addition = fs::read_to_string(root.join("docs/development/compute-backend-addition.md"))
         .expect("backend addition process");
     assert!(addition.contains("must not select a numeric operation variant"));
     assert!(addition.contains("local to one operation"));
-    let performance = fs::read_to_string(root.join("docs/performance-investigation-process.md"))
-        .expect("performance process");
+    let performance =
+        fs::read_to_string(root.join("docs/development/performance-investigation.md"))
+            .expect("performance process");
     let performance_flat = performance.split_whitespace().collect::<Vec<_>>().join(" ");
     assert!(performance.contains("terminal state `keep`"));
     assert!(
@@ -436,17 +447,17 @@ fn docs_contract() {
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    assert!(validation.contains("Graph Horizon `v0.1.2` è stato rilasciato"));
-    assert!(validation.contains("Il tag `v0.1.0`"));
-    assert!(validation.contains("suoi asset restano immutati"));
+    assert!(validation.contains("Graph Horizon `v0.1.2` was released"));
+    assert!(validation.contains("The `v0.1.0` tag"));
+    assert!(validation.contains("assets retain the historical numeric qualification"));
     assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
-    assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
-    assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 due volte | QUALIFIED |"));
+    assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | QUALIFIED |"));
+    assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 twice | QUALIFIED |"));
     assert!(validation.contains(
-        "| 8B Reasoning | 9/9, 9/9, 8/9; byte divergenti | 16/16 due volte | NOT SUPPORTED |"
+        "| 8B Reasoning | 9/9, 9/9, 8/9; divergent bytes | 16/16 twice | NOT SUPPORTED |"
     ));
-    assert!(validation.contains("tag annotato immutabile `v0.1.0`"));
-    let production_args = args.split("#[cfg(test)]").next().unwrap();
+    assert!(validation.contains("annotated `v0.1.0` tag"));
+    assert!(validation.contains("`v0.1.0` is never moved"));
     assert!(
         !production_args.contains("--think"),
         "runtime argument table exposes --think"
@@ -468,7 +479,14 @@ fn docs_contract() {
 
 fn assert_local_markdown_links(root: &Path) {
     let output = Command::new("git")
-        .args(["ls-files", "--", "*.md"])
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            "*.md",
+        ])
         .current_dir(root)
         .output()
         .expect("list tracked Markdown");

@@ -25,19 +25,18 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   let runtimeContext: RuntimeContext | null = null;
   let runtimeInfo: RuntimeInfo | null = null;
   let configurationError: string | null = null;
-  let historyOpen = false;
-  let mobile = false;
-  let filesOpen = false;
-  let filesOverlay = false;
+  let historyOpen = false, mobile = false;
+  let filesOpen = false, filesOverlay = false;
   let search: SearchSelection | null = null;
+  let systemPromptOpen = false;
   let selectedFileChat = '';
   let historyToggle: HTMLButtonElement;
   let filesToggle: HTMLButtonElement;
   const contextController = new AbortController();
 
   onMount(() => {
-    const historyMedia = matchMedia('(max-width: 720px)');
-    const filesMedia = matchMedia('(max-width: 1180px)');
+    const historyMedia = matchMedia('(max-width: 900px)');
+    const filesMedia = matchMedia('(max-width: 1439px)');
     const applyHistoryBreakpoint = () => {
       mobile = historyMedia.matches;
       historyOpen = !mobile;
@@ -104,15 +103,8 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
 
-  function closeHistory(): void {
-    historyOpen = false;
-    void tick().then(() => historyToggle?.focus());
-  }
-
-  function closeFiles(): void {
-    filesOpen = false;
-    void tick().then(() => filesToggle?.focus());
-  }
+  function closeHistory(): void { historyOpen = false; void tick().then(() => historyToggle?.focus()); }
+  function closeFiles(): void { filesOpen = false; void tick().then(() => filesToggle?.focus()); }
 
   function toggleHistory(): void {
     const opening = !historyOpen;
@@ -126,19 +118,11 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if (opening && mobile) historyOpen = false;
   }
 
-  function selectChat(id: string): void {
-    chat.selectChat(id);
-    if (mobile) closeHistory();
-  }
-
-  function regenerate(): void {
-    if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search);
-  }
+  function selectChat(id: string): void { chat.selectChat(id); if (mobile) closeHistory(); }
+  function regenerate(): void { if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search); }
 
   function editPrompt(userId: string, text: string): void {
-    if (runtimeContext && filesReady) {
-      void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, search);
-    }
+    if (runtimeContext && filesReady) void chat.editPrompt(userId, text, runtimeContext, $markdownFiles.files, search);
   }
 
   function addFiles(selected: File[]): void {
@@ -149,68 +133,54 @@ context, transfer, status, and gated submission; domain rules remain outside. --
 </script>
 
 <section class="application">
-  <ChatHistory
-    {chats}
-    activeId={$chat.collection.activeChatId}
-    open={historyOpen}
-    streaming={chatLocked}
-    on:new={() => chat.newChat()}
-    on:select={event => selectChat(event.detail)}
-    on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
-    on:delete={event => chat.deleteChat(event.detail)}
-    on:close={closeHistory}
-  />
+  <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={mobile}
+    blocked={filesOverlay && filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
+    on:select={event => selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
+    on:delete={event => chat.deleteChat(event.detail)} on:close={closeHistory} />
 
-  <section class="chat-layout">
-    <Header
-      bind:historyToggle
-      bind:filesToggle
-      {historyOpen}
-      {filesOpen}
-      fileCount={$markdownFiles.files.length}
-      {runtimeInfo}
-      on:history={toggleHistory}
-      on:files={toggleFiles}
-    />
+  <section class="chat-layout" inert={(mobile && historyOpen) || (filesOverlay && filesOpen)}>
+    <Header bind:historyToggle bind:filesToggle {historyOpen} {filesOpen}
+      fileCount={$markdownFiles.files.length} {runtimeInfo} on:history={toggleHistory} on:files={toggleFiles} />
 
-    <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
-    <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
+    <div class:tools-open={systemPromptOpen} class="chat-tools">
+      <SystemPrompt bind:open={systemPromptOpen} value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
+      <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
+    </div>
     <Transcript {messages} {streaming} searchEnabled={runtimeContext !== null} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
-    {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
-    <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
-    <Metrics telemetry={$chat.telemetry} />
+    <div class="feedback">
+      {#if persistenceWarning}<div class="persistence-warning" role="status">{persistenceWarning}</div>{/if}
+      <Status warning={null} error={configurationError ?? $chat.error ?? $markdownFiles.error} {usage} />
+      <Metrics telemetry={$chat.telemetry} />
+    </div>
     <Composer bind:value={draft} bind:search {streaming} searchCapability={runtimeContext?.search ?? null} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
-  <FilesPanel
-    files={$markdownFiles.files}
-    open={filesOpen}
-    overlay={filesOverlay}
-    disabled={streaming || runtimeContext === null}
-    busy={$markdownFiles.busy}
-    ready={filesLoaded}
-    on:add={event => addFiles(event.detail)}
-    on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
-    on:delete={event => markdownFiles.remove(event.detail)}
-    on:close={closeFiles}
-  />
+  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={filesOverlay}
+    disabled={streaming || runtimeContext === null} busy={$markdownFiles.busy} ready={filesLoaded}
+    on:add={event => addFiles(event.detail)} on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
+    on:delete={event => markdownFiles.remove(event.detail)} on:close={closeFiles} />
 </section>
 
 <style lang="scss">
   .application {
     width: min(var(--gn-application-width), 100%);
     height: 100%; min-height: 0; min-width: 0;
-    display: flex; gap: var(--gn-space-md);
+    display: flex; gap: var(--gn-space-sm);
   }
   .chat-layout {
     flex: 1; min-width: 0; height: 100%; min-height: 0;
     display: grid;
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto auto;
-    gap: var(--gn-space-md);
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+    gap: var(--gn-space-sm);
   }
+  .chat-tools { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gn-space-sm); }
+  .chat-tools.tools-open { grid-template-columns: 1fr; }
+  .tools-open :global(.session-actions) { justify-content: flex-start; }
+  .feedback { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--gn-space-sm); }
   .persistence-warning {
-    border: var(--gn-border-width) solid var(--gn-streaming); background: var(--gn-bg-panel);
-    padding: var(--gn-space-sm) var(--gn-space-md); color: var(--gn-text-primary);
+    grid-column: 1 / -1;
+    border: var(--gn-rule-width) solid var(--gn-warning); border-radius: var(--gn-radius-sm); background: var(--gn-warning-bg);
+    padding: var(--gn-space-sm); color: var(--gn-warning);
     font-size: var(--gn-text-sm); font-weight: 600;
   }
 </style>

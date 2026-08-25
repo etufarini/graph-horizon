@@ -33,24 +33,22 @@ replacement confirmation remain outside this props-in/events-out component.
   .session-actions {
     display: flex;
     justify-content: flex-end;
-    gap: var(--gn-space-sm);
+    gap: var(--gn-space-xs);
   }
   button {
-    border: var(--gn-border-width) solid var(--gn-border);
+    min-height: var(--gn-control-height);
+    border: var(--gn-rule-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
     padding: var(--gn-space-xs) var(--gn-space-sm);
     cursor: pointer;
     color: var(--gn-text-muted);
-    box-shadow: var(--gn-shadow-small);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 650;
   }
-  button:hover:not(:disabled) { border-color: var(--gn-accent-ink); color: var(--gn-accent-ink); }
-  button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring), var(--gn-shadow-small); }
+  button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
+  button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
   button:disabled {
     background: var(--gn-bg-panel-raised);
     color: var(--gn-text-muted);
@@ -58,4 +56,7 @@ replacement confirmation remain outside this props-in/events-out component.
     cursor: default;
   }
   input { display: none; }
+  @media (max-width: 640px) {
+    button { min-height: var(--gn-touch-height); }
+  }
 </style>

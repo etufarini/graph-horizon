@@ -4,72 +4,69 @@
  */
 :root {
   /* Surfaces, text, and state colors. */
-  --gn-bg-page: #ebf8ff;
+  --gn-bg-page: #f4f8fb;
   --gn-bg-panel: #ffffff;
-  --gn-bg-panel-raised: #d7f1ff;
-  --gn-text-primary: #072346;
-  --gn-text-muted: #3f5870;
-  --gn-border: #072346;
-  --gn-accent: #0096dc;
-  --gn-accent-bright: #41bef5;
-  --gn-accent-ink: #072346;
-  --gn-user-bg: #ebf8ff;
-  --gn-user-border: #0096dc;
-  --gn-streaming: #0096dc;
-  --gn-ready: #44ba82;
-  --gn-ready-ink: #055737;
-  --gn-link: #005d8f;
-  --gn-link-hover-bg: #c7ebff;
-  --gn-link-vivid: #41bef5;
-  --gn-error-vivid: #e51300;
-  --gn-error-fg: #c4001d;
-  --gn-error-bg: #fff0eb;
-  --gn-error-border: #c4001d;
+  --gn-bg-panel-raised: #eaf2f7;
+  --gn-text-primary: #102a43;
+  --gn-text-muted: #486581;
+  --gn-border: #7890a8;
+  --gn-border-subtle: #cbd8e3;
+  --gn-accent: #006d9c;
+  --gn-accent-bright: #008bc7;
+  --gn-accent-soft: #dff3fc;
+  --gn-accent-ink: #005b82;
+  --gn-user-bg: #dff3fc;
+  --gn-user-border: #006d9c;
+  --gn-streaming: #006d9c;
+  --gn-ready: #137752;
+  --gn-ready-ink: #137752;
+  --gn-warning: #8a4b08;
+  --gn-warning-bg: #fff7e6;
+  --gn-link: #005b82;
+  --gn-link-hover-bg: #dff3fc;
+  --gn-error-vivid: #b42318;
+  --gn-error-fg: #b42318;
+  --gn-error-bg: #fef3f2;
+  --gn-error-border: #b42318;
 
   /* Sanitized Markdown syntax roles. */
-  --gn-syntax-keyword: #005d8f;
-  --gn-syntax-string: #06717d;
-  --gn-syntax-number: #006aa6;
-  --gn-syntax-comment: #3f5870;
-  --gn-syntax-title: #074b78;
-  --gn-syntax-variable: #006f98;
+  --gn-syntax-keyword: #005b82;
+  --gn-syntax-string: #146c73;
+  --gn-syntax-number: #006d9c;
+  --gn-syntax-comment: #486581;
+  --gn-syntax-title: #174f78;
+  --gn-syntax-variable: #00637f;
 
-  /* Composer branding and its three equal, hard-edged Azure segments. */
-  --gn-composer-logo-size: 32px;
-  --gn-composer-logo-size-mobile: 28px;
-  --gn-color-rail-height: 4px;
+  /* Composer accent rail and its three equal Azure segments. */
+  --gn-brand-logo-size: 28px;
+  --gn-color-rail-height: 3px;
   --gn-color-rail: linear-gradient(
     to right,
-    var(--gn-border) 0 calc(100% / 3),
+    var(--gn-text-primary) 0 calc(100% / 3),
     var(--gn-accent) calc(100% / 3) calc(200% / 3),
     var(--gn-accent-bright) calc(200% / 3) 100%
   );
 
-  /* Square pixel geometry and hard shadows. */
-  --gn-radius-sm: 0;
-  --gn-radius-md: 0;
-  --gn-border-width: 2px;
+  /* Quiet geometry keeps information dense without flattening focus states. */
+  --gn-radius-sm: 6px;
+  --gn-radius-md: 8px;
+  --gn-border-width: 1px;
   --gn-rule-width: 1px;
-  --gn-cut-size: 8px;
-  --gn-panel-clip: polygon(
-    0 0,
-    calc(100% - var(--gn-cut-size)) 0,
-    100% var(--gn-cut-size),
-    100% 100%,
-    0 100%
-  );
-  --gn-shadow-small: 2px 2px 0 var(--gn-border);
-  --gn-shadow-hard: 4px 4px 0 var(--gn-border);
-  --gn-focus-ring: 0 0 0 3px var(--gn-border);
-  --gn-focus-inset: inset 0 0 0 2px var(--gn-border);
+  --gn-shadow-hard: 0 16px 40px rgb(16 42 67 / 18%);
+  --gn-focus-ring: 0 0 0 3px rgb(0 109 156 / 32%);
+  --gn-focus-inset: inset 0 0 0 2px var(--gn-accent);
   /* Motion is centralized so reduced-motion rules can disable every effect. */
   --gn-motion-fast: 150ms;
   --gn-motion-pulse: 1200ms;
   --gn-motion-idle: 2400ms;
   --gn-motion-low-opacity: 0.35;
 
-  --gn-history-width: 264px; --gn-files-width: 304px; --gn-application-width: 1640px;
-  --gn-history-backdrop: rgb(7 35 70 / 45%);
+  --gn-history-width: 240px;
+  --gn-files-width: 288px;
+  --gn-application-width: 1760px;
+  --gn-history-backdrop: rgb(16 42 67 / 55%);
+  --gn-control-height: 36px;
+  --gn-touch-height: 44px;
 
   /* Shared spacing, font, type, and line-height scales. */
   --gn-space-xs: 4px;
@@ -79,9 +76,9 @@
   --gn-space-xl: 24px;
   --gn-font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --gn-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --gn-text-xs: 0.75rem;
-  --gn-text-sm: 0.85rem;
+  --gn-text-xs: 0.78rem;
+  --gn-text-sm: 0.875rem;
   --gn-text-md: 0.95rem;
-  --gn-text-lg: 1.2rem;
-  --gn-line-height: 1.55;
+  --gn-text-lg: 1.15rem;
+  --gn-line-height: 1.5;
 }

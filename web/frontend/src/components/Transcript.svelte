@@ -17,7 +17,7 @@ history, transcript repair, and persistence remain outside this component.
     edit: { userId: string; text: string };
     delete: void;
   }>();
-  let transcript: HTMLDivElement;
+  let transcript: HTMLElement;
   let pinned = true;
   let firstId: string | undefined;
   let lastId: string | undefined;
@@ -44,7 +44,7 @@ history, transcript repair, and persistence remain outside this component.
   });
 </script>
 
-<div class="transcript" bind:this={transcript} on:scroll={onScroll}>
+<section class="transcript" aria-label="Conversation" bind:this={transcript} on:scroll={onScroll}>
   {#if turns.length === 0}
     <div class="empty-state">
       <span class="empty-mark" aria-hidden="true"></span>
@@ -66,7 +66,7 @@ history, transcript repair, and persistence remain outside this component.
       />
     {/each}
   {/if}
-</div>
+</section>
 
 <style lang="scss">
   .transcript {
@@ -74,8 +74,8 @@ history, transcript repair, and persistence remain outside this component.
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: var(--gn-space-md);
-    padding: var(--gn-space-sm) var(--gn-space-xs);
+    gap: var(--gn-space-lg);
+    padding: var(--gn-space-sm) var(--gn-space-xs) var(--gn-space-md);
   }
 
   .empty-state {
@@ -87,9 +87,10 @@ history, transcript repair, and persistence remain outside this component.
 
   .empty-mark {
     display: inline-block;
-    width: 16px;
-    height: 16px;
+    width: 12px;
+    height: 12px;
     margin-bottom: var(--gn-space-md);
+    border-radius: 50%;
     background: var(--gn-ready);
     animation: idle-pulse var(--gn-motion-idle) ease-in-out infinite;
   }
@@ -103,10 +104,9 @@ history, transcript repair, and persistence remain outside this component.
   .empty-state h2 {
     margin: 0 0 var(--gn-space-sm);
     color: var(--gn-ready-ink);
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-lg);
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    font-weight: 700;
   }
 
   .empty-state p {

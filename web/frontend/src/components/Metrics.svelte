@@ -2,8 +2,8 @@
   /*
    * Metrics.svelte
    * Presents the current engine phase or the last exact generation statistics
-   * above the composer. It owns only display timing and safe rate formatting;
-   * stream ordering and lifecycle state remain in the chat modules.
+   * in one compact adaptive strip. Stream ordering, formulas, and lifecycle
+   * state remain in the chat modules.
    */
   import { onDestroy } from 'svelte';
   import { liveTelemetry, tokensPerSecond } from '../chat/telemetry';
@@ -38,29 +38,39 @@
 {#if active}
   <section class="metrics metrics-live" aria-label="Generation phase">
     <span class="phase-dot phase-{active.phase}" aria-hidden="true"></span>
-    <span class="phase-label" aria-live="polite">{phaseLabel}</span>
-    <span aria-hidden="true">{seconds(elapsed)}</span>
+    <span class="phase-label" aria-live="polite" aria-atomic="true">{phaseLabel}</span>
+    <span aria-hidden="true">· {seconds(elapsed)}</span>
   </section>
 {:else if stats}
-  <section class="metrics metrics-final" aria-label="Latest generation metrics">
-    <div><span>Prompt</span><strong>{stats.promptTokens} tok</strong></div>
-    <div><span>Prefill</span><strong>{stats.prefillTokens} tok</strong><small>{seconds(stats.prefillMs)} · {rate(prefillRate)}</small></div>
-    <div><span>Output</span><strong>{stats.completionTokens} tok</strong></div>
-    <div><span>Decode</span><strong>{rate(decodeRate)}</strong><small>{seconds(stats.decodeMs)}</small></div>
-  </section>
+  <dl class="metrics metrics-final" aria-label="Latest generation metrics">
+    <div><dt>Prompt</dt><dd><strong>{stats.promptTokens} tok</strong></dd></div>
+    <div><dt>Prefill</dt><dd><strong>{stats.prefillTokens} tok</strong><small>{seconds(stats.prefillMs)} · {rate(prefillRate)}</small></dd></div>
+    <div class="metric-primary"><dt>Output</dt><dd><strong>{stats.completionTokens} tok</strong></dd></div>
+    <div class="metric-primary">
+      <dt>Decode</dt>
+      <dd><strong aria-label={decodeRate === null ? 'Decode rate unavailable' : undefined}>{rate(decodeRate)}</strong><small>{seconds(stats.decodeMs)}</small></dd>
+    </div>
+  </dl>
 {/if}
 
 <style lang="scss">
-  .metrics { border: var(--gn-rule-width) solid var(--gn-border); background: var(--gn-bg-panel); padding: var(--gn-space-sm) var(--gn-space-md); color: var(--gn-text-muted); font-family: var(--gn-font-mono); font-size: var(--gn-text-xs); }
-  .metrics-live { display: flex; align-items: center; gap: var(--gn-space-sm); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-  .phase-dot { width: 9px; height: 9px; flex: 0 0 auto; background: var(--gn-text-muted); }
+  .metrics { min-width: 0; box-sizing: border-box; border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-sm); background: var(--gn-bg-panel); color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); font-variant-numeric: tabular-nums; }
+  .metrics-live { min-height: var(--gn-control-height); display: flex; align-items: center; gap: var(--gn-space-xs); padding: var(--gn-space-xs) var(--gn-space-sm); font-weight: 700; }
+  .phase-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 50%; background: var(--gn-text-muted); }
   .phase-prefill { background: var(--gn-streaming); }
   .phase-decode { background: var(--gn-accent); }
   .phase-label { color: var(--gn-text-primary); }
-  .metrics-final { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gn-space-md); }
-  .metrics-final div { min-width: 0; display: grid; gap: 2px; }
-  .metrics-final span { font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; }
-  .metrics-final strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); overflow-wrap: anywhere; }
-  .metrics-final small { font-size: inherit; }
-  @media (max-width: 720px) { .metrics-final { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .metrics-final { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--gn-space-xs) 0; }
+  .metrics-final div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px var(--gn-space-sm); padding: 2px var(--gn-space-sm); border-left: var(--gn-rule-width) solid var(--gn-border-subtle); }
+  .metrics-final div:first-child { border-left: 0; }
+  dt { font-weight: 650; }
+  dd { min-width: 0; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--gn-space-xs); text-align: right; overflow-wrap: anywhere; }
+  strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); }
+  .metric-primary strong { color: var(--gn-accent-ink); }
+  small { font: inherit; white-space: nowrap; }
+  @media (min-width: 901px) and (max-width: 1050px), (max-width: 640px) {
+    .metrics-final { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .metrics-final div:nth-child(odd) { border-left: 0; }
+    .metrics-final div:nth-child(n + 3) { border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }
+  }
 </style>

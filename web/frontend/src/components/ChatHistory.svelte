@@ -10,6 +10,8 @@ Store access, persistence, sorting, and collection mutation are excluded.
   export let chats: ChatRecord[] = [];
   export let activeId: string;
   export let open = false;
+  export let overlay = false;
+  export let blocked = false;
   export let streaming = false;
 
   const dispatch = createEventDispatcher<{
@@ -28,7 +30,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
   $: validRename = renameDraft.trim().length > 0 && Array.from(renameDraft.trim()).length <= 80;
   $: if (open !== wasOpen) {
     wasOpen = open;
-    if (open) tick().then(() => newButton?.focus());
+    if (open && overlay) tick().then(() => newButton?.focus());
   }
 
   function select(id: string): void {
@@ -84,19 +86,29 @@ Store access, persistence, sorting, and collection mutation are excluded.
   }
 
   function windowKeydown(event: KeyboardEvent): void {
-    if (event.key !== 'Escape') return;
+    if (event.key !== 'Escape' || blocked) return;
     if (menuId) menuId = null;
     else if (renameId) renameId = null;
-    else if (open) dispatch('close');
+    else if (open && overlay) dispatch('close');
   }
 </script>
 
 <svelte:window on:click={windowClick} on:keydown={windowKeydown} />
-{#if open}<button class="backdrop" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}></button>{/if}
-<aside id="chat-history" class:open aria-label="Saved chats" aria-hidden={!open} inert={!open}>
-  <button class="new-chat" type="button" disabled={streaming} bind:this={newButton} on:click={() => dispatch('new')}>
-    New chat
-  </button>
+{#if open && overlay}<button class="backdrop" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}></button>{/if}
+<aside
+  id="chat-history"
+  class:open
+  class:overlay
+  aria-label="Saved chats"
+  aria-hidden={!open || blocked}
+  inert={!open || blocked}
+  role={overlay ? 'dialog' : undefined}
+  aria-modal={overlay ? 'true' : undefined}
+>
+  <div class="history-header">
+    <button class="new-chat" type="button" disabled={streaming} bind:this={newButton} on:click={() => dispatch('new')}>New chat</button>
+    {#if overlay}<button class="close" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}>×</button>{/if}
+  </div>
   <div class="chat-list">
     {#each chats as chat (chat.id)}
       <div class:active={chat.id === activeId} class="chat-row">
@@ -135,46 +147,50 @@ Store access, persistence, sorting, and collection mutation are excluded.
     box-sizing: border-box;
     display: none;
     flex-direction: column;
-    gap: var(--gn-space-md);
-    border: var(--gn-border-width) solid var(--gn-border);
+    gap: var(--gn-space-sm);
+    border: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border-radius: var(--gn-radius-md);
     background: var(--gn-bg-panel);
     padding: var(--gn-space-md);
-    box-shadow: var(--gn-shadow-hard);
   }
   aside.open { display: flex; }
   .new-chat, .chat-row button, .rename-row button {
-    border: var(--gn-border-width) solid var(--gn-border);
+    min-height: var(--gn-control-height);
+    border: var(--gn-rule-width) solid var(--gn-border);
     border-radius: var(--gn-radius-sm);
     background: var(--gn-bg-panel);
     color: var(--gn-text-muted);
     cursor: pointer;
-    font-family: var(--gn-font-mono);
+    font-family: var(--gn-font-sans);
     font-size: var(--gn-text-xs);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
+    font-weight: 650;
   }
-  .new-chat { padding: var(--gn-space-sm); background: var(--gn-accent); color: var(--gn-text-primary); box-shadow: var(--gn-shadow-small); }
+  .history-header { display: flex; gap: var(--gn-space-xs); }
+  .new-chat { flex: 1 1 auto; padding: var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); }
+  .close { min-width: var(--gn-control-height); border: 0; background: transparent; color: var(--gn-text-muted); font-size: var(--gn-text-lg); }
+  button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
+  .new-chat:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   button:focus-visible, input:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
   button:disabled { background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); box-shadow: none; cursor: default; }
   .chat-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gn-space-sm); padding: 2px; }
-  .chat-row { min-width: 0; display: flex; flex-wrap: wrap; border-left: 4px solid transparent; background: var(--gn-bg-page); }
-  .chat-row.active { border-left-color: var(--gn-accent); background: var(--gn-bg-panel-raised); box-shadow: var(--gn-shadow-small); }
+  .chat-row { min-width: 0; display: flex; flex-wrap: wrap; border-left: 3px solid transparent; border-radius: var(--gn-radius-sm); background: var(--gn-bg-page); }
+  .chat-row.active { border-left-color: var(--gn-accent); background: var(--gn-accent-soft); }
   .chat-title { min-width: 0; flex: 1; overflow: hidden; border: 0 !important; padding: var(--gn-space-sm); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
   .menu { flex: 0 0 34px; }
   .menu-trigger { width: 34px; height: 100%; border: 0 !important; font-size: var(--gn-text-md) !important; }
-  .menu-items { flex: 0 0 100%; box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gn-space-xs); border-top: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel); padding: var(--gn-space-xs); }
+  .menu-items { flex: 0 0 100%; box-sizing: border-box; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gn-space-xs); border-top: var(--gn-rule-width) solid var(--gn-border-subtle); background: var(--gn-bg-panel); padding: var(--gn-space-xs); }
   .menu-items button { min-width: 0; width: 100%; }
   .menu-items button, .rename-actions button { padding: var(--gn-space-xs) var(--gn-space-sm); }
   button.destructive { border-color: var(--gn-error-border); background: var(--gn-error-bg); color: var(--gn-error-fg); }
   .rename-row { min-width: 0; flex: 1; padding: var(--gn-space-xs); }
   input { width: 100%; box-sizing: border-box; border: var(--gn-border-width) solid var(--gn-border); background: var(--gn-bg-panel); padding: var(--gn-space-xs); color: var(--gn-text-primary); font: inherit; }
   .rename-actions { display: flex; gap: var(--gn-space-xs); margin-top: var(--gn-space-xs); }
-  .backdrop { display: none; }
+  .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
   .backdrop:focus-visible { outline: none; box-shadow: var(--gn-focus-inset); }
-  @media (max-width: 720px) {
-    aside { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; transform: translateX(-110%); }
-    aside.open { transform: translateX(0); }
-    .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
+  aside.overlay { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; border-radius: 0 var(--gn-radius-md) var(--gn-radius-md) 0; box-shadow: var(--gn-shadow-hard); transform: translateX(-110%); }
+  aside.overlay.open { transform: translateX(0); }
+  @media (max-width: 640px) {
+    aside { width: min(var(--gn-history-width), 88vw); min-width: min(var(--gn-history-width), 88vw); }
+    .new-chat, .close, .chat-row button, .rename-row button { min-height: var(--gn-touch-height); }
   }
 </style>

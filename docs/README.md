@@ -22,6 +22,17 @@ Their mission-close Git state is historical; later push and merge status is
 recorded in each affected report and summarized in
 [current-optimization-state.md](current-optimization-state.md).
 
+## Repository
+
+| Document | Contents |
+|---|---|
+| [Main README](../README.md) | Project overview, quick installation, supported models, and CLI entry points |
+| [Engine library](../crates/graph_horizon_engine/README.md) | Public Rust API, model contract, memory, and backend features |
+| [Engine source ownership](../crates/graph_horizon_engine/src/README.md) | Maintainer-facing module responsibility map |
+| [Operational support](../support/README.md) | Installer, profiling, validation scripts, and security invariants |
+| [Contributing](../CONTRIBUTING.md) | Change, verification, and performance-investigation rules |
+| [License](../LICENSE) | Project license |
+
 ## Usage And Structure
 
 | Document | Contents |
@@ -69,6 +80,3 @@ recorded in each affected report and summarized in
 | [Validation register](validation.md) | Artifact identities, reviewed qualification evidence, and current release state |
 | [Pre-release qualification](release-qualification.md) | Historical v0.1.0 candidate gates and subsequent tag-derived evidence |
 | [Release notes](release-notes.md) | Released user-facing v0.1.2 contract, installation, capabilities, and limitations |
-
-For installation, catalogs, and operational scripts, also see
-[support/README.md](../support/README.md).

@@ -73,10 +73,9 @@ pub(super) fn transport_error(error: transport::Error) -> Error {
 pub(super) fn push(
     results: &mut Vec<SearchResult>,
     urls: &mut HashSet<String>,
-    result: Option<SearchResult>,
+    result: SearchResult,
     published: Option<Published>,
 ) {
-    let Some(result) = result else { return };
     if result.title.is_empty()
         || result.excerpt.is_empty()
         || result

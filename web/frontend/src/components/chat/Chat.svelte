@@ -91,9 +91,6 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if ($chat.status === 'error' && submitted.trim() && !draft) draft = submitted;
   }
 
-  function closeHistory(): void { historyOpen = false; }
-  function closeFiles(): void { filesOpen = false; }
-
   function toggleHistory(): void {
     // Workspace invariant: opening either side panel always closes the other.
     const opening = !historyOpen;
@@ -107,7 +104,6 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     if (opening) historyOpen = false;
   }
 
-  function selectChat(id: string): void { chat.selectChat(id); }
   function regenerate(): void { if (runtimeContext && filesReady) void chat.regenerate(runtimeContext, $markdownFiles.files, search); }
 
   function editPrompt(userId: string, text: string): void {
@@ -124,8 +120,8 @@ context, transfer, status, and gated submission; domain rules remain outside. --
 <section class:history-closed={!historyOpen} class:files-closed={!filesOpen} class="application">
   <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={panelsOverlay}
     blocked={filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
-    on:select={event => selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
-    on:delete={event => chat.deleteChat(event.detail)} on:toggle={toggleHistory} on:close={closeHistory} />
+    on:select={event => chat.selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
+    on:delete={event => chat.deleteChat(event.detail)} on:toggle={toggleHistory} on:close={() => historyOpen = false} />
 
   <section class="chat-layout" inert={panelsOverlay && (historyOpen || filesOpen)}>
     <Header {runtimeInfo} />
@@ -146,7 +142,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={panelsOverlay} blocked={historyOpen}
     disabled={streaming || runtimeContext === null} busy={$markdownFiles.busy} ready={filesLoaded}
     on:add={event => addFiles(event.detail)} on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
-    on:delete={event => markdownFiles.remove(event.detail)} on:toggle={toggleFiles} on:close={closeFiles} />
+    on:delete={event => markdownFiles.remove(event.detail)} on:toggle={toggleFiles} on:close={() => filesOpen = false} />
 </section>
 
 <style lang="scss">

@@ -113,24 +113,24 @@ newer draft has been entered.
 ### Collapsible workspace
 
 Saved chats and Markdown files own their open/close controls; the application
-header contains no duplicate workspace toggles. On wide screens they are
-independent side panels and collapse to 44-pixel labelled rails, retaining the
-chat or file count. At 1439 pixels and below the file panel becomes a right
-drawer; at 900 pixels and below chat history also becomes a left drawer. Only
-one overlay drawer is interactive at a time. Escape and the backdrop close an
-open drawer, and focus returns to its rail control. At 640 pixels and below the
-controls use 44-pixel touch targets.
+header contains no duplicate workspace toggles. Both panels start closed, so
+the chat owns the full dynamic viewport by default. Compact edge tabs retain
+the chat or file count without creating ghost columns. Only one side panel can
+be open at a time: at 1200 CSS pixels and above it is docked, while below that
+breakpoint it becomes a drawer. Escape and the backdrop close an open drawer,
+and focus returns to its edge tab. Coarse pointers and narrow viewports use
+44-pixel touch targets.
 
-The system prompt and persisted search sources use the same semantic chevron
-control. Their compact headers retain the state needed for orientation: whether
-a system prompt is set, or the provider, query, source count, and active-answer
+The expanded system-prompt editor has a labelled pixel-style close button; both
+it and Escape restore focus to the collapsed trigger. Its compact trigger keeps
+whether a prompt is set visible. Persisted search sources use the same semantic
+chevron language and retain the provider, query, source count, and active-answer
 status. When outgoing search is active, its query and category remain visible
 in one compact composer strip and return to separate rows only on narrow
 viewports. Collapsing presentation never stops generation or discards valid
 data. Panel and section expansion is intentionally page-session UI state and is
-not written to chat persistence. A newly created search report starts expanded.
-Viewport breakpoint changes restore the layout default for the affected side
-panel.
+not written to chat persistence. A newly created search report starts expanded;
+viewport changes do not reset side-panel state.
 
 The browser transcript permits an empty assistant so Stop and a valid
 zero-delta completion can retain a complete pair. The local engine does not
@@ -314,10 +314,10 @@ filesystem write.
 
 ### Markdown Files
 
-Every chat owns zero or more Markdown reference files. At 1440 CSS pixels or
-wider the desktop surface shows them in a right panel; below that width the
-panel becomes a fixed right drawer over the shared backdrop. `Files · N` toggles
-it from the chat header. The panel accepts multiple native picker selections
+Every chat owns zero or more Markdown reference files. At 1200 CSS pixels or
+wider the selected file panel docks on the right; below that width it becomes a
+fixed drawer over the shared backdrop. Its counted edge tab toggles it without
+occupying the chat header. The panel accepts multiple native picker selections
 and drag-and-drop,
 lists stored names and UTF-8 sizes, and provides a sanitized rendered preview,
 download, and confirmed irreversible deletion. Panel open state and preview
@@ -447,23 +447,20 @@ are never persisted.
 
 ### Responsive Panels
 
-Above 900 CSS pixels, the bounded application shows a collapsible
-240-pixel history column beside the chat surface; closing it lets the chat use
-the released width. At 900 pixels or narrower, history starts closed and opens
-as a fixed left drawer over a backdrop. Selection, backdrop activation, and
-Escape close the mobile drawer and return focus to the accessible history
-toggle. Overlay drawers expose dialog semantics, make the obscured chat inert,
-and include a visible close action. The chat list and transcript scroll
-independently while the document body and composer remain fixed in the
-viewport. Collapse state is not stored.
+The application fills the viewport without a maximum-width card or decorative
+outer margin. Chat history and Markdown files both start closed. Their fixed
+edge tabs reserve only the narrow header space required to avoid overlapping
+the product identity and runtime summary.
 
-The application maximum is 1760 pixels. At 1440 pixels or wider it can retain
-the history, chat, and 288-pixel file panel while preserving at least an
-840-pixel central surface. Below 1440 pixels files start closed in the fixed
-right drawer. Opening one overlay closes or temporarily blocks the other when
-necessary; backdrop, the visible close action, and Escape close the file drawer
-and return focus to its toggle. File list, preview, history, and transcript own
-independent bounded scrolling.
+At 1200 CSS pixels and above, the selected panel docks beside the chat as a
+216-pixel history column or 280-pixel file column. Below 1200 pixels it opens as
+a fixed drawer over a backdrop. Opening either panel closes the other.
+Selection, backdrop activation, Escape, and each visible close action dismiss
+the applicable drawer and return focus to its accessible edge tab. Overlay
+drawers expose dialog semantics and make the obscured chat inert. File list,
+preview, history, and transcript own independent bounded scrolling while the
+document body and composer remain fixed in the dynamic viewport. Panel state is
+page-session state and is not stored or reset at breakpoint changes.
 
 All history, file, and turn controls are keyboard reachable, use visible focus
 treatment, and remain visible when eligible rather than depending on hover.
@@ -496,7 +493,7 @@ accessible name `Context usage`.
 
 The header keeps immutable runtime identity separate from per-request status. At
 a glance it shows the loaded GGUF `general.name` when safe, otherwise `Local
-model`, plus the compile-time backend. One `Runtime details` disclosure contains
+model`, plus the compile-time backend. One overlaying `Runtime details` disclosure contains
 retained model weights, full-context KV capacity, effective mode, and placement.
 The weight/KV summary is present for every backend and uses exact decimal bytes
 on the wire plus IEC units in the UI. It describes
@@ -510,11 +507,10 @@ because no placement report exists.
 
 An admitted request first shows `Waiting`, then the engine-emitted `Prefill` and
 `Decode` phases. A monotonic display timer refreshes every 250 ms for the active
-phase only. After exact usage arrives, the live phase is replaced by an adaptive
-definition-list strip with four compact cells: prompt tokens,
-actually-prefilled tokens with time and tok/s, output tokens, and decode time
-with tok/s. The strip uses one row when space permits and a two-by-two layout on
-narrow surfaces. All values remain visible. Zero-duration rates render as unavailable;
+phase only. After exact usage arrives, one compact strip keeps output tokens and
+decode timing visible. Its `Details` disclosure adds prompt tokens,
+actually-prefilled tokens, and both rates without increasing the default status
+height. Zero-duration rates render as unavailable;
 cached prompt reuse is visible because prefill tokens may be lower than prompt
 tokens. Stop, inactivity, missing statistics or terminal frame, invalid ordering, and
 failure clear request telemetry. A capacity rejection preserves the previous

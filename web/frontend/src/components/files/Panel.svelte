@@ -6,7 +6,7 @@ prompt projection, downloads, and chat lifecycle remain outside.
 <script lang="ts">
   import { createEventDispatcher, tick } from 'svelte';
   import CollapseControl from '../CollapseControl.svelte';
-  import PanelRail from '../PanelRail.svelte';
+  import PanelTab from '../PanelTab.svelte';
   import Preview from './Preview.svelte';
   import type { MarkdownFileRecord } from '../../chat/files/record.ts';
 
@@ -87,7 +87,7 @@ prompt projection, downloads, and chat lifecycle remain outside.
 <svelte:window on:keydown={keydown} />
 <div class="files-shell" class:overlay class:closed={!open}>
   {#if !open && !blocked}
-    <PanelRail bind:element={reopenButton} side="right" label="Markdown files" text="Files" controls="markdown-files" count={files.length} {overlay} on:toggle={toggle} />
+    <PanelTab bind:element={reopenButton} side="right" label="Markdown files" controls="markdown-files" count={files.length} on:toggle={toggle} />
   {/if}
   {#if open && overlay}<button class="backdrop" type="button" aria-label="Close Markdown files" on:click={close}></button>{/if}
   <aside id="markdown-files" class:open class:overlay class:dragging aria-label="Markdown files" aria-hidden={!open || blocked} inert={!open || blocked}
@@ -133,9 +133,9 @@ prompt projection, downloads, and chat lifecycle remain outside.
 
 <style lang="scss">
   .files-shell { width: var(--gn-files-width); min-width: var(--gn-files-width); height: 100%; min-height: 0; }
-  .files-shell.closed { width: var(--gn-panel-rail-width); min-width: var(--gn-panel-rail-width); }
+  .files-shell.closed { width: 0; min-width: 0; }
   .files-shell.overlay { width: 0; min-width: 0; }
-  aside { width: 100%; min-width: 100%; min-height: 0; display: none; grid-template-rows: auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md); background: var(--gn-bg-panel); padding: var(--gn-space-md); }
+  aside { width: 100%; min-width: 100%; height: 100%; min-height: 0; display: none; grid-template-rows: auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: 0; border-left: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: 0; background: var(--gn-bg-panel); padding: var(--gn-space-md); }
   aside.open { display: grid; }
   aside.dragging { box-shadow: var(--gn-focus-inset); background: var(--gn-bg-panel-raised); }
   header, .panel-title { min-width: 0; display: flex; align-items: center; gap: var(--gn-space-sm); }
@@ -150,14 +150,14 @@ prompt projection, downloads, and chat lifecycle remain outside.
   button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
   input { display: none; }
   .hint, .empty { margin: 0; color: var(--gn-text-muted); font-size: var(--gn-text-xs); }
-  .file-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gn-space-xs); padding: 2px; }
+  .file-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gn-space-xs); padding: var(--gn-space-2xs); }
   .file-list button { min-width: 0; min-height: var(--gn-control-height); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--gn-space-sm); border: var(--gn-rule-width) solid transparent; border-radius: var(--gn-radius-sm); background: var(--gn-bg-page); padding: var(--gn-space-sm); color: var(--gn-text-primary); cursor: pointer; text-align: left; }
   .file-list button:hover { border-color: var(--gn-border-subtle); background: var(--gn-bg-panel-raised); }
   .file-list button.active { border-color: var(--gn-accent); background: var(--gn-accent-soft); }
   .file-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-list small { color: var(--gn-text-muted); font-size: var(--gn-text-xs); }
   .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
-  aside.overlay { display: grid; position: fixed; z-index: 11; inset: 0 0 0 auto; width: var(--gn-files-width); min-width: var(--gn-files-width); border-radius: var(--gn-radius-md) 0 0 var(--gn-radius-md); box-shadow: var(--gn-shadow-hard); transform: translateX(110%); transition: transform var(--gn-motion-fast) ease; }
+  aside.overlay { display: grid; position: fixed; z-index: 11; inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) auto; width: var(--gn-files-width); min-width: var(--gn-files-width); height: auto; border: var(--gn-border-width) solid var(--gn-border); border-right: 0; box-shadow: var(--gn-shadow-hard); transform: translateX(110%); transition: transform var(--gn-motion-fast) ease; }
   aside.overlay.open { transform: translateX(0); }
   @media (max-width: 640px) {
     aside.overlay { width: min(var(--gn-files-width), 92vw); min-width: min(var(--gn-files-width), 92vw); }

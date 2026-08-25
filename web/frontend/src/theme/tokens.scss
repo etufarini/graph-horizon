@@ -64,15 +64,15 @@
   --gn-motion-idle: 2400ms;
   --gn-motion-low-opacity: 0.35;
 
-  --gn-history-width: 240px;
-  --gn-files-width: 288px;
+  --gn-history-width: 216px;
+  --gn-files-width: 280px;
   --gn-panel-rail-width: 44px;
-  --gn-application-width: 1760px;
   --gn-history-backdrop: rgb(16 42 67 / 55%);
   --gn-control-height: 36px;
   --gn-touch-height: 44px;
 
   /* Shared spacing, font, type, and line-height scales. */
+  --gn-space-2xs: 2px;
   --gn-space-xs: 4px;
   --gn-space-sm: 8px;
   --gn-space-md: 12px;
@@ -84,5 +84,6 @@
   --gn-text-sm: 0.875rem;
   --gn-text-md: 0.95rem;
   --gn-text-lg: 1.15rem;
+  --gn-line-height-tight: 1.25;
   --gn-line-height: 1.5;
 }

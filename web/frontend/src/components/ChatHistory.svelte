@@ -6,7 +6,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
 <script lang="ts">
   import { createEventDispatcher, tick } from 'svelte';
   import CollapseControl from './CollapseControl.svelte';
-  import PanelRail from './PanelRail.svelte';
+  import PanelTab from './PanelTab.svelte';
   import type { ChatRecord } from '../chat/types';
 
   export let chats: ChatRecord[] = [];
@@ -108,7 +108,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
 <svelte:window on:click={windowClick} on:keydown={windowKeydown} />
 <div class="history-shell" class:overlay class:closed={!open}>
   {#if !open && !blocked}
-    <PanelRail bind:element={reopenButton} side="left" label="chat history" text="Chats" controls="chat-history" count={chats.length} {overlay} on:toggle={toggle} />
+    <PanelTab bind:element={reopenButton} side="left" label="chat history" controls="chat-history" count={chats.length} on:toggle={toggle} />
   {/if}
   {#if open && overlay}<button class="backdrop" type="button" aria-label="Close chat history" on:click={close}></button>{/if}
   <aside id="chat-history" class:open class:overlay aria-label="Saved chats"
@@ -155,18 +155,20 @@ Store access, persistence, sorting, and collection mutation are excluded.
 
 <style lang="scss">
   .history-shell { width: var(--gn-history-width); min-width: var(--gn-history-width); height: 100%; min-height: 0; }
-  .history-shell.closed { width: var(--gn-panel-rail-width); min-width: var(--gn-panel-rail-width); }
+  .history-shell.closed { width: 0; min-width: 0; }
   .history-shell.overlay { width: 0; min-width: 0; }
   aside {
     width: 100%;
     min-width: 100%;
+    height: 100%;
     min-height: 0;
     box-sizing: border-box;
     display: none;
     flex-direction: column;
     gap: var(--gn-space-sm);
-    border: var(--gn-rule-width) solid var(--gn-border-subtle);
-    border-radius: var(--gn-radius-md);
+    border: 0;
+    border-right: var(--gn-rule-width) solid var(--gn-border-subtle);
+    border-radius: 0;
     background: var(--gn-bg-panel);
     padding: var(--gn-space-md);
   }
@@ -182,15 +184,15 @@ Store access, persistence, sorting, and collection mutation are excluded.
     font-size: var(--gn-text-xs);
     font-weight: 650;
   }
-  .history-header { display: flex; align-items: center; gap: var(--gn-space-xs); }
-  .history-header strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); }
-  .history-header > span { margin-left: auto; color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
+  .history-header { min-width: 0; display: flex; align-items: center; gap: var(--gn-space-sm); }
+  .history-header strong { min-width: 0; flex: 1 1 auto; overflow: hidden; color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); text-overflow: ellipsis; white-space: nowrap; }
+  .history-header > span { color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
   .new-chat { padding: var(--gn-space-xs) var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); white-space: nowrap; }
   button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
   .new-chat:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   button:focus-visible, input:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
   button:disabled { background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); box-shadow: none; cursor: default; }
-  .chat-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gn-space-sm); padding: 2px; }
+  .chat-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--gn-space-sm); padding: var(--gn-space-2xs); }
   .chat-row { min-width: 0; display: flex; flex-wrap: wrap; border-left: 3px solid transparent; border-radius: var(--gn-radius-sm); background: var(--gn-bg-page); }
   .chat-row.active { border-left-color: var(--gn-accent); background: var(--gn-accent-soft); }
   .chat-title { min-width: 0; flex: 1; overflow: hidden; border: 0 !important; padding: var(--gn-space-sm); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
@@ -205,7 +207,7 @@ Store access, persistence, sorting, and collection mutation are excluded.
   .rename-actions { display: flex; gap: var(--gn-space-xs); margin-top: var(--gn-space-xs); }
   .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
   .backdrop:focus-visible { outline: none; box-shadow: var(--gn-focus-inset); }
-  aside.overlay { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; width: var(--gn-history-width); min-width: var(--gn-history-width); border-radius: 0 var(--gn-radius-md) var(--gn-radius-md) 0; box-shadow: var(--gn-shadow-hard); transform: translateX(-110%); transition: transform var(--gn-motion-fast) ease; }
+  aside.overlay { display: flex; position: fixed; z-index: 11; inset: env(safe-area-inset-top) auto env(safe-area-inset-bottom) env(safe-area-inset-left); width: var(--gn-history-width); min-width: var(--gn-history-width); height: auto; border: var(--gn-border-width) solid var(--gn-border); border-left: 0; box-shadow: var(--gn-shadow-hard); transform: translateX(-110%); transition: transform var(--gn-motion-fast) ease; }
   aside.overlay.open { transform: translateX(0); }
   @media (max-width: 640px) {
     aside.overlay { width: min(var(--gn-history-width), 88vw); min-width: min(var(--gn-history-width), 88vw); }

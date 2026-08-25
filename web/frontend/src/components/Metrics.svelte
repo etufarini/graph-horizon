@@ -42,51 +42,53 @@
     <span aria-hidden="true">· {seconds(elapsed)}</span>
   </section>
 {:else if stats}
-  <section class="metrics metrics-final" aria-label="Latest generation metrics">
+  <details class="metrics metrics-final">
+    <summary>
+      <span><small>Output</small><strong>{stats.completionTokens} tok</strong></span>
+      <span><small>Decode</small><strong aria-label={decodeRate === null ? 'Decode rate unavailable' : undefined}>{rate(decodeRate)}</strong><em>{seconds(stats.decodeMs)}</em></span>
+      <b>Details</b>
+    </summary>
     <dl>
       <div><dt>Prompt</dt><dd><strong>{stats.promptTokens} tok</strong></dd></div>
       <div>
         <dt>Prefill</dt>
-        <dd>
-          <strong>{stats.prefillTokens} tok</strong>
-          <small class="rate-details"><span>{seconds(stats.prefillMs)}</span><span>· {rate(prefillRate)}</span></small>
-        </dd>
-      </div>
-      <div class="metric-primary"><dt>Output</dt><dd><strong>{stats.completionTokens} tok</strong></dd></div>
-      <div class="metric-primary">
-        <dt>Decode</dt>
-        <dd><strong aria-label={decodeRate === null ? 'Decode rate unavailable' : undefined}>{rate(decodeRate)}</strong><small>{seconds(stats.decodeMs)}</small></dd>
+        <dd><strong>{stats.prefillTokens} tok</strong><small class="rate-details"><span>{seconds(stats.prefillMs)}</span><span>· {rate(prefillRate)}</span></small></dd>
       </div>
     </dl>
-  </section>
+  </details>
 {/if}
 
 <style lang="scss">
-  .metrics { min-width: 0; box-sizing: border-box; border: var(--gn-border-width) solid var(--gn-border); border-radius: var(--gn-radius-sm); background: var(--gn-bg-panel); box-shadow: var(--gn-shadow-small); color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); font-variant-numeric: tabular-nums; }
+  .metrics { min-width: 0; box-sizing: border-box; color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); font-variant-numeric: tabular-nums; }
   .metrics-live { min-height: var(--gn-control-height); display: flex; align-items: center; gap: var(--gn-space-xs); padding: var(--gn-space-xs) var(--gn-space-sm); font-weight: 700; }
   .phase-dot { width: 8px; height: 8px; flex: 0 0 auto; border-radius: 0; background: var(--gn-text-muted); }
   .phase-prefill { background: var(--gn-streaming); }
   .phase-decode { background: var(--gn-accent); }
   .phase-label { color: var(--gn-text-primary); }
-  /* The metrics share a responsive parent grid, so their own width—not the
-     viewport—determines whether four, two, or one columns are safe. */
   .metrics-final { container-type: inline-size; }
-  .metrics-final dl { margin: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: var(--gn-space-xs) 0; }
-  .metrics-final div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 2px var(--gn-space-sm); padding: 2px var(--gn-space-sm); border-left: var(--gn-rule-width) solid var(--gn-border-subtle); }
+  summary { min-height: var(--gn-control-height); display: flex; align-items: center; gap: var(--gn-space-sm); padding: var(--gn-space-xs) var(--gn-space-sm); cursor: pointer; list-style: none; }
+  summary::-webkit-details-marker { display: none; }
+  summary > span { min-width: 0; display: flex; align-items: baseline; gap: var(--gn-space-xs); }
+  summary > span + span { border-left: var(--gn-rule-width) solid var(--gn-border-subtle); padding-left: var(--gn-space-sm); }
+  summary small, summary em { font: inherit; }
+  summary small { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  summary em { font-style: normal; white-space: nowrap; }
+  summary b { margin-left: auto; color: var(--gn-accent-ink); font-weight: 650; }
+  summary b::after { content: " ▾"; }
+  details[open] summary b::after { content: " ▴"; }
+  .metrics-final dl { margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border-top: var(--gn-rule-width) solid var(--gn-border-subtle); padding: var(--gn-space-xs) 0; }
+  .metrics-final div { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: var(--gn-space-2xs) var(--gn-space-sm); padding: var(--gn-space-2xs) var(--gn-space-sm); border-left: var(--gn-rule-width) solid var(--gn-border-subtle); }
   .metrics-final div:first-child { border-left: 0; }
   dt { font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
   dd { min-width: 0; max-width: 100%; margin: 0; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0 var(--gn-space-xs); text-align: right; }
   strong { color: var(--gn-text-primary); font-size: var(--gn-text-sm); white-space: nowrap; }
-  .metric-primary strong { color: var(--gn-accent-ink); }
+  summary strong { color: var(--gn-accent-ink); }
   small { min-width: 0; max-width: 100%; font: inherit; white-space: nowrap; }
   .rate-details { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; column-gap: var(--gn-space-xs); white-space: normal; }
   .rate-details span { white-space: nowrap; }
-  @container (max-width: 839px) {
-    .metrics-final dl { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .metrics-final div:nth-child(odd) { border-left: 0; }
-    .metrics-final div:nth-child(n + 3) { border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }
-  }
   @container (max-width: 419px) {
+    summary { flex-wrap: wrap; }
+    summary b { margin-left: 0; }
     .metrics-final dl { grid-template-columns: 1fr; }
     .metrics-final div { grid-template-columns: 1fr; border-left: 0; }
     .metrics-final div:nth-child(n + 2) { border-top: var(--gn-rule-width) solid var(--gn-border-subtle); }

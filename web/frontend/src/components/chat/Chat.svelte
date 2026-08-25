@@ -25,27 +25,19 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   let runtimeContext: RuntimeContext | null = null;
   let runtimeInfo: RuntimeInfo | null = null;
   let configurationError: string | null = null;
-  let historyOpen = false, mobile = false;
-  let filesOpen = false, filesOverlay = false;
+  let historyOpen = false;
+  let filesOpen = false;
+  let panelsOverlay = false;
+  let systemPromptOpen = false;
   let search: SearchSelection | null = null;
   let selectedFileChat = '';
   const contextController = new AbortController();
 
   onMount(() => {
-    const historyMedia = matchMedia('(max-width: 900px)');
-    const filesMedia = matchMedia('(max-width: 1439px)');
-    const applyHistoryBreakpoint = () => {
-      mobile = historyMedia.matches;
-      historyOpen = !mobile;
-    };
-    const applyFilesBreakpoint = () => {
-      filesOverlay = filesMedia.matches;
-      filesOpen = !filesOverlay;
-    };
-    applyHistoryBreakpoint();
-    applyFilesBreakpoint();
-    historyMedia.addEventListener('change', applyHistoryBreakpoint);
-    filesMedia.addEventListener('change', applyFilesBreakpoint);
+    const panelMedia = matchMedia('(max-width: 1199px)');
+    const applyPanelBreakpoint = () => { panelsOverlay = panelMedia.matches; };
+    applyPanelBreakpoint();
+    panelMedia.addEventListener('change', applyPanelBreakpoint);
     void markdownFiles.reconcile($chat.collection.chats.map(chat => chat.id));
     void loadRuntimeContext(contextController.signal).then(result => {
       if (contextController.signal.aborted) return;
@@ -56,8 +48,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
       if (!contextController.signal.aborted && result.ok) runtimeInfo = result.info;
     });
     return () => {
-      historyMedia.removeEventListener('change', applyHistoryBreakpoint);
-      filesMedia.removeEventListener('change', applyFilesBreakpoint);
+      panelMedia.removeEventListener('change', applyPanelBreakpoint);
       contextController.abort();
     };
   });
@@ -104,15 +95,16 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   function closeFiles(): void { filesOpen = false; }
 
   function toggleHistory(): void {
+    // Workspace invariant: opening either side panel always closes the other.
     const opening = !historyOpen;
     historyOpen = opening;
-    if (opening && filesOverlay) filesOpen = false;
+    if (opening) filesOpen = false;
   }
 
   function toggleFiles(): void {
     const opening = !filesOpen;
     filesOpen = opening;
-    if (opening && mobile) historyOpen = false;
+    if (opening) historyOpen = false;
   }
 
   function selectChat(id: string): void { chat.selectChat(id); }
@@ -129,17 +121,17 @@ context, transfer, status, and gated submission; domain rules remain outside. --
   }
 </script>
 
-<section class="application">
-  <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={mobile}
-    blocked={filesOverlay && filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
+<section class:history-closed={!historyOpen} class:files-closed={!filesOpen} class="application">
+  <ChatHistory {chats} activeId={$chat.collection.activeChatId} open={historyOpen} overlay={panelsOverlay}
+    blocked={filesOpen} streaming={chatLocked} on:new={() => chat.newChat()}
     on:select={event => selectChat(event.detail)} on:rename={event => chat.renameChat(event.detail.id, event.detail.title)}
     on:delete={event => chat.deleteChat(event.detail)} on:toggle={toggleHistory} on:close={closeHistory} />
 
-  <section class="chat-layout" inert={(mobile && historyOpen) || (filesOverlay && filesOpen)}>
+  <section class="chat-layout" inert={panelsOverlay && (historyOpen || filesOpen)}>
     <Header {runtimeInfo} />
 
-    <div class="chat-tools">
-      <SystemPrompt value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
+    <div class:prompt-open={systemPromptOpen} class="chat-tools">
+      <SystemPrompt bind:open={systemPromptOpen} value={currentChat.systemPrompt} disabled={chatLocked} on:change={event => chat.setSystemPrompt(event.detail)} />
       <SessionActions importDisabled={chatLocked} on:export={() => downloadChatFile(serializeChat(messages, currentChat.systemPrompt))} on:import={event => chat.importChat(event.detail)} />
     </div>
     <Transcript {messages} {streaming} searchEnabled={runtimeContext !== null} on:regenerate={regenerate} on:edit={event => editPrompt(event.detail.userId, event.detail.text)} on:delete={() => { if (filesReady) chat.deleteLastTurn(); }} />
@@ -151,7 +143,7 @@ context, transfer, status, and gated submission; domain rules remain outside. --
     <Composer bind:value={draft} bind:search {streaming} searchCapability={runtimeContext?.search ?? null} contextAvailable={runtimeContext !== null && filesReady} on:send={send} on:stop={() => chat.stop()} />
   </section>
 
-  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={filesOverlay} blocked={mobile && historyOpen}
+  <FilesPanel files={$markdownFiles.files} open={filesOpen} overlay={panelsOverlay} blocked={historyOpen}
     disabled={streaming || runtimeContext === null} busy={$markdownFiles.busy} ready={filesLoaded}
     on:add={event => addFiles(event.detail)} on:download={event => downloadMarkdownFile(event.detail.name, event.detail.content)}
     on:delete={event => markdownFiles.remove(event.detail)} on:toggle={toggleFiles} on:close={closeFiles} />
@@ -159,26 +151,36 @@ context, transfer, status, and gated submission; domain rules remain outside. --
 
 <style lang="scss">
   .application {
-    width: min(var(--gn-application-width), 100%);
+    width: 100%;
     height: 100%; min-height: 0; min-width: 0;
-    display: flex; gap: var(--gn-space-sm);
+    display: flex; gap: 0;
+    overflow: hidden;
+    --gn-header-start-reserve: 0px;
+    --gn-header-end-reserve: 0px;
   }
+  .application.history-closed { --gn-header-start-reserve: calc(var(--gn-panel-rail-width) + var(--gn-space-sm)); }
+  .application.files-closed { --gn-header-end-reserve: calc(var(--gn-panel-rail-width) + var(--gn-space-sm)); }
   .chat-layout {
     flex: 1; min-width: 0; height: 100%; min-height: 0;
     display: grid;
     grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-    gap: var(--gn-space-sm);
+    background: var(--gn-bg-page);
+    padding: var(--gn-space-sm) var(--gn-space-md);
+    row-gap: var(--gn-space-sm);
   }
   .chat-tools { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: var(--gn-space-sm); }
-  .feedback { min-width: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--gn-space-sm); }
+  .chat-tools.prompt-open { grid-template-columns: 1fr; }
+  .prompt-open :global(.session-actions) { display: none; }
+  .feedback { min-width: 0; display: flex; flex-wrap: wrap; align-items: stretch; gap: var(--gn-space-xs) var(--gn-space-lg); border-top: var(--gn-rule-width) solid var(--gn-border-subtle); background: var(--gn-bg-panel); }
+  .feedback :global(.status-stack) { min-width: min(280px, 100%); flex: 1 1 320px; }
+  .feedback :global(.metrics) { min-width: min(320px, 100%); flex: 1 1 420px; }
   .persistence-warning {
-    grid-column: 1 / -1;
+    flex: 1 0 100%;
     border: var(--gn-rule-width) solid var(--gn-warning); border-radius: var(--gn-radius-sm); background: var(--gn-warning-bg);
     padding: var(--gn-space-sm); color: var(--gn-warning);
     font-size: var(--gn-text-sm); font-weight: 600;
   }
-  @media (max-width: 520px) {
-    .chat-tools { grid-template-columns: 1fr; }
-    .chat-tools :global(.session-actions) { justify-content: flex-start; }
+  @media (max-width: 640px) {
+    .chat-layout { padding: var(--gn-space-sm); }
   }
 </style>

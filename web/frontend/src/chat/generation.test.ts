@@ -12,7 +12,7 @@ import { createGeneration } from './generation.ts';
 import { defaultSearch } from './search.ts';
 import { createCollection, replaceActiveTranscript } from './sessions.ts';
 import { hydrateTranscript } from './transcript.ts';
-import type { ChatSnapshot, RuntimeContext } from './types.ts';
+import type { ChatSnapshot, RuntimeContext, TranscriptMessage } from './types.ts';
 import type { MarkdownFileRecord } from './files/record.ts';
 
 const id = '00000000-0000-4000-8000-000000000001';
@@ -27,11 +27,16 @@ const providerReport = {
   published: null, provider: 'search.example',
   sources: [{ id: 'S1', title: 'Result', url: 'https://example.com/result', publisher: null, published_at_ms: null }]
 };
+const storedReport = {
+  query: 'old query', category: 'web' as const, referenceDate: '2026-08-23',
+  published: null, provider: 'search.example',
+  sources: [{ id: 'S1', title: 'Old result', url: 'https://example.com/old', publisher: null, publishedAtMs: null }]
+};
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 let fetchHandler: typeof fetch = async () => { throw new Error('unexpected fetch'); };
 globalThis.fetch = (...args) => fetchHandler(...args);
 
-function snapshot(messages = [
+function snapshot(messages: TranscriptMessage[] = [
   { role: 'user' as const, content: 'first question' },
   { role: 'assistant' as const, content: 'first response' }
 ]): ChatSnapshot {
@@ -295,6 +300,65 @@ test('regenerate excludes the old response and preserves the exact user prompt',
   assert.deepEqual(checkpoints, [id]);
 });
 
+test('regenerate recreates an assistant and never carries old search provenance', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: 'old response', search: storedReport }
+  ]);
+  const oldAssistant = original.collection.chats[0].messages[1];
+  const stream = controlledFetch();
+  const { store, generation } = harness(original);
+  const pending = generation.regenerate(context);
+  await tick();
+  const replacement = get(store).collection.chats[0].messages[1];
+  assert.notEqual(replacement.id, oldAssistant.id);
+  assert.equal(replacement.search, undefined);
+  stream.delta('new response');
+  stream.done();
+  await pending;
+  assert.equal(get(store).collection.chats[0].messages[1].search, undefined);
+});
+
+test('regenerate reruns an unchanged search and stores only its new report', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'question' },
+    { role: 'assistant', content: 'old response', search: storedReport }
+  ]);
+  const report = { ...providerReport, query: storedReport.query };
+  const stream = controlledFetch(report);
+  const { store, generation } = harness(original);
+  const pending = generation.regenerate(
+    context,
+    [],
+    { ...defaultSearch(), query: storedReport.query }
+  );
+  await tick();
+  assert.equal(stream.body().search.terms, storedReport.query);
+  stream.done();
+  await pending;
+  const search = get(store).collection.chats[0].messages[1].search;
+  assert.equal(search?.query, storedReport.query);
+  assert.equal(search?.referenceDate, providerReport.reference_date);
+});
+
+test('edit replaces old search provenance with only the new report', async () => {
+  const original = snapshot([
+    { role: 'user', content: 'old question' },
+    { role: 'assistant', content: 'old response', search: storedReport }
+  ]);
+  const userId = original.collection.chats[0].messages[0].id;
+  const stream = controlledFetch(providerReport);
+  const { store, generation } = harness(original);
+  const pending = generation.editPrompt(userId, 'new question', context, [], defaultSearch());
+  await tick();
+  assert.equal(
+    get(store).collection.chats[0].messages[1].search?.query,
+    'public query'
+  );
+  stream.done();
+  await pending;
+});
+
 test('editing an earlier prompt truncates successors and sends only its causal prefix', async () => {
   const original = snapshot([
     { role: 'user', content: 'first question' },
@@ -326,7 +390,7 @@ test('editing an earlier prompt truncates successors and sends only its causal p
 test('a failed earlier edit restores the exact complete transcript', async () => {
   const original = snapshot([
     { role: 'user', content: 'first question' },
-    { role: 'assistant', content: 'first response' },
+    { role: 'assistant', content: 'first response', search: storedReport },
     { role: 'user', content: 'next question' },
     { role: 'assistant', content: 'next response' }
   ]);
@@ -338,14 +402,21 @@ test('a failed earlier edit restores the exact complete transcript', async () =>
   stream.delta('temporary');
   stream.close();
   await pending;
-  assert.deepEqual(plain(get(store)), plain(original));
+  assert.deepEqual(
+    get(store).collection.chats[0].messages,
+    original.collection.chats[0].messages
+  );
   assert.equal(get(store).error, 'Response interrupted');
   assert.deepEqual(checkpoints, []);
 });
 
-test('stopping replacement commits candidate prompt with empty response', async () => {
+test('stopping replacement commits candidate prompt without stale search provenance', async () => {
   controlledFetch();
-  const { store, checkpoints, generation } = harness();
+  const original = snapshot([
+    { role: 'user', content: 'first question' },
+    { role: 'assistant', content: 'first response', search: storedReport }
+  ]);
+  const { store, checkpoints, generation } = harness(original);
   const userId = get(store).collection.chats[0].messages[0].id;
   const pending = generation.editPrompt(userId, '  candidate  ', context);
   await tick();
@@ -355,6 +426,7 @@ test('stopping replacement commits candidate prompt with empty response', async 
     { role: 'user', content: 'candidate' },
     { role: 'assistant', content: '' }
   ]);
+  assert.equal(get(store).collection.chats[0].messages.at(-1)?.search, undefined);
   assert.deepEqual(checkpoints, [id]);
 });
 

@@ -23,6 +23,17 @@ const plain = [
   { role: 'user' as const, content: '  hello 🧠\n' },
   { role: 'assistant' as const, content: '[THINK]π[/THINK]\n ✓  ' }
 ];
+const search = {
+  query: 'old query',
+  category: 'web' as const,
+  referenceDate: '2026-08-25',
+  published: null,
+  provider: 'search.example',
+  sources: [{
+    id: 'S1', title: 'Old result', url: 'https://example.com/old',
+    publisher: null, publishedAtMs: null
+  }]
+};
 
 test('validation preserves complete alternating Unicode transcripts exactly', () => {
   assert.deepEqual(validateTranscript(plain), plain);
@@ -114,8 +125,9 @@ test('rollback removes only the expected trailing pair', () => {
   assert.equal(removeTrailingTurn(messages, active[0].id, 'wrong'), messages);
 });
 
-test('turn lookup and replacement preserve IDs while truncating causal successors', () => {
+test('turn replacement preserves the user ID but recreates the assistant without stale search', () => {
   const earlier = hydrateTranscript(plain);
+  earlier[1] = { ...earlier[1], search };
   const active = hydrateTranscript([
     { role: 'user', content: 'ultima 🧠' },
     { role: 'assistant', content: '' }
@@ -138,9 +150,10 @@ test('turn lookup and replacement preserve IDs while truncating causal successor
   assert.notEqual(replaced, messages);
   assert.equal(replaced.length, 2);
   assert.equal(replaced.at(-2)?.id, earlier[0].id);
-  assert.equal(replaced.at(-1)?.id, earlier[1].id);
+  assert.notEqual(replaced.at(-1)?.id, earlier[1].id);
   assert.equal(replaced.at(-2)?.content, 'new question π');
   assert.equal(replaced.at(-1)?.content, '[THINK]✓[/THINK]');
+  assert.equal(replaced.at(-1)?.search, undefined);
   assert.equal(messages.length, 4);
   assert.equal(messages[0].content, plain[0].content);
 });

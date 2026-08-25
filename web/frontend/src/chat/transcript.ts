@@ -106,11 +106,15 @@ export function replaceFromTurn(
 ): ChatMessage[] {
   const turn = findTurn(messages, userId);
   if (!turn) return messages;
-  // A revised prompt invalidates its old answer and every causal successor.
+  // A revised prompt starts a new causal version. A fresh assistant identity
+  // prevents old provenance or late stream events from entering that version.
+  const assistant = hydrateTranscript([
+    { role: 'assistant', content: assistantContent }
+  ])[0];
   return [
     ...messages.slice(0, turn.index),
     { ...turn.user, content: userContent },
-    { ...turn.assistant, content: assistantContent }
+    assistant
   ];
 }
 

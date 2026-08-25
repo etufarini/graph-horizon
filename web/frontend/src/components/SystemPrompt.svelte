@@ -1,10 +1,10 @@
+<!--
+SystemPrompt.svelte presents the collapsible editor for one chat. It owns only
+open state; value, availability, persistence, and chat selection stay outside.
+-->
 <script lang="ts">
-  /*
-   * Presentational collapsible editor for the active chat's system prompt.
-   * Owns only open state; value and streaming availability flow through props,
-   * and edits leave through one typed event. Store and persistence stay outside.
-   */
   import { createEventDispatcher } from 'svelte';
+  import CollapseControl from './CollapseControl.svelte';
 
   export let value = '';
   export let disabled = false;
@@ -16,25 +16,29 @@
 </script>
 
 <div class="system-prompt">
-  <button type="button" class="panel-header" aria-expanded={open} aria-controls="system-prompt-editor" on:click={() => (open = !open)}>
-    <span class="chevron" class:open aria-hidden="true"></span>
+  <div class="panel-header">
     <span class="panel-label">System prompt</span>
     {#if !open && value.trim() !== ''}
       <span class="prompt-state">Set</span>
     {/if}
-  </button>
-  {#if open}
-    <div id="system-prompt-editor" class="panel-body">
-      <textarea
-        bind:value
-        {disabled}
-        on:input={() => dispatch('change', value)}
-        rows="3"
-        aria-label="System prompt"
-        placeholder="Instructions for the model…"
-      ></textarea>
-    </div>
-  {/if}
+    <CollapseControl
+      expanded={open}
+      controls="system-prompt-editor"
+      openLabel="Open system prompt"
+      closeLabel="Close system prompt"
+      on:toggle={() => (open = !open)}
+    />
+  </div>
+  <div id="system-prompt-editor" class="panel-body" hidden={!open}>
+    <textarea
+      bind:value
+      {disabled}
+      on:input={() => dispatch('change', value)}
+      rows="3"
+      aria-label="System prompt"
+      placeholder="Instructions for the model…"
+    ></textarea>
+  </div>
 </div>
 
 <style lang="scss">
@@ -51,12 +55,9 @@
     align-items: center;
     gap: var(--gn-space-xs);
     width: 100%;
+    box-sizing: border-box;
     min-height: var(--gn-control-height);
     padding: var(--gn-space-xs) var(--gn-space-sm);
-    border: none;
-    background: none;
-    cursor: pointer;
-    border-radius: var(--gn-radius-sm);
     font-family: var(--gn-font-mono);
     font-size: var(--gn-text-xs);
     font-weight: 650;
@@ -66,31 +67,15 @@
     text-align: left;
   }
 
-  .panel-header:hover { background: var(--gn-bg-panel-raised); color: var(--gn-text-primary); }
-
-  .panel-header:focus-visible {
-    outline: none;
-    box-shadow: var(--gn-focus-ring);
-  }
-
-  .chevron {
-    width: 0;
-    height: 0;
-    border-top: 4px solid transparent;
-    border-bottom: 4px solid transparent;
-    border-left: 5px solid var(--gn-text-muted);
-    transition: transform var(--gn-motion-fast) ease;
-  }
-
-  .chevron.open {
-    transform: rotate(90deg);
-  }
-
+  .panel-label { color: var(--gn-text-primary); }
   .prompt-state { margin-left: auto; border: var(--gn-rule-width) solid var(--gn-accent); border-radius: 0; background: var(--gn-accent-soft); padding: 1px var(--gn-space-xs); color: var(--gn-accent-ink); font-size: var(--gn-text-xs); }
+  .panel-header :global(button) { margin-left: auto; }
 
   .panel-body {
     padding: 0 var(--gn-space-sm) var(--gn-space-sm);
   }
+
+  [hidden] { display: none; }
 
   textarea {
     display: block;

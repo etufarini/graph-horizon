@@ -91,18 +91,16 @@ export function createGeneration(
       return;
     }
 
-    // Replacement IDs remain stable so only its newly trailing assistant can stream.
-    const pair = mode === 'append'
-      ? hydrateTranscript([
+    // The user identity locates the causal cut; replaceFromTurn creates a fresh
+    // assistant identity so old request events cannot target the new version.
+    const messages = mode === 'append'
+      ? [...previousMessages, ...hydrateTranscript([
           { role: 'user', content: prompt },
           { role: 'assistant', content: '' }
-        ])
-      : [turn!.user, turn!.assistant];
-    const messages = mode === 'append'
-      ? [...previousMessages, ...pair]
-      : replaceFromTurn(previousMessages, pair[0].id, prompt, '');
+        ])]
+      : replaceFromTurn(previousMessages, turn!.user.id, prompt, '');
     const chatId = chat.id;
-    const assistantId = pair[1].id;
+    const assistantId = messages.at(-1)!.id;
     controller = new AbortController();
     const request = controller;
     store.set({

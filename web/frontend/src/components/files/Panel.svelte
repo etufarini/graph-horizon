@@ -5,12 +5,15 @@ prompt projection, downloads, and chat lifecycle remain outside.
 -->
 <script lang="ts">
   import { createEventDispatcher, tick } from 'svelte';
+  import CollapseControl from '../CollapseControl.svelte';
+  import PanelRail from '../PanelRail.svelte';
   import Preview from './Preview.svelte';
   import type { MarkdownFileRecord } from '../../chat/files/record.ts';
 
   export let files: MarkdownFileRecord[] = [];
   export let open = false;
   export let overlay = false;
+  export let blocked = false;
   export let disabled = false;
   export let busy = false;
   export let ready = false;
@@ -19,21 +22,30 @@ prompt projection, downloads, and chat lifecycle remain outside.
     add: File[];
     download: MarkdownFileRecord;
     delete: string;
+    toggle: void;
     close: void;
   }>();
   let picker: HTMLInputElement;
   let closeButton: HTMLButtonElement;
+  let reopenButton: HTMLButtonElement;
   let selectedId: string | null = null;
   let dragging = false;
-  let wasOpen = false;
-  $: if (open !== wasOpen) {
-    wasOpen = open;
-    if (open && overlay) tick().then(() => closeButton?.focus());
-  }
   $: if (!selectedId || !files.some(file => file.id === selectedId)) {
     selectedId = files[0]?.id ?? null;
   }
   $: selected = files.find(file => file.id === selectedId) ?? null;
+
+  async function toggle(): Promise<void> {
+    dispatch('toggle');
+    await tick();
+    (open ? closeButton : reopenButton)?.focus();
+  }
+
+  async function close(): Promise<void> {
+    dispatch('close');
+    await tick();
+    reopenButton?.focus();
+  }
 
   function submit(list: FileList | File[]): void {
     if (disabled || busy || !ready) return;
@@ -64,7 +76,7 @@ prompt projection, downloads, and chat lifecycle remain outside.
   }
 
   function keydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && open && overlay) dispatch('close');
+    if (event.key === 'Escape' && open && overlay && !blocked) void close();
   }
 
   function size(bytes: number): string {
@@ -73,49 +85,65 @@ prompt projection, downloads, and chat lifecycle remain outside.
 </script>
 
 <svelte:window on:keydown={keydown} />
-{#if open && overlay}<button class="backdrop" type="button" aria-label="Close Markdown files" on:click={() => dispatch('close')}></button>{/if}
-<aside id="markdown-files" class:open class:overlay class:dragging aria-label="Markdown files" aria-hidden={!open} inert={!open}
-  role={overlay ? 'dialog' : undefined} aria-modal={overlay ? 'true' : undefined}
-  on:dragover|preventDefault={() => { if (!disabled && ready) dragging = true; }}
-  on:dragleave={() => dragging = false}
-  on:drop|preventDefault={dropped}>
-  <header>
-    <div>
-      <strong>Markdown files</strong>
-      <span>{files.length} / 10</span>
-    </div>
-    {#if overlay}<button bind:this={closeButton} class="close" type="button" aria-label="Close Markdown files" on:click={() => dispatch('close')}>×</button>{/if}
-  </header>
-  <button class="add" type="button" disabled={disabled || busy || !ready} on:click={() => picker.click()}>
-    {busy ? 'Saving…' : ready ? '+ Add .md' : 'Loading…'}
-  </button>
-  <input type="file" accept=".md,text/markdown,text/plain" multiple bind:this={picker} on:change={picked} aria-hidden="true" tabindex="-1" />
-  <p class="hint">Drop UTF-8 files here. They will provide context for future requests.</p>
-  <div class="file-list" aria-label="Saved files">
-    {#each files as file (file.id)}
-      <button class:active={file.id === selectedId} type="button" title={file.name} on:click={() => selectedId = file.id}>
-        <span>{file.name}</span><small>{size(file.utf8Bytes)}</small>
-      </button>
-    {:else}
-      <p class="empty">No files in this chat</p>
-    {/each}
-  </div>
-  {#if selected}
-    <Preview file={selected} {disabled} on:download={event => dispatch('download', event.detail)} on:delete={event => remove(event.detail)} />
+<div class="files-shell" class:overlay class:closed={!open}>
+  {#if !open && !blocked}
+    <PanelRail bind:element={reopenButton} side="right" label="Markdown files" text="Files" controls="markdown-files" count={files.length} {overlay} on:toggle={toggle} />
   {/if}
-</aside>
+  {#if open && overlay}<button class="backdrop" type="button" aria-label="Close Markdown files" on:click={close}></button>{/if}
+  <aside id="markdown-files" class:open class:overlay class:dragging aria-label="Markdown files" aria-hidden={!open || blocked} inert={!open || blocked}
+    role={overlay ? 'dialog' : undefined} aria-modal={overlay ? 'true' : undefined}
+    on:dragover|preventDefault={() => { if (!disabled && ready) dragging = true; }}
+    on:dragleave={() => dragging = false}
+    on:drop|preventDefault={dropped}>
+    <header>
+      <div>
+        <strong>Markdown files</strong>
+        <span>{files.length} / 10</span>
+      </div>
+      <CollapseControl
+        bind:element={closeButton}
+        expanded={true}
+        controls="markdown-files"
+        openLabel="Open Markdown files"
+        closeLabel="Close Markdown files"
+        expandDirection="left"
+        collapseDirection="right"
+        on:toggle={toggle}
+      />
+    </header>
+    <button class="add" type="button" disabled={disabled || busy || !ready} on:click={() => picker.click()}>
+      {busy ? 'Saving…' : ready ? '+ Add .md' : 'Loading…'}
+    </button>
+    <input type="file" accept=".md,text/markdown,text/plain" multiple bind:this={picker} on:change={picked} aria-hidden="true" tabindex="-1" />
+    <p class="hint">Drop UTF-8 files here. They will provide context for future requests.</p>
+    <div class="file-list" aria-label="Saved files">
+      {#each files as file (file.id)}
+        <button class:active={file.id === selectedId} type="button" title={file.name} on:click={() => selectedId = file.id}>
+          <span>{file.name}</span><small>{size(file.utf8Bytes)}</small>
+        </button>
+      {:else}
+        <p class="empty">No files in this chat</p>
+      {/each}
+    </div>
+    {#if selected}
+      <Preview file={selected} {disabled} on:download={event => dispatch('download', event.detail)} on:delete={event => remove(event.detail)} />
+    {/if}
+  </aside>
+</div>
 
 <style lang="scss">
-  aside { width: var(--gn-files-width); min-width: var(--gn-files-width); min-height: 0; box-sizing: border-box; display: none; grid-template-rows: auto auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md); background: var(--gn-bg-panel); padding: var(--gn-space-md); }
+  .files-shell { width: var(--gn-files-width); min-width: var(--gn-files-width); height: 100%; min-height: 0; }
+  .files-shell.closed { width: var(--gn-panel-rail-width); min-width: var(--gn-panel-rail-width); }
+  .files-shell.overlay { width: 0; min-width: 0; }
+  aside { width: 100%; min-width: 100%; min-height: 0; box-sizing: border-box; display: none; grid-template-rows: auto auto auto minmax(72px, 0.35fr) minmax(0, 1fr); gap: var(--gn-space-sm); border: var(--gn-rule-width) solid var(--gn-border-subtle); border-radius: var(--gn-radius-md); background: var(--gn-bg-panel); padding: var(--gn-space-md); }
   aside.open { display: grid; }
   aside.dragging { box-shadow: var(--gn-focus-inset); background: var(--gn-bg-panel-raised); }
   header, header div { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--gn-space-sm); }
   header strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); }
   header span { color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
   button { border-radius: var(--gn-radius-sm); font-family: var(--gn-font-mono); }
-  .close { min-width: var(--gn-control-height); min-height: var(--gn-control-height); border: 0; border-radius: var(--gn-radius-sm); background: transparent; color: var(--gn-text-muted); cursor: pointer; font-size: var(--gn-text-lg); }
   .add { min-height: var(--gn-control-height); border: var(--gn-rule-width) solid var(--gn-accent); border-radius: var(--gn-radius-sm); background: var(--gn-accent); padding: var(--gn-space-sm); color: var(--gn-bg-panel); cursor: pointer; font-size: var(--gn-text-xs); font-weight: 700; }
-  .close:hover, .add:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
+  .add:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   .add:disabled { background: var(--gn-bg-panel-raised); color: var(--gn-text-muted); box-shadow: none; cursor: default; }
   button:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
   input { display: none; }
@@ -127,10 +155,10 @@ prompt projection, downloads, and chat lifecycle remain outside.
   .file-list span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .file-list small { color: var(--gn-text-muted); font-size: var(--gn-text-xs); }
   .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
-  aside.overlay { position: fixed; z-index: 11; inset: 0 0 0 auto; border-radius: var(--gn-radius-md) 0 0 var(--gn-radius-md); box-shadow: var(--gn-shadow-hard); transform: translateX(110%); }
+  aside.overlay { display: grid; position: fixed; z-index: 11; inset: 0 0 0 auto; width: var(--gn-files-width); min-width: var(--gn-files-width); border-radius: var(--gn-radius-md) 0 0 var(--gn-radius-md); box-shadow: var(--gn-shadow-hard); transform: translateX(110%); transition: transform var(--gn-motion-fast) ease; }
   aside.overlay.open { transform: translateX(0); }
   @media (max-width: 640px) {
-    aside { width: min(var(--gn-files-width), 92vw); min-width: min(var(--gn-files-width), 92vw); }
-    .close, .add, .file-list button { min-height: var(--gn-touch-height); }
+    aside.overlay { width: min(var(--gn-files-width), 92vw); min-width: min(var(--gn-files-width), 92vw); }
+    .add, .file-list button { min-height: var(--gn-touch-height); }
   }
 </style>

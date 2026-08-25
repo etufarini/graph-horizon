@@ -81,7 +81,11 @@ Transcript mutation, transport, persistence, and chat navigation are excluded.
 
   <div class="message message-assistant">
     <Bubble message={assistant} streaming={streaming && final} />
-    {#if assistant.search}<SearchSources report={assistant.search} answer={assistant.content} />{/if}
+    {#key assistant.id}
+      {#if assistant.search}
+        <SearchSources report={assistant.search} answer={assistant.content} messageId={assistant.id} streaming={streaming && final} />
+      {/if}
+    {/key}
     {#if final}
       <div class="actions">
         <button type="button" disabled={streaming} on:click={() => dispatch('regenerate')}>Regenerate</button>

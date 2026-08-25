@@ -5,6 +5,8 @@ Store access, persistence, sorting, and collection mutation are excluded.
 -->
 <script lang="ts">
   import { createEventDispatcher, tick } from 'svelte';
+  import CollapseControl from './CollapseControl.svelte';
+  import PanelRail from './PanelRail.svelte';
   import type { ChatRecord } from '../chat/types';
 
   export let chats: ChatRecord[] = [];
@@ -19,23 +21,33 @@ Store access, persistence, sorting, and collection mutation are excluded.
     select: string;
     rename: { id: string; title: string };
     delete: string;
+    toggle: void;
     close: void;
   }>();
   let menuId: string | null = null;
   let renameId: string | null = null;
   let renameDraft = '';
   let renameInput: HTMLInputElement;
-  let newButton: HTMLButtonElement;
-  let wasOpen = false;
+  let reopenButton: HTMLButtonElement;
+  let closeButton: HTMLButtonElement;
   $: validRename = renameDraft.trim().length > 0 && Array.from(renameDraft.trim()).length <= 80;
-  $: if (open !== wasOpen) {
-    wasOpen = open;
-    if (open && overlay) tick().then(() => newButton?.focus());
+
+  async function toggle(): Promise<void> {
+    dispatch('toggle');
+    await tick();
+    (open ? closeButton : reopenButton)?.focus();
+  }
+
+  async function close(): Promise<void> {
+    dispatch('close');
+    await tick();
+    reopenButton?.focus();
   }
 
   function select(id: string): void {
     if (streaming) return;
     dispatch('select', id);
+    if (overlay) void close();
   }
 
   async function rename(chat: ChatRecord): Promise<void> {
@@ -89,60 +101,65 @@ Store access, persistence, sorting, and collection mutation are excluded.
     if (event.key !== 'Escape' || blocked) return;
     if (menuId) menuId = null;
     else if (renameId) renameId = null;
-    else if (open && overlay) dispatch('close');
+    else if (open && overlay) void close();
   }
 </script>
 
 <svelte:window on:click={windowClick} on:keydown={windowKeydown} />
-{#if open && overlay}<button class="backdrop" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}></button>{/if}
-<aside
-  id="chat-history"
-  class:open
-  class:overlay
-  aria-label="Saved chats"
-  aria-hidden={!open || blocked}
-  inert={!open || blocked}
-  role={overlay ? 'dialog' : undefined}
-  aria-modal={overlay ? 'true' : undefined}
->
-  <div class="history-header">
-    <button class="new-chat" type="button" disabled={streaming} bind:this={newButton} on:click={() => dispatch('new')}>New chat</button>
-    {#if overlay}<button class="close" type="button" aria-label="Close chat history" on:click={() => dispatch('close')}>×</button>{/if}
-  </div>
-  <div class="chat-list">
-    {#each chats as chat (chat.id)}
-      <div class:active={chat.id === activeId} class="chat-row">
-        {#if renameId === chat.id}
-          <div class="rename-row">
-            <input bind:this={renameInput} bind:value={renameDraft} disabled={streaming} aria-label={`Rename ${chat.title}`} on:keydown|stopPropagation={renameKeydown} />
-            <div class="rename-actions">
-              <button type="button" disabled={streaming || !validRename} on:click={saveRename}>Save</button>
-              <button type="button" disabled={streaming} on:click={() => renameId = null}>Cancel</button>
+<div class="history-shell" class:overlay class:closed={!open}>
+  {#if !open && !blocked}
+    <PanelRail bind:element={reopenButton} side="left" label="chat history" text="Chats" controls="chat-history" count={chats.length} {overlay} on:toggle={toggle} />
+  {/if}
+  {#if open && overlay}<button class="backdrop" type="button" aria-label="Close chat history" on:click={close}></button>{/if}
+  <aside id="chat-history" class:open class:overlay aria-label="Saved chats"
+    aria-hidden={!open || blocked} inert={!open || blocked}
+    role={overlay ? 'dialog' : undefined} aria-modal={overlay ? 'true' : undefined}>
+    <div class="history-header">
+      <strong>Chats</strong>
+      <span>{chats.length}</span>
+      <CollapseControl bind:element={closeButton} expanded={true} controls="chat-history"
+        openLabel="Open chat history" closeLabel="Close chat history"
+        expandDirection="right" collapseDirection="left" on:toggle={toggle} />
+    </div>
+    <button class="new-chat" type="button" disabled={streaming} on:click={() => dispatch('new')}>New chat</button>
+    <div class="chat-list">
+      {#each chats as chat (chat.id)}
+        <div class:active={chat.id === activeId} class="chat-row">
+          {#if renameId === chat.id}
+            <div class="rename-row">
+              <input bind:this={renameInput} bind:value={renameDraft} disabled={streaming} aria-label={`Rename ${chat.title}`} on:keydown|stopPropagation={renameKeydown} />
+              <div class="rename-actions">
+                <button type="button" disabled={streaming || !validRename} on:click={saveRename}>Save</button>
+                <button type="button" disabled={streaming} on:click={() => renameId = null}>Cancel</button>
+              </div>
             </div>
-          </div>
-        {:else}
-          <button class="chat-title" type="button" disabled={streaming} aria-current={chat.id === activeId ? 'true' : undefined} title={chat.title} on:click={() => select(chat.id)}>
-            {chat.title}
-          </button>
-          <div class="menu" data-chat-menu>
-            <button class="menu-trigger" type="button" disabled={streaming} aria-label={`Actions for ${chat.title}`} aria-expanded={menuId === chat.id} on:click|stopPropagation={event => toggleMenu(chat.id, event)}>…</button>
-          </div>
-          {#if menuId === chat.id}
-            <div class="menu-items" data-chat-menu>
-              <button type="button" disabled={streaming} on:click={() => rename(chat)}>Rename</button>
-              <button class="destructive" type="button" disabled={streaming} on:click={() => remove(chat)}>Delete</button>
+          {:else}
+            <button class="chat-title" type="button" disabled={streaming} aria-current={chat.id === activeId ? 'true' : undefined} title={chat.title} on:click={() => select(chat.id)}>
+              {chat.title}
+            </button>
+            <div class="menu" data-chat-menu>
+              <button class="menu-trigger" type="button" disabled={streaming} aria-label={`Actions for ${chat.title}`} aria-expanded={menuId === chat.id} on:click|stopPropagation={event => toggleMenu(chat.id, event)}>…</button>
             </div>
+            {#if menuId === chat.id}
+              <div class="menu-items" data-chat-menu>
+                <button type="button" disabled={streaming} on:click={() => rename(chat)}>Rename</button>
+                <button class="destructive" type="button" disabled={streaming} on:click={() => remove(chat)}>Delete</button>
+              </div>
+            {/if}
           {/if}
-        {/if}
-      </div>
-    {/each}
-  </div>
-</aside>
+        </div>
+      {/each}
+    </div>
+  </aside>
+</div>
 
 <style lang="scss">
+  .history-shell { width: var(--gn-history-width); min-width: var(--gn-history-width); height: 100%; min-height: 0; }
+  .history-shell.closed { width: var(--gn-panel-rail-width); min-width: var(--gn-panel-rail-width); }
+  .history-shell.overlay { width: 0; min-width: 0; }
   aside {
-    width: var(--gn-history-width);
-    min-width: var(--gn-history-width);
+    width: 100%;
+    min-width: 100%;
     min-height: 0;
     box-sizing: border-box;
     display: none;
@@ -165,9 +182,10 @@ Store access, persistence, sorting, and collection mutation are excluded.
     font-size: var(--gn-text-xs);
     font-weight: 650;
   }
-  .history-header { display: flex; gap: var(--gn-space-xs); }
-  .new-chat { flex: 1 1 auto; padding: var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); }
-  .close { min-width: var(--gn-control-height); border: 0; background: transparent; color: var(--gn-text-muted); font-size: var(--gn-text-lg); }
+  .history-header { display: flex; align-items: center; gap: var(--gn-space-xs); }
+  .history-header strong { color: var(--gn-text-primary); font: 700 var(--gn-text-sm) var(--gn-font-sans); }
+  .history-header > span { margin-left: auto; color: var(--gn-text-muted); font: var(--gn-text-xs) var(--gn-font-mono); }
+  .new-chat { padding: var(--gn-space-sm); border-color: var(--gn-accent); background: var(--gn-accent); color: var(--gn-bg-panel); }
   button:hover:not(:disabled) { border-color: var(--gn-accent); background: var(--gn-accent-soft); color: var(--gn-accent-ink); }
   .new-chat:hover:not(:disabled) { background: var(--gn-accent-ink); color: var(--gn-bg-panel); }
   button:focus-visible, input:focus-visible { outline: none; box-shadow: var(--gn-focus-ring); }
@@ -187,10 +205,10 @@ Store access, persistence, sorting, and collection mutation are excluded.
   .rename-actions { display: flex; gap: var(--gn-space-xs); margin-top: var(--gn-space-xs); }
   .backdrop { display: block; position: fixed; z-index: 10; inset: 0; border: 0; background: var(--gn-history-backdrop); }
   .backdrop:focus-visible { outline: none; box-shadow: var(--gn-focus-inset); }
-  aside.overlay { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; border-radius: 0 var(--gn-radius-md) var(--gn-radius-md) 0; box-shadow: var(--gn-shadow-hard); transform: translateX(-110%); }
+  aside.overlay { display: flex; position: fixed; z-index: 11; inset: 0 auto 0 0; width: var(--gn-history-width); min-width: var(--gn-history-width); border-radius: 0 var(--gn-radius-md) var(--gn-radius-md) 0; box-shadow: var(--gn-shadow-hard); transform: translateX(-110%); transition: transform var(--gn-motion-fast) ease; }
   aside.overlay.open { transform: translateX(0); }
   @media (max-width: 640px) {
-    aside { width: min(var(--gn-history-width), 88vw); min-width: min(var(--gn-history-width), 88vw); }
-    .new-chat, .close, .chat-row button, .rename-row button { min-height: var(--gn-touch-height); }
+    aside.overlay { width: min(var(--gn-history-width), 88vw); min-width: min(var(--gn-history-width), 88vw); }
+    .new-chat, .chat-row button, .rename-row button { min-height: var(--gn-touch-height); }
   }
 </style>

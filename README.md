@@ -19,6 +19,16 @@ The Web UI can optionally send one explicit Web or News query to a public
 provider. Graph Horizon has no standalone server mode or supported public HTTP
 API.
 
+## Interfaces
+
+### Command line
+
+![Graph Horizon CLI generating a local response](docs/assets/graph-horizon-cli.gif)
+
+### Web UI
+
+![Graph Horizon Web UI generating a local response](docs/assets/graph-horizon-web-ui.gif)
+
 ## Quick Install
 
 The installer builds Graph Horizon from source and installs it in

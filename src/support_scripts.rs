@@ -2,8 +2,9 @@
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
  * interfaces through disposable fixtures, proving installer/bootstrap safety,
- * quoted read-only model handling, class-sensitive semantic protocols, and
- * explicit external-verification output without real builds or network use.
+ * public-readiness isolation, quoted read-only model handling, class-sensitive
+ * semantic protocols, and explicit external verification without real builds
+ * or network use.
  */
 
 use std::fs;
@@ -2349,5 +2350,302 @@ printf 'internal /secret/path must not escape\n' >&2
             b"immutable semantic fixture"
         );
     }
+    fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn public_readiness_script_contract() {
+    let fixture = fixture_dir("public readiness");
+    let root = fixture.join("repository");
+    let testing = root.join("support/testing");
+    let template = fixture.join("clean template");
+    let bin = fixture.join("bin");
+    let model = fixture.join("Ministral-3-3B-Instruct-2512-Q4_K_M.gguf");
+    let installs = fixture.join("install calls");
+    let current = fixture.join("current backend");
+    let cargo_calls = fixture.join("cargo calls");
+    let temporary = fixture.join("temporary root");
+    let sentinel = fixture.join("preserve me");
+    fs::create_dir_all(&testing).unwrap();
+    fs::create_dir_all(root.join("support")).unwrap();
+    fs::create_dir_all(template.join("support")).unwrap();
+    fs::create_dir(&bin).unwrap();
+    fs::copy(
+        repository().join("support/testing/public-readiness.sh"),
+        testing.join("public-readiness.sh"),
+    )
+    .unwrap();
+    fs::copy(
+        repository().join("support/artifact.sh"),
+        root.join("support/artifact.sh"),
+    )
+    .unwrap();
+    fs::write(
+        root.join("support/models.tsv"),
+        include_str!("../support/models.tsv"),
+    )
+    .unwrap();
+    fs::write(&model, b"authenticated fixture bytes").unwrap();
+    fs::write(&sentinel, b"preserved").unwrap();
+
+    write_executable(
+        &template.join("support/install.sh"),
+        r#"#!/usr/bin/env bash
+set -eu
+backend=""; prefix=""
+while (($#)); do case "$1" in --backend) backend="$2"; shift 2 ;; --prefix) prefix="$2"; shift 2 ;; *) shift ;; esac; done
+printf '%s\n' "$backend" >> "$GRAPH_HORIZON_INSTALL_LOG"
+[[ "$backend" != "${GRAPH_HORIZON_FAIL_BACKEND:-}" ]] || exit 1
+mkdir -p "$prefix/bin"
+cp "$GRAPH_HORIZON_TEMPLATE/support/installed-product" "$prefix/bin/graph-horizon"
+"#,
+    );
+    write_executable(
+        &template.join("support/installed-product"),
+        r#"#!/usr/bin/env bash
+case "${1:-}" in
+  --version) echo 'graph-horizon 0.1.2'; exit 0 ;;
+  --help) echo 'Usage: graph-horizon [options]'; exit 0 ;;
+esac
+backend="${0%/bin/graph-horizon}"; backend="${backend##*/prefix-}"
+printf '%s\n' "$backend" > "$GRAPH_HORIZON_CURRENT_BACKEND"
+trap 'exit 0' TERM INT HUP
+while :; do /bin/sleep 0.1; done
+"#,
+    );
+    write_executable(
+        &bin.join("git"),
+        r#"#!/usr/bin/env bash
+set -eu
+if [[ "${1:-}" == -C ]]; then
+  directory="$2"; shift 2
+  case "$1 $2" in
+    'rev-parse --verify') printf '%040d\n' 0 ;;
+    'rev-parse HEAD') printf '%040d\n' 0 ;;
+    'status --porcelain') : ;;
+    'checkout --quiet') : ;;
+    *) exit 2 ;;
+  esac
+  exit 0
+fi
+[[ "${1:-}" == clone ]] || exit 2
+destination="${!#}"
+mkdir -p "$destination"
+cp -R "$GRAPH_HORIZON_TEMPLATE/." "$destination"
+printf '%s\n' "${destination%/*}" > "$GRAPH_HORIZON_TEMP_LOG"
+"#,
+    );
+    write_executable(&bin.join("stat"), b"#!/usr/bin/env bash\necho 2147023008\n");
+    write_executable(
+        &bin.join("sha256sum"),
+        r#"#!/usr/bin/env bash
+if [[ "${GRAPH_HORIZON_BAD_HASH:-}" == 1 ]]; then printf '%064d  fixture\n' 0; else echo '9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8  fixture'; fi
+"#,
+    );
+    write_executable(
+        &bin.join("uname"),
+        r#"#!/usr/bin/env bash
+case "$1" in -s) echo Linux ;; -m) echo x86_64 ;; -r) echo 7.0.0-test ;; *) exit 2 ;; esac
+"#,
+    );
+    write_executable(
+        &bin.join("lscpu"),
+        b"#!/usr/bin/env bash\necho 'Model name: Test CPU'\n",
+    );
+    write_executable(
+        &bin.join("vulkaninfo"),
+        r#"#!/usr/bin/env bash
+echo 'Vulkan Instance Version: 1.4.341'
+echo 'GPU0:'
+echo ' apiVersion = 1.4.335'
+if [[ "${GRAPH_HORIZON_SOFTWARE_VULKAN:-}" == 1 ]]; then
+  echo ' deviceType = PHYSICAL_DEVICE_TYPE_CPU'; echo ' deviceName = llvmpipe'; echo ' driverName = llvmpipe'
+else
+  echo ' deviceType = PHYSICAL_DEVICE_TYPE_DISCRETE_GPU'; echo ' deviceName = Test GPU'; echo ' driverName = test-driver'
+fi
+echo ' driverInfo = Test 1.0'
+echo ' conformanceVersion = 1.4.0.0'
+"#,
+    );
+    write_executable(
+        &bin.join("curl"),
+        r#"#!/usr/bin/env bash
+url="${!#}"
+case "$url" in
+  */internal/context) echo '{}' ;;
+  */internal/runtime)
+    backend="$(cat "$GRAPH_HORIZON_CURRENT_BACKEND")"
+    if [[ "$backend" == *-hybrid ]]; then printf '{"backend":"%s","placement":{"mode":"all-gpu","accelerator_layers":40}}\n' "$backend"; else printf '{"backend":"%s","placement":null}\n' "$backend"; fi
+    ;;
+  */internal/chat) echo 'data: {"content":"SECRET_GENERATED_TEXT"}'; echo 'data: {"stats":{"completion_tokens":2}}'; echo 'data: {"done":true}' ;;
+  */) echo '<html>fixture</html>' ;;
+  *) exit 22 ;;
+esac
+"#,
+    );
+    write_executable(
+        &bin.join("cargo"),
+        r#"#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GRAPH_HORIZON_CARGO_LOG"
+echo 'prompt_tokens=12 prompt_tps_median=11.00 prompt_tps_stddev=1.00 prompt_tps_cv=0.1000 ttft_ms_median=22.00 ttft_ms_stddev=2.00 ttft_cv=0.0900 model_decode_tps_median=33.00 model_decode_tps_stddev=3.00 model_decode_tps_cv=0.0800'
+"#,
+    );
+    write_executable(
+        &bin.join("script"),
+        r#"#!/usr/bin/env bash
+printf 'Graph Horizon 2 out | pf ' > "${!#}"
+/bin/sleep 3
+"#,
+    );
+    for tool in ["npm", "rustc"] {
+        write_executable(&bin.join(tool), b"#!/usr/bin/env bash\nexit 0\n");
+    }
+
+    let path = format!("{}:/usr/bin:/bin", bin.display());
+    let runner = testing.join("public-readiness.sh");
+    let run = |backend: &str, report: &Path, environment: &[(&str, &str)]| {
+        let mut command = Command::new("/bin/bash");
+        command
+            .arg(&runner)
+            .args([
+                "--model",
+                model.to_str().unwrap(),
+                "--benchmark-backend",
+                backend,
+                "--report",
+                report.to_str().unwrap(),
+            ])
+            .env("PATH", &path)
+            .env("HOME", fixture.join("private-home"))
+            .env("GRAPH_HORIZON_TEMPLATE", &template)
+            .env("GRAPH_HORIZON_INSTALL_LOG", &installs)
+            .env("GRAPH_HORIZON_CURRENT_BACKEND", &current)
+            .env("GRAPH_HORIZON_CARGO_LOG", &cargo_calls)
+            .env("GRAPH_HORIZON_TEMP_LOG", &temporary);
+        for (key, value) in environment {
+            command.env(key, value);
+        }
+        command.output().unwrap()
+    };
+
+    for args in [
+        vec![],
+        vec!["--model", "relative.gguf"],
+        vec!["--model", "/tmp/x", "--benchmark-backend", "fallback"],
+    ] {
+        assert_eq!(
+            Command::new("/bin/bash")
+                .arg(&runner)
+                .args(args)
+                .output()
+                .unwrap()
+                .status
+                .code(),
+            Some(2)
+        );
+    }
+
+    let unauthenticated = run(
+        "cpu",
+        &fixture.join("unauthenticated.md"),
+        &[("GRAPH_HORIZON_BAD_HASH", "1")],
+    );
+    assert_eq!(unauthenticated.status.code(), Some(1));
+    let error = String::from_utf8(unauthenticated.stderr).unwrap();
+    assert_eq!(error.trim(), "public-readiness: model is not authenticated");
+    assert!(!error.contains(model.to_str().unwrap()));
+
+    fs::write(&installs, []).unwrap();
+    let software_report = fixture.join("software report.md");
+    let software = run(
+        "cpu",
+        &software_report,
+        &[("GRAPH_HORIZON_SOFTWARE_VULKAN", "1")],
+    );
+    assert!(
+        software.status.success(),
+        "{}",
+        String::from_utf8_lossy(&software.stderr)
+    );
+    assert_eq!(fs::read_to_string(&installs).unwrap(), "cpu\n");
+    let public = fs::read_to_string(&software_report).unwrap();
+    for required in [
+        "Overall result: **PASS**",
+        "| vulkan | external verification |",
+        "| Prompt tokens | 12 |",
+        "| TTFT (ms) | 22.00 | 2.00 | 0.0900 |",
+        "valid only for this machine, commit, model, and configuration",
+        "no comparison with llama.cpp",
+    ] {
+        assert!(
+            public.contains(required),
+            "missing report field: {required}"
+        );
+    }
+    for private in [
+        fixture.to_str().unwrap(),
+        model.to_str().unwrap(),
+        "private-home",
+        "SECRET_GENERATED_TEXT",
+    ] {
+        assert!(!public.contains(private), "report exposed {private}");
+    }
+    let owned = PathBuf::from(fs::read_to_string(&temporary).unwrap().trim());
+    assert!(!owned.exists());
+    assert_eq!(fs::read(&sentinel).unwrap(), b"preserved");
+
+    fs::write(&installs, []).unwrap();
+    let physical_report = fixture.join("physical report.md");
+    let physical = run("vulkan", &physical_report, &[]);
+    assert!(
+        physical.status.success(),
+        "{}",
+        String::from_utf8_lossy(&physical.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(&installs).unwrap(),
+        "cpu\nvulkan\nvulkan-hybrid\n"
+    );
+    let public = fs::read_to_string(&physical_report).unwrap();
+    assert!(public.contains("| GPU | Test GPU |"));
+    assert!(public.contains("| vulkan | PASS |"));
+    assert!(public.contains("| vulkan-hybrid | PASS |"));
+    let cargo = fs::read_to_string(&cargo_calls).unwrap();
+    for fixed in [
+        "--features vulkan --example bench",
+        "--context 2048 --kv f16",
+        "--max-tokens 64 --warmup 1 --reps 3",
+    ] {
+        assert!(cargo.contains(fixed));
+    }
+
+    fs::write(&installs, []).unwrap();
+    let failure = run(
+        "vulkan",
+        &fixture.join("failed.md"),
+        &[("GRAPH_HORIZON_FAIL_BACKEND", "vulkan")],
+    );
+    assert_eq!(failure.status.code(), Some(1));
+    assert_eq!(fs::read_to_string(&installs).unwrap(), "cpu\nvulkan\n");
+    assert!(
+        String::from_utf8(failure.stderr)
+            .unwrap()
+            .contains("installation failed for vulkan")
+    );
+    let owned = PathBuf::from(fs::read_to_string(&temporary).unwrap().trim());
+    assert!(!owned.exists());
+    assert_eq!(fs::read(&sentinel).unwrap(), b"preserved");
+
+    let source =
+        fs::read_to_string(repository().join("support/testing/public-readiness.sh")).unwrap();
+    assert!(!source.contains("eval "));
+    assert!(source.contains("rm -rf -- \"$temp_root\""));
+    assert!(
+        source
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count()
+            <= 200
+    );
     fs::remove_dir_all(fixture).unwrap();
 }

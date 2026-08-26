@@ -17,6 +17,7 @@ backend, context, or model.
 | `profiling/validate-weights.sh` | Authenticates the six Q4_K_M artifacts and synthetic internal formats |
 | `testing/parity-check.sh` | Compares one exact prompt and top-two result with the pinned oracle |
 | `testing/matrix-check.sh` | Runs the six Q8 rejections, 60 primary rows, and eight hybrid endpoints |
+| `testing/public-readiness.sh` | Verifies a clean installed product, local backends, and one public benchmark |
 | `testing/semantic-check.sh` | Runs the terminal Reasoning semantic qualification matrix |
 | `testing/run-graph-horizon.sh` | Starts the local terminal with an explicit test tuple |
 
@@ -46,6 +47,26 @@ cargo test -p graph-horizon --no-default-features --features cpu bootstrap_
 
 The end-user installer interface and installed paths are documented in the
 [installation guide](../docs/installation.md).
+
+## Public Readiness
+
+The canonical week-2 campaign is:
+
+```sh
+support/testing/public-readiness.sh \
+  --model /absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
+  --benchmark-backend vulkan \
+  --report /absolute/path/public-readiness.md
+```
+
+The runner authenticates the exact catalogued 3B Instruct artifact, resolves
+the current commit, and checks out a clean local clone. It installs every
+backend proved usable on the host into a separate temporary prefix, verifies
+the installed CLI and Web product without fallback, and invokes the retained
+benchmark with the fixed public tuple. Unavailable platform backends remain
+`external verification`; a usable backend that fails makes the campaign fail.
+The trap owns only its `mktemp` tree, and the report excludes local paths,
+hostnames, usernames, generated text, and other private machine identity.
 
 ## Weight And KV Commands
 

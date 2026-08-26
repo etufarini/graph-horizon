@@ -28,12 +28,17 @@ tag. Cargo package metadata is complete and the Rust 1.88 checks are
 warnings-clean. These changes do not alter numeric operations, supported model
 artifacts, backend policy, or runtime interfaces.
 
-The release candidate passed formatting, warnings-denied CPU Clippy, the
+The published tag, archive, and checksum pass direct anonymous verification.
+The first release-triggered workflow run failed earlier because checkout peeled
+the annotated tag into a lightweight local ref; the verifier itself detected
+that local-ref mismatch before downloading assets.
+
+The release commit passed formatting, warnings-denied CPU Clippy, the
 complete locked CPU workspace suite, the CPU release build, minimum Rust 1.88
 CPU/Vulkan/Vulkan-hybrid checks, frontend tests and diagnostics, shell syntax,
 installer/bootstrap/release-integrity fixtures, and three consecutive live
 Web/News provider rounds. Exact commit-bound public-readiness and archive
-results are kept in the external candidate report generated after this commit.
+results are kept in the release report generated for that commit.
 
 After publication, install anonymously with:
 
@@ -43,7 +48,7 @@ curl --fail --location --silent --show-error https://raw.githubusercontent.com/e
 
 The model/backend qualification evidence remains attached to immutable
 `v0.1.0`; v0.1.3 does not relabel that historical campaign as a new numerical
-qualification. Exact release-candidate gate results and identity evidence are
+qualification. Exact release gate results and identity evidence are
 recorded in [validation evidence](validation-evidence.md).
 
 ## Graph Horizon v0.1.2

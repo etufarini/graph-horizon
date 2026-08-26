@@ -12,7 +12,13 @@ pub mod throughput;
 pub use throughput::{BenchConfig, Stat, ThroughputReport};
 
 use crate::Engine;
-pub use crate::family::mistral::parity::ParityReport;
+
+pub struct ParityReport {
+    pub prompt_ids: Vec<u32>,
+    pub local_ids: Vec<u32>,
+    pub top_two: Vec<[u32; 2]>,
+    pub crossings: usize,
+}
 
 /// Runs the fixed, family-neutral oracle protocol against the selected runtime.
 pub fn validate_parity(

@@ -1,6 +1,6 @@
 /*
  * graph_horizon_engine — persistent public engine
- * Applies statically selected backend settings, owns the single Ministral model,
+ * Applies statically selected backend settings, owns one selected family model,
  * reports immutable memory/placement, and submits cancellation-safe requests.
  */
 
@@ -9,7 +9,7 @@ use std::path::Path;
 use color_eyre::eyre::Result;
 
 use super::request::{EventSink, Request, SamplingParams};
-use crate::family::{self, mistral};
+use crate::family;
 use crate::kv_cache::scheme::KvQuant;
 
 pub struct EngineConfig {
@@ -60,7 +60,7 @@ impl Default for EngineConfig {
 }
 
 pub struct Engine {
-    model: mistral::RuntimeModel,
+    model: family::Model,
 }
 
 impl Engine {
@@ -76,7 +76,7 @@ impl Engine {
     }
 
     pub fn model_name(&self) -> Option<&str> {
-        self.model.name.as_deref()
+        self.model.name()
     }
 
     pub fn backend_name(&self) -> &'static str {
@@ -95,74 +95,31 @@ impl Engine {
     // Planned retained weights and full-context KV capacity. This is immutable
     // load-time accounting, not process RSS or live allocator telemetry.
     pub fn memory(&self) -> ModelMemory {
-        self.model.memory
+        self.model.memory()
     }
 
     pub fn default_sampling(&self) -> SamplingParams {
-        sampling_for_profile(self.model.tokenizer.uses_reasoning_profile())
+        self.model.default_sampling()
     }
 
     pub fn placement(&self) -> Option<PlacementReport> {
-        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-        {
-            crate::backend::selection::placement(&self.model.backend).map(|plan| {
-                let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
-                    weights: bytes.weights,
-                    kv: bytes.kv,
-                    scratch: bytes.scratch,
-                    fixed: bytes.fixed,
-                    staging: bytes.staging,
-                    crossing: bytes.crossing,
-                    reserve: bytes.reserve,
-                    total: bytes.total,
-                };
-                PlacementReport {
-                    mode: crate::backend::selection::placement_mode(plan.mode),
-                    cpu_layers: plan.cpu_layers,
-                    gpu_layers: plan.gpu_layers,
-                    cpu: memory(plan.cpu),
-                    gpu: memory(plan.gpu),
-                }
-            })
-        }
-        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
-        {
-            None
-        }
+        self.model.placement()
     }
 
     pub fn generate(&self, request: Request, sink: &mut dyn EventSink) {
-        mistral::generation::generate(&self.model, request, sink);
+        self.model.generate(request, sink);
     }
 
     pub fn generate_cached(&self, cache_key: [u8; 16], request: Request, sink: &mut dyn EventSink) {
-        #[cfg(any(feature = "vulkan", feature = "metal"))]
-        mistral::generation::generate_cached(&self.model, cache_key, request, sink);
-        #[cfg(not(any(feature = "vulkan", feature = "metal")))]
-        {
-            let _ = cache_key;
-            mistral::generation::generate(&self.model, request, sink);
-        }
+        self.model.generate_cached(cache_key, request, sink);
     }
 
     pub(crate) fn validate_parity(
         &self,
         prompt_ids: &str,
         completion_ids: &str,
-    ) -> Result<mistral::parity::ParityReport> {
-        mistral::parity::validate(&self.model, prompt_ids, completion_ids)
-    }
-}
-
-fn sampling_for_profile(reasoning: bool) -> SamplingParams {
-    if reasoning {
-        // Keep the production Reasoning path identical to the qualified policy.
-        SamplingParams {
-            temperature: 0.7,
-            ..SamplingParams::greedy()
-        }
-    } else {
-        SamplingParams::greedy()
+    ) -> Result<crate::harness::ParityReport> {
+        self.model.validate_parity(prompt_ids, completion_ids)
     }
 }
 
@@ -176,20 +133,5 @@ mod tests {
         assert_eq!(config.context_tokens, None);
         assert_eq!(config.vram_weights_percent, None);
         assert_eq!(config.kv_quant, KvQuant::F16);
-    }
-
-    #[test]
-    fn sampling_defaults_follow_the_validated_chat_profile() {
-        let instruct = sampling_for_profile(false);
-        assert_eq!(instruct.temperature, 0.0);
-        assert_eq!(instruct.repeat_penalty, 1.0);
-
-        let reasoning = sampling_for_profile(true);
-        assert_eq!(reasoning.temperature, 0.7);
-        assert_eq!(reasoning.top_p, 1.0);
-        assert_eq!(reasoning.top_k, 0);
-        assert_eq!(reasoning.min_p, 0.0);
-        assert_eq!(reasoning.repeat_penalty, 1.0);
-        assert_eq!(reasoning.seed, 0);
     }
 }

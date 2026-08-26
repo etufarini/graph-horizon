@@ -6,6 +6,7 @@ not define runtime behavior or record validation results.
 # Engine Module Ownership
 
 - `api/`: public types, configuration, requests, roles, and events.
+- `family/mod.rs`: closed architecture dispatch and family-neutral engine delegation.
 - `family/mistral/detect.rs`: architecture and Q4_K_M gate before backend allocation.
 - `family/mistral/config.rs`: metadata and derived dimensions.
 - `family/mistral/version.rs`: Ministral 3 Instruct/Reasoning 2512 values and the fixed Reasoning system prompt; no dispatch.
@@ -22,10 +23,10 @@ not define runtime behavior or record validation results.
 - `gguf/`: bounded parsing, metadata, and tensor index, including Q8_0 diagnosis and rejection; no backend allocation.
 - `kv_cache/`: f16/int8 scheme, layout, and request lifecycle.
 - `sampling.rs`: deterministic or sampled token selection and private RNG.
-- `harness/`: model-neutral measurements and external checks; not runtime code.
+- `harness/`: model-neutral measurements, parity report, and external checks; not runtime code.
 
 ```text
-GGUF -> family/WeightSource -> runtime <- backend -> decoder -> events
+GGUF -> family::Model -> family/WeightSource -> runtime <- backend -> decoder -> events
 ```
 
 Invariants:

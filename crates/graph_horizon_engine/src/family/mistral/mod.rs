@@ -19,7 +19,10 @@ mod version;
 
 use color_eyre::eyre::Result;
 
-use crate::api::engine::{EngineConfig, ModelMemory};
+#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+use crate::api::engine::BackendMemory;
+use crate::api::engine::{EngineConfig, ModelMemory, PlacementReport};
+use crate::api::request::{EventSink, Request, SamplingParams};
 #[cfg(test)]
 use crate::backend::Backend;
 use crate::backend::selection;
@@ -123,6 +126,62 @@ impl RuntimeModel {
         self.context as u32
     }
 
+    pub(crate) fn default_sampling(&self) -> SamplingParams {
+        if self.tokenizer.uses_reasoning_profile() {
+            // Keep the production Reasoning path identical to the qualified policy.
+            SamplingParams {
+                temperature: 0.7,
+                ..SamplingParams::greedy()
+            }
+        } else {
+            SamplingParams::greedy()
+        }
+    }
+
+    pub(crate) fn placement(&self) -> Option<PlacementReport> {
+        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        {
+            selection::placement(&self.backend).map(|plan| {
+                let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
+                    weights: bytes.weights,
+                    kv: bytes.kv,
+                    scratch: bytes.scratch,
+                    fixed: bytes.fixed,
+                    staging: bytes.staging,
+                    crossing: bytes.crossing,
+                    reserve: bytes.reserve,
+                    total: bytes.total,
+                };
+                PlacementReport {
+                    mode: selection::placement_mode(plan.mode),
+                    cpu_layers: plan.cpu_layers,
+                    gpu_layers: plan.gpu_layers,
+                    cpu: memory(plan.cpu),
+                    gpu: memory(plan.gpu),
+                }
+            })
+        }
+        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+        {
+            None
+        }
+    }
+
+    pub(crate) fn generate_cached(
+        &self,
+        cache_key: [u8; 16],
+        request: Request,
+        sink: &mut dyn EventSink,
+    ) {
+        #[cfg(any(feature = "vulkan", feature = "metal"))]
+        generation::generate_cached(self, cache_key, request, sink);
+        #[cfg(not(any(feature = "vulkan", feature = "metal")))]
+        {
+            let _ = cache_key;
+            generation::generate(self, request, sink);
+        }
+    }
+
     pub(crate) fn shape(&self) -> crate::backend::hybrid::weights::runtime::RuntimeShape {
         graph::MistralGraph::shape(&self.config)
     }
@@ -203,5 +262,23 @@ mod tests {
         assert_eq!(display_name(&md("\nmodel")), None);
         assert_eq!(display_name(&md(&"x".repeat(129))), None);
         assert_eq!(display_name(&std::collections::HashMap::new()), None);
+    }
+
+    #[test]
+    fn sampling_defaults_follow_the_validated_chat_profile() {
+        let instruct = SamplingParams::greedy();
+        assert_eq!(instruct.temperature, 0.0);
+        assert_eq!(instruct.repeat_penalty, 1.0);
+
+        let reasoning = SamplingParams {
+            temperature: 0.7,
+            ..SamplingParams::greedy()
+        };
+        assert_eq!(reasoning.temperature, 0.7);
+        assert_eq!(reasoning.top_p, 1.0);
+        assert_eq!(reasoning.top_k, 0);
+        assert_eq!(reasoning.min_p, 0.0);
+        assert_eq!(reasoning.repeat_penalty, 1.0);
+        assert_eq!(reasoning.seed, 0);
     }
 }

@@ -134,15 +134,19 @@ recording evidence.
 
 Before generating an archive or creating the immutable tag, record the exact
 candidate commit and run the canonical public-readiness campaign against that
-clean commit. Require the authenticated catalogued 3B Instruct GGUF, choose an
-explicitly usable local benchmark backend without fallback, and keep the report
-outside the repository:
+clean commit. Select an explicit authenticated entry from `support/models.tsv`,
+prefer the smallest locally available artifact that exercises the affected
+path, choose a usable local benchmark backend without fallback, and keep the
+report outside the repository. Supply the selection through environment
+variables rather than encoding one model in the release protocol:
 
 ```sh
-release_model=/absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf
+release_model_id="${RELEASE_MODEL_ID:?set a support/models.tsv ID}"
+release_model="${RELEASE_MODEL_PATH:?set the matching absolute GGUF path}"
 release_backend=vulkan
 release_report=/absolute/path/public-readiness-vMAJOR.MINOR.PATCH.md
 support/testing/public-readiness.sh \
+  --model-id "$release_model_id" \
   --model "$release_model" \
   --benchmark-backend "$release_backend" \
   --report "$release_report"

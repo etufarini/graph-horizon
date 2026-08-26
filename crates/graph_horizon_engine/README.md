@@ -10,6 +10,10 @@
 prefill/decode, and produces incremental events without depending on a console,
 HTTP, or Web UI.
 
+The engine owns a closed model-family dispatcher selected from GGUF
+architecture metadata. Ministral is its only current variant; this keeps the
+runtime path explicit without claiming support for another family prematurely.
+
 ## Backend features
 
 The crate does not select a backend by default: the consumer enables exactly

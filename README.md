@@ -10,10 +10,12 @@ documentation.
 
 # Graph Horizon
 
-Graph Horizon is a local text-to-text runtime for Ministral 3 Instruct and
-Reasoning 2512 models in the 3B, 8B, and 14B sizes. It provides an interactive
-terminal and an integrated Web UI; model inference and conversation history
-remain local.
+[![CI](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml/badge.svg)](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml)
+
+Graph Horizon is a focused local Rust runtime for Ministral 3 GGUF inference
+across CPU, Vulkan, and Metal, with hybrid CPU/GPU placement and built-in
+terminal and Web interfaces. It supports the Instruct and Reasoning 2512 models
+in the 3B, 8B, and 14B sizes.
 
 The Web UI can optionally send one explicit Web or News query to a public
 provider. Graph Horizon has no standalone server mode or supported public HTTP
@@ -29,17 +31,20 @@ API.
 
 ![Graph Horizon Web UI generating a local response](docs/assets/graph-horizon-web-ui.gif)
 
-## Stable Release And Main
+## Why Graph Horizon?
 
-The latest stable release is a published version frozen by an immutable
-annotated tag. Its release claims and validation evidence apply only to that
-exact tagged commit. `main` contains ongoing development, may be ahead of the
-stable tag, and is not automatically release-qualified.
+Graph Horizon is intentionally focused: it provides a small, inspectable Rust
+runtime for local Ministral 3 inference instead of a broad model ecosystem.
 
-Quick Install deliberately uses the stable `v0.1.3` tag instead of `main`.
-See the [release notes](docs/project-status/release-notes.md) and
-[exact validation evidence](docs/project-status/validation-evidence.md) for the
-scope and identity of published claims.
+- Explicit CPU, Vulkan, Metal, and hybrid execution profiles.
+- Local terminal and Web interfaces in one self-contained application.
+- Strict GGUF validation with no silent backend or model fallback.
+- Reproducible qualification and performance evidence.
+- Local inference, conversation history, and file persistence by default.
+
+Graph Horizon is not a drop-in replacement for llama.cpp. Choose it when a
+narrow, auditable Ministral runtime is more valuable than broad model and
+platform coverage.
 
 ## Quick Install
 
@@ -70,6 +75,18 @@ current shell:
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+## Stable Release And Main
+
+The latest stable release is a published version frozen by an immutable
+annotated tag. Its release claims and validation evidence apply only to that
+exact tagged commit. `main` contains ongoing development, may be ahead of the
+stable tag, and is not automatically release-qualified.
+
+Quick Install deliberately uses the stable `v0.1.3` tag instead of `main`.
+See the [release notes](docs/project-status/release-notes.md) and
+[exact validation evidence](docs/project-status/validation-evidence.md) for the
+scope and identity of published claims.
 
 ## Models
 

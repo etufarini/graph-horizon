@@ -29,6 +29,18 @@ API.
 
 ![Graph Horizon Web UI generating a local response](docs/assets/graph-horizon-web-ui.gif)
 
+## Stable Release And Main
+
+The latest stable release is a published version frozen by an immutable
+annotated tag. Its release claims and validation evidence apply only to that
+exact tagged commit. `main` contains ongoing development, may be ahead of the
+stable tag, and is not automatically release-qualified.
+
+Quick Install deliberately uses the stable `v0.1.2` tag instead of `main`.
+See the [release notes](docs/project-status/release-notes.md) and
+[exact validation evidence](docs/project-status/validation-evidence.md) for the
+scope and identity of published claims.
+
 ## Quick Install
 
 The installer builds Graph Horizon from source and installs it in

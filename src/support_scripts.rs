@@ -2,9 +2,9 @@
  * Support script acceptance tests
  * Single responsibility: exercise the retained shell scripts as external
  * interfaces through disposable fixtures, proving installer/bootstrap safety,
- * public-readiness isolation, quoted read-only model handling, class-sensitive
- * semantic protocols, and explicit external verification without real builds
- * or network use.
+ * published-release identity, public-readiness isolation, quoted read-only
+ * model handling, class-sensitive semantic protocols, and explicit external
+ * verification without real builds or network use.
  */
 
 use std::fs;
@@ -329,6 +329,175 @@ fn run_bootstrap(
         .env("GRAPH_HORIZON_ARGUMENT_LOG", argument_log)
         .output()
         .unwrap()
+}
+
+struct ReleaseIntegrityFixture {
+    root: PathBuf,
+    bin: PathBuf,
+    curl_log: PathBuf,
+    tag_commit: String,
+    same_tree_commit: String,
+    tag_object: String,
+    matching_archive: PathBuf,
+    mismatched_archive: PathBuf,
+    wrong_root_archive: PathBuf,
+    real_git: PathBuf,
+    real_tar: PathBuf,
+    real_sha256: PathBuf,
+}
+
+fn release_integrity_fixture(label: &str) -> ReleaseIntegrityFixture {
+    let root = fixture_dir(label);
+    let bin = root.join("bin");
+    let curl_log = root.join("curl calls");
+    fs::create_dir(&bin).unwrap();
+    let path = std::env::var_os("PATH").unwrap();
+    let tool = |name: &str| {
+        std::env::split_paths(&path)
+            .map(|directory| directory.join(name))
+            .find(|candidate| candidate.is_file())
+            .unwrap()
+    };
+    let real_git = tool("git");
+    let real_tar = tool("tar");
+    let real_sha256 = tool("sha256sum");
+    let git = |args: &[&str]| {
+        let output = Command::new(&real_git)
+            .current_dir(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.name", "Release Fixture"]);
+    git(&["config", "user.email", "release@example.invalid"]);
+    fs::write(root.join("release.txt"), b"frozen release\n").unwrap();
+    git(&["add", "release.txt"]);
+    git(&["commit", "-m", "release"]);
+    git(&["tag", "-a", "v1.2.3", "-m", "v1.2.3"]);
+    let tag_commit = git(&["rev-parse", "v1.2.3^{commit}"]);
+    let tag_object = git(&["rev-parse", "refs/tags/v1.2.3"]);
+    git(&["commit", "--allow-empty", "-m", "same tree, new identity"]);
+    let same_tree_commit = git(&["rev-parse", "HEAD"]);
+    fs::write(root.join("development.txt"), b"main moved forward\n").unwrap();
+    git(&["add", "development.txt"]);
+    git(&["commit", "-m", "later development"]);
+
+    let archive = |name: &str, commit: &str, prefix: &str| {
+        let output = Command::new(&real_git)
+            .current_dir(&root)
+            .args([
+                "archive",
+                "--format=tar.gz",
+                &format!("--prefix={prefix}/"),
+                commit,
+            ])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let destination = root.join(name);
+        fs::write(&destination, output.stdout).unwrap();
+        destination
+    };
+    let matching_archive = archive("matching.tar.gz", &tag_commit, "graph-horizon-1.2.3");
+    let mismatched_archive = archive(
+        "mismatched.tar.gz",
+        &same_tree_commit,
+        "graph-horizon-1.2.3",
+    );
+    let wrong_root_archive = archive("wrong-root.tar.gz", &tag_commit, "wrong-root-1.2.3");
+
+    write_executable(
+        &bin.join("git"),
+        br#"#!/usr/bin/env bash
+if [[ " $* " == *" ls-remote "* ]]; then
+  printf '%s\trefs/tags/v1.2.3\n' "$GRAPH_HORIZON_TAG_OBJECT"
+  printf '%s\trefs/tags/v1.2.3^{}\n' "$GRAPH_HORIZON_REMOTE_COMMIT"
+  exit 0
+fi
+exec "$GRAPH_HORIZON_REAL_GIT" "$@"
+"#,
+    );
+    write_executable(
+        &bin.join("curl"),
+        br#"#!/usr/bin/env bash
+output=""; url="${!#}"
+while (($#)); do
+  if [[ "$1" == --output ]]; then output="$2"; shift 2; else shift; fi
+done
+printf '%s\n' "$url" >> "$GRAPH_HORIZON_CURL_LOG"
+case "$url" in
+  *.tar.gz) cp "$GRAPH_HORIZON_ARCHIVE" "$output" ;;
+  *.tar.gz.sha256)
+    if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then hash=$(printf '%064d' 0)
+    else hash=$("$GRAPH_HORIZON_REAL_SHA256" "$GRAPH_HORIZON_ARCHIVE"); hash="${hash%% *}"; fi
+    printf '%s  graph-horizon-1.2.3.tar.gz\n' "$hash" > "$output"
+    ;;
+  *) exit 22 ;;
+esac
+"#,
+    );
+    write_executable(
+        &bin.join("tar"),
+        br#"#!/usr/bin/env bash
+if [[ "${1:-}" == -tzf && -n "${GRAPH_HORIZON_MEMBER_LIST:-}" ]]; then
+  exec /bin/cat "$GRAPH_HORIZON_MEMBER_LIST"
+fi
+exec "$GRAPH_HORIZON_REAL_TAR" "$@"
+"#,
+    );
+
+    ReleaseIntegrityFixture {
+        root,
+        bin,
+        curl_log,
+        tag_commit,
+        same_tree_commit,
+        tag_object,
+        matching_archive,
+        mismatched_archive,
+        wrong_root_archive,
+        real_git,
+        real_tar,
+        real_sha256,
+    }
+}
+
+fn run_release_integrity(
+    fixture: &ReleaseIntegrityFixture,
+    archive: &Path,
+    environment: &[(&str, &str)],
+) -> Output {
+    let mut command = Command::new("/bin/bash");
+    command
+        .current_dir(&fixture.root)
+        .arg(repository().join("support/testing/release-integrity.sh"))
+        .args(["--repository", "etufarini/graph-horizon", "--tag", "v1.2.3"])
+        .env(
+            "PATH",
+            format!(
+                "{}:{}",
+                fixture.bin.display(),
+                std::env::var("PATH").unwrap()
+            ),
+        )
+        .env("GRAPH_HORIZON_REAL_GIT", &fixture.real_git)
+        .env("GRAPH_HORIZON_REAL_TAR", &fixture.real_tar)
+        .env("GRAPH_HORIZON_REAL_SHA256", &fixture.real_sha256)
+        .env("GRAPH_HORIZON_TAG_OBJECT", &fixture.tag_object)
+        .env("GRAPH_HORIZON_REMOTE_COMMIT", &fixture.tag_commit)
+        .env("GRAPH_HORIZON_ARCHIVE", archive)
+        .env("GRAPH_HORIZON_CURL_LOG", &fixture.curl_log);
+    for (name, value) in environment {
+        command.env(name, value);
+    }
+    command.output().unwrap()
 }
 
 #[test]
@@ -730,6 +899,138 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
     assert!(!argument_log.exists());
     assert!(!temp.exists());
     fs::remove_dir_all(fixture).unwrap();
+}
+
+#[test]
+fn release_integrity_accepts_matching_tag_while_main_is_ahead() {
+    let fixture = release_integrity_fixture("release integrity pass");
+    assert_ne!(
+        Command::new(&fixture.real_git)
+            .current_dir(&fixture.root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap()
+            .stdout,
+        format!("{}\n", fixture.tag_commit).as_bytes()
+    );
+    let output = run_release_integrity(&fixture, &fixture.matching_archive, &[]);
+    assert!(
+        output.status.success(),
+        "stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(&format!("local tag commit: {}", fixture.tag_commit)));
+    assert!(stdout.contains(&format!("archive commit: {}", fixture.tag_commit)));
+    assert!(stdout.ends_with("release-integrity: PASS\n"));
+    assert_eq!(
+        fs::read_to_string(&fixture.curl_log)
+            .unwrap()
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "https://github.com/etufarini/graph-horizon/releases/download/v1.2.3/graph-horizon-1.2.3.tar.gz",
+            "https://github.com/etufarini/graph-horizon/releases/download/v1.2.3/graph-horizon-1.2.3.tar.gz.sha256",
+        ]
+    );
+    fs::remove_dir_all(fixture.root).unwrap();
+}
+
+#[test]
+fn release_integrity_rejects_release_identity_and_archive_defects() {
+    let fixture = release_integrity_fixture("release integrity defects");
+    let tag_tree = Command::new(&fixture.real_git)
+        .current_dir(&fixture.root)
+        .args(["rev-parse", &format!("{}^{{tree}}", fixture.tag_commit)])
+        .output()
+        .unwrap()
+        .stdout;
+    let other_tree = Command::new(&fixture.real_git)
+        .current_dir(&fixture.root)
+        .args([
+            "rev-parse",
+            &format!("{}^{{tree}}", fixture.same_tree_commit),
+        ])
+        .output()
+        .unwrap()
+        .stdout;
+    assert_eq!(
+        tag_tree, other_tree,
+        "fixture commits must have equal trees"
+    );
+
+    for (archive, environment, diagnostic) in [
+        (
+            fixture.mismatched_archive.as_path(),
+            vec![],
+            "tag and archive commits differ",
+        ),
+        (
+            fixture.matching_archive.as_path(),
+            vec![("GRAPH_HORIZON_BAD_CHECKSUM", "1")],
+            "source checksum mismatch",
+        ),
+        (
+            fixture.wrong_root_archive.as_path(),
+            vec![],
+            "source archive has an unexpected root",
+        ),
+    ] {
+        let output = run_release_integrity(&fixture, archive, &environment);
+        assert_eq!(output.status.code(), Some(1), "{diagnostic}");
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains(diagnostic),
+            "missing diagnostic: {diagnostic}"
+        );
+    }
+
+    let members = fixture.root.join("traversal members");
+    fs::write(
+        &members,
+        b"graph-horizon-1.2.3/\ngraph-horizon-1.2.3/../escape\n",
+    )
+    .unwrap();
+    let output = run_release_integrity(
+        &fixture,
+        &fixture.matching_archive,
+        &[("GRAPH_HORIZON_MEMBER_LIST", members.to_str().unwrap())],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unsafe member"));
+    fs::remove_dir_all(fixture.root).unwrap();
+}
+
+#[test]
+fn release_integrity_rejects_malformed_inputs_without_network_access() {
+    let fixture = release_integrity_fixture("release integrity inputs");
+    for args in [
+        ["--repository", "owner/repository/extra", "--tag", "v1.2.3"],
+        ["--repository", "-owner/repository", "--tag", "v1.2.3"],
+        ["--repository", "owner/repository", "--tag", "1.2.3"],
+        ["--repository", "owner/repository", "--tag", "v01.2.3"],
+    ] {
+        let output = Command::new("/bin/bash")
+            .current_dir(&fixture.root)
+            .arg(repository().join("support/testing/release-integrity.sh"))
+            .args(args)
+            .env(
+                "PATH",
+                format!(
+                    "{}:{}",
+                    fixture.bin.display(),
+                    std::env::var("PATH").unwrap()
+                ),
+            )
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(2));
+    }
+    assert!(
+        !fixture.curl_log.exists(),
+        "invalid input reached curl stub"
+    );
+    fs::remove_dir_all(fixture.root).unwrap();
 }
 
 #[test]

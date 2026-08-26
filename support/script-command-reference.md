@@ -18,6 +18,7 @@ backend, context, or model.
 | `testing/parity-check.sh` | Compares one exact prompt and top-two result with the pinned oracle |
 | `testing/matrix-check.sh` | Runs the six Q8 rejections, 60 primary rows, and eight hybrid endpoints |
 | `testing/public-readiness.sh` | Verifies a clean installed product, local backends, and one public benchmark |
+| `testing/release-integrity.sh` | Verifies one published source release against its immutable version tag |
 | `testing/semantic-check.sh` | Runs the terminal Reasoning semantic qualification matrix |
 | `testing/run-graph-horizon.sh` | Starts the local terminal with an explicit test tuple |
 
@@ -47,6 +48,23 @@ cargo test -p graph-horizon --no-default-features --features cpu bootstrap_
 
 The end-user installer interface and installed paths are documented in the
 [installation guide](../docs/installation.md).
+
+## Release Integrity
+
+Run the verifier from a checkout containing the annotated version tag:
+
+```sh
+support/testing/release-integrity.sh \
+  --repository etufarini/graph-horizon \
+  --tag v0.1.2
+```
+
+The command resolves the local and anonymous remote tag, downloads the named
+archive and adjacent checksum without credentials, verifies the checksum,
+embedded Git commit, versioned root, and member paths, then prints the compared
+identities and `PASS`. It compares the artifact only with its version tag;
+`HEAD` and `main` may contain later development. Any tag/archive identity
+mismatch fails even when the two commits have identical Git trees.
 
 ## Public Readiness
 

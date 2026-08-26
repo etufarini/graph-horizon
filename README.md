@@ -36,7 +36,7 @@ annotated tag. Its release claims and validation evidence apply only to that
 exact tagged commit. `main` contains ongoing development, may be ahead of the
 stable tag, and is not automatically release-qualified.
 
-Quick Install deliberately uses the stable `v0.1.2` tag instead of `main`.
+Quick Install deliberately uses the stable `v0.1.3` tag instead of `main`.
 See the [release notes](docs/project-status/release-notes.md) and
 [exact validation evidence](docs/project-status/validation-evidence.md) for the
 scope and identity of published claims.
@@ -51,7 +51,7 @@ On Apple Silicon macOS with the Xcode command-line Metal tools:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.2/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.3/install.sh \
   | bash -s -- --backend metal
 ```
 
@@ -59,7 +59,7 @@ On Linux `x86_64` with a working Vulkan loader and driver:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.2/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.3/install.sh \
   | bash -s -- --backend vulkan
 ```
 

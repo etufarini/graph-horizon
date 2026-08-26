@@ -35,9 +35,10 @@ pushed and integrated as follows.
 | Metal long-context prefill | PR #40, `6e514c1` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
-The package version is `0.1.2`. The immutable annotated `v0.1.0` tag retains
+The package version is `0.1.3`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
-and `v0.1.2` adds explicit Web and News search plus the revised Web workspace.
+`v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
+`v0.1.3` corrects release identity without changing the numeric implementation.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 

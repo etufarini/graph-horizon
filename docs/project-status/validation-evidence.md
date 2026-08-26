@@ -8,8 +8,10 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `v0.1.2` has an immutable annotated tag and published source
-assets, but an independent audit found that they identify different commits.
+Graph Horizon `0.1.3` is the current corrective release candidate. It has no
+local or remote tag and no published assets. The existing `v0.1.2` release has
+an immutable annotated tag and published source assets, but an independent
+audit found that they identify different commits.
 The local and anonymous remote tag resolve to
 `7ca9de8be4ea37dc2d24cf75a14f40411819f341`; the published
 `graph-horizon-0.1.2.tar.gz` embeds
@@ -22,9 +24,9 @@ must not be moved, deleted, or replaced; any correction must use a later
 version. `main` is the moving development branch and may advance beyond a
 release tag. That normal branch movement is unrelated to the v0.1.2 defect.
 
-Current Cargo and frontend versions are `0.1.2`. Release identity is exclusively
-the commit resolved by `v0.1.2^{commit}`. The final v0.1.0 campaign supersedes,
-for its own contract, preliminary runtime evidence at
+Current Cargo and frontend versions are `0.1.3`. Historical v0.1.2 release
+identity is exclusively the commit resolved by `v0.1.2^{commit}`. The final
+v0.1.0 campaign supersedes, for its own contract, preliminary runtime evidence at
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` and
 `e7edc8315d397f6eb34c5efb91a9ae20b9b59bc4`; those records remain historical
 evidence for their declared revisions only.
@@ -32,6 +34,35 @@ evidence for their declared revisions only.
 Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
+
+## v0.1.3 Corrective Release Candidate — 26 August 2026
+
+The compatible changes after v0.1.2 select patch version `0.1.3`; no local or
+remote v0.1.3 tag or GitHub Release existed at preparation time. This candidate
+updates current package, installer, documentation, and fixture versions while
+preserving every v0.1.0–v0.1.2 tag, asset identity, and historical result.
+
+The corrective release invariant is stricter than equal file trees: the future
+annotated `v0.1.3` tag, local and anonymous remote tag commit, archive-embedded
+commit, versioned archive root, and adjacent checksum must all identify one
+exact candidate commit. The archive must be generated from that annotated tag
+commit. A later `main` commit is unrelated and is never part of this comparison.
+
+Qualification results belong only to the exact clean candidate commit recorded
+in the external candidate report. No v0.1.3 tag or publication is authorized by
+this preparation record.
+
+| Local candidate gate | Result |
+|---|---|
+| Rust format and warnings-denied CPU Clippy | PASS |
+| Locked CPU workspace suite | PASS: app/support 170, engine 163, integration 5+12; declared model/network cases ignored |
+| CPU release build and exact source-structure gate | PASS |
+| Rust 1.88 CPU suite, Vulkan check, and Vulkan-hybrid check | PASS |
+| Frontend install, 135 tests, diagnostics, build, and audit | PASS: 0 warnings, 0 vulnerabilities |
+| Tracked shell syntax | PASS |
+| Installer, bootstrap, and release-integrity fixtures | PASS: 7 + 2 + 3; includes `HEAD` ahead of the release tag |
+| Live Web/News providers | PASS: 3/3 tests for three consecutive rounds |
+| Metal and Metal-hybrid execution on Linux x86_64 | external verification |
 
 ## Week 2 Public Readiness — 26 August 2026
 

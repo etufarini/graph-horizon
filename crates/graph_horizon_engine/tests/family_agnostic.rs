@@ -349,6 +349,7 @@ fn docs_contract() {
         .collect::<Vec<_>>()
         .join(" ");
     let support_flat = support.split_whitespace().collect::<Vec<_>>().join(" ");
+    let validation_flat = validation.split_whitespace().collect::<Vec<_>>().join(" ");
 
     for entrypoint in [
         "docs/installation.md",
@@ -448,13 +449,15 @@ fn docs_contract() {
         );
     }
     for release_identity in [
-        "Graph Horizon `v0.1.2` has an immutable annotated tag",
+        "Graph Horizon `0.1.3` is the current corrective release candidate",
+        "archive must be generated from that annotated tag commit",
+        "`v0.1.2` release has an immutable annotated tag",
         "7ca9de8be4ea37dc2d24cf75a14f40411819f341",
         "30f26c1b854dc1e48dc84b22b66f952e451bc967",
         "must not be moved, deleted, or replaced",
         "`main` is the moving development branch",
     ] {
-        assert!(validation.contains(release_identity));
+        assert!(validation_flat.contains(release_identity));
     }
     assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
     assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | QUALIFIED |"));

@@ -7,6 +7,45 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+## Graph Horizon v0.1.3
+
+Graph Horizon v0.1.3 is the corrective release for the v0.1.2 source-archive
+identity defect. The v0.1.2 tag, archive, and checksum remain immutable. The
+v0.1.3 archive is produced from the exact commit resolved by its annotated tag,
+and the adjacent checksum authenticates that archive. Release verification
+compares those identities with the version tag, never with later `main` work.
+
+The public entry point is shorter and now includes CLI and Web UI media. The
+documentation is organized by user, maintainer, project-status, and historical
+investigation concerns, with explicit installation, support, contribution,
+security, backend, and model-format guidance. The logo and Web palette share a
+cyan-and-coral identity while preserving the established pixel-art interface.
+
+Repository guardrails now run locked CPU and frontend checks in CI. Separate
+public-readiness and release-integrity automation binds qualification to one
+clean commit and verifies an anonymously downloaded release against its own
+tag. Cargo package metadata is complete and the Rust 1.88 checks are
+warnings-clean. These changes do not alter numeric operations, supported model
+artifacts, backend policy, or runtime interfaces.
+
+The release candidate passed formatting, warnings-denied CPU Clippy, the
+complete locked CPU workspace suite, the CPU release build, minimum Rust 1.88
+CPU/Vulkan/Vulkan-hybrid checks, frontend tests and diagnostics, shell syntax,
+installer/bootstrap/release-integrity fixtures, and three consecutive live
+Web/News provider rounds. Exact commit-bound public-readiness and archive
+results are kept in the external candidate report generated after this commit.
+
+After publication, install anonymously with:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.3/install.sh | bash -s -- --backend vulkan-hybrid
+```
+
+The model/backend qualification evidence remains attached to immutable
+`v0.1.0`; v0.1.3 does not relabel that historical campaign as a new numerical
+qualification. Exact release-candidate gate results and identity evidence are
+recorded in [validation evidence](validation-evidence.md).
+
 ## Graph Horizon v0.1.2
 
 Graph Horizon v0.1.2 adds explicit Web and News search to the integrated Web UI.

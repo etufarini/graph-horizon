@@ -35,7 +35,7 @@ On Apple Silicon macOS:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.2/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.3/install.sh \
   | bash -s -- --backend metal
 ```
 
@@ -43,7 +43,7 @@ On Linux `x86_64` with Vulkan:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.2/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.3/install.sh \
   | bash -s -- --backend vulkan
 ```
 

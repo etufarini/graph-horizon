@@ -56,7 +56,7 @@ Run the verifier from a checkout containing the annotated version tag:
 ```sh
 support/testing/release-integrity.sh \
   --repository etufarini/graph-horizon \
-  --tag v0.1.2
+  --tag v0.1.3
 ```
 
 The command resolves the local and anonymous remote tag, downloads the named

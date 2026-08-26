@@ -342,6 +342,7 @@ fn real_vulkan_greedy_sequence_matches_reference() {
         },
     )
     .expect("load authenticated Vulkan model");
+    let crate::family::Model::Mistral(model) = model;
     let prompt = template::render(
         &[Message {
             role: Role::User,

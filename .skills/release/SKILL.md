@@ -3,7 +3,8 @@ name: release
 description: >-
   Prepare, qualify, tag, and optionally publish a new Graph Horizon version.
   Use when the user asks to release this repository or automate its version,
-  source archive, checksum, Git tag, and GitHub Release workflow.
+  public-readiness gate, source archive, checksum, Git tag, and GitHub Release
+  workflow.
 ---
 
 <!--
@@ -128,6 +129,26 @@ Commit the verified preparation as one focused commit, normally
 `chore(release): prepare vMAJOR.MINOR.PATCH`. Do not include release artifacts in
 Git. Confirm the commit is clean and rerun any check whose input changed while
 recording evidence.
+
+Before generating an archive or creating the immutable tag, run the canonical
+public-readiness campaign against that clean release commit. Require the
+authenticated catalogued 3B Instruct GGUF, choose an explicitly usable local
+benchmark backend without fallback, and keep the report outside the repository:
+
+```sh
+release_model=/absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf
+release_backend=vulkan
+release_report=/absolute/path/public-readiness-vMAJOR.MINOR.PATCH.md
+support/testing/public-readiness.sh \
+  --model "$release_model" \
+  --benchmark-backend "$release_backend" \
+  --report "$release_report"
+```
+
+Require a successful exit and a `PASS` report whose commit equals `HEAD`.
+Unavailable required model or execution capacity blocks tagging and publication;
+it is not a `PASS`. Any later commit change invalidates this evidence, so rerun
+the campaign before continuing.
 
 ## Candidate archive
 

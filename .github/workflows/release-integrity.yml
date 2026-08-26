@@ -1,0 +1,46 @@
+# This workflow verifies one published source release against its immutable tag
+# and anonymously installs that release; it never compares the release to main.
+
+name: Release integrity
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Immutable version tag to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release-integrity:
+    name: Verify published release
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Check out complete tag history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - name: Verify tag and published source archive
+        run: |
+          support/testing/release-integrity.sh \
+            --repository "$GITHUB_REPOSITORY" \
+            --tag "$RELEASE_TAG"
+      - name: Bootstrap anonymous CPU installation
+        run: |
+          prefix="$(mktemp -d "$RUNNER_TEMP/graph-horizon-release.XXXXXX")"
+          trap 'rm -rf -- "$prefix"' EXIT
+          curl --fail --location --silent --show-error \
+            "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/$RELEASE_TAG/install.sh" \
+            | bash -s -- --backend cpu --prefix "$prefix"
+          expected="graph-horizon ${RELEASE_TAG#v}"
+          actual="$("$prefix/bin/graph-horizon" --version)"
+          [[ "$actual" == "$expected" ]]

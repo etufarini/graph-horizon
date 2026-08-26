@@ -8,11 +8,19 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `v0.1.2` was released from its immutable annotated tag with
-explicit Web/News search and the revised browser workspace. The GitHub Release
-contains `graph-horizon-0.1.2.tar.gz` and its SHA-256 record. The `v0.1.0` tag
-and assets retain the historical numeric qualification; `v0.1.1` and its assets
-also remain immutable.
+Graph Horizon `v0.1.2` has an immutable annotated tag and published source
+assets, but an independent audit found that they identify different commits.
+The local and anonymous remote tag resolve to
+`7ca9de8be4ea37dc2d24cf75a14f40411819f341`; the published
+`graph-horizon-0.1.2.tar.gz` embeds
+`30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a release-identity
+defect even though the commits have the same Git tree. The checksum remains
+valid, so this is not evidence of transfer corruption.
+
+The `v0.1.0`, `v0.1.1`, and `v0.1.2` tags and assets remain immutable. They
+must not be moved, deleted, or replaced; any correction must use a later
+version. `main` is the moving development branch and may advance beyond a
+release tag. That normal branch movement is unrelated to the v0.1.2 defect.
 
 Current Cargo and frontend versions are `0.1.2`. Release identity is exclusively
 the commit resolved by `v0.1.2^{commit}`. The final v0.1.0 campaign supersedes,
@@ -33,6 +41,10 @@ authenticated `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` as
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`,
 created a clean clone without generated or untracked state, and used only the
 product installed from that clone in separate temporary prefixes.
+
+This campaign applies only to the recorded commit. It is not transferred to a
+tag commit, archive commit, or later `main` commit merely because a version or
+tree happens to match.
 
 | Installed-product check | Result |
 |---|---|
@@ -67,18 +79,33 @@ output.
 
 ## Canonical Release Identity
 
-Resolve the source commit with `git rev-parse v0.1.2^{commit}`. The immutable
-annotated tag is authoritative; no intermediate hash copied into this document
-defines the release.
+Release verification compares a published artifact with its own version tag,
+never with current `HEAD` or `main`. A conforming release requires the local
+annotated tag, anonymous remote tag, archive commit, checksum, version, and
+archive root to identify the same frozen release.
 
-`graph-horizon-0.1.2.tar.gz` is generated with `git archive` from that tag. The
-adjacent `graph-horizon-0.1.2.tar.gz.sha256` record is the only authoritative
-digest. Archive, checksum record, annotation, and Git archive header identify
-the same version and commit.
+The independent v0.1.2 audit on 26 August 2026 reproduced:
+
+| v0.1.2 identity field | Result |
+|---|---|
+| Local `v0.1.2^{commit}` | `7ca9de8be4ea37dc2d24cf75a14f40411819f341` |
+| Anonymous remote `v0.1.2^{commit}` | `7ca9de8be4ea37dc2d24cf75a14f40411819f341` |
+| Published archive commit | `30f26c1b854dc1e48dc84b22b66f952e451bc967` |
+| Tag and archive Git tree | same: `02e55f4ddc1c524c2d5f8e48abf5fc340ca8e821` |
+| Published SHA-256 | `5099cbd4848ab78998c6b3d37aaffdb5e99ffdc90aca030f98431ba2b0fa19c1`, PASS |
+| Archive root | `graph-horizon-0.1.2/`, PASS |
+
+Equal Git trees establish equal file content, not equal commit identity. They
+therefore do not satisfy the release invariant: the published archive commit
+does not equal `v0.1.2^{commit}`. The valid checksum authenticates the mismatched
+published archive as downloaded; it does not make that archive tag-derived.
+Later development on `main` is expected and neither causes nor repairs this
+historical defect.
 
 `v0.1.1` preserves the packaging-fix identity below. `v0.1.0`, its archive, and
-its checksum remain authoritative for the numeric campaign. Releases neither
-move old tags nor replace historical assets.
+its checksum remain authoritative for the numeric campaign. The v0.1.2 tag and
+assets must remain as published, and a corrected release identity requires a
+later version.
 
 ## v0.1.1 Packaging Correction
 

@@ -52,8 +52,9 @@ version that is not greater than every existing local or remote release tag.
 
 ## Preflight
 
-1. Read `AGENTS.md`, `docs/release-notes.md`, `docs/validation.md`, the package
-   manifests, `install.sh`, and the changes since the previous release tag.
+1. Read `AGENTS.md`, `docs/project-status/release-notes.md`,
+   `docs/project-status/validation-evidence.md`, the package manifests,
+   `install.sh`, and the changes since the previous release tag.
 2. Require a clean working tree before release edits. Identify the current
    branch, upstream, `HEAD`, previous tag, and remote. Fetch tags read-only when
    network access is available, then prove the target tag is absent locally and
@@ -79,7 +80,8 @@ update:
 - bootstrap fixtures or assertions that intentionally model the current release;
 - installation examples and current-version statements in `README.md`,
   `support/README.md`, `docs/README.md`, and other current-state documents;
-- `docs/release-notes.md` and `docs/validation.md`.
+- `docs/project-status/release-notes.md` and
+  `docs/project-status/validation-evidence.md`.
 
 Use `rg` to classify every occurrence of the old version before changing it.
 Preserve historical tags, archives, evidence, comparisons, and immutable release
@@ -119,21 +121,22 @@ npm audit
 ```
 
 Also syntax-check every tracked shell script, run the minimum Rust toolchain and
-every locally available affected backend gate documented in `docs/validation.md`,
-and execute applicable model, parity, semantic, installer, and product-smoke
-checks. Return to the repository root, run `git diff --check`, inspect the full
-diff, and confirm the tree contains no generated frontend output, model, secret,
-personal path, or unrelated change.
+every locally available affected backend gate documented in
+`docs/project-status/validation-evidence.md`, and execute applicable model,
+parity, semantic, installer, and product-smoke checks. Return to the repository
+root, run `git diff --check`, inspect the full diff, and confirm the tree contains
+no generated frontend output, model, secret, personal path, or unrelated change.
 
 Commit the verified preparation as one focused commit, normally
 `chore(release): prepare vMAJOR.MINOR.PATCH`. Do not include release artifacts in
 Git. Confirm the commit is clean and rerun any check whose input changed while
 recording evidence.
 
-Before generating an archive or creating the immutable tag, run the canonical
-public-readiness campaign against that clean release commit. Require the
-authenticated catalogued 3B Instruct GGUF, choose an explicitly usable local
-benchmark backend without fallback, and keep the report outside the repository:
+Before generating an archive or creating the immutable tag, record the exact
+candidate commit and run the canonical public-readiness campaign against that
+clean commit. Require the authenticated catalogued 3B Instruct GGUF, choose an
+explicitly usable local benchmark backend without fallback, and keep the report
+outside the repository:
 
 ```sh
 release_model=/absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf
@@ -145,10 +148,12 @@ support/testing/public-readiness.sh \
   --report "$release_report"
 ```
 
-Require a successful exit and a `PASS` report whose commit equals `HEAD`.
-Unavailable required model or execution capacity blocks tagging and publication;
-it is not a `PASS`. Any later commit change invalidates this evidence, so rerun
-the campaign before continuing.
+Require a successful exit and a `PASS` report whose commit equals both the
+recorded candidate and current `HEAD`. Unavailable required model or execution
+capacity blocks tagging and publication; it is not a `PASS`. Any candidate
+change before tagging invalidates this evidence, so rerun the campaign before
+continuing. Development added to `main` after publication does not invalidate
+evidence frozen to the exact tagged commit.
 
 ## Candidate archive
 
@@ -187,9 +192,20 @@ commit to be present on the intended remote, push the annotated tag without
 force, and create one GitHub Release from that existing tag with the archive and
 checksum as the only generated assets. Use the release-notes section for its
 body. Read back the remote tag, release metadata, and asset names; download the
-published assets anonymously into a temporary directory, verify the checksum,
-and smoke the public bootstrap. Never edit or replace immutable published
-identity to hide a failed check.
+published assets anonymously, then require:
+
+```sh
+support/testing/release-integrity.sh \
+  --repository OWNER/REPOSITORY \
+  --tag vMAJOR.MINOR.PATCH
+```
+
+Require `PASS`, then smoke the anonymous public bootstrap. The verifier compares
+the assets only with their version tag, never with current `HEAD` or `main`.
+Once published, the tag and assets remain frozen while ordinary development may
+advance on `main`. Never move or delete a published tag, or edit, replace, or
+delete a published asset to hide a failed check; correct defects in a later
+version.
 
 ## Final report
 

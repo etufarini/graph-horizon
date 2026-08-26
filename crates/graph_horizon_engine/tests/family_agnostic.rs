@@ -447,9 +447,15 @@ fn docs_contract() {
             "support docs missing parity prerequisite: {prerequisite}"
         );
     }
-    assert!(validation.contains("Graph Horizon `v0.1.2` was released"));
-    assert!(validation.contains("The `v0.1.0` tag"));
-    assert!(validation.contains("assets retain the historical numeric qualification"));
+    for release_identity in [
+        "Graph Horizon `v0.1.2` has an immutable annotated tag",
+        "7ca9de8be4ea37dc2d24cf75a14f40411819f341",
+        "30f26c1b854dc1e48dc84b22b66f952e451bc967",
+        "must not be moved, deleted, or replaced",
+        "`main` is the moving development branch",
+    ] {
+        assert!(validation.contains(release_identity));
+    }
     assert!(validation.contains("d1bf18f034fd44df5b8e81931e7feea32edeb47f"));
     assert!(validation.contains("| 3B Reasoning | 8/9, 9/9, 9/9 | 16/16 twice | QUALIFIED |"));
     assert!(validation.contains("| 14B Reasoning | 9/9, 9/9, 9/9 | 16/16 twice | QUALIFIED |"));

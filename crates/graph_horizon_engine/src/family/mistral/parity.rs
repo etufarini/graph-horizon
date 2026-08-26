@@ -14,18 +14,12 @@ use crate::api::message::{Message, Role};
 #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
 use crate::backend::hybrid::HybridMode;
 use crate::backend::selection;
+use crate::harness::ParityReport;
 use crate::runtime::contract::RuntimeSession;
 
 pub const USER_CONTENT: &str = "Quanto fa 17 × 19?";
 pub const CONTEXT: usize = 4096;
 pub const TOKEN_COUNT: usize = 16;
-
-pub struct ParityReport {
-    pub prompt_ids: Vec<u32>,
-    pub local_ids: Vec<u32>,
-    pub top_two: Vec<[u32; 2]>,
-    pub crossings: usize,
-}
 
 pub(crate) fn validate(
     model: &RuntimeModel,

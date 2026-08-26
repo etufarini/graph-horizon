@@ -20,4 +20,7 @@ ref.oracle
 # local validation reports
 ABLATION_REPORT.md
 
+# local planning graphics
+/graph-horizon-roadmap-2026-09-18-it.svg
+
 plans/

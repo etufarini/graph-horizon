@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-#
-# Public readiness campaign: authenticates one 3B model, installs one clean
-# commit for every locally usable backend, smokes the installed CLI/Web product,
-# and renders one bounded benchmark report from the retained Rust harness.
+# Authenticates one catalog model, tests installed backends, and renders a bounded report.
 
 set -euo pipefail
 
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"; catalog="$project_dir/support/models.tsv"
-model=""; benchmark_backend=""; report=""; model_seen=false; backend_seen=false; report_seen=false
+model_id=""; model=""; benchmark_backend=""; report=""; id_seen=false
+model_seen=false; backend_seen=false; report_seen=false
 temp_root=""; server_pid=""
 
-usage() { echo "usage: public-readiness.sh --model /absolute/model.gguf --benchmark-backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --report /absolute/report.md"; }
+usage() { echo "usage: public-readiness.sh --model-id ID --model /absolute/model.gguf --benchmark-backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --report /absolute/report.md"; }
 fail() { printf 'public-readiness: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 stop_server() {
@@ -29,6 +27,7 @@ trap cleanup EXIT; trap 'exit 130' HUP INT TERM
 
 while (($#)); do
     case "$1" in
+        --model-id) (($# >= 2)) || fail "missing --model-id value" 2; $id_seen && fail "duplicate --model-id" 2; model_id="$2"; id_seen=true; shift 2 ;;
         --model) (($# >= 2)) || fail "missing --model value" 2; $model_seen && fail "duplicate --model" 2; model="$2"; model_seen=true; shift 2 ;;
         --benchmark-backend) (($# >= 2)) || fail "missing --benchmark-backend value" 2; $backend_seen && fail "duplicate --benchmark-backend" 2; benchmark_backend="$2"; backend_seen=true; shift 2 ;;
         --report) (($# >= 2)) || fail "missing --report value" 2; $report_seen && fail "duplicate --report" 2; report="$2"; report_seen=true; shift 2 ;;
@@ -36,7 +35,8 @@ while (($#)); do
         *) fail "invalid arguments" 2 ;;
     esac
 done
-$model_seen && $backend_seen && $report_seen || fail "required arguments are missing" 2
+$id_seen && $model_seen && $backend_seen && $report_seen || fail "required arguments are missing" 2
+[[ "$model_id" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || fail "invalid model ID" 2
 case "$benchmark_backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) fail "invalid benchmark backend" 2 ;; esac
 for path in "$model" "$report"; do
     [[ "$path" == /* && "$path" != *[$'\001'-$'\037'$'\177']* ]] || fail "invalid path" 2
@@ -46,12 +46,11 @@ done
 report_parent="${report%/*}"; [[ -n "${report##*/}" && -d "$report_parent" && -w "$report_parent" && ! -L "$report" ]] || fail "invalid report destination" 2
 
 for tool in awk bash cargo cat curl find git grep install lscpu ln mkdir mktemp npm rm rustc script sed sleep stat stty timeout uname wc; do command -v "$tool" >/dev/null 2>&1 || fail "required tool is unavailable"; done
-# shellcheck source=../artifact.sh
 source "$project_dir/support/artifact.sh"
-row="$(awk -F '\t' '$1 == "3b-instruct" { print; found++ } END { if (found != 1) exit 1 }' "$catalog")" \
+row="$(awk -F '\t' -v id="$model_id" '$1 == id { print; found++ } END { if (found != 1) exit 1 }' "$catalog")" \
     || fail "model catalog is invalid"
-IFS=$'\t' read -r model_id _ model_name expected_bytes expected_hash _ <<<"$row"
-[[ "$model_id" == 3b-instruct && "${model##*/}" == "$model_name" ]] || fail "model is not authenticated"
+IFS=$'\t' read -r selected_id _ model_name expected_bytes expected_hash _ <<<"$row"
+[[ "$selected_id" == "$model_id" && "${model##*/}" == "$model_name" ]] || fail "model is not authenticated"
 actual_bytes="$(artifact_size "$model")" || fail "model authentication failed"; actual_hash="$(artifact_sha256 "$model")" || fail "model authentication failed"
 [[ "$actual_bytes" == "$expected_bytes" && "$actual_hash" == "$expected_hash" ]] || fail "model is not authenticated"
 
@@ -179,6 +178,7 @@ Overall result: **PASS**
 |---|---|
 | Commit | \`$commit\` |
 | Graph Horizon version | \`$version\` |
+| Model ID | \`$model_id\` |
 | Model | \`$model_name\` |
 | Model SHA-256 | \`$actual_hash\` |
 | Operating system / architecture | \`$os $kernel / $arch\` |

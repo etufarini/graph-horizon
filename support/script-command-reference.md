@@ -72,12 +72,13 @@ The canonical week-2 campaign is:
 
 ```sh
 support/testing/public-readiness.sh \
+  --model-id 3b-instruct \
   --model /absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf \
   --benchmark-backend vulkan \
   --report /absolute/path/public-readiness.md
 ```
 
-The runner authenticates the exact catalogued 3B Instruct artifact, resolves
+The runner authenticates the explicitly selected catalog row and exact artifact, resolves
 the current commit, and checks out a clean local clone. It installs every
 backend proved usable on the host into a separate temporary prefix, verifies
 the installed CLI and Web product without fallback, and invokes the retained

@@ -10,17 +10,14 @@ Guided by **KISS** (*Keep It Simple, Stupid*) and the **Unix philosophy**: *"Do 
 
 - Make minimal, focused changes.
 - Do not create new files or functions unless requested or clearly beneficial.
-- Avoid micro-functions and overly utility-driven abstractions. Keep code clear, cohesive, and maintainable.
-- Prefer idiomatic code and follow the project's established naming conventions and language-specific best practices.
-- Keep code readable and make syntax choices consistent where possible.
-- Prefer simple, direct, self-contained solutions.
+- Avoid micro-functions and utility abstractions that protect no invariant.
+- Prefer idiomatic, direct, self-contained code and established naming.
 - Optimize for understandability first; optimize performance only where it matters.
 - Treat unnecessary complexity as a design bug.
 - Cut or defer features that add disproportionate complexity.
 - Favor designs that can be reasoned about locally.
 - Keep interfaces narrow, predictable, and explicit.
 - Add inline comments to clarify non-obvious logic, decisions, or trade-offs.
-- Avoid duplicated or unnecessary code; keep the implementation as simple as the problem allows.
 
 ## Cybersecurity
 
@@ -39,6 +36,21 @@ Guided by **KISS** (*Keep It Simple, Stupid*) and the **Unix philosophy**: *"Do 
 - Prefer small, well-understood changes over broad rewrites.
 - Avoid new abstractions, helpers, frameworks, or dependencies unless they clearly reduce complexity.
 - State assumptions, trade-offs, invariants, and risks when relevant.
+
+### Protected AI Development Material
+
+Markdown files used to instruct, coordinate, plan, review, or preserve context
+for AI-assisted development are protected repository material.
+
+Never delete, rename, merge, replace, or consolidate `AGENTS.md`, `CLAUDE.md`,
+`GEMINI.md`, `.skills/**`, `plans/**`, `DECISIONS.md`, or another Markdown file
+explicitly used by an AI development workflow unless the user explicitly
+requests that exact operation.
+
+Documentation cleanup must not classify these files as public-documentation
+noise. Their wording may be simplified and contradictions may be corrected, but
+their entry points, responsibilities, generic skills, references, and historical
+development context must remain available.
 
 ### Phase 1: Structure Proposal
 **Action:** When the user asks for a proposal, plan, or design review, propose the
@@ -103,7 +115,7 @@ results, before/after measurements, and the largest remaining bottleneck.
 ### Phase 2: Implementation Phase
 Once implementation is explicitly requested or a proposed structure is
 approved, ensure that every file adheres to the following checklist:
-- [ ] **Initial architectural comment:** A clear multiline comment defining the file's exact purpose, main responsibilities, and system context.
+- [ ] **Architectural comment where needed:** Explain purpose and context for orchestration, resource ownership, unsafe code, K/I exemptions, and non-obvious security or format boundaries. Simple files should remain self-explanatory.
 - [ ] **Compliant implementation:** Stay strictly within the declared line limit estimation, counting only productive code and non-test comments.
 - [ ] **Inline invariants:** Documented and explained at critical logical and state-mutation points.
 - [ ] **Minimal tests:** Attached, implemented, or described contextually within or alongside the file block.
@@ -117,13 +129,11 @@ approved, ensure that every file adheres to the following checklist:
 - Controls inside panels, including close buttons, must use the same pixel-art component language, spacing grid, dimensions, alignment, accessible names, focus treatment, and interaction states.
 - Any intentional departure from the established pixel-art style requires explicit user approval.
 
-- Start from the most direct working model.
-- Use data representations that make invalid states hard to express.
-- Use dedicated types, structures, interfaces, modules, and restricted visibility to protect invariants.
+- Start from the most direct working model and make invalid states hard to express.
+- Use dedicated types and restricted visibility only where they protect invariants.
 - Make ownership, mutation, side effects, dependencies, and error boundaries explicit.
 - Prefer simple data flow and clear responsibility boundaries.
-- Use shared mutable state, global state, concurrency primitives, async flows, or framework-specific mechanisms only when there is a real design need.
-- Use abstractions, generics, metaprogramming, decorators, macros, or dynamic dispatch only when they simplify the model or express a real boundary.
+- Use shared state, concurrency, generics, macros, or dynamic dispatch only for a concrete boundary.
 - Prefer safe, idiomatic language features; use low-level, unsafe, reflective, or escape-hatch mechanisms only when necessary, narrow, documented, and backed by clear invariants.
 
 ## Performance
@@ -131,13 +141,11 @@ approved, ensure that every file adheres to the following checklist:
 - Do not optimize blindly.
 - First choose a design that is small, correct, and inspectable.
 - During implementation and profiling, use the smallest supported model that exercises the affected path.
-- Validate the other supported models only after the candidate is complete on the smallest applicable model.
-- Validate a larger model earlier when the change directly depends on model size, capacity, layout, or memory pressure.
+- Validate other models after the candidate is complete; use a larger model earlier only for size, capacity, layout, or memory behavior.
 - Run larger-model performance benchmarks only when the task's acceptance
   criteria or the measured size/capacity behavior requires them.
 - Optimize only after identifying a real bottleneck.
 - Prefer structural performance improvements over micro-optimizations.
-- Use copies, clones, and allocation avoidance intentionally.
 - Stop when the task's explicit completion conditions are satisfied; do not keep
   optimizing after the measured result is sufficient.
 

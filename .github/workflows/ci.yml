@@ -16,9 +16,12 @@ jobs:
   rust-cpu:
     name: Rust CPU
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install Rust 1.88.0
         run: |
           rustup toolchain install 1.88.0 --profile minimal --component rustfmt,clippy
@@ -28,19 +31,22 @@ jobs:
       - name: Lint CPU workspace
         run: cargo clippy --workspace --all-targets --locked --no-default-features --features cpu -- -D warnings
       - name: Test CPU workspace
-        run: cargo test --workspace --locked --no-default-features --features cpu
+        run: cargo test --workspace --all-targets --locked --no-default-features --features cpu
 
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web/frontend
     steps:
       - name: Check out repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Set up Node.js 22.12.0
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.12.0
       - name: Install frontend dependencies

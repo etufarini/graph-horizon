@@ -8,18 +8,29 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.3` is the current corrective release candidate. It has no
-local or remote tag and no published assets. The existing `v0.1.2` release has
-an immutable annotated tag and published source assets, but an independent
-audit found that they identify different commits.
-The local and anonymous remote tag resolve to
-`7ca9de8be4ea37dc2d24cf75a14f40411819f341`; the published
-`graph-horizon-0.1.2.tar.gz` embeds
-`30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a release-identity
-defect even though the commits have the same Git tree. The checksum remains
-valid, so this is not evidence of transfer corruption.
+Graph Horizon `0.1.3` is the current published stable release. Its annotated
+local and anonymous remote tag, published source archive, and archive-embedded
+commit all resolve to `147f3e2c25aeca1cc1721a101d639d108533d81a`.
+The published archive SHA-256 is
+`868abcbbccfcf0d0f230c622ed3f0343218f8db4a291e16fa601d52124399aab`,
+and its root is `graph-horizon-0.1.3/`.
 
-The `v0.1.0`, `v0.1.1`, and `v0.1.2` tags and assets remain immutable. They
+The release-triggered GitHub workflow failed because checkout fetched the
+annotated tag and then rewrote its local ref to the peeled commit before the
+verifier ran. A direct anonymous run of the same verifier passes all remote tag,
+archive, checksum, commit, and member-path checks. The current development
+change makes the workflow check out the default branch while retaining the
+complete tag graph; the hosted rerun remains external verification until that
+workflow change reaches GitHub.
+
+The previous `v0.1.2` release has an immutable annotated tag and source assets,
+but an independent audit found that they identify different commits. The local
+and anonymous remote tag resolve to
+`7ca9de8be4ea37dc2d24cf75a14f40411819f341`; its published archive embeds
+`30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a historical
+release-identity defect even though the commits have the same Git tree.
+
+The `v0.1.0`, `v0.1.1`, `v0.1.2`, and `v0.1.3` tags and assets remain immutable. They
 must not be moved, deleted, or replaced; any correction must use a later
 version. `main` is the moving development branch and may advance beyond a
 release tag. That normal branch movement is unrelated to the v0.1.2 defect.
@@ -35,24 +46,25 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
-## v0.1.3 Corrective Release Candidate — 26 August 2026
+## v0.1.3 Corrective Release — 26 August 2026
 
-The compatible changes after v0.1.2 select patch version `0.1.3`; no local or
-remote v0.1.3 tag or GitHub Release existed at preparation time. This candidate
-updates current package, installer, documentation, and fixture versions while
-preserving every v0.1.0–v0.1.2 tag, asset identity, and historical result.
+The compatible changes after v0.1.2 selected patch version `0.1.3`. The
+published correction updates package, installer, documentation, and fixture
+versions while preserving every earlier tag, asset identity, and historical
+result.
 
-The corrective release invariant is stricter than equal file trees: the future
+The corrective release invariant is stricter than equal file trees: the
 annotated `v0.1.3` tag, local and anonymous remote tag commit, archive-embedded
-commit, versioned archive root, and adjacent checksum must all identify one
-exact candidate commit. The archive must be generated from that annotated tag
-commit. A later `main` commit is unrelated and is never part of this comparison.
+commit, versioned archive root, and adjacent checksum must all identify the
+exact published release commit. The archive must be generated from that
+annotated tag commit. A later `main` commit is unrelated and is never part of
+this comparison.
 
-Qualification results belong only to the exact clean candidate commit recorded
-in the external candidate report. No v0.1.3 tag or publication is authorized by
-this preparation record.
+Qualification results belong only to the exact clean commit recorded in the
+release report. Publication does not transfer older numeric evidence to this
+later tag.
 
-| Local candidate gate | Result |
+| Local release gate | Result |
 |---|---|
 | Rust format and warnings-denied CPU Clippy | PASS |
 | Locked CPU workspace suite | PASS: app/support 170, engine 163, integration 5+12; declared model/network cases ignored |

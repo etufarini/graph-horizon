@@ -2809,6 +2809,8 @@ printf 'Graph Horizon 2 out | pf ' > "${!#}"
         command
             .arg(&runner)
             .args([
+                "--model-id",
+                "3b-instruct",
                 "--model",
                 model.to_str().unwrap(),
                 "--benchmark-backend",
@@ -2831,8 +2833,15 @@ printf 'Graph Horizon 2 out | pf ' > "${!#}"
 
     for args in [
         vec![],
-        vec!["--model", "relative.gguf"],
-        vec!["--model", "/tmp/x", "--benchmark-backend", "fallback"],
+        vec!["--model-id", "3b-instruct", "--model", "relative.gguf"],
+        vec![
+            "--model-id",
+            "3b-instruct",
+            "--model",
+            "/tmp/x",
+            "--benchmark-backend",
+            "fallback",
+        ],
     ] {
         assert_eq!(
             Command::new("/bin/bash")
@@ -2844,6 +2853,29 @@ printf 'Graph Horizon 2 out | pf ' > "${!#}"
                 .code(),
             Some(2)
         );
+    }
+
+    for (id, code, message) in [
+        ("../3b", 2, "invalid model ID"),
+        ("unknown", 1, "model catalog is invalid"),
+    ] {
+        let output = Command::new("/bin/bash")
+            .arg(&runner)
+            .args([
+                "--model-id",
+                id,
+                "--model",
+                model.to_str().unwrap(),
+                "--benchmark-backend",
+                "cpu",
+                "--report",
+                fixture.join("rejected.md").to_str().unwrap(),
+            ])
+            .env("PATH", &path)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(code));
+        assert!(String::from_utf8(output.stderr).unwrap().contains(message));
     }
 
     let unauthenticated = run(
@@ -2872,6 +2904,7 @@ printf 'Graph Horizon 2 out | pf ' > "${!#}"
     let public = fs::read_to_string(&software_report).unwrap();
     for required in [
         "Overall result: **PASS**",
+        "| Model ID | `3b-instruct` |",
         "| vulkan | external verification |",
         "| Prompt tokens | 12 |",
         "| TTFT (ms) | 22.00 | 2.00 | 0.0900 |",

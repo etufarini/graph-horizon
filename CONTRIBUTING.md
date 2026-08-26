@@ -7,6 +7,8 @@ and AGENTS line-limit exemptions. It does not define runtime support claims.
 
 Follow [AGENTS.md](AGENTS.md): keep changes small, state invariants and risks,
 and add no dependency or abstraction without a concrete need.
+AI development documents and generic skills listed there are protected from
+implicit deletion, renaming, merging, or consolidation.
 
 Before changing code, identify the invariant, smallest viable change, and main
 risk. Every build selects exactly one profile—`cpu`, `vulkan`,
@@ -39,7 +41,7 @@ After moving or editing Markdown, run:
 
 ```sh
 cargo test -p graph_horizon_engine --no-default-features --features cpu \
-  --test family_agnostic docs_contract -- --exact
+  --test documentation docs_contract -- --exact
 ```
 
 The test includes tracked and untracked Markdown so new pages cannot bypass the

@@ -116,11 +116,13 @@ statically selected backend supplies buffers and encoders. Loading is
 transactional, generation emits one terminal event, and cancellation emits
 none.
 
-In the current structure, `family/mod.rs` forwards to one family
-implementation; there is not yet a multi-family registry or dispatcher.
+`family/mod.rs` owns a closed `Model` dispatcher selected from validated GGUF
+architecture metadata. Its only current variant is Ministral; adding a family
+requires a new explicit variant rather than backend-pair modules or dynamic
+registration.
 
 ```text
-family -> runtime <- backend
+Engine -> family::Model -> selected family -> runtime <- backend
 ```
 
 Static backend selection keeps each build to one dependency and resource

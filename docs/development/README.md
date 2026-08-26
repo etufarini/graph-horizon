@@ -5,6 +5,11 @@ historical measurements remain in project-status and investigation documents.
 
 # Development Processes
 
+The AI development entry points, generic skills, plans, decision context, and
+their references are protected by [`AGENTS.md`](../../AGENTS.md). Documentation
+cleanup may clarify them but must not delete, rename, merge, or consolidate
+those files without an explicit request for that exact operation.
+
 | Document | Purpose |
 |---|---|
 | [Model-support addition](model-support-addition.md) | Extend a family or supported profile |

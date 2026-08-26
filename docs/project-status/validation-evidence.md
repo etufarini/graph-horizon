@@ -25,6 +25,46 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
+## Week 2 Public Readiness — 26 August 2026
+
+The canonical public-readiness campaign completed at commit
+`8a2d62333442938889c46b8fb953f5150d31d439` with overall result **PASS**. It
+authenticated `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` as
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`,
+created a clean clone without generated or untracked state, and used only the
+product installed from that clone in separate temporary prefixes.
+
+| Installed-product check | Result |
+|---|---|
+| Version, help, model load, and minimal CLI generation | PASS |
+| Installed Web assets, startup, runtime identity, and SSE generation | PASS |
+| CPU | PASS |
+| Vulkan | PASS |
+| Vulkan-hybrid with accelerator placement | PASS |
+| Metal / Metal-hybrid on Linux x86_64 | external verification |
+| Bounded temporary cleanup | PASS |
+
+The public benchmark used Graph Horizon 0.1.2, Linux 7.0.0-30-generic x86_64,
+an AMD Ryzen 5 5500, and an AMD Radeon RX 6750 XT with RADV/Mesa
+26.0.3-1ubuntu1. The Vulkan loader exposed instance 1.4.341 and device API
+1.4.335. The fixed tuple was Vulkan, f16 KV, context 2048, 64 maximum tokens,
+one warm-up, three measured repetitions, and the prompt “Spiega in una frase
+che cosa misura un benchmark riproducibile.” (19 prompt tokens).
+
+| Public metric | Median | Sample standard deviation | CV |
+|---|---:|---:|---:|
+| TTFT | 71.14 ms | 0.02 ms | 0.0003 |
+| Prompt throughput | 267.07 tokens/s | 0.07 tokens/s | 0.0003 |
+| Model decode throughput | 81.89 tokens/s | 0.15 tokens/s | 0.0018 |
+
+These measurements apply only to this machine, commit, model, and
+configuration and do not generalize to other GPUs or platforms. This activity
+makes no comparison with llama.cpp. TTFT follows the public Graph Horizon
+boundary and includes tokenization and first sampling. The benchmark measures
+performance; it does not by itself qualify correctness or output quality. The
+generated public report contained no hostname, username, local path, or model
+output.
+
 ## Canonical Release Identity
 
 Resolve the source commit with `git rev-parse v0.1.2^{commit}`. The immutable

@@ -12,6 +12,12 @@ authenticate an artifact, compare revisions, or assign a performance verdict.
 Focused temporary instrumentation may supplement it under the performance
 investigation process when a task requires phase or GPU attribution.
 
+The [public-readiness runner](../../support/script-command-reference.md#public-readiness)
+is the canonical wrapper when clean installation, artifact authentication,
+backend verification, environment capture, and a publication-safe report must
+be reproduced together. It calls this executable rather than defining another
+benchmark.
+
 The [performance investigation process](performance-investigation.md)
 owns tuple authentication, A/B comparability, thresholds, correctness gates,
 time budget, and terminal states.

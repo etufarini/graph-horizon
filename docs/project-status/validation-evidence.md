@@ -8,7 +8,9 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.3` is the current published stable release. Its annotated
+Graph Horizon `0.1.4` is the current release candidate. No local or remote
+`v0.1.4` tag or GitHub Release existed at preparation time. Graph Horizon
+`0.1.3` remains the current published stable release. Its annotated
 local and anonymous remote tag, published source archive, and archive-embedded
 commit all resolve to `147f3e2c25aeca1cc1721a101d639d108533d81a`.
 The published archive SHA-256 is
@@ -35,7 +37,7 @@ must not be moved, deleted, or replaced; any correction must use a later
 version. `main` is the moving development branch and may advance beyond a
 release tag. That normal branch movement is unrelated to the v0.1.2 defect.
 
-Current Cargo and frontend versions are `0.1.3`. Historical v0.1.2 release
+Current Cargo and frontend versions are `0.1.4`. Historical v0.1.2 release
 identity is exclusively the commit resolved by `v0.1.2^{commit}`. The final
 v0.1.0 campaign supersedes, for its own contract, preliminary runtime evidence at
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` and
@@ -45,6 +47,38 @@ evidence for their declared revisions only.
 Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
+
+## v0.1.4 Release-Readiness Candidate — 26 August 2026
+
+The compatible release-readiness changes after v0.1.3 select patch version
+`0.1.4`. The candidate updates only current package, installer, documentation,
+and fixture versions while preserving every v0.1.0–v0.1.3 tag, asset identity,
+and historical result.
+
+The candidate simplifies repository guidance while protecting AI-development
+material, selects an explicit authenticated catalog model during public
+readiness, keeps model-family dispatch closed, and corrects the hosted
+release-integrity checkout. It changes no supported runtime behavior, numeric
+operation, public API, model profile, or backend policy.
+
+Qualification results belong only to the exact clean candidate commit recorded
+in the external release report. The future annotated tag, archive-embedded
+commit, versioned archive root, and adjacent checksum must all identify that
+same commit. A later `main` commit is unrelated to that immutable identity.
+
+| v0.1.4 preparation gate | Result |
+|---|---|
+| Rust format and warnings-denied CPU Clippy | PASS |
+| Locked CPU workspace, all targets | PASS: app/support 170, engine 163, documentation 1, family integration 4, semantic integration 12; declared model/network cases ignored |
+| CPU release build and exact source/documentation contracts | PASS |
+| Rust 1.88 CPU suite, Vulkan check, and Vulkan-hybrid check | PASS |
+| Frontend install, 135 tests, diagnostics, build, and audit | PASS: 0 warnings, 0 vulnerabilities |
+| Tracked shell syntax | PASS |
+| Installer, bootstrap, and release-integrity fixtures | PASS: 7 + 2 + 3 |
+| Live Web/News providers | PASS: 3/3 tests for three consecutive rounds |
+| Direct anonymous v0.1.3 release integrity | PASS: tag, remote, archive `147f3e2c25aeca1cc1721a101d639d108533d81a`; SHA-256 `868abcbbccfcf0d0f230c622ed3f0343218f8db4a291e16fa601d52124399aab` |
+| Exact-commit public readiness | external verification: `RELEASE_MODEL_ID`, `RELEASE_MODEL_PATH`, and `RELEASE_BACKEND` were not supplied |
+| Metal and Metal-hybrid execution on Linux x86_64 | external verification |
 
 ## v0.1.3 Corrective Release — 26 August 2026
 

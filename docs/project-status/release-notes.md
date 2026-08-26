@@ -7,6 +7,31 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+## Graph Horizon v0.1.4
+
+Graph Horizon v0.1.4 is a release-readiness patch. Release qualification now
+selects one explicit authenticated model from the supported catalog instead of
+embedding a model family in the release protocol. A closed model-family
+dispatcher keeps architecture selection explicit while retaining Ministral 3
+as the only supported family.
+
+Repository and documentation rules are shorter and more direct while keeping
+AI-development instructions, generic skills, plans, references, and historical
+context protected. CI checks all Rust targets, uses pinned current actions, and
+the hosted release-integrity workflow checks out the default branch without
+rewriting the annotated release tag it verifies.
+
+This patch changes no supported runtime behavior, numeric operation, public
+API, model profile, or backend policy. The CLI, Web UI, Q4_K_M public profile,
+and CPU, Vulkan, Metal, and hybrid placement contracts are unchanged from
+v0.1.3.
+
+After publication, install anonymously with:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.4/install.sh | bash -s -- --backend vulkan-hybrid
+```
+
 ## Graph Horizon v0.1.3
 
 Graph Horizon v0.1.3 is the corrective release for the v0.1.2 source-archive

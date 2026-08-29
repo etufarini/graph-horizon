@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use ash::vk;
 use color_eyre::eyre::{Result, eyre};
 
-use super::device::AMD_VENDOR_ID;
 use super::device::Device;
 
 mod caps;
@@ -56,9 +55,10 @@ impl PipelineRegistry {
 
         let mut map = HashMap::new();
         let built = (|| -> Result<()> {
-            let amd_wave32 = dev.vendor_id == AMD_VENDOR_ID && dev.wave32_control;
+            let fixed_wave32 = dev.profile.fixed_wave32();
             for &k in kernel::BASE {
-                let pipeline = if amd_wave32 && matches!(k, Kernel::MatmulQ6K | Kernel::LogitsQ6K) {
+                let pipeline = if fixed_wave32 && matches!(k, Kernel::MatmulQ6K | Kernel::LogitsQ6K)
+                {
                     compiler::build_wave32(dev, cache, k)?
                 } else {
                     compiler::build(dev, cache, k)?
@@ -168,7 +168,7 @@ impl PipelineRegistry {
                 for k in [Kernel::QuantAQ8F16, Kernel::MatmulQ4KMmvqF16Out] {
                     map.insert(k, compiler::build(dev, cache, k)?);
                 }
-                if dev.vendor_id == AMD_VENDOR_ID {
+                if dev.profile.integer_q4_batch() {
                     let k = Kernel::MatmulQ4KMmqBatchF16Out;
                     map.insert(k, compiler::build(dev, cache, k)?);
                 }

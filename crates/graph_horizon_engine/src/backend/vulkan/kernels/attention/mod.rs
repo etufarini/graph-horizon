@@ -93,8 +93,8 @@ pub(crate) fn attention_prefill(
     // every device/shape/workload decision; successful pipeline construction is
     // the final resource-capability signal and absence always selects a fallback.
     let pipelines = policy::Pipelines {
-        nvidia_q64: reg.contains(Kernel::AttentionPrefillMatrix2Q64),
-        amd_gqa_split: reg.contains(Kernel::AttentionPrefillGqaSplit)
+        matrix2_q64: reg.contains(Kernel::AttentionPrefillMatrix2Q64),
+        gqa_split_wave32: reg.contains(Kernel::AttentionPrefillGqaSplit)
             && reg.contains(Kernel::AttentionPrefillGqaReduce),
         matrix2_q32: reg.contains(Kernel::AttentionPrefillMatrix2),
         coop_qk: reg.contains(Kernel::AttentionPrefillTiledCoopQk),
@@ -109,7 +109,7 @@ pub(crate) fn attention_prefill(
         base,
     };
     let (route, rows) = policy::select(shape, pipelines);
-    if route == policy::Route::AmdGqaSplit {
+    if route == policy::Route::GqaSplitWave32 {
         dispatch_2d(
             dev,
             reg,
@@ -143,8 +143,8 @@ pub(crate) fn attention_prefill(
         return;
     }
     let kernel = match route {
-        policy::Route::NvidiaQ64 => Kernel::AttentionPrefillMatrix2Q64,
-        policy::Route::AmdGqaSplit => unreachable!("split route returned above"),
+        policy::Route::Matrix2Q64 => Kernel::AttentionPrefillMatrix2Q64,
+        policy::Route::GqaSplitWave32 => unreachable!("split route returned above"),
         policy::Route::Matrix2Q32 => Kernel::AttentionPrefillMatrix2,
         policy::Route::CoopQk => Kernel::AttentionPrefillTiledCoopQk,
         policy::Route::Tiled => Kernel::AttentionPrefillTiled,

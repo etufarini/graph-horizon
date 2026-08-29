@@ -8,7 +8,7 @@
 
 // AGENTS deroga K: kernel numerico della sola attention prefill F16 matrix2.
 
-// NVIDIA workgroup-scope prefill attention. One 256-thread workgroup owns 32
+// Workgroup-scope Matrix2 prefill attention. One 256-thread workgroup owns 32
 // queries and scans 64 keys at a time. Tensor loads feed Q/K/V directly from
 // their strided buffers; score stays in a cooperative matrix. FP16 probability
 // is staged for AV, while one FP32 cooperative output remains live across KV

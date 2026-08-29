@@ -8,7 +8,7 @@
 
 use color_eyre::eyre::Result;
 
-use super::device::{AMD_VENDOR_ID, Device};
+use super::device::Device;
 use crate::backend::source::WeightSource;
 use crate::backend::vulkan::buffers::GpuBuffer;
 use crate::backend::vulkan::kernels::{attention, reduce};
@@ -131,7 +131,7 @@ impl VulkanBackend {
     // Packed Q8 quants and per-8-block (d, s) pairs each consume one byte per
     // activation element and cover the largest supported prefill batch.
     fn alloc_mmvq_scratch(dev: &Device) -> Result<(GpuBuffer, GpuBuffer)> {
-        let elements = if dev.vendor_id == AMD_VENDOR_ID && dev.dp4a {
+        let elements = if dev.profile.integer_q4_batch() {
             MMVQ_SCRATCH_ELEMENTS
         } else {
             crate::backend::vulkan::MMVQ_SCRATCH_IN_DIM

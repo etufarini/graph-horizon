@@ -43,7 +43,9 @@ pub(crate) fn detect(
     // SAFETY: `instance` and `physical` are live; the driver only fills the
     // stack-owned property chain used to enforce the shader's subgroup contract.
     unsafe { instance.get_physical_device_properties2(physical, &mut device) };
-    if device.properties.vendor_id != 0x10de || subgroup.subgroup_size != 32 {
+    if !crate::backend::vulkan::profile::is_nvidia(device.properties.vendor_id)
+        || subgroup.subgroup_size != 32
+    {
         return CoopmatCaps::default();
     }
 

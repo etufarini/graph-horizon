@@ -121,6 +121,13 @@ Start with the simplest correct path. Add batching, fusion, SIMD, subgroup, or
 device-specific kernels only after a scalar, unfused, or host oracle exists.
 Optimized paths must retain a deterministic way to test the reference result.
 
+For a new Vulkan GPU family, keep raw vendor identity and measured tuning in
+`backend/vulkan/profile.rs`. The profile may select only scheduling bounds and
+already-validated optimized paths; feature and limit checks remain the source
+of capability truth. An unrecognized family uses the portable profile until a
+named validation row justifies a focused profile change. Product names belong
+in validation and benchmark evidence, not runtime dispatch.
+
 Cargo feature and build-profile conditions gate availability, dependencies,
 and loaders; they must not select a numeric operation variant. A placement
 exception must be local to one operation, selected from immutable effective

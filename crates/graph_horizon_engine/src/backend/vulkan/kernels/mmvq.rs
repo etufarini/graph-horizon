@@ -5,8 +5,8 @@
  * module owns the shared applicability and scratch-capacity gates.
  *
  * Each entry returns `true` only after recording its complete route. Decode
- * accepts DP4A Q4_K devices; batch additionally requires the AMD architecture
- * family and Q4_K. Other formats and shapes use their format-specific fallbacks.
+ * accepts DP4A Q4_K devices; batch additionally requires the measured device
+ * profile and Q4_K. Other formats and shapes use their format-specific fallbacks.
  * Scratch follows the project's explicit persistent-scratch convention.
 */
 
@@ -15,7 +15,7 @@
 use ash::vk;
 
 use crate::backend::vulkan::buffers::{GpuBuffer, WeightFormat};
-use crate::backend::vulkan::device::{AMD_VENDOR_ID, Device};
+use crate::backend::vulkan::device::Device;
 use crate::backend::vulkan::pipeline::{Kernel, PipelineRegistry, dispatch, dispatch_2d};
 use crate::backend::vulkan::{MMVQ_SCRATCH_ELEMENTS, MMVQ_SCRATCH_IN_DIM};
 
@@ -29,8 +29,8 @@ fn applies(dp4a: bool, format: WeightFormat, in_dim: u32) -> bool {
         && u64::from(in_dim) <= MMVQ_SCRATCH_IN_DIM
 }
 
-fn batch_applies(vendor_id: u32, dp4a: bool, format: WeightFormat, in_dim: u32, n: u32) -> bool {
-    vendor_id == AMD_VENDOR_ID && n > 1 && applies(dp4a, format, in_dim)
+fn batch_applies(qualified: bool, format: WeightFormat, in_dim: u32, n: u32) -> bool {
+    n > 1 && applies(qualified, format, in_dim)
 }
 
 // Orders the decode quantizer's writes only for the two scratch windows
@@ -147,7 +147,7 @@ pub(crate) fn dispatch_mmq_batched(
     let Some(elements) = u64::from(in_dim).checked_mul(u64::from(n)) else {
         return false;
     };
-    if !batch_applies(dev.vendor_id, dev.dp4a, w.quant, in_dim, n)
+    if !batch_applies(dev.profile.integer_q4_batch(), w.quant, in_dim, n)
         || elements > MMVQ_SCRATCH_ELEMENTS
         || elements > qs.size
         || elements > ds.size
@@ -206,13 +206,7 @@ mod tests {
             WeightFormat::Q4K,
             MMVQ_SCRATCH_IN_DIM as u32 + 256
         ));
-        assert!(batch_applies(
-            AMD_VENDOR_ID,
-            true,
-            WeightFormat::Q4K,
-            256,
-            2
-        ));
-        assert!(!batch_applies(0x10de, true, WeightFormat::Q4K, 256, 2));
+        assert!(batch_applies(true, WeightFormat::Q4K, 256, 2));
+        assert!(!batch_applies(false, WeightFormat::Q4K, 256, 2));
     }
 }

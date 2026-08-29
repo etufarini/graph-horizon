@@ -37,14 +37,15 @@ Build availability does not assign support status. The primary labels are:
 | `metal` | **qualified** | Entire model on Metal or an error |
 | `metal-hybrid` | **qualified** | CPU plus Metal with all-Metal, mixed, or CPU-only modes |
 
-Production Vulkan covers compatible NVIDIA and AMD devices. Metal and
-Metal-hybrid are qualified on the documented Apple M4 10-core/macOS 26.3 tuple.
-Vulkan-hybrid passed a complete AMD real-model mixed-placement campaign on the
-repair SHA, but requires a fresh campaign on the selected final commit and
-intended production tuple for promotion. `reference` is a numeric role rather
-than a lower maturity tier and carries no performance promise. The normative
-definitions and exact scope are in the
-[backend contract](../../docs/engine/backend-support-status.md#support-status).
+Vulkan and Metal admit devices through backend-local capability contracts;
+optional specialization is unavailable unless its complete measured profile is
+present, and portable operation fallbacks remain available. Runtime admission
+does not by itself extend a support claim to unverified hardware. `reference`
+is a numeric role rather than a lower maturity tier and carries no performance
+promise. Normative definitions are in the
+[backend contract](../../docs/engine/backend-support-status.md#support-status),
+while exact current hardware, driver, and operating-system tuples are owned by
+[validation evidence](../../docs/project-status/validation-evidence.md#current-backend-evidence).
 
 The hybrid plan is immutable after loading. Only the mixed plan copies the
 residual from CPU to GPU, once per pass; each layer's KV remains on its backend.

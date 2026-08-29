@@ -7,7 +7,7 @@
 
 // AGENTS deroga K: kernel numerico della sola operazione matmul Q6_K matrix2.
 
-// NVIDIA workgroup-scope Q6_K prefill matmul. One 256-thread workgroup owns a
+// Workgroup-scope Matrix2 Q6_K prefill matmul. One 256-thread workgroup owns a
 // 64x32 output tile. Tensor addressing loads FP16 activations directly, while
 // each lane owns one scale while preparing the 128x32 Q6_K weight tile in
 // shared FP16. The 64-row activation matrix reuses each dequantized weight tile

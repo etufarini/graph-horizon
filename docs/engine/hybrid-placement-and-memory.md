@@ -18,8 +18,8 @@ and execution:
 | Effective placement | Prefill ownership | Numeric execution |
 |---|---:|---|
 | CPU standalone or `CpuOnly` | 32 rows | CPU |
-| Vulkan standalone | 256 rows normally; 512 on the qualified NVIDIA Matrix2 route; AMD uses 128 or the deep/long 64-row bound | Vulkan |
-| Vulkan-hybrid `AllGpu` | Accounted 32-row fallback; 512 on eligible, capacity-fitting NVIDIA Matrix2 devices | Vulkan |
+| Vulkan standalone | 256 rows normally; 512 with the qualified Matrix2 Q4/Q64 capability set; the bounded-submission profile uses 128 or the deep/long 64-row bound | Vulkan |
+| Vulkan-hybrid `AllGpu` | Accounted 32-row fallback; 512 with the eligible, capacity-fitting Matrix2 Q4/Q64 capability set | Vulkan |
 | Metal standalone | 64 rows | Metal |
 | Metal-hybrid `AllGpu` (`all-metal`) | 32 rows | Metal |
 | Vulkan or Metal `Mixed` | 4 rows | CPU prefix, one crossing, accelerator suffix |
@@ -48,7 +48,7 @@ the recommended working set, counting weights, KV, scratch, fixed, staging,
 crossing, and reserve against the same capacity.
 
 Capability-specific wider routes include their scratch in admission. If an
-eligible 512-row NVIDIA plan does not fit, placement is recomputed with the
+eligible 512-row Matrix2 plan does not fit, placement is recomputed with the
 accounted 32-row fallback before the result is committed. After final
 selection, allocation, pipeline, kernel, transfer, command, readback, or decode
 errors remain failures. The runtime never reduces context, changes placement,

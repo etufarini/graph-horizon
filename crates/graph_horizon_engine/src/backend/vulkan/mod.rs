@@ -13,6 +13,7 @@ mod exec;
 mod init;
 mod loader;
 mod mem;
+mod profile;
 
 pub(crate) mod coopmat;
 pub(crate) mod coopmat2;
@@ -59,49 +60,6 @@ pub(crate) const MMVQ_SCRATCH_IN_DIM: u64 = 32768;
 // Q8 activation scratch covers the largest public prefill batch without allocation.
 pub(crate) const MMVQ_SCRATCH_ROWS: u64 = 256;
 pub(crate) const MMVQ_SCRATCH_ELEMENTS: u64 = MMVQ_SCRATCH_IN_DIM * MMVQ_SCRATCH_ROWS;
-// Eight complete Matrix2 row tiles amortize command recording without padding.
-#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
-const PREFILL_ROWS: usize = 256;
-// Registered direct-Q4 and Q64 pipelines benefit from twice the dispatch-level reuse.
-#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
-const MATRIX2_PREFILL_ROWS: usize = 512;
-// RADV's watchdog bounds one full-graph submission on the measured AMD family.
-// Sixteen Q4-MMQ row tiles keep late long-context chunks below that boundary.
-#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
-const AMD_PREFILL_ROWS: usize = 128;
-// Deeper long-context graphs need a second duration bound: 8B/28K resets at
-// 128 rows while the same capability/shape class remains stable at 64.
-#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
-const AMD_LONG_PREFILL_ROWS: usize = 64;
-
-#[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
-const fn prefill_rows(
-    vendor_id: u32,
-    block_count: usize,
-    context: usize,
-    matrix2_wide: bool,
-) -> usize {
-    if vendor_id == device::AMD_VENDOR_ID && block_count >= 32 && context >= 16_384 {
-        AMD_LONG_PREFILL_ROWS
-    } else if vendor_id == device::AMD_VENDOR_ID {
-        AMD_PREFILL_ROWS
-    } else if matrix2_wide {
-        MATRIX2_PREFILL_ROWS
-    } else {
-        PREFILL_ROWS
-    }
-}
-
-#[cfg(feature = "vulkan-hybrid")]
-const fn hybrid_prefill_rows(vendor_id: u32, matrix2_wide: bool, default_rows: usize) -> usize {
-    const NVIDIA_VENDOR_ID: u32 = 0x10de;
-    if vendor_id == NVIDIA_VENDOR_ID && matrix2_wide {
-        MATRIX2_PREFILL_ROWS
-    } else {
-        default_rows
-    }
-}
-
 #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 impl VulkanBackend {
     pub(crate) fn prefill_rows(&self, block_count: usize, context: usize) -> usize {
@@ -109,39 +67,9 @@ impl VulkanBackend {
         // Matrix2 devices keep the portable 256-row ownership.
         let matrix2_wide = self.reg.contains(Kernel::MatmulQ4KMatrix2F16Out)
             && self.reg.contains(Kernel::AttentionPrefillMatrix2Q64);
-        prefill_rows(self.dev.vendor_id, block_count, context, matrix2_wide)
-    }
-}
-
-#[cfg(all(test, any(feature = "vulkan", feature = "vulkan-hybrid")))]
-mod prefill_policy_tests {
-    #[cfg(feature = "vulkan-hybrid")]
-    use super::hybrid_prefill_rows;
-    #[cfg(feature = "vulkan")]
-    use super::{
-        AMD_LONG_PREFILL_ROWS, AMD_PREFILL_ROWS, MATRIX2_PREFILL_ROWS, PREFILL_ROWS, prefill_rows,
-    };
-
-    #[cfg(feature = "vulkan")]
-    #[test]
-    fn prefill_rows_preserve_amd_bounds_and_require_both_matrix2_paths() {
-        let amd = super::device::AMD_VENDOR_ID;
-        assert_eq!(prefill_rows(amd, 26, 28_160, true), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 31, 16_384, true), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_384, true), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 33, 16_384, true), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_383, true), AMD_PREFILL_ROWS);
-        assert_eq!(prefill_rows(amd, 32, 16_385, true), AMD_LONG_PREFILL_ROWS);
-        assert_eq!(prefill_rows(0x10de, 40, 32_768, false), PREFILL_ROWS);
-        assert_eq!(prefill_rows(0x10de, 40, 32_768, true), MATRIX2_PREFILL_ROWS);
-    }
-
-    #[cfg(feature = "vulkan-hybrid")]
-    #[test]
-    fn hybrid_expands_only_capable_nvidia_prefill() {
-        assert_eq!(hybrid_prefill_rows(0x10de, true, 32), 512);
-        assert_eq!(hybrid_prefill_rows(0x10de, false, 32), 32);
-        assert_eq!(hybrid_prefill_rows(0x1002, true, 32), 32);
+        self.dev
+            .profile
+            .prefill_rows(block_count, context, matrix2_wide)
     }
 }
 
@@ -217,7 +145,9 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         default_rows: usize,
     ) -> usize {
         let matrix2_wide = device.coopmat2.available && device.coopmat2.attention_q64_wg128;
-        hybrid_prefill_rows(device.vendor_id, matrix2_wide, default_rows)
+        device
+            .profile
+            .hybrid_prefill_rows(matrix2_wide, default_rows)
     }
 
     fn active_prefill_rows(

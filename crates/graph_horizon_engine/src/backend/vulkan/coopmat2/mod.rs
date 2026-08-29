@@ -14,7 +14,6 @@ use ash::vk;
 use self::abi::{Features, FlexibleDimensions, Properties};
 
 pub(crate) const COOPERATIVE_MATRIX2: &CStr = c"VK_NV_cooperative_matrix2";
-const NVIDIA_VENDOR_ID: u32 = 0x10de;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Coopmat2Caps {
@@ -72,7 +71,7 @@ pub(crate) fn detect(
         vk::PhysicalDeviceProperties2::default().push_next(&mut matrix2_properties);
     // SAFETY: the output chain is stack-owned and outlives this driver query.
     unsafe { instance.get_physical_device_properties2(physical, &mut property_query) };
-    if property_query.properties.vendor_id != NVIDIA_VENDOR_ID {
+    if !crate::backend::vulkan::profile::is_nvidia(property_query.properties.vendor_id) {
         return Coopmat2Caps::default();
     }
 

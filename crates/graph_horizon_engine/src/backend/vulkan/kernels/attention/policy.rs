@@ -6,15 +6,15 @@
  */
 
 const MATRIX2_HEAD_DIM: u32 = 128;
-const NVIDIA_Q64_ROWS: u32 = 64;
+const MATRIX2_Q64_ROWS: u32 = 64;
 const QUALIFIED_GQA_RATIO: u32 = 4;
-const AMD_GQA_MIN_POSITION: u32 = 2048;
-const AMD_GQA_MAX_ROWS: u32 = 64;
+const SPLIT_GQA_MIN_POSITION: u32 = 2048;
+const SPLIT_GQA_MAX_ROWS: u32 = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Route {
-    NvidiaQ64,
-    AmdGqaSplit,
+    Matrix2Q64,
+    GqaSplitWave32,
     Matrix2Q32,
     CoopQk,
     Tiled,
@@ -33,36 +33,36 @@ pub(super) struct Shape {
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Pipelines {
-    pub nvidia_q64: bool,
-    pub amd_gqa_split: bool,
+    pub matrix2_q64: bool,
+    pub gqa_split_wave32: bool,
     pub matrix2_q32: bool,
     pub coop_qk: bool,
     pub tiled: bool,
     pub wide: bool,
 }
 
-pub(super) fn nvidia_q64_eligible(shape: Shape, pipeline: bool) -> bool {
+pub(super) fn matrix2_q64_eligible(shape: Shape, pipeline: bool) -> bool {
     pipeline
         && shape.head_dim == MATRIX2_HEAD_DIM
         && shape.rows != 0
-        && shape.rows.is_multiple_of(NVIDIA_Q64_ROWS)
+        && shape.rows.is_multiple_of(MATRIX2_Q64_ROWS)
         && shape.kv_heads.checked_mul(QUALIFIED_GQA_RATIO) == Some(shape.q_heads)
 }
 
 pub(super) fn select(shape: Shape, pipelines: Pipelines) -> (Route, u32) {
-    if nvidia_q64_eligible(shape, pipelines.nvidia_q64) {
-        (Route::NvidiaQ64, shape.rows / NVIDIA_Q64_ROWS)
-    } else if pipelines.amd_gqa_split
+    if matrix2_q64_eligible(shape, pipelines.matrix2_q64) {
+        (Route::Matrix2Q64, shape.rows / MATRIX2_Q64_ROWS)
+    } else if pipelines.gqa_split_wave32
         && shape.head_dim == MATRIX2_HEAD_DIM
         && shape.rows != 0
-        && shape.rows <= AMD_GQA_MAX_ROWS
+        && shape.rows <= SPLIT_GQA_MAX_ROWS
         && shape.kv_heads.checked_mul(QUALIFIED_GQA_RATIO) == Some(shape.q_heads)
         && shape
             .base
             .checked_add(shape.rows)
-            .is_some_and(|end| end >= AMD_GQA_MIN_POSITION)
+            .is_some_and(|end| end >= SPLIT_GQA_MIN_POSITION)
     {
-        (Route::AmdGqaSplit, shape.rows.div_ceil(8))
+        (Route::GqaSplitWave32, shape.rows.div_ceil(8))
     } else if shape.head_dim == MATRIX2_HEAD_DIM
         && shape.rows != 0
         && shape.rows.is_multiple_of(32)
@@ -96,8 +96,8 @@ mod tests {
 
     fn pipelines() -> Pipelines {
         Pipelines {
-            nvidia_q64: true,
-            amd_gqa_split: true,
+            matrix2_q64: true,
+            gqa_split_wave32: true,
             matrix2_q32: true,
             coop_qk: true,
             tiled: true,
@@ -107,8 +107,8 @@ mod tests {
 
     #[test]
     fn q64_uses_only_the_qualified_shape_not_absolute_head_counts() {
-        assert!(nvidia_q64_eligible(shape(64), true));
-        assert!(nvidia_q64_eligible(
+        assert!(matrix2_q64_eligible(shape(64), true));
+        assert!(matrix2_q64_eligible(
             Shape {
                 q_heads: 4,
                 kv_heads: 1,
@@ -116,7 +116,7 @@ mod tests {
             },
             true
         ));
-        assert!(!nvidia_q64_eligible(
+        assert!(!matrix2_q64_eligible(
             Shape {
                 q_heads: 8,
                 kv_heads: 1,
@@ -124,30 +124,30 @@ mod tests {
             },
             true
         ));
-        assert!(!nvidia_q64_eligible(
+        assert!(!matrix2_q64_eligible(
             Shape {
                 head_dim: 64,
                 ..shape(64)
             },
             true
         ));
-        assert!(!nvidia_q64_eligible(shape(64), false));
+        assert!(!matrix2_q64_eligible(shape(64), false));
     }
 
     #[test]
     fn q64_boundaries_and_short_complete_tile_are_explicit() {
         for rows in [63, 65, 127, 129, 255, 257] {
-            assert_ne!(select(shape(rows), pipelines()).0, Route::NvidiaQ64);
+            assert_ne!(select(shape(rows), pipelines()).0, Route::Matrix2Q64);
         }
         for rows in [64, 128, 256] {
-            assert_eq!(select(shape(rows), pipelines()).0, Route::NvidiaQ64);
+            assert_eq!(select(shape(rows), pipelines()).0, Route::Matrix2Q64);
         }
     }
 
     #[test]
     fn missing_capabilities_select_successive_fallbacks() {
         let mut available = pipelines();
-        available.nvidia_q64 = false;
+        available.matrix2_q64 = false;
         assert_eq!(select(shape(64), available), (Route::Matrix2Q32, 2));
         available.matrix2_q32 = false;
         assert_eq!(select(shape(64), available), (Route::CoopQk, 4));
@@ -157,28 +157,28 @@ mod tests {
     }
 
     #[test]
-    fn amd_gqa_split_starts_at_the_long_context_crossover() {
+    fn split_gqa_starts_at_the_long_context_crossover() {
         let mut available = pipelines();
-        available.nvidia_q64 = false;
+        available.matrix2_q64 = false;
         let short = Shape {
-            base: AMD_GQA_MIN_POSITION - 65,
+            base: SPLIT_GQA_MIN_POSITION - 65,
             ..shape(64)
         };
         assert_eq!(select(short, available).0, Route::Matrix2Q32);
         let long = Shape {
-            base: AMD_GQA_MIN_POSITION - 64,
+            base: SPLIT_GQA_MIN_POSITION - 64,
             ..shape(64)
         };
-        assert_eq!(select(long, available), (Route::AmdGqaSplit, 8));
+        assert_eq!(select(long, available), (Route::GqaSplitWave32, 8));
 
-        available.amd_gqa_split = false;
+        available.gqa_split_wave32 = false;
         assert_eq!(select(long, available).0, Route::Matrix2Q32);
 
         let oversized = Shape {
-            base: AMD_GQA_MIN_POSITION,
-            ..shape(AMD_GQA_MAX_ROWS + 1)
+            base: SPLIT_GQA_MIN_POSITION,
+            ..shape(SPLIT_GQA_MAX_ROWS + 1)
         };
-        assert_ne!(select(oversized, pipelines()).0, Route::AmdGqaSplit);
+        assert_ne!(select(oversized, pipelines()).0, Route::GqaSplitWave32);
     }
 
     #[test]

@@ -9,7 +9,6 @@ use color_eyre::eyre::{Result, eyre};
 
 use super::Device;
 use crate::backend::vulkan::coopmat::CoopmatCaps;
-use crate::backend::vulkan::device::AMD_VENDOR_ID;
 
 const WIDE_ATTENTION_SHARED_BYTES: u32 = 32 * 128 * 4 + 32 * 4 * 2;
 const TILED_ATTENTION_SHARED_BYTES: u32 = 64 * 128 * 2 + 8 * 128 * 2 + 8 * 64 * 4 + 8 * 3 * 4;
@@ -35,17 +34,15 @@ fn supports_gqa_prefill(
     size_x: u32,
     shared_bytes: u32,
     subgroup_size: u32,
-    wave32_control: bool,
-    amd: bool,
-    amd_dp4a: bool,
+    fixed_wave32: bool,
+    integer_q4_batch: bool,
 ) -> bool {
     invocations >= 1024
         && size_x >= 1024
         && shared_bytes >= GQA_PREFILL_SHARED_BYTES
         && subgroup_size == 64
-        && wave32_control
-        && amd
-        && amd_dp4a
+        && fixed_wave32
+        && integer_q4_batch
 }
 
 fn supports_gqa_decode_resources(invocations: u32, size_x: u32, shared_bytes: u32) -> bool {
@@ -59,10 +56,9 @@ fn supports_gqa_decode(resources: bool, subgroup_size: u32) -> bool {
 fn supports_gqa_decode_required_wave32(
     resources: bool,
     subgroup_size: u32,
-    wave32_control: bool,
-    amd: bool,
+    fixed_wave32: bool,
 ) -> bool {
-    resources && subgroup_size == 64 && wave32_control && amd
+    resources && subgroup_size == 64 && fixed_wave32
 }
 
 fn supports_gqa_decode_wave64(resources: bool, subgroup_size: u32) -> bool {
@@ -181,16 +177,14 @@ pub(super) fn check(dev: &Device) -> Result<PipelineCaps> {
             available.1,
             available.2,
             subgroup,
-            dev.wave32_control,
-            dev.vendor_id == AMD_VENDOR_ID,
-            dev.dp4a,
+            dev.profile.fixed_wave32(),
+            dev.profile.integer_q4_batch(),
         ),
         gqa_decode: supports_gqa_decode(gqa, subgroup),
         gqa_decode_required_wave32: supports_gqa_decode_required_wave32(
             gqa,
             subgroup,
-            dev.wave32_control,
-            dev.vendor_id == AMD_VENDOR_ID,
+            dev.profile.fixed_wave32(),
         ),
         gqa_decode_wave64: supports_gqa_decode_wave64(gqa, subgroup),
         q4_metadata: supports_q4(subgroup, vulkan11.subgroup_supported_operations),
@@ -252,13 +246,12 @@ mod tests {
     }
 
     #[test]
-    fn gqa_prefill_requires_qualified_amd_wave32_resources() {
+    fn gqa_prefill_requires_qualified_wave32_profile() {
         assert!(supports_gqa_prefill(
             1024,
             1024,
             GQA_PREFILL_SHARED_BYTES,
             64,
-            true,
             true,
             true,
         ));
@@ -269,7 +262,6 @@ mod tests {
             32,
             true,
             true,
-            true,
         ));
         assert!(!supports_gqa_prefill(
             1024,
@@ -278,23 +270,12 @@ mod tests {
             64,
             false,
             true,
-            true,
         ));
         assert!(!supports_gqa_prefill(
             1024,
             1024,
             GQA_PREFILL_SHARED_BYTES,
             64,
-            true,
-            false,
-            true,
-        ));
-        assert!(!supports_gqa_prefill(
-            1024,
-            1024,
-            GQA_PREFILL_SHARED_BYTES,
-            64,
-            true,
             true,
             false,
         ));
@@ -326,9 +307,9 @@ mod tests {
         assert!(!supports_gqa_decode(true, 64));
         assert!(supports_gqa_decode_wave64(true, 64));
         assert!(!supports_gqa_decode_wave64(true, 32));
-        assert!(supports_gqa_decode_required_wave32(true, 64, true, true));
-        assert!(!supports_gqa_decode_required_wave32(true, 64, false, true));
-        assert!(!supports_gqa_decode_required_wave32(true, 64, true, false));
+        assert!(supports_gqa_decode_required_wave32(true, 64, true));
+        assert!(!supports_gqa_decode_required_wave32(true, 64, false));
+        assert!(!supports_gqa_decode_required_wave32(false, 64, true));
     }
 
     #[test]

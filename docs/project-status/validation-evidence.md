@@ -334,6 +334,10 @@ not a runtime whitelist.
 
 ## Current Backend Evidence
 
+This section is the canonical current matrix of qualified hardware, driver,
+operating-system, and backend tuples. Architecture and installation documents
+link here rather than duplicating device models.
+
 | Profile | Reviewed evidence | Technical status |
 |---|---|---|
 | CPU | Synthetic suite and post-repair real matrix across six artifacts and f16/int8; no performance promise | REFERENCE |

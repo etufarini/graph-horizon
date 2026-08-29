@@ -18,7 +18,7 @@
 // Math: y[col][grow] = Σ_k A[col][k]·W[grow][k]; C(MxN)=A(MxK)·B(KxN), M=positions (n),
 // N=output rows (out_dim), K=in_dim, B[k][n]=dequant(W[n][k]). A token-major float16_t
 // a[col*in_dim+k]; W Q4_K row-major; Y token-major float16_t y[col*out_dim+grow]. Fixed
-// 16×16×16 shape (the device's f16→f32 subgroup shape on the Ampere bench target); the
+// 16×16×16 shape (the qualified device's f16→f32 subgroup shape); the
 // routing selects this only when the detected CoopmatCaps match it, else the batched
 // f16-out fallback. Two 32-lane subgroups consume adjacent prompt tiles while sharing
 // one dequantized B tile, so every Q4_K weight is unpacked once per 32-row batch.

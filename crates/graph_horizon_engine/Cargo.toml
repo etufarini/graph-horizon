@@ -35,6 +35,7 @@ metal-hybrid = [
     "dep:objc2-foundation",
     "dep:objc2-metal",
 ]
+cuda = ["dep:cudarc"]
 
 [dependencies]
 # Optional GPU bindings, gated by the matching feature.
@@ -45,6 +46,7 @@ dispatch2 = { version = "=0.3.1", optional = true }
 objc2 = { version = "=0.6.2", optional = true }
 objc2-foundation = { version = "=0.3.2", optional = true }
 objc2-metal = { version = "=0.3.2", optional = true }
+cudarc = { version = "=0.19.9", optional = true, default-features = false, features = ["std", "driver", "dynamic-loading", "cuda-version-from-build-system"] }
 
 # build-time only: compiles the GLSL .comp compute shaders to SPIR-V via
 # libshaderc (bundled). Not a runtime dependency; only used by the `vulkan`

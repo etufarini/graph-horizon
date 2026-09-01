@@ -37,7 +37,7 @@ Build availability does not assign support status. The primary labels are:
 | `vulkan-hybrid` | **qualified** | CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan |
 | `metal` | **qualified** | Entire model on Metal or an error |
 | `metal-hybrid` | **qualified** | CPU plus Metal with all-Metal, mixed, or CPU-only modes |
-| `cuda` | **build available** | Entire model on visible NVIDIA device ordinal 0 or an error; Linux x86_64 only |
+| `cuda` | **qualified** | Entire model on visible NVIDIA device ordinal 0 or an error; claim limited to the frozen Linux x86_64 tuple in validation evidence |
 
 Vulkan, Metal, and CUDA admit devices through backend-local capability contracts;
 optional specialization is unavailable unless its complete measured profile is

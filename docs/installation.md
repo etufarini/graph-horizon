@@ -63,7 +63,9 @@ cargo build --locked --release --no-default-features --features cuda
 Compilation uses `nvcc` offline to embed PTX targeting compute capability 7.5;
 runtime loading uses the NVIDIA driver. The profile is Linux `x86_64` only,
 selects visible device ordinal 0, and does not provide hybrid placement or
-prefix-KV reuse. Build availability is not a qualification claim.
+prefix-KV reuse. Build availability alone is not a qualification claim; the
+qualified label applies only to the exact tuple recorded in
+[validation evidence](project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
 
 ## Local Installer Options
 

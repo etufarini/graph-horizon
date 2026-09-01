@@ -345,7 +345,7 @@ link here rather than duplicating device models.
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
 | Metal | Suite, oracles, teacher row, and Apple M4/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
-| CUDA | Offline PTX build, physical-device synthetic oracles, lifecycle, and isolation on the frozen RTX 2060 toolchain tuple; authenticated model absent | BUILD AVAILABLE — EXTERNAL VERIFICATION |
+| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the frozen RTX 2060 tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
@@ -353,7 +353,7 @@ extend to unmeasured hardware. Details are summarized in
 
 ### CUDA implementation gate — 1 September 2026
 
-The CUDA runtime checkpoint is `f9817ab` on branch `feat/cuda-backend`; its
+The CUDA runtime checkpoint is `c58e154` on branch `feat/cuda-backend`; its
 offline-build checkpoint is `4cf4546`. The local tuple matched the frozen
 hardware/toolchain boundary: Linux `x86_64`, NVIDIA GeForce RTX 2060 with
 compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
@@ -361,13 +361,13 @@ compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
 | Gate | Result |
 |---|---|
 | Locked CUDA all-target check and Clippy `-D warnings` | PASS |
-| CUDA release engine suite | PASS: engine 138, documentation 1, family integration 4, semantic integration 12; three real-artifact tests ignored |
+| CUDA release engine suite | PASS: engine 139, documentation 1, family integration 4, semantic integration 12; four real-artifact tests ignored |
 | Physical-device operation oracles | PASS: F16 and packed signed Q4_K/Q5_K/Q6_K matmul, dense operations, exact multi-vector f16/int8 KV layout, dimension-128 grouped-query causal attention and decode equality, argmax/top-k ordering |
 | Capability, allocation, aliased kernel view, upload, module, stream-latch, and full loader-transaction failpoint tests | PASS |
 | CPU regression, Vulkan/Vulkan-hybrid checks, CUDA conflict rows, dependency isolation, structure, K/I markers, and unsafe-boundary audit | PASS |
-| Authenticated 3B Instruct parity at context 4096, f16 KV | external verification: exact artifact absent |
-| Authenticated 3B Instruct parity at context 4096, int8 KV | external verification: exact artifact absent |
-| Fixed context-2048 f16 benchmark | external verification: correctness dependency not met because exact artifact absent |
+| Authenticated 3B Instruct parity at context 4096, f16 KV | PASS: 16/16 oracle tokens in the local top two, exact local top-one sequence, one terminal event, silent cancellation, no placement |
+| Authenticated 3B Instruct parity at context 4096, int8 KV | PASS: 16/16 oracle tokens in the local top two, exact local top-one sequence, one terminal event, silent cancellation, no placement |
+| Fixed context-2048 f16 benchmark | PASS: one warm-up and three measured repetitions; positive finite timing and throughput fields |
 
 The generated 140,654-byte PTX contained each of the 16 required entry names
 exactly once. The plan's literal unbounded search also counts
@@ -375,15 +375,32 @@ exactly once. The plan's literal unbounded search also counts
 opening-parenthesis boundary after each complete name; runtime module loading
 independently resolved the same fixed function set on the physical device.
 
-The missing artifact is
-`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2,147,023,008 bytes, SHA-256
-`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
-The pinned llama.cpp `13f2b28b098623391b1aacfd27995e1c8b7de9a9` oracle executable was present,
-but that does not replace artifact authentication. No parity or benchmark row
-was started, retried, or reported as passing. Therefore CUDA is not qualified;
-neighboring GPUs, drivers, toolkits, artifacts, and model sizes are unclaimed.
-Future benchmark output is measurement only and cannot establish correctness
-or broaden this boundary.
+The artifact authenticated as exactly 2,147,023,008 bytes with SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`, and
+the oracle reported llama.cpp revision
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Both KV rows produced the same
+local and oracle sequence:
+
+```text
+6319,92683,1772,2007,1049,1055,1617,8379,1032,1049,1057,1918,4847,1603,1051,1050
+```
+
+The first f16 attempt at checkpoint `2487739` exposed a pre-parity defect: a
+request-local raw byte arena was rejected when an operation supplied its
+checked concrete element span. Checkpoint `c58e154` corrected that boundary
+without weakening typed weight validation. The final f16 and int8 rows each
+ran once on the corrected revision without changing the frozen tuple.
+
+The fixed measurement-only benchmark used context 2048, f16 KV, prompt `Ciao`,
+32 maximum tokens, one warm-up, and three repetitions. Its complete record was:
+
+```text
+prompt_tokens=5 completion_tokens=32 decoded_tokens=30 prompt_tps_mean=1.28 prompt_tps_median=1.28 prompt_tps_stddev=0.01 prompt_tps_cv=0.0046 ttft_ms_mean=3918.94 ttft_ms_median=3916.91 ttft_ms_stddev=18.02 ttft_cv=0.0046 model_decode_tps_mean=0.65 model_decode_tps_median=0.65 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0002 decode_tps_mean=0.59 decode_tps_median=0.59 decode_tps_stddev=0.00 decode_tps_cv=0.0002 delta_interval_ms_mean=1700.51 delta_interval_ms_median=1590.92 delta_interval_ms_stddev=405.62 delta_interval_ms_cv=0.2385 decode_begin_tps=0.57 decode_middle_tps=0.63 decode_end_tps=0.63
+```
+
+The benchmark is not correctness evidence and does not broaden qualification.
+Neighboring GPUs, drivers, toolkits, artifacts, and model sizes remain
+unclaimed.
 
 ## Integrated Post-Cleanup Evidence
 

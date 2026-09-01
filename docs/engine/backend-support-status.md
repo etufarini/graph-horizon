@@ -71,7 +71,7 @@ Build availability and support status are separate claims:
 | `vulkan-hybrid` | **qualified** | Linux x86_64; all-GPU, mixed, or CPU-only placement |
 | `metal` | **qualified** | Q4_K_M, f16/int8 KV, all-Metal; required Metal capabilities and qualified hardware tuples are recorded in validation evidence |
 | `metal-hybrid` | **qualified** | The same capability and evidence contract; all-Metal, mixed, or CPU-only placement |
-| `cuda` | **build available** | Linux x86_64, compute capability at least 7.5, Q4_K_M and f16/int8 KV; no real-model qualification yet |
+| `cuda` | **qualified** | Frozen Linux x86_64 RTX 2060, driver 595.84, CUDA Toolkit 12.4.131, authenticated 3B Instruct Q4_K_M, context 4096, and f16/int8 KV tuple only |
 
 The CPU path remains public even though its primary role is numeric reference.
 Vulkan support outside Linux `x86_64` is not implied by build availability.

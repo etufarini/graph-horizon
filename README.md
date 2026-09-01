@@ -84,7 +84,9 @@ cargo build --locked --release --no-default-features --features cuda
 ```
 
 It uses visible device ordinal 0, has no hybrid placement or prefix-KV cache,
-and currently has build and synthetic-device evidence only. See the
+and is qualified only on the frozen RTX 2060 hardware, driver, toolkit, model,
+context, and KV tuple recorded in the [validation evidence](docs/project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
+Neighboring CUDA configurations remain unclaimed; see the
 [backend status](docs/engine/backend-support-status.md) for the exact boundary.
 
 ## Stable Release And Main

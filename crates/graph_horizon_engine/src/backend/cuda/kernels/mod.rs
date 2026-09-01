@@ -50,7 +50,11 @@ fn weight_bytes(format: CudaFormat, width: u32, rows: u32) -> Result<usize> {
 }
 
 fn span(buffer: &CudaBuffer, format: CudaFormat, bytes: usize) -> Result<()> {
-    if buffer.format() == format && bytes <= buffer.len() {
+    // Request-local graph arenas are byte-only `Raw` allocations; each operation
+    // supplies their concrete interpretation and proves the complete byte span.
+    let compatible = buffer.format() == format
+        || (buffer.format() == CudaFormat::Raw && format != CudaFormat::Raw);
+    if compatible && bytes <= buffer.len() {
         Ok(())
     } else {
         Err(arithmetic())

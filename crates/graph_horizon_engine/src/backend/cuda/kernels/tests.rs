@@ -30,6 +30,18 @@ fn upload_f32(device: &Device, values: &[f32]) -> Result<CudaBuffer> {
     CudaBuffer::upload(device, &f32_bytes(values), CudaFormat::F32)
 }
 
+#[test]
+fn raw_graph_arenas_accept_checked_typed_spans_only() -> Result<()> {
+    let device = Device::acquire()?;
+    let arena = CudaBuffer::allocate(&device, 4, CudaFormat::Raw)?;
+    let typed = CudaBuffer::allocate(&device, 4, CudaFormat::F16)?;
+    assert!(super::span(&arena, CudaFormat::F32, 4).is_ok());
+    assert!(super::span(&arena, CudaFormat::Raw, 4).is_ok());
+    assert!(super::span(&arena, CudaFormat::F32, 5).is_err());
+    assert!(super::span(&typed, CudaFormat::F32, 4).is_err());
+    Ok(())
+}
+
 fn read_f16(device: &Device, buffer: &CudaBuffer, count: usize) -> Result<Vec<f32>> {
     Ok(buffer
         .read(device, count * 2)?

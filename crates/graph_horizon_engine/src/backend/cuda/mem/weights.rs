@@ -24,7 +24,7 @@ pub(crate) fn load(
     load_inner(device, file, source, None)
 }
 
-fn load_inner(
+pub(in crate::backend::cuda) fn load_inner(
     device: &Device,
     file: &GgufFile,
     source: &dyn WeightSource,

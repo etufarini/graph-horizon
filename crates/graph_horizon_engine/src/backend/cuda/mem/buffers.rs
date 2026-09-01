@@ -19,7 +19,7 @@ pub(crate) fn allocate(
     allocate_inner(device, meta, weights, None)
 }
 
-fn allocate_inner(
+pub(in crate::backend::cuda) fn allocate_inner(
     device: &Device,
     meta: &ModelMetadata,
     weights: WeightSet<CudaBuffer>,

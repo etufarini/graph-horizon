@@ -70,5 +70,13 @@ fn compiler_unavailable() -> ! {
 
 fn bounded(bytes: &[u8]) -> String {
     const LIMIT: usize = 8 * 1024;
-    String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]).into_owned()
+    let text = String::from_utf8_lossy(&bytes[..bytes.len().min(LIMIT)]);
+    if text.len() <= LIMIT {
+        return text.into_owned();
+    }
+    let mut end = LIMIT;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_owned()
 }

@@ -61,15 +61,22 @@ fn failed() -> color_eyre::Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::cuda::kernels;
+    use crate::backend::cuda::mem::buffer::{CudaBuffer, CudaFormat};
+    use crate::backend::cuda::module::Module;
 
     #[test]
     fn first_failure_suppresses_later_dispatches() -> Result<()> {
         let device = Device::acquire()?;
+        let module = Module::load(&device.context)?;
+        let x = CudaBuffer::allocate(&device, 4, CudaFormat::F32)?;
+        let y = CudaBuffer::allocate(&device, 2, CudaFormat::F16)?;
         let encoder = CudaEncoder::begin(&device);
         assert!(encoder.ready());
         encoder.latch(Err(failed()));
         encoder.latch(Ok(()));
         assert!(!encoder.ready());
+        kernels::residual_add::encode(&encoder, &module, &x, &y, 1)?;
         assert_eq!(encoder.launches.load(Ordering::Relaxed), 0);
         assert_eq!(
             encoder.submit().unwrap_err().to_string(),

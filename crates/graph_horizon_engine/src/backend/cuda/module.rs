@@ -71,7 +71,7 @@ impl Module {
         Self::load_inner(context, None)
     }
 
-    fn load_inner(context: &Arc<CudaContext>, fail_at: Option<usize>) -> Result<Self> {
+    pub(super) fn load_inner(context: &Arc<CudaContext>, fail_at: Option<usize>) -> Result<Self> {
         context.bind_to_thread().map_err(|_| load_error())?;
         let ptx = include_bytes!(concat!(env!("OUT_DIR"), "/cuda_kernels.ptx"));
         let mut image = Vec::with_capacity(ptx.len().saturating_add(1));

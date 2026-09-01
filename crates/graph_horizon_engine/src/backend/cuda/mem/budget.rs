@@ -112,6 +112,48 @@ fn arithmetic() -> color_eyre::Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::source::WeightGroups;
+    use crate::gguf::tensor_index::TensorInfo;
+    use crate::kv_cache::scheme::KvRole;
+
+    struct Source {
+        embedding: TensorInfo,
+        norm: TensorInfo,
+    }
+
+    impl WeightSource for Source {
+        fn groups(&self) -> WeightGroups<'_> {
+            WeightGroups::new(&self.embedding, &self.norm, None, Vec::new())
+        }
+    }
+
+    fn tensor(name: &str, dims: &[u64], ggml_type: GgmlType) -> TensorInfo {
+        TensorInfo {
+            name: name.into(),
+            dims: dims.into(),
+            ggml_type,
+            offset: 0,
+        }
+    }
+
+    fn shape() -> RuntimeShape {
+        RuntimeShape {
+            block_count: 2,
+            embedding: 8,
+            q: 8,
+            k: 8,
+            v: 4,
+            attention: 8,
+            feed_forward: 16,
+            vocab: 32,
+            kv_heads: 2,
+            key_length: 8,
+            value_length: 4,
+            cpu_prefill_rows: 4,
+            gpu_prefill_rows: 32,
+            mixed_prefill_rows: 4,
+        }
+    }
 
     fn plan(weights: u64, fixed: u64, staging: u64, kv: u64, scratch: u64) -> MemoryPlan {
         MemoryPlan {
@@ -172,5 +214,26 @@ mod tests {
             preflight(1000, 0, 1, &weights).unwrap_err().to_string(),
             "CUDA memory is insufficient: required 100 bytes, available 1 bytes"
         );
+    }
+
+    #[test]
+    fn f16_and_int8_kv_totals_match_the_shared_layout() {
+        let source = Source {
+            embedding: tensor("embedding", &[256], GgmlType::Q4_K),
+            norm: tensor("norm", &[8], GgmlType::F32),
+        };
+        let context = 16;
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            let actual = MemoryPlan::new(&source, shape(), context, scheme)
+                .expect("valid CUDA memory plan")
+                .kv;
+            let expected = layout_bytes(scheme, KvRole::Key, context, 8)
+                + layout_bytes(scheme, KvRole::Value, context, 4);
+            assert_eq!(actual, expected, "{} KV total", scheme.name());
+        }
+    }
+
+    fn layout_bytes(scheme: KvQuant, role: KvRole, context: usize, width: usize) -> u64 {
+        crate::kv_cache::layout::buffer_bytes(scheme, role, 2, context, 2, width)
     }
 }

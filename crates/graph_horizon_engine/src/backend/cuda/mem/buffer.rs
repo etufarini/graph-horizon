@@ -159,6 +159,9 @@ fn arithmetic() -> color_eyre::Report {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::cuda::exec::encoder::CudaEncoder;
+    use crate::backend::cuda::{kernels, module::Module};
+    use crate::backend::f16::f32_to_f16;
 
     #[test]
     fn views_compose_and_keep_one_allocation_alive() -> Result<()> {
@@ -193,6 +196,40 @@ mod tests {
             buffer.read(&device, 17).unwrap_err().to_string(),
             "cuda: readback failed"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn kernel_writes_through_a_view_are_visible_to_the_owner() -> Result<()> {
+        let device = Device::acquire()?;
+        let module = Module::load(&device.context)?;
+        let values = [1.0f32, 2.0, 3.0, 4.0];
+        let owner = CudaBuffer::upload(
+            &device,
+            &values
+                .into_iter()
+                .flat_map(f32::to_le_bytes)
+                .collect::<Vec<_>>(),
+            CudaFormat::F32,
+        )?;
+        let view = owner.view(4, 8)?;
+        let add = CudaBuffer::upload(
+            &device,
+            &[f32_to_f16(10.0), f32_to_f16(20.0)]
+                .into_iter()
+                .flat_map(u16::to_le_bytes)
+                .collect::<Vec<_>>(),
+            CudaFormat::F16,
+        )?;
+        let encoder = CudaEncoder::begin(&device);
+        kernels::residual_add::encode(&encoder, &module, &view, &add, 2)?;
+        encoder.submit()?;
+        let actual = owner
+            .read(&device, 16)?
+            .chunks_exact(4)
+            .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte float")))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, [1.0, 12.0, 23.0, 4.0]);
         Ok(())
     }
 }

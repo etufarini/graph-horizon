@@ -1,1 +1,11 @@
-
+#include "quant.cuh"
+#include "embedding.cuh"
+#include "matmul.cuh"
+#include "normalization.cuh"
+#include "rope.cuh"
+#include "silu_mul.cuh"
+#include "residual_add.cuh"
+#include "kv_write.cuh"
+#include "attention.cuh"
+#include "argmax.cuh"
+#include "topk.cuh"

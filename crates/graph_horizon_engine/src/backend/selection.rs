@@ -27,6 +27,8 @@ pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::vulkan::Vu
 pub(crate) type SelectedBackend = super::metal::MetalBackend;
 #[cfg(feature = "metal-hybrid")]
 pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::metal::MetalBackend>;
+#[cfg(feature = "cuda")]
+pub(crate) type SelectedBackend = super::cuda::CudaBackend;
 
 #[cfg(feature = "cpu")]
 pub(crate) type SelectedSession<'a, G> =
@@ -45,6 +47,9 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "metal-hybrid")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::partitioned::PartitionedSession<'a, super::metal::MetalBackend, G>;
+#[cfg(feature = "cuda")]
+pub(crate) type SelectedSession<'a, G> =
+    crate::runtime::homogeneous::HomogeneousSession<'a, super::cuda::CudaBackend, G>;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
@@ -87,6 +92,19 @@ pub(crate) fn load(
             reserve_mib,
         )
     }
+    #[cfg(feature = "cuda")]
+    {
+        super::cuda::load(
+            file,
+            source,
+            metadata,
+            shape,
+            context,
+            scheme,
+            weights_percent,
+            reserve_mib,
+        )
+    }
     #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
     {
         super::hybrid::loader::load(
@@ -109,7 +127,12 @@ pub(crate) fn session<'a, G: LayeredGraph>(
     context: usize,
     scheme: KvQuant,
 ) -> Result<SelectedSession<'a, G>> {
-    #[cfg(any(feature = "cpu", feature = "vulkan", feature = "metal"))]
+    #[cfg(any(
+        feature = "cpu",
+        feature = "vulkan",
+        feature = "metal",
+        feature = "cuda"
+    ))]
     {
         #[cfg(feature = "cpu")]
         let row_capacity = shape.cpu_prefill_rows;
@@ -117,6 +140,8 @@ pub(crate) fn session<'a, G: LayeredGraph>(
         let row_capacity = backend.prefill_rows(shape.block_count, context);
         #[cfg(feature = "metal")]
         let row_capacity = super::metal::PREFILL_ROWS;
+        #[cfg(feature = "cuda")]
+        let row_capacity = super::cuda::PREFILL_ROWS;
         crate::runtime::homogeneous::HomogeneousSession::new(
             backend,
             config,

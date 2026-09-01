@@ -90,6 +90,7 @@ fn source_structure() {
     const I: &[&str] = &[
         "src/backend/contract.rs",
         "src/backend/cpu/backend.rs",
+        "src/backend/cuda/backend.rs",
         "src/backend/hybrid/contract.rs",
         "src/backend/metal/backend.rs",
         "src/backend/vulkan/backend.rs",
@@ -115,6 +116,7 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
+        "src/backend/cuda/kernels/tests.rs",
         "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
     ];
@@ -179,6 +181,11 @@ fn source_structure() {
     );
 
     let mut shaders = Vec::new();
+    collect(
+        &manifest().join("src/backend/cuda/shaders"),
+        "cuh",
+        &mut shaders,
+    );
     collect(
         &manifest().join("src/backend/metal/shaders"),
         "metal",

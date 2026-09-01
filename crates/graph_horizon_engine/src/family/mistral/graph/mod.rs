@@ -31,19 +31,54 @@ impl LayeredGraph for MistralGraph {
     fn shape(config: &Self::Config) -> RuntimeShape {
         RuntimeShape {
             block_count: config.block_count,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             embedding: config.embedding_length,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             q: config.q_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             k: config.k_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             v: config.v_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             attention: config.attention_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             feed_forward: config.feed_forward_length,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda"
+            ))]
             vocab: config.vocab_size,
             kv_heads: config.kv_head_count,
             key_length: config.key_length,

@@ -4,31 +4,81 @@
  * from neutral dimensions. It performs no family lookup, probing, or allocation.
  */
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 use color_eyre::eyre::{Result, eyre};
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 use crate::kv_cache::layout;
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 use crate::kv_cache::scheme::{KvQuant, KvRole};
 
 #[derive(Clone, Copy)]
 #[allow(dead_code)] // Each public profile consumes only its applicable 4/32/4 row facts.
 pub(crate) struct RuntimeShape {
     pub(crate) block_count: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) embedding: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) q: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) k: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) v: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) attention: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) feed_forward: usize,
-    #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda"
+    ))]
     pub(crate) vocab: usize,
     pub(crate) kv_heads: usize,
     pub(crate) key_length: usize,
@@ -46,7 +96,12 @@ pub(crate) struct DeviceFixedBytes {
     pub(crate) staging: u64,
 }
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 pub(crate) struct RuntimeBytes {
     pub(crate) scratch: u64,
     pub(crate) logits: u64,
@@ -55,7 +110,12 @@ pub(crate) struct RuntimeBytes {
     pub(crate) crossing: u64,
 }
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 impl RuntimeBytes {
     pub(crate) fn new(
         shape: RuntimeShape,
@@ -109,14 +169,24 @@ impl RuntimeBytes {
     }
 }
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 fn sum<const N: usize>(values: [u64; N]) -> Result<u64> {
     values.into_iter().try_fold(0u64, |sum, value| {
         sum.checked_add(value).ok_or_else(overflow)
     })
 }
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 fn bytes(items: usize, item_bytes: usize) -> Result<u64> {
     items
         .checked_mul(item_bytes)
@@ -124,7 +194,12 @@ fn bytes(items: usize, item_bytes: usize) -> Result<u64> {
         .ok_or_else(overflow)
 }
 
-#[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "metal",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda"
+))]
 fn overflow() -> color_eyre::Report {
     eyre!("hybrid placement arithmetic overflow")
 }

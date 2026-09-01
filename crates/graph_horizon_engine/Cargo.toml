@@ -42,10 +42,14 @@ cuda = ["dep:cudarc"]
 ash = { version = "0.38", optional = true }
 color-eyre = "0.6.5"
 memmap2 = "0.9"
+
+[target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 dispatch2 = { version = "=0.3.1", optional = true }
 objc2 = { version = "=0.6.2", optional = true }
 objc2-foundation = { version = "=0.3.2", optional = true }
 objc2-metal = { version = "=0.3.2", optional = true }
+
+[target.'cfg(all(target_os = "linux", target_arch = "x86_64"))'.dependencies]
 cudarc = { version = "=0.19.9", optional = true, default-features = false, features = ["std", "driver", "dynamic-loading", "cuda-version-from-build-system"] }
 
 # build-time only: compiles the GLSL .comp compute shaders to SPIR-V via

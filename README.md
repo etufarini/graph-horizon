@@ -13,9 +13,9 @@ documentation.
 [![CI](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml/badge.svg)](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml)
 
 Graph Horizon is a focused local Rust runtime for Ministral 3 GGUF inference
-across CPU, Vulkan, and Metal, with hybrid CPU/GPU placement and built-in
-terminal and Web interfaces. It supports the Instruct and Reasoning 2512 models
-in the 3B, 8B, and 14B sizes.
+across CPU, Vulkan, Metal, and standalone CUDA, with hybrid CPU/GPU placement
+for Vulkan and Metal and built-in terminal and Web interfaces. It supports the
+Instruct and Reasoning 2512 models in the 3B, 8B, and 14B sizes.
 
 The Web UI can optionally send one explicit Web or News query to a public
 provider. Graph Horizon has no standalone server mode or supported public HTTP
@@ -36,7 +36,7 @@ API.
 Graph Horizon is intentionally focused: it provides a small, inspectable Rust
 runtime for local Ministral 3 inference instead of a broad model ecosystem.
 
-- Explicit CPU, Vulkan, Metal, and hybrid execution profiles.
+- Explicit CPU, Vulkan, Metal, CUDA, and hybrid execution profiles.
 - Local terminal and Web interfaces in one self-contained application.
 - Strict GGUF validation with no silent backend or model fallback.
 - Reproducible qualification and performance evidence.
@@ -75,6 +75,17 @@ current shell:
 ```sh
 export PATH="$HOME/.local/bin:$PATH"
 ```
+
+CUDA is a manual, standalone Linux `x86_64` build and is not accepted by the
+installer or bootstrap. With an NVIDIA driver and CUDA Toolkit `nvcc` present:
+
+```sh
+cargo build --locked --release --no-default-features --features cuda
+```
+
+It uses visible device ordinal 0, has no hybrid placement or prefix-KV cache,
+and currently has build and synthetic-device evidence only. See the
+[backend status](docs/engine/backend-support-status.md) for the exact boundary.
 
 ## Stable Release And Main
 

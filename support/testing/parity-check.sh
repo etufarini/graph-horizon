@@ -20,7 +20,7 @@ catalog_error() { printf 'parity-check: catalog error: %s\n' "$*" >&2; exit 2; }
 external() { printf 'external verification: %s\n' "$*"; exit 0; }
 real_failure() { printf 'parity-check: %s\n' "$*" >&2; exit 1; }
 usage() {
-    echo "usage: parity-check.sh --models-dir DIR --model-id ID --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --kv f16|int8 --reference-server PATH [--reference-port PORT] [--weights-percent 0..100 --expect-mode all-gpu|mixed|cpu-only]"
+    echo "usage: parity-check.sh --models-dir DIR --model-id ID --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda --kv f16|int8 --reference-server PATH [--reference-port PORT] [--weights-percent 0..100 --expect-mode all-gpu|mixed|cpu-only]"
 }
 
 while (($#)); do
@@ -40,10 +40,13 @@ done
 
 [[ -n "$models_dir" && -n "$model_id" && -n "$backend" && -n "$kv" && -n "$reference_server" ]] \
     || usage_error "required argument is missing"
-case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) usage_error "invalid backend" ;; esac
+case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda) ;; *) usage_error "invalid backend" ;; esac
 case "$kv" in f16|int8) ;; *) usage_error "invalid KV scheme" ;; esac
 if [[ "$backend" == metal || "$backend" == metal-hybrid ]]; then
     [[ "$(uname -s):$(uname -m)" == "Darwin:arm64" ]] || external "$backend backend unavailable on this platform"
+fi
+if [[ "$backend" == cuda ]]; then
+    [[ "$(uname -s):$(uname -m)" == "Linux:x86_64" ]] || external "cuda backend unavailable on this platform"
 fi
 [[ "$reference_port" =~ ^[1-9][0-9]{0,4}$ ]] && ((reference_port <= 65535)) \
     || usage_error "invalid reference port"
@@ -153,9 +156,9 @@ set +e
     >"$temporary_dir/test.log" 2>&1
 test_status=$?
 set -e
-if grep -Eq '(external verification: )?(Vulkan|Metal) backend (is )?unavailable' "$temporary_dir/test.log"; then external "$backend backend unavailable"; fi
+if grep -Eq '(external verification: )?(Vulkan|Metal|CUDA) backend (is )?unavailable' "$temporary_dir/test.log"; then external "$backend backend unavailable"; fi
 if ((test_status != 0)); then
-    if grep -Eq '(Vulkan|Metal) memory is insufficient|context 4096 does not fit|model does not fit available RAM and VRAM|mixed placement required' "$temporary_dir/test.log"; then
+    if grep -Eq '(Vulkan|Metal|CUDA) memory is insufficient|context 4096 does not fit|model does not fit available RAM and VRAM|mixed placement required' "$temporary_dir/test.log"; then
         external "insufficient memory for $backend row"
     fi
     real_failure "local parity assertion failed"

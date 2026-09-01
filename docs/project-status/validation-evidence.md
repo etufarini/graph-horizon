@@ -345,10 +345,39 @@ link here rather than duplicating device models.
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
 | Metal | Suite, oracles, teacher row, and Apple M4/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
+| CUDA | Offline PTX build, physical-device synthetic oracles, lifecycle, and isolation on the frozen RTX 2060 toolchain tuple; authenticated model absent | BUILD AVAILABLE — EXTERNAL VERIFICATION |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
 [current performance status](current-performance-status.md).
+
+### CUDA implementation gate — 1 September 2026
+
+The CUDA runtime checkpoint is `bddcbe2` on branch `feat/cuda-backend`; its
+offline-build checkpoint is `4cf4546`. The local tuple matched the frozen
+hardware/toolchain boundary: Linux `x86_64`, NVIDIA GeForce RTX 2060 with
+compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
+
+| Gate | Result |
+|---|---|
+| Locked CUDA all-target check and Clippy `-D warnings` | PASS |
+| CUDA release workspace suite | PASS: app 170, engine 131, documentation 1, family integration 4; resource-dependent tests ignored |
+| Physical-device operation oracles | PASS: F16/Q4_K/Q5_K/Q6_K matmul paths, dense operations, exact f16/int8 KV layout, causal attention/decode equality, argmax/top-k ordering |
+| Capability, allocation, view, upload, module, stream-latch, and partial-initialization tests | PASS |
+| CPU regression, Vulkan/Vulkan-hybrid checks, CUDA conflict rows, dependency isolation, structure, K/I markers, and unsafe-boundary audit | PASS |
+| Authenticated 3B Instruct parity at context 4096, f16 KV | external verification: exact artifact absent |
+| Authenticated 3B Instruct parity at context 4096, int8 KV | external verification: exact artifact absent |
+| Fixed context-2048 f16 benchmark | external verification: correctness dependency not met because exact artifact absent |
+
+The missing artifact is
+`Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2,147,023,008 bytes, SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+The pinned llama.cpp `13f2b28b098623391b1aacfd27995e1c8b7de9a9` oracle executable was present,
+but that does not replace artifact authentication. No parity or benchmark row
+was started, retried, or reported as passing. Therefore CUDA is not qualified;
+neighboring GPUs, drivers, toolkits, artifacts, and model sizes are unclaimed.
+Future benchmark output is measurement only and cannot establish correctness
+or broaden this boundary.
 
 ## Integrated Post-Cleanup Evidence
 

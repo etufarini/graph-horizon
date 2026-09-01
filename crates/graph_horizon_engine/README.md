@@ -17,7 +17,7 @@ runtime path explicit without claiming support for another family prematurely.
 ## Backend features
 
 The crate does not select a backend by default: the consumer enables exactly
-one of the five profiles.
+one of the six profiles.
 
 ```sh
 cargo check -p graph_horizon_engine --no-default-features --features cpu
@@ -25,6 +25,7 @@ cargo check -p graph_horizon_engine --no-default-features --features vulkan
 cargo check -p graph_horizon_engine --no-default-features --features vulkan-hybrid
 cargo check -p graph_horizon_engine --no-default-features --features metal
 cargo check -p graph_horizon_engine --no-default-features --features metal-hybrid
+cargo check -p graph_horizon_engine --no-default-features --features cuda
 ```
 
 Build availability does not assign support status. The primary labels are:
@@ -36,8 +37,9 @@ Build availability does not assign support status. The primary labels are:
 | `vulkan-hybrid` | **qualified** | CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan |
 | `metal` | **qualified** | Entire model on Metal or an error |
 | `metal-hybrid` | **qualified** | CPU plus Metal with all-Metal, mixed, or CPU-only modes |
+| `cuda` | **build available** | Entire model on visible NVIDIA device ordinal 0 or an error; Linux x86_64 only |
 
-Vulkan and Metal admit devices through backend-local capability contracts;
+Vulkan, Metal, and CUDA admit devices through backend-local capability contracts;
 optional specialization is unavailable unless its complete measured profile is
 present, and portable operation fallbacks remain available. Runtime admission
 does not by itself extend a support claim to unverified hardware. `reference`
@@ -134,8 +136,8 @@ The `Engine` methods expose the resolved `context_limit`, immutable `memory`,
 optional hybrid `placement`, model-profile `default_sampling`, ordinary
 `generate`, and caller-keyed `generate_cached`. The cached form reuses an exact
 rendered-token prefix only on standalone Vulkan and Metal and only for the same
-16-byte key; CPU and hybrid profiles run the ordinary generation path. One
-different key or prefix can replace the retained slot.
+16-byte key; CPU, CUDA, and hybrid profiles run the ordinary generation path.
+One different key or prefix can replace the retained slot.
 
 ## Chat
 
@@ -208,6 +210,9 @@ Metal uses unified memory: CPU and Metal compete for the same capacity derived
 from physical memory and the recommended working set. Allocation, pipeline,
 kernel, transfer, readback, or decoder errors after plan selection do not cause
 a retry.
+CUDA is homogeneous and uses a checked VRAM preflight with the greater of
+256 MiB and 5% reserved by default. It never creates a CPU split or reports
+placement.
 
 ## Verification
 

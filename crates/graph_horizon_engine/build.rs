@@ -31,4 +31,5 @@ fn main() {
     metal::build();
     #[cfg(feature = "cuda")]
     cuda::build();
+    println!("cargo:rerun-if-changed=build.rs");
 }

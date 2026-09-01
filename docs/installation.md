@@ -18,6 +18,8 @@ shell configuration.
 - Node.js and npm 22.12 or newer;
 - a working Vulkan loader and driver for Vulkan builds;
 - macOS arm64 and the Xcode `metal` and `metallib` tools for Metal builds.
+- Linux `x86_64`, an NVIDIA driver, and CUDA Toolkit `nvcc` for manual CUDA
+  builds.
 
 Verify the Metal tools explicitly:
 
@@ -48,6 +50,20 @@ curl --fail --location --silent --show-error \
 ```
 
 Use `--backend cpu` when GPU execution is not required.
+
+## Manual CUDA Build
+
+The installer and public bootstrap do not accept CUDA. From a source checkout,
+build the standalone profile explicitly:
+
+```sh
+cargo build --locked --release --no-default-features --features cuda
+```
+
+Compilation uses `nvcc` offline to embed PTX targeting compute capability 7.5;
+runtime loading uses the NVIDIA driver. The profile is Linux `x86_64` only,
+selects visible device ordinal 0, and does not provide hybrid placement or
+prefix-KV reuse. Build availability is not a qualification claim.
 
 ## Local Installer Options
 

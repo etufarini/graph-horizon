@@ -651,6 +651,21 @@ fn support_scripts_reject_invalid_values_before_execution() {
             ],
         ),
         (
+            "support/profiling/profile.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                "cuda",
+                "--context",
+                "1",
+                "--kv",
+                "f16",
+                "--weights-percent",
+                "100",
+            ],
+        ),
+        (
             "support/profiling/validate-kv.sh",
             vec!["--backend", "invalid", "--context", "1"],
         ),
@@ -686,6 +701,25 @@ fn support_scripts_reject_invalid_values_before_execution() {
                 "f16",
                 "--reference-server",
                 model,
+            ],
+        ),
+        (
+            "support/testing/parity-check.sh",
+            vec![
+                "--models-dir",
+                model,
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                "cuda",
+                "--kv",
+                "f16",
+                "--reference-server",
+                model,
+                "--weights-percent",
+                "100",
+                "--expect-mode",
+                "all-gpu",
             ],
         ),
         (
@@ -1354,7 +1388,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cpu",
+            "cuda",
             "--context",
             "1",
             "--kv",
@@ -1375,6 +1409,29 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
         "model path was split or omitted"
     );
     assert_eq!(fs::read(&model).unwrap(), original);
+
+    let run = Command::new("bash")
+        .arg(repository().join("support/testing/run-graph-horizon.sh"))
+        .args([
+            "--model",
+            model.to_str().unwrap(),
+            "--backend",
+            "cuda",
+            "--context",
+            "1",
+            "--kv",
+            "f16",
+        ])
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_TEST_ARGS", &log)
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+    assert!(
+        fs::read_to_string(&log)
+            .unwrap()
+            .contains("--features\ncuda\n")
+    );
 
     assert_scripts_quote_model_variables(&repository());
     fs::remove_dir_all(fixture).unwrap();
@@ -1488,7 +1545,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cpu",
+            "cuda",
             "--context",
             "4096",
         ])
@@ -1586,7 +1643,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             "/missing/q4.gguf",
             "--backend",
-            "cpu",
+            "cuda",
             "--context",
             "4096",
         ],
@@ -1595,7 +1652,7 @@ printf '%s  %s\n' "$digest" "$model"
     assert!(
         String::from_utf8(missing.stdout)
             .unwrap()
-            .contains("Q4_K_M cpu: external verification: artifact is missing or unreadable")
+            .contains("Q4_K_M cuda: external verification: artifact is missing or unreadable")
     );
 
     let kv_source =
@@ -1802,6 +1859,45 @@ while :; do /bin/sleep 0.05; done
     assert!(cargo_call.contains("--features cpu --example tokenize"));
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
+
+    let cuda_port = free_port();
+    let cuda = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args([
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "3b-instruct",
+            "--backend",
+            "cuda",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+            "--reference-port",
+            &cuda_port,
+        ])
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
+        .env("GRAPH_HORIZON_TEST_UNAME_M", "x86_64")
+        .output()
+        .unwrap();
+    assert!(
+        cuda.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cuda.stderr)
+    );
+    assert!(
+        String::from_utf8(cuda.stdout)
+            .unwrap()
+            .starts_with("pass: model_id=3b-instruct backend=cuda kv=f16")
+    );
+    assert!(fs::read_to_string(&cargo_log).unwrap().contains(
+        "--features cuda --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+    ));
 
     let endpoint_port = free_port();
     let endpoint = Command::new("bash")

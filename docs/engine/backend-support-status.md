@@ -12,7 +12,7 @@ no runtime backend switch or fallback.
 
 ## Build Profiles
 
-There are three numeric backend families: CPU, Vulkan, and Metal.
+There are four numeric backend families: CPU, Vulkan, Metal, and CUDA.
 `vulkan-hybrid` and `metal-hybrid` are composition profiles, not additional
 numeric backend families.
 
@@ -23,6 +23,7 @@ numeric backend families.
 | `vulkan-hybrid` | CPU and Vulkan | All GPU, layer split, or all CPU |
 | `metal` | Apple Metal | Entire model on Metal or an error |
 | `metal-hybrid` | CPU and Metal | All Metal, layer split, or all CPU |
+| `cuda` | NVIDIA CUDA | Entire model on visible device ordinal 0 or an error |
 
 Neither the library crate nor the root binary has a default backend feature.
 For reproducible builds:
@@ -33,6 +34,7 @@ cargo check --workspace --no-default-features --features vulkan
 cargo check --workspace --no-default-features --features vulkan-hybrid
 cargo check --workspace --no-default-features --features metal
 cargo check --workspace --no-default-features --features metal-hybrid
+cargo check --workspace --no-default-features --features cuda
 ```
 
 Build an executable with the same explicit selection:
@@ -43,6 +45,7 @@ cargo build --locked --no-default-features --features vulkan
 cargo build --locked --no-default-features --features vulkan-hybrid
 cargo build --locked --no-default-features --features metal
 cargo build --locked --no-default-features --features metal-hybrid
+cargo build --locked --no-default-features --features cuda
 ```
 
 Feature selection controls compiled dependencies, initialization, and resource
@@ -68,13 +71,14 @@ Build availability and support status are separate claims:
 | `vulkan-hybrid` | **qualified** | Linux x86_64; all-GPU, mixed, or CPU-only placement |
 | `metal` | **qualified** | Q4_K_M, f16/int8 KV, all-Metal; required Metal capabilities and qualified hardware tuples are recorded in validation evidence |
 | `metal-hybrid` | **qualified** | The same capability and evidence contract; all-Metal, mixed, or CPU-only placement |
+| `cuda` | **build available** | Linux x86_64, compute capability at least 7.5, Q4_K_M and f16/int8 KV; no real-model qualification yet |
 
 The CPU path remains public even though its primary role is numeric reference.
 Vulkan support outside Linux `x86_64` is not implied by build availability.
 Homogeneous hybrid endpoints inherit the underlying numeric status: all-GPU
 uses production Vulkan and CPU-only uses the CPU reference path.
 
-Runtime admission and qualification are separate. A Vulkan or Metal device may
+Runtime admission and qualification are separate. A Vulkan, Metal, or CUDA device may
 satisfy the baseline capability contract and use portable fallbacks without
 inheriting a production or qualified evidence claim. The exact current
 hardware, driver, and operating-system tuples are owned by

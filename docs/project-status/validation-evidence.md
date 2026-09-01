@@ -353,7 +353,7 @@ extend to unmeasured hardware. Details are summarized in
 
 ### CUDA implementation gate — 1 September 2026
 
-The CUDA runtime checkpoint is `bddcbe2` on branch `feat/cuda-backend`; its
+The CUDA runtime checkpoint is `f9817ab` on branch `feat/cuda-backend`; its
 offline-build checkpoint is `4cf4546`. The local tuple matched the frozen
 hardware/toolchain boundary: Linux `x86_64`, NVIDIA GeForce RTX 2060 with
 compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
@@ -361,13 +361,19 @@ compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
 | Gate | Result |
 |---|---|
 | Locked CUDA all-target check and Clippy `-D warnings` | PASS |
-| CUDA release workspace suite | PASS: app 170, engine 131, documentation 1, family integration 4; resource-dependent tests ignored |
-| Physical-device operation oracles | PASS: F16/Q4_K/Q5_K/Q6_K matmul paths, dense operations, exact f16/int8 KV layout, causal attention/decode equality, argmax/top-k ordering |
-| Capability, allocation, view, upload, module, stream-latch, and partial-initialization tests | PASS |
+| CUDA release engine suite | PASS: engine 138, documentation 1, family integration 4, semantic integration 12; three real-artifact tests ignored |
+| Physical-device operation oracles | PASS: F16 and packed signed Q4_K/Q5_K/Q6_K matmul, dense operations, exact multi-vector f16/int8 KV layout, dimension-128 grouped-query causal attention and decode equality, argmax/top-k ordering |
+| Capability, allocation, aliased kernel view, upload, module, stream-latch, and full loader-transaction failpoint tests | PASS |
 | CPU regression, Vulkan/Vulkan-hybrid checks, CUDA conflict rows, dependency isolation, structure, K/I markers, and unsafe-boundary audit | PASS |
 | Authenticated 3B Instruct parity at context 4096, f16 KV | external verification: exact artifact absent |
 | Authenticated 3B Instruct parity at context 4096, int8 KV | external verification: exact artifact absent |
 | Fixed context-2048 f16 benchmark | external verification: correctness dependency not met because exact artifact absent |
+
+The generated 140,654-byte PTX contained each of the 16 required entry names
+exactly once. The plan's literal unbounded search also counts
+`cuda_matmul_batched` as a second `cuda_matmul` occurrence, so the audit used an
+opening-parenthesis boundary after each complete name; runtime module loading
+independently resolved the same fixed function set on the physical device.
 
 The missing artifact is
 `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf`, 2,147,023,008 bytes, SHA-256

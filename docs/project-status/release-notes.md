@@ -7,6 +7,24 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+## Graph Horizon v0.1.5
+
+Graph Horizon v0.1.5 aligns CUDA with the other installer-supported backends.
+The local and public installers now accept `--backend cuda` only on Linux
+`x86_64` and require CUDA Toolkit `nvcc` before any frontend or Rust build
+starts. CUDA remains standalone: it uses visible device ordinal 0 and adds no
+hybrid placement or prefix-KV reuse.
+
+Installer availability does not promote CUDA to production or broaden its
+qualified boundary. The qualified claim remains limited to the frozen hardware,
+driver, toolkit, model, context, and KV tuple in validation evidence.
+
+After publication, install anonymously with:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend cuda
+```
+
 ## Graph Horizon v0.1.4
 
 Graph Horizon v0.1.4 is a release-readiness patch. Release qualification now

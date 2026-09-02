@@ -16,7 +16,8 @@ Recognizing a GGUF format is not KV evidence.
 
 - a readable Ministral Q4_K_M artifact authenticated by size and SHA-256;
 - recorded Git revision and Cargo profile;
-- one buildable `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, or `metal-hybrid` profile;
+- one buildable `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`, or
+  `cuda` profile;
 - context `4096` without a placement change;
 - hardware and driver required by that backend;
 - a numeric metric and threshold fixed before observing the result.

@@ -8,22 +8,21 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.4` is the current release candidate. No local or remote
-`v0.1.4` tag or GitHub Release existed at preparation time. Graph Horizon
-`0.1.3` remains the current published stable release. Its annotated
-local and anonymous remote tag, published source archive, and archive-embedded
-commit all resolve to `147f3e2c25aeca1cc1721a101d639d108533d81a`.
+Graph Horizon `0.1.5` is the current release candidate. No local or remote
+`v0.1.5` tag exists at preparation time. Graph Horizon `0.1.4` remains the
+current published stable release. Its annotated local and anonymous remote tag,
+published source archive, and archive-embedded commit all resolve to
+`dd485f3a44363880bf11fc5bc69d77f149415025`.
 The published archive SHA-256 is
-`868abcbbccfcf0d0f230c622ed3f0343218f8db4a291e16fa601d52124399aab`,
-and its root is `graph-horizon-0.1.3/`.
+`7db3d1b03d9b5003801c069b2fb8ae0345caaa9e67287f8e3d1fa2f7d18c8b6d`,
+and its root is `graph-horizon-0.1.4/`.
 
-The release-triggered GitHub workflow failed because checkout fetched the
-annotated tag and then rewrote its local ref to the peeled commit before the
-verifier ran. A direct anonymous run of the same verifier passes all remote tag,
-archive, checksum, commit, and member-path checks. The current development
-change makes the workflow check out the default branch while retaining the
-complete tag graph; the hosted rerun remains external verification until that
-workflow change reaches GitHub.
+The earlier v0.1.3 release-triggered GitHub workflow failed because checkout
+fetched the annotated tag and then rewrote its local ref to the peeled commit
+before the verifier ran. A direct anonymous run of the same verifier passes all
+remote tag, archive, checksum, commit, and member-path checks. The subsequent
+change made the workflow check out the default branch while retaining the
+complete tag graph.
 
 The previous `v0.1.2` release has an immutable annotated tag and source assets,
 but an independent audit found that they identify different commits. The local
@@ -32,12 +31,13 @@ and anonymous remote tag resolve to
 `30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a historical
 release-identity defect even though the commits have the same Git tree.
 
-The `v0.1.0`, `v0.1.1`, `v0.1.2`, and `v0.1.3` tags and assets remain immutable. They
-must not be moved, deleted, or replaced; any correction must use a later
-version. `main` is the moving development branch and may advance beyond a
-release tag. That normal branch movement is unrelated to the v0.1.2 defect.
+The `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, and `v0.1.4` tags and assets remain
+immutable. They must not be moved, deleted, or replaced; any correction must
+use a later version. `main` is the moving development branch and may advance
+beyond a release tag. That normal branch movement is unrelated to the v0.1.2
+defect.
 
-Current Cargo and frontend versions are `0.1.4`. Historical v0.1.2 release
+Current Cargo and frontend versions are `0.1.5`. Historical v0.1.2 release
 identity is exclusively the commit resolved by `v0.1.2^{commit}`. The final
 v0.1.0 campaign supersedes, for its own contract, preliminary runtime evidence at
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` and
@@ -48,23 +48,41 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
-## v0.1.4 Release-Readiness Candidate — 26 August 2026
+## v0.1.5 CUDA Installer Candidate — 2 September 2026
+
+The compatible CUDA backend and qualification changes after v0.1.4 select patch
+version `0.1.5`. The candidate adds CUDA to the local and public installer
+interfaces, admits it only on Linux `x86_64`, and requires `nvcc` before any
+build tool runs. Installer fixtures cover the accepted tuple, rejected macOS
+and Linux aarch64 tuples, missing `nvcc`, and exact Cargo feature forwarding.
+
+This installer path does not change CUDA's maturity or evidence boundary. Its
+qualified claim remains limited to the frozen tuple in the CUDA implementation
+gate below; neighboring hardware, toolkit, model, context, and KV configurations
+remain unclaimed.
+
+Qualification results belong only to the exact clean candidate commit recorded
+in the future release report. The future annotated tag, archive-embedded commit,
+versioned archive root, and adjacent checksum must all identify that commit.
+Publication and exact-commit public readiness remain external verification.
+
+## v0.1.4 Release — 26 August 2026
 
 The compatible release-readiness changes after v0.1.3 select patch version
-`0.1.4`. The candidate updates only current package, installer, documentation,
+`0.1.4`. The release updates only its package, installer, documentation,
 and fixture versions while preserving every v0.1.0–v0.1.3 tag, asset identity,
 and historical result.
 
-The candidate simplifies repository guidance while protecting AI-development
+The release simplifies repository guidance while protecting AI-development
 material, selects an explicit authenticated catalog model during public
 readiness, keeps model-family dispatch closed, and corrects the hosted
 release-integrity checkout. It changes no supported runtime behavior, numeric
 operation, public API, model profile, or backend policy.
 
-Qualification results belong only to the exact clean candidate commit recorded
-in the external release report. The future annotated tag, archive-embedded
-commit, versioned archive root, and adjacent checksum must all identify that
-same commit. A later `main` commit is unrelated to that immutable identity.
+Qualification results belong only to the exact clean release commit. The
+annotated tag, archive-embedded commit, versioned archive root, and adjacent
+checksum identify that same commit. A later `main` commit is unrelated to that
+immutable identity.
 
 | v0.1.4 preparation gate | Result |
 |---|---|

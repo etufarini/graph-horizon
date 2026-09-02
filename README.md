@@ -48,6 +48,8 @@ platform coverage.
 
 ## Quick Install
 
+### Stable release
+
 The installer builds Graph Horizon from source and installs it in
 `$HOME/.local/bin` by default. Review the complete
 [prerequisites and installation options](docs/installation.md) before running it.
@@ -56,7 +58,7 @@ On Apple Silicon macOS with the Xcode command-line Metal tools:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.4/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
   | bash -s -- --backend metal
 ```
 
@@ -64,8 +66,16 @@ On Linux `x86_64` with a working Vulkan loader and driver:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.4/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
   | bash -s -- --backend vulkan
+```
+
+On Linux `x86_64` with an NVIDIA driver and CUDA Toolkit `nvcc`:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend cuda
 ```
 
 Use `--backend cpu` instead when GPU execution is not required. If the command
@@ -76,16 +86,14 @@ current shell:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-CUDA is a manual, standalone Linux `x86_64` build and is not accepted by the
-installer or bootstrap. With an NVIDIA driver and CUDA Toolkit `nvcc` present:
+### CUDA qualification boundary
 
-```sh
-cargo build --locked --release --no-default-features --features cuda
-```
-
-It uses visible device ordinal 0, has no hybrid placement or prefix-KV cache,
-and is qualified only on the frozen RTX 2060 hardware, driver, toolkit, model,
-context, and KV tuple recorded in the [validation evidence](docs/project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
+The installer accepts CUDA only on Linux `x86_64` and requires `nvcc` before it
+builds any project asset. The backend uses visible device ordinal 0, has no
+hybrid placement or prefix-KV cache, and its **qualified** claim is limited to
+the frozen RTX 2060 hardware, driver, toolkit, model, context, and KV tuple
+recorded in the
+[validation evidence](docs/project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
 Neighboring CUDA configurations remain unclaimed; see the
 [backend status](docs/engine/backend-support-status.md) for the exact boundary.
 
@@ -96,8 +104,9 @@ annotated tag. Its release claims and validation evidence apply only to that
 exact tagged commit. `main` contains ongoing development, may be ahead of the
 stable tag, and is not automatically release-qualified.
 
-Quick Install deliberately uses the stable `v0.1.4` tag instead of `main`.
-See the [release notes](docs/project-status/release-notes.md) and
+The stable-release Quick Install deliberately uses the `v0.1.5` tag instead of
+`main`. See the
+[release notes](docs/project-status/release-notes.md) and
 [exact validation evidence](docs/project-status/validation-evidence.md) for the
 scope and identity of published claims.
 

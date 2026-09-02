@@ -18,7 +18,7 @@ project name and model-neutral architecture do not imply a separate edition.
 | Document | Contents |
 |---|---|
 | [Main README](../README.md) | Project overview and shortest supported path |
-| [Installation](installation.md) | Prerequisites, build backend, profile, prefix, and verification |
+| [Installation](installation.md) | Quick install, prerequisites, backend selection, prefix, and verification |
 | [Supported models and formats](supported-models-and-formats.md) | Accepted model family, sizes, and GGUF profile |
 | [Command-line interface](command-line/README.md) | Runtime options, terminal controls, slash commands, and attachments |
 | [Local Web interface](web-interface/README.md) | Browser chat, persistence, Markdown files, search, and privacy |

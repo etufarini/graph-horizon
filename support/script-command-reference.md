@@ -52,12 +52,13 @@ The end-user installer interface and installed paths are documented in the
 
 ## Release Integrity
 
-Run the verifier from a checkout containing the annotated version tag:
+After publication, run the verifier from a checkout containing the annotated
+version tag:
 
 ```sh
 support/testing/release-integrity.sh \
   --repository etufarini/graph-horizon \
-  --tag v0.1.4
+  --tag v0.1.5
 ```
 
 The command resolves the local and anonymous remote tag, downloads the named

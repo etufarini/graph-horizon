@@ -9,14 +9,29 @@ available in Git history.
 ## Scope
 
 The retained implementation specializes CPU, Vulkan, and Metal inference for
-Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models. It adds no dependency,
-public API, model-name route, or device-name route. Specialized device paths are
-capability-, vendor-family-, format-, and shape-gated and preserve a generic
-operation fallback.
+Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models, and includes a
+standalone CUDA backend qualified on one frozen 3B tuple. It adds no public API,
+model-name route, or device-name route. Specialized device paths are capability-,
+vendor-family-, format-, and shape-gated and preserve a generic operation
+fallback where the backend defines one.
 
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
+
+## CUDA Qualification Measurement
+
+CUDA is **qualified**, not production, only for the Linux `x86_64`, RTX 2060,
+driver 595.84, CUDA Toolkit 12.4.131, authenticated 3B Instruct Q4_K_M,
+context-4096, f16/int8 KV tuple in
+[validation evidence](validation-evidence.md#cuda-implementation-gate--1-september-2026).
+The qualification run's separate context-2048 f16 measurement recorded 1.28
+prompt tok/s and 0.59 end-to-end decode tok/s.
+
+A later CUDA/Vulkan benchmark completed its short and medium CUDA workloads but
+timed out on the long CUDA workload, so it reports no comparative winner. Its
+[generated report](../../gpu-benchmark-results/20260902-3b-instruct-q4km-release/benchmark-results.md)
+is performance evidence only and does not broaden the qualified tuple.
 
 ## Integration Identity
 
@@ -35,11 +50,12 @@ pushed and integrated as follows.
 | Metal long-context prefill | PR #40, `6e514c1` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
-The package version is `0.1.4`. The immutable annotated `v0.1.0` tag retains
+The package version is `0.1.5`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 `v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
-`v0.1.3` corrects release identity, and `v0.1.4` prepares generic release model
-selection and a closed family dispatcher without changing runtime behavior.
+`v0.1.3` corrects release identity, `v0.1.4` prepares generic release model
+selection and a closed family dispatcher, and `v0.1.5` adds the qualified CUDA
+profile and installer path.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 
@@ -167,6 +183,9 @@ public-event boundary than llama.cpp prompt evaluation.
   both warning-denied profiles, and all six semantic rows. The Metal checkpoint
   passes pure/hybrid suites, focused numeric tests, and the authenticated 3B
   teacher row on the M4 host.
+- The CUDA checkpoint passes the release engine suite, physical-device
+  operation oracles, lifecycle gates, and authenticated 3B f16/int8 teacher
+  rows on the frozen qualified tuple.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
 
@@ -214,6 +233,10 @@ quality. The detailed route, Amdahl model, thermal tradeoff, model controls, and
 stop decision are in
 [the AMD prefill checkpoint](../investigation-reports/vulkan-amd-long-context-prefill.md). Long
 decode retains wave32 GQA/Q6 and remains guarded through KV depth 28K.
+
+CUDA remains far below the mature Vulkan path on its completed benchmark rows,
+and the long workload did not finish before the runtime adapter timeout. No
+CUDA optimization or production claim follows from that incomplete comparison.
 
 CPU prefill remains dominated by attention and quantized matrix multiplication;
 the next material designs require new packed-GEMM or query-tiled-attention

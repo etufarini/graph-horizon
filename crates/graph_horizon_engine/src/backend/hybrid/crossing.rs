@@ -30,31 +30,54 @@ pub(crate) fn copy<G: HybridDevice>(
         payload.extend_from_slice(&value.to_le_bytes());
     }
     gpu.upload_residual(target, &payload)?;
-    #[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        test,
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     CROSSINGS.with(|count| count.set(count.get() + 1));
     Ok(())
 }
 
-#[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    test,
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 thread_local! {
     static CROSSINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    test,
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) fn reset_count() {
     CROSSINGS.with(|count| count.set(0));
 }
 
-#[cfg(any(test, feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    test,
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) fn count() -> usize {
     CROSSINGS.with(std::cell::Cell::get)
 }
 
-#[cfg(all(test, feature = "vulkan-hybrid"))]
+#[cfg(all(test, any(feature = "vulkan-hybrid", feature = "cuda-hybrid")))]
 mod tests {
     use super::*;
     use crate::backend::Backend;
     use crate::backend::cpu::{CpuBuffer, CpuFormat};
+    #[cfg(feature = "cuda-hybrid")]
+    use crate::backend::cuda::CudaBackend;
+    #[cfg(feature = "vulkan-hybrid")]
     use crate::backend::vulkan::VulkanBackend;
 
     #[test]
@@ -66,6 +89,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "vulkan-hybrid")]
     fn successful_copy_counts_once_and_rejects_short_sources() {
         reset_count();
         let gpu = match VulkanBackend::bare() {
@@ -91,5 +115,27 @@ mod tests {
         let short = CpuBuffer::zeroed(4, CpuFormat::F32);
         assert!(copy(&short, &gpu, &gpu.buffers().scratch.x, 2).is_err());
         assert_eq!(count(), 1);
+    }
+
+    #[test]
+    #[cfg(feature = "cuda-hybrid")]
+    fn cuda_copy_counts_only_after_the_destination_changes() -> Result<()> {
+        reset_count();
+        let gpu = CudaBackend::bare()?;
+        let source = CpuBuffer::zeroed(16, CpuFormat::F32);
+        source.write_f32(&[1.0, -2.0, 3.5, 4.0]);
+        let target = gpu.alloc_buffer(16)?;
+        copy(&source, &gpu, &target, 4)?;
+        assert_eq!(count(), 1);
+        let actual = target
+            .read(&gpu.device, 16)?
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(actual, [1.0, -2.0, 3.5, 4.0]);
+        assert!(copy(&source, &gpu, &target, 5).is_err());
+        assert_eq!(count(), 1);
+        gpu.free_buffer(target);
+        Ok(())
     }
 }

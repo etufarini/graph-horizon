@@ -16,22 +16,23 @@ use crate::gguf::tensor_index::{GgmlType, TensorInfo};
 
 use super::super::Device;
 
-pub(crate) fn load(
+pub(crate) fn load_selected(
     device: &Device,
     file: &GgufFile,
     source: &dyn WeightSource,
+    selection: &WeightSelection,
 ) -> Result<WeightSet<CudaBuffer>> {
-    load_inner(device, file, source, None)
+    load_inner(device, file, source, selection, None)
 }
 
 pub(in crate::backend::cuda) fn load_inner(
     device: &Device,
     file: &GgufFile,
     source: &dyn WeightSource,
+    selection: &WeightSelection,
     fail_at: Option<usize>,
 ) -> Result<WeightSet<CudaBuffer>> {
     let groups = source.groups();
-    let selection = WeightSelection::full(groups.layers.len());
     if selection.layers.start > selection.layers.end
         || selection.layers.end > groups.layers.len()
         || groups.layers[selection.layers.clone()]
@@ -41,29 +42,22 @@ pub(in crate::backend::cuda) fn load_inner(
         bail!("cuda: model allocation failed");
     }
     let mut index = 0;
-    let token_embd = Some(load_step(
-        device,
-        file,
-        groups.embedding,
-        &mut index,
-        fail_at,
-    )?);
-    let output_norm = Some(load_step(
-        device,
-        file,
-        groups.tail.norm,
-        &mut index,
-        fail_at,
-    )?);
+    let tied = groups.tail.output.is_tied();
+    let token_embd = (selection.embedding || (selection.tail && tied))
+        .then(|| load_step(device, file, groups.embedding, &mut index, fail_at))
+        .transpose()?;
+    let output_norm = selection
+        .tail
+        .then(|| load_step(device, file, groups.tail.norm, &mut index, fail_at))
+        .transpose()?;
     let output = match groups.tail.output {
-        OutputWeight::Tied => None,
-        OutputWeight::Dedicated(tensor) => {
+        OutputWeight::Dedicated(tensor) if selection.tail => {
             Some(load_step(device, file, tensor, &mut index, fail_at)?)
         }
+        _ => None,
     };
-    let mut layers = Vec::with_capacity(groups.layers.len());
-    debug_assert_eq!(groups.tail.output.is_tied(), output.is_none());
-    for group in &groups.layers[selection.layers] {
+    let mut layers = Vec::with_capacity(selection.layers.len());
+    for group in &groups.layers[selection.layers.clone()] {
         let mut loaded = Vec::with_capacity(9);
         for tensor in group {
             loaded.push(load_step(device, file, tensor, &mut index, fail_at)?);
@@ -139,6 +133,23 @@ mod tests {
                 .map(|chunk| chunk.iter().collect())
                 .collect();
             WeightGroups::new(&self.0[0], &self.0[1], None, layers)
+        }
+    }
+
+    struct SelectedSource<'a> {
+        tensors: &'a [TensorInfo],
+        dedicated: bool,
+    }
+
+    impl WeightSource for SelectedSource<'_> {
+        fn groups(&self) -> WeightGroups<'_> {
+            let output = self.dedicated.then_some(&self.tensors[2]);
+            let first_layer = 2 + usize::from(self.dedicated);
+            let layers = self.tensors[first_layer..]
+                .chunks(9)
+                .map(|chunk| chunk.iter().collect())
+                .collect();
+            WeightGroups::new(&self.tensors[0], &self.tensors[1], output, layers)
         }
     }
 
@@ -232,10 +243,11 @@ mod tests {
 
         with_file(&[GgmlType::F16; 11], |file| -> Result<()> {
             let source = Source(file.tensors());
+            let selection = WeightSelection::full(1);
             for fail_at in 0..=11 {
                 reset_test_counts();
                 assert_eq!(
-                    load_inner(&device, file, &source, Some(fail_at))
+                    load_inner(&device, file, &source, &selection, Some(fail_at))
                         .err()
                         .expect("injected CUDA upload failure")
                         .to_string(),
@@ -245,5 +257,108 @@ mod tests {
             }
             Ok(())
         })
+    }
+
+    #[test]
+    fn selected_inventories_preserve_roles_and_local_layer_order() -> Result<()> {
+        let device = Device::acquire()?;
+        let mut formats = vec![GgmlType::F16; 11];
+        formats.extend([GgmlType::Q4_K; 9]);
+        with_file(&formats, |file| -> Result<()> {
+            let source = SelectedSource {
+                tensors: file.tensors(),
+                dedicated: false,
+            };
+            let full = load_selected(&device, file, &source, &WeightSelection::full(2))?;
+            assert!(full.token_embd.is_some());
+            assert!(full.output_norm.is_some());
+            assert!(full.output.is_none());
+            assert_eq!(full.layers.len(), 2);
+
+            let prefix = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 0..1,
+                    embedding: true,
+                    tail: false,
+                },
+            )?;
+            assert!(prefix.token_embd.is_some());
+            assert!(prefix.output_norm.is_none());
+            assert_eq!(prefix.layers.len(), 1);
+            assert_eq!(prefix.layers[0].attn_norm.format(), CudaFormat::F16);
+
+            let suffix = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 1..2,
+                    embedding: false,
+                    tail: true,
+                },
+            )?;
+            assert!(suffix.token_embd.is_some(), "tied tail owns its matrix");
+            assert!(suffix.output_norm.is_some());
+            assert!(suffix.output.is_none());
+            assert_eq!(suffix.layers.len(), 1);
+            assert_eq!(suffix.layers[0].attn_norm.format(), CudaFormat::Q4K);
+            Ok(())
+        })?;
+
+        with_file(&[GgmlType::F16; 12], |file| -> Result<()> {
+            let source = SelectedSource {
+                tensors: file.tensors(),
+                dedicated: true,
+            };
+            let suffix = load_selected(
+                &device,
+                file,
+                &source,
+                &WeightSelection {
+                    layers: 0..1,
+                    embedding: false,
+                    tail: true,
+                },
+            )?;
+            assert!(suffix.token_embd.is_none());
+            assert!(suffix.output_norm.is_some());
+            assert!(suffix.output.is_some());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn invalid_selected_ranges_and_layer_groups_are_rejected() -> Result<()> {
+        let device = Device::acquire()?;
+        with_file(&[GgmlType::F16; 10], |file| {
+            let source = SelectedSource {
+                tensors: file.tensors(),
+                dedicated: false,
+            };
+            for selection in [
+                WeightSelection {
+                    layers: std::ops::Range { start: 1, end: 0 },
+                    embedding: false,
+                    tail: false,
+                },
+                WeightSelection {
+                    layers: 0..1,
+                    embedding: false,
+                    tail: false,
+                },
+            ] {
+                assert_eq!(
+                    load_selected(&device, file, &source, &selection)
+                        .err()
+                        .expect("invalid selection")
+                        .to_string(),
+                    "cuda: model allocation failed"
+                );
+            }
+        });
+        Ok(())
     }
 }

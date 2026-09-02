@@ -8,7 +8,7 @@ use color_eyre::eyre::Result;
 
 #[cfg(any(feature = "vulkan", feature = "metal"))]
 use super::Backend;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(hybrid_backend)]
 use super::hybrid::HybridPlan;
 use super::hybrid::weights::runtime::RuntimeShape;
 use super::source::WeightSource;
@@ -29,6 +29,8 @@ pub(crate) type SelectedBackend = super::metal::MetalBackend;
 pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::metal::MetalBackend>;
 #[cfg(feature = "cuda")]
 pub(crate) type SelectedBackend = super::cuda::CudaBackend;
+#[cfg(feature = "cuda-hybrid")]
+pub(crate) type SelectedBackend = super::hybrid::HybridRuntime<super::cuda::CudaBackend>;
 
 #[cfg(feature = "cpu")]
 pub(crate) type SelectedSession<'a, G> =
@@ -50,6 +52,9 @@ pub(crate) type SelectedSession<'a, G> =
 #[cfg(feature = "cuda")]
 pub(crate) type SelectedSession<'a, G> =
     crate::runtime::homogeneous::HomogeneousSession<'a, super::cuda::CudaBackend, G>;
+#[cfg(feature = "cuda-hybrid")]
+pub(crate) type SelectedSession<'a, G> =
+    crate::runtime::partitioned::PartitionedSession<'a, super::cuda::CudaBackend, G>;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
@@ -105,7 +110,7 @@ pub(crate) fn load(
             reserve_mib,
         )
     }
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(hybrid_backend)]
     {
         super::hybrid::loader::load(
             file,
@@ -151,7 +156,7 @@ pub(crate) fn session<'a, G: LayeredGraph>(
             scheme,
         )
     }
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(hybrid_backend)]
     {
         crate::runtime::partitioned::PartitionedSession::new(
             backend, config, shape, context, scheme,
@@ -189,32 +194,28 @@ pub(crate) fn free_cached_state(backend: &SelectedBackend, state: CachedState) {
 }
 
 pub(crate) fn configure(cpu_threads: Option<usize>) {
-    #[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
-    {
-        super::cpu::parallel::set_threads(cpu_threads);
-    }
-    #[cfg(not(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+    #[cfg(any(feature = "cpu", hybrid_backend))]
+    super::cpu::parallel::set_threads(cpu_threads);
+    #[cfg(not(any(feature = "cpu", hybrid_backend)))]
     let _ = cpu_threads;
 }
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(hybrid_backend)]
 pub(crate) fn placement(backend: &SelectedBackend) -> Option<&HybridPlan> {
     Some(&backend.plan)
 }
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(hybrid_backend)]
 pub(crate) fn placement_mode(mode: super::hybrid::HybridMode) -> &'static str {
-    #[cfg(feature = "vulkan-hybrid")]
-    {
-        mode.name_for("all-gpu")
-    }
     #[cfg(feature = "metal-hybrid")]
-    {
-        mode.name_for("all-metal")
-    }
+    let all = "all-metal";
+    #[cfg(not(feature = "metal-hybrid"))]
+    let all = "all-gpu";
+    mode.name_for(all)
 }
 
-#[cfg(all(test, any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(hybrid_backend)]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::backend::hybrid::HybridMode;
@@ -225,6 +226,8 @@ mod tests {
         assert_eq!(placement_mode(HybridMode::AllGpu), "all-gpu");
         #[cfg(feature = "metal-hybrid")]
         assert_eq!(placement_mode(HybridMode::AllGpu), "all-metal");
+        #[cfg(feature = "cuda-hybrid")]
+        assert_eq!(placement_mode(HybridMode::AllGpu), "all-gpu");
         assert_eq!(placement_mode(HybridMode::Mixed), "mixed");
         assert_eq!(placement_mode(HybridMode::CpuOnly), "cpu-only");
     }

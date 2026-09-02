@@ -33,7 +33,8 @@ impl<'a> OutputWeight<'a> {
         feature = "vulkan-hybrid",
         feature = "metal",
         feature = "metal-hybrid",
-        feature = "cuda"
+        feature = "cuda",
+        feature = "cuda-hybrid"
     ))]
     pub(crate) fn is_tied(&self) -> bool {
         matches!(self, Self::Tied)

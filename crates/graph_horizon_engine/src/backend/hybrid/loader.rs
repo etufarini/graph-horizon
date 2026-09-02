@@ -225,4 +225,22 @@ mod tests {
         );
         assert_eq!(crate::backend::metal::probe_count(), 0);
     }
+
+    #[cfg(feature = "cuda-hybrid")]
+    #[test]
+    fn zero_and_invalid_cuda_percentages_precede_the_probe() {
+        use crate::backend::cuda::CudaBackend;
+
+        crate::backend::cuda::reset_probe_count();
+        assert!(acquire_device::<CudaBackend>(0).unwrap().is_none());
+        assert_eq!(crate::backend::cuda::probe_count(), 0);
+        assert_eq!(weight_percentage::<CudaBackend>(None).unwrap(), 100);
+        assert_eq!(
+            weight_percentage::<CudaBackend>(Some(101))
+                .unwrap_err()
+                .to_string(),
+            "invalid CUDA weight percentage"
+        );
+        assert_eq!(crate::backend::cuda::probe_count(), 0);
+    }
 }

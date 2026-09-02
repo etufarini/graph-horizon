@@ -12,7 +12,11 @@ pub(crate) mod contract;
     feature = "cuda"
 ))]
 pub(crate) mod homogeneous;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) mod partitioned;
 
 pub(crate) use contract::RuntimeSession;

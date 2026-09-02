@@ -107,6 +107,35 @@ impl CudaBuffer {
         Ok(output)
     }
 
+    #[cfg(any(feature = "cuda-hybrid", test))]
+    pub(crate) fn write(&self, device: &Device, bytes: &[u8]) -> Result<()> {
+        if bytes.len() > self.len {
+            return Err(eyre!("cuda: residual upload failed"));
+        }
+        device
+            .context
+            .bind_to_thread()
+            .map_err(|_| eyre!("cuda: residual upload failed"))?;
+        // The synchronous Driver copy is not enqueued on the backend stream;
+        // complete prior work so a queued kernel or initialization cannot
+        // overwrite the residual after this method returns.
+        device
+            .stream
+            .synchronize()
+            .map_err(|_| eyre!("cuda: residual upload failed"))?;
+        let (base, guard) = self.allocation.device_ptr(&device.stream);
+        let target = base
+            .checked_add(u64::try_from(self.offset).map_err(|_| arithmetic())?)
+            .ok_or_else(arithmetic)?;
+        // SAFETY: the bound context owns the live allocation, the composed
+        // view bounds the complete destination span, `bytes` remains fixed,
+        // and the synchronous Driver call completes before either can drop.
+        unsafe { result::memcpy_htod_sync(target, bytes) }
+            .map_err(|_| eyre!("cuda: residual upload failed"))?;
+        drop(guard);
+        Ok(())
+    }
+
     pub(crate) fn device_ptr<'a>(
         &'a self,
         stream: &'a CudaStream,
@@ -230,6 +259,27 @@ mod tests {
             .map(|bytes| f32::from_le_bytes(bytes.try_into().expect("four-byte float")))
             .collect::<Vec<_>>();
         assert_eq!(actual, [1.0, 12.0, 23.0, 4.0]);
+        Ok(())
+    }
+
+    #[test]
+    fn residual_write_targets_nested_view_and_rejects_overflow() -> Result<()> {
+        let device = Device::acquire()?;
+        let owner = CudaBuffer::allocate(&device, 16, CudaFormat::F32)?;
+        let view = owner.view(4, 12)?.view(4, 4)?;
+        view.write(&device, &7.0f32.to_le_bytes())?;
+        let before_overflow = owner.read(&device, 16)?;
+        assert_eq!(
+            f32::from_le_bytes(before_overflow[8..12].try_into().unwrap()),
+            7.0
+        );
+        assert_eq!(
+            view.write(&device, &[1, 2, 3, 4, 5])
+                .unwrap_err()
+                .to_string(),
+            "cuda: residual upload failed"
+        );
+        assert_eq!(owner.read(&device, 16)?, before_overflow);
         Ok(())
     }
 }

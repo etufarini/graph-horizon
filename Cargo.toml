@@ -33,6 +33,7 @@ vulkan-hybrid = ["graph_horizon_engine/vulkan-hybrid"]
 metal = ["graph_horizon_engine/metal"]
 metal-hybrid = ["graph_horizon_engine/metal-hybrid"]
 cuda = ["graph_horizon_engine/cuda"]
+cuda-hybrid = ["graph_horizon_engine/cuda-hybrid"]
 
 # Maximum-performance build profile, used by `support/install.sh --profile fast`.
 # Inherits `release` and adds fat LTO + a single codegen unit so the compiler can

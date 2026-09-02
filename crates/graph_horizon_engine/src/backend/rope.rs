@@ -9,6 +9,7 @@
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 use color_eyre::eyre::{Result, bail};
@@ -24,6 +25,7 @@ pub(crate) struct Yarn {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal-hybrid",
+        feature = "cuda-hybrid",
         test
     ))]
     pub log_multiplier: f32,
@@ -40,6 +42,7 @@ pub(crate) enum RopeRole {
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 pub(crate) struct Pair {
@@ -52,6 +55,7 @@ impl Yarn {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal-hybrid",
+        feature = "cuda-hybrid",
         test
     ))]
     pub(crate) fn validate(&self) -> Result<()> {
@@ -80,6 +84,7 @@ impl Yarn {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal-hybrid",
+        feature = "cuda-hybrid",
         test
     ))]
     pub(crate) fn pair(&self, role: RopeRole, pair: usize, position: usize) -> Result<Pair> {
@@ -109,6 +114,7 @@ impl Yarn {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal-hybrid",
+        feature = "cuda-hybrid",
         test
     ))]
     fn role_scale(&self, role: RopeRole) -> f32 {
@@ -132,6 +138,7 @@ impl Yarn {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal-hybrid",
+        feature = "cuda-hybrid",
         test
     ))]
     fn correction_dims(&self) -> (f32, f32) {
@@ -159,6 +166,7 @@ impl Yarn {
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 fn corr_dim(rope_dim: usize, original_context: usize, rotations: f32, base: f32) -> f32 {
@@ -170,6 +178,7 @@ fn corr_dim(rope_dim: usize, original_context: usize, rotations: f32, base: f32)
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 fn yarn_ramp(low: f32, high: f32, pair: usize) -> f32 {

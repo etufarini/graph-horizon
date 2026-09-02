@@ -3,16 +3,59 @@
  * The calculation is pure: it cannot allocate, reduce context, or change KV.
  */
 
+#[cfg(any(feature = "cuda", test))]
 use color_eyre::eyre::{Result, bail, eyre};
 
+#[cfg(any(feature = "cuda", test))]
 use crate::backend::hybrid::weights::runtime::{RuntimeBytes, RuntimeShape};
+#[cfg(any(feature = "cuda", test))]
 use crate::backend::source::WeightSource;
+#[cfg(any(feature = "cuda", test))]
 use crate::gguf::tensor_index::GgmlType;
+#[cfg(any(feature = "cuda", test))]
 use crate::kv_cache::scheme::KvQuant;
 
+#[cfg(any(feature = "cuda", test))]
 const MIB: u64 = 1024 * 1024;
+#[cfg(any(feature = "cuda", test))]
 const REDUCTION_BYTES: u64 = 16 * 1024;
 
+#[cfg(feature = "cuda-hybrid")]
+pub(crate) fn host_available() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .map_or(0, |input| parse_host_available(&input))
+}
+
+#[cfg(any(feature = "cuda-hybrid", test))]
+fn parse_host_available(input: &str) -> u64 {
+    let mut value = None;
+    for line in input.lines() {
+        let Some(rest) = line.strip_prefix("MemAvailable:") else {
+            continue;
+        };
+        if value.is_some() {
+            return 0;
+        }
+        let mut fields = rest.split_ascii_whitespace();
+        let Some(kib) = fields.next().and_then(|field| field.parse::<u64>().ok()) else {
+            return 0;
+        };
+        if fields.next() != Some("kB") || fields.next().is_some() {
+            return 0;
+        }
+        value = kib
+            .checked_mul(1024)
+            .and_then(|bytes| bytes.checked_mul(9))
+            .and_then(|bytes| bytes.checked_div(10));
+        if value.is_none() {
+            return 0;
+        }
+    }
+    value.unwrap_or(0)
+}
+
+#[cfg(any(feature = "cuda", test))]
 pub(crate) struct MemoryPlan {
     pub(crate) weights: u64,
     pub(crate) fixed: u64,
@@ -21,6 +64,7 @@ pub(crate) struct MemoryPlan {
     pub(crate) scratch: u64,
 }
 
+#[cfg(any(feature = "cuda", test))]
 impl MemoryPlan {
     pub(crate) fn new(
         source: &dyn WeightSource,
@@ -58,6 +102,7 @@ impl MemoryPlan {
     }
 }
 
+#[cfg(any(feature = "cuda", test))]
 pub(crate) fn validate_percentage(percent: Option<u8>) -> Result<u8> {
     match percent.unwrap_or(100) {
         value @ 1..=100 => Ok(value),
@@ -65,12 +110,14 @@ pub(crate) fn validate_percentage(percent: Option<u8>) -> Result<u8> {
     }
 }
 
+#[cfg(any(feature = "cuda", test))]
 pub(crate) fn reserve_bytes(total: u64, reserve_mib: Option<u64>) -> Result<u64> {
     reserve_mib
         .map(|value| value.checked_mul(MIB).ok_or_else(arithmetic))
         .unwrap_or_else(|| Ok((256 * MIB).max(total / 20)))
 }
 
+#[cfg(any(feature = "cuda", test))]
 pub(crate) fn preflight(free: u64, reserve: u64, percent: u8, plan: &MemoryPlan) -> Result<()> {
     if !(1..=100).contains(&percent) {
         bail!("invalid CUDA weight percentage");
@@ -95,16 +142,19 @@ pub(crate) fn preflight(free: u64, reserve: u64, percent: u8, plan: &MemoryPlan)
     Ok(())
 }
 
+#[cfg(any(feature = "cuda", test))]
 fn sum<const N: usize>(values: [u64; N]) -> Result<u64> {
     values.into_iter().try_fold(0u64, |total, value| {
         total.checked_add(value).ok_or_else(arithmetic)
     })
 }
 
+#[cfg(any(feature = "cuda", test))]
 fn insufficient(required: u64, available: u64) -> color_eyre::Report {
     eyre!("CUDA memory is insufficient: required {required} bytes, available {available} bytes")
 }
 
+#[cfg(any(feature = "cuda", test))]
 fn arithmetic() -> color_eyre::Report {
     eyre!("cuda: buffer arithmetic overflow")
 }
@@ -187,6 +237,22 @@ mod tests {
             "invalid CUDA weight percentage"
         );
         assert!(reserve_bytes(1, Some(u64::MAX)).is_err());
+    }
+
+    #[test]
+    fn host_available_requires_one_exact_checked_field() {
+        assert_eq!(parse_host_available("MemAvailable: 100 kB\n"), 92_160);
+        for invalid in [
+            "",
+            "MemFree: 100 kB\n",
+            "MemAvailable: nope kB\n",
+            "MemAvailable: 100 MB\n",
+            "MemAvailable: 100 kB trailing\n",
+            "MemAvailable: 100 kB\nMemAvailable: 200 kB\n",
+            "MemAvailable: 18014398509481984 kB\n",
+        ] {
+            assert_eq!(parse_host_available(invalid), 0, "{invalid:?}");
+        }
     }
 
     #[test]

@@ -84,7 +84,11 @@ impl<'a, B: Backend> BatchBuffers<'a, B> {
         Ok(())
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     pub(crate) fn all(&self, index: usize) -> &B::Buffer {
         &self.items[index]
     }

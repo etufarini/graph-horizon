@@ -2,7 +2,7 @@
  * graph_horizon_engine — feature-gated offline GPU source compilation.
  */
 
-#[cfg(feature = "cuda")]
+#[cfg(any(feature = "cuda", feature = "cuda-hybrid"))]
 #[path = "build/cuda.rs"]
 mod cuda;
 #[cfg(any(feature = "metal", feature = "metal-hybrid"))]
@@ -13,6 +13,24 @@ mod metal;
 mod vulkan;
 
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(hybrid_backend)");
+    println!("cargo:rustc-check-cfg=cfg(runtime_bytes)");
+    if cfg!(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    )) {
+        println!("cargo:rustc-cfg=hybrid_backend");
+    }
+    if cfg!(any(
+        feature = "metal",
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda",
+        feature = "cuda-hybrid"
+    )) {
+        println!("cargo:rustc-cfg=runtime_bytes");
+    }
     let selected = [
         cfg!(feature = "cpu"),
         cfg!(feature = "vulkan"),
@@ -20,6 +38,7 @@ fn main() {
         cfg!(feature = "metal"),
         cfg!(feature = "metal-hybrid"),
         cfg!(feature = "cuda"),
+        cfg!(feature = "cuda-hybrid"),
     ];
     if selected.into_iter().filter(|enabled| *enabled).count() != 1 {
         return;
@@ -29,7 +48,7 @@ fn main() {
     vulkan::build();
     #[cfg(any(feature = "metal", feature = "metal-hybrid"))]
     metal::build();
-    #[cfg(feature = "cuda")]
+    #[cfg(any(feature = "cuda", feature = "cuda-hybrid"))]
     cuda::build();
     println!("cargo:rerun-if-changed=build.rs");
 }

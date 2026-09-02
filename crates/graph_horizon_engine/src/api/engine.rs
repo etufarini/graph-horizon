@@ -92,6 +92,8 @@ impl Engine {
         return "metal-hybrid";
         #[cfg(feature = "cuda")]
         return "cuda";
+        #[cfg(feature = "cuda-hybrid")]
+        return "cuda-hybrid";
     }
 
     // Planned retained weights and full-context KV capacity. This is immutable

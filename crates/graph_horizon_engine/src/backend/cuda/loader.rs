@@ -6,14 +6,19 @@
 
 use color_eyre::eyre::{Result, bail};
 
-use super::mem::{budget, buffers, weights};
+#[cfg(any(feature = "cuda", test))]
+use super::mem::budget;
+use super::mem::{buffers, weights};
 use super::{CudaBackend, Device};
+#[cfg(any(feature = "cuda", test))]
 use crate::backend::hybrid::weights::runtime::RuntimeShape;
-use crate::backend::source::WeightSource;
+use crate::backend::source::{WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::metadata::ModelMetadata;
+#[cfg(any(feature = "cuda", test))]
 use crate::kv_cache::scheme::KvQuant;
 
+#[cfg(feature = "cuda")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn load(
     file: &GgufFile,
@@ -46,6 +51,7 @@ struct Failpoints {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(any(feature = "cuda", test))]
 fn load_inner(
     file: &GgufFile,
     source: &dyn WeightSource,
@@ -65,15 +71,54 @@ fn load_inner(
     let device = Device::acquire()?;
     let reserve = budget::reserve_bytes(device.total_bytes, reserve_mib)?;
     budget::preflight(device.free_bytes, reserve, percent, &plan)?;
+    load_selected_inner(
+        device,
+        metadata,
+        source,
+        file,
+        &WeightSelection::full(metadata.block_count),
+        failpoints,
+    )
+}
+
+#[cfg(feature = "cuda-hybrid")]
+pub(crate) fn load_selected(
+    device: Device,
+    metadata: &ModelMetadata,
+    source: &dyn WeightSource,
+    file: &GgufFile,
+    selection: &WeightSelection,
+) -> Result<CudaBackend> {
+    load_selected_inner(
+        device,
+        metadata,
+        source,
+        file,
+        selection,
+        Failpoints::default(),
+    )
+}
+
+fn load_selected_inner(
+    device: Device,
+    metadata: &ModelMetadata,
+    source: &dyn WeightSource,
+    file: &GgufFile,
+    selection: &WeightSelection,
+    failpoints: Failpoints,
+) -> Result<CudaBackend> {
+    if source.groups().layers.len() != metadata.block_count {
+        bail!("cuda: model allocation failed");
+    }
     let module = if failpoints.function.is_some() {
         super::module::Module::load_inner(&device.context, failpoints.function)?
     } else {
         super::module::Module::load(&device.context)?
     };
     let weights = if failpoints.weight.is_some() {
-        weights::load_inner(&device, file, source, failpoints.weight)?
+        weights::load_inner(&device, file, source, selection, failpoints.weight)?
     } else {
-        weights::load(&device, file, source)?
+        weights::load_selected(&device, file, source, selection)?
     };
     let (buffers, reduce) = if failpoints.buffer.is_some() {
         buffers::allocate_inner(&device, metadata, weights, failpoints.buffer)?

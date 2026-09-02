@@ -9,10 +9,18 @@ mod buffers;
 mod encode;
 mod layer;
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) use buffers::{BatchBuffers, X};
 pub(crate) use encode::prefill;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) use encode::record_batch;
 
 // Thirty-two rows keep each worker's largest output tile near 192 KiB on the

@@ -1084,10 +1084,13 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         ("Linux", "x86_64", "vulkan", true),
         ("Linux", "x86_64", "vulkan-hybrid", true),
         ("Linux", "x86_64", "cuda", true),
+        ("Linux", "x86_64", "cuda-hybrid", true),
         ("Linux", "x86_64", "metal", false),
         ("Linux", "x86_64", "metal-hybrid", false),
         ("Darwin", "arm64", "cuda", false),
+        ("Darwin", "arm64", "cuda-hybrid", false),
         ("Linux", "aarch64", "cuda", false),
+        ("Linux", "aarch64", "cuda-hybrid", false),
         ("Darwin", "x86_64", "cpu", false),
         ("FreeBSD", "x86_64", "cpu", false),
     ];
@@ -1143,7 +1146,12 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
     let prefix = fixture.join("cuda compiler");
     let output = Command::new("/bin/bash")
         .arg(root.join("support/install.sh"))
-        .args(["--backend", "cuda", "--prefix", prefix.to_str().unwrap()])
+        .args([
+            "--backend",
+            "cuda-hybrid",
+            "--prefix",
+            prefix.to_str().unwrap(),
+        ])
         .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
         .env("HOME", fixture.join("home"))
         .env("GRAPH_HORIZON_TEST_OS", "Linux")
@@ -1397,7 +1405,7 @@ fn installer_requires_profile_and_preflights_gpu_toolchains() {
     );
     let output = Command::new("/bin/bash")
         .arg(repository().join("support/install.sh"))
-        .args(["--backend", "cuda"])
+        .args(["--backend", "cuda-hybrid"])
         .env("PATH", &bin)
         .env("GRAPH_HORIZON_MUTATION_LOG", &mutation)
         .output()
@@ -1411,7 +1419,7 @@ fn installer_requires_profile_and_preflights_gpu_toolchains() {
     assert!(!mutation.exists());
 
     let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
-    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda"));
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid"));
     assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
     assert!(source.find("command -v nvcc").unwrap() < source.find("npm ci").unwrap());
     assert!(source.find("nvcc --version").unwrap() < source.find("npm ci").unwrap());
@@ -1441,11 +1449,13 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda",
+            "cuda-hybrid",
             "--context",
             "1",
             "--kv",
             "f16",
+            "--weights-percent",
+            "25",
         ])
         .env("PATH", &path)
         .env("GRAPH_HORIZON_TEST_ARGS", &log)
@@ -1461,6 +1471,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
         1,
         "model path was split or omitted"
     );
+    assert!(arguments.contains("--weights-percent\n25\n"));
     assert_eq!(fs::read(&model).unwrap(), original);
 
     let run = Command::new("bash")
@@ -1469,7 +1480,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda",
+            "cuda-hybrid",
             "--context",
             "1",
             "--kv",
@@ -1483,7 +1494,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
     assert!(
         fs::read_to_string(&log)
             .unwrap()
-            .contains("--features\ncuda\n")
+            .contains("--features\ncuda-hybrid\n")
     );
 
     assert_scripts_quote_model_variables(&repository());
@@ -1598,7 +1609,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda",
+            "cuda-hybrid",
             "--context",
             "4096",
         ])
@@ -1951,6 +1962,53 @@ while :; do /bin/sleep 0.05; done
     assert!(fs::read_to_string(&cargo_log).unwrap().contains(
         "--features cuda --test family_agnostic real_selected_runtime_parity_and_lifecycle"
     ));
+
+    for (percent, mode) in [("100", "all-gpu"), ("25", "mixed"), ("0", "cpu-only")] {
+        let hybrid_port = free_port();
+        let hybrid = Command::new("bash")
+            .arg(repository().join("support/testing/parity-check.sh"))
+            .args([
+                "--models-dir",
+                models.to_str().unwrap(),
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                "cuda-hybrid",
+                "--kv",
+                "f16",
+                "--reference-server",
+                server.to_str().unwrap(),
+                "--reference-port",
+                &hybrid_port,
+                "--weights-percent",
+                percent,
+                "--expect-mode",
+                mode,
+            ])
+            .env("PATH", &path)
+            .env("GRAPH_HORIZON_TEMP_DIR", &temp)
+            .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
+            .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
+            .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
+            .env("GRAPH_HORIZON_TEST_UNAME_M", "x86_64")
+            .output()
+            .unwrap();
+        assert!(
+            hybrid.status.success(),
+            "{}",
+            String::from_utf8_lossy(&hybrid.stderr)
+        );
+        assert!(
+            String::from_utf8(hybrid.stdout)
+                .unwrap()
+                .starts_with("pass: model_id=3b-instruct backend=cuda-hybrid kv=f16")
+        );
+        let calls = fs::read_to_string(&cargo_log).unwrap();
+        assert!(calls.contains(
+            "--features cuda-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+        ));
+        assert!(calls.contains(&format!("percent={percent}\nmode={mode}")));
+    }
 
     let endpoint_port = free_port();
     let endpoint = Command::new("bash")

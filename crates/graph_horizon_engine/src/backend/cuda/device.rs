@@ -15,41 +15,68 @@ const REQUIRED_WARP: i32 = 32;
 const REQUIRED_THREADS: i32 = 256;
 const REQUIRED_SHARED_MEMORY: i32 = 48 * 1024;
 
+#[cfg(all(test, feature = "cuda-hybrid"))]
+static PROBE_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 pub(crate) struct Device {
     pub(crate) context: Arc<CudaContext>,
     pub(crate) stream: Arc<CudaStream>,
     pub(crate) free_bytes: u64,
+    #[cfg(any(feature = "cuda", test))]
     pub(crate) total_bytes: u64,
 }
 
 impl Device {
+    #[cfg(any(feature = "cuda", test))]
     pub(crate) fn acquire() -> Result<Self> {
-        let context = CudaContext::new(0).map_err(|_| unavailable())?;
-        context.bind_to_thread().map_err(|_| unavailable())?;
-        let (major, minor) = context.compute_capability().map_err(|_| unavailable())?;
-        let warp = context
-            .attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_WARP_SIZE)
-            .map_err(|_| unavailable())?;
-        let threads = context
-            .attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)
-            .map_err(|_| unavailable())?;
-        let shared_memory = context
+        Self::acquire_optional()?.ok_or_else(unavailable)
+    }
+
+    pub(crate) fn acquire_optional() -> Result<Option<Self>> {
+        #[cfg(all(test, feature = "cuda-hybrid"))]
+        PROBE_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let Ok(context) = CudaContext::new(0) else {
+            return Ok(None);
+        };
+        if context.bind_to_thread().is_err() {
+            return Ok(None);
+        }
+        let Ok((major, minor)) = context.compute_capability() else {
+            return Ok(None);
+        };
+        let Ok(warp) = context.attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_WARP_SIZE)
+        else {
+            return Ok(None);
+        };
+        let Ok(threads) =
+            context.attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)
+        else {
+            return Ok(None);
+        };
+        let Ok(shared_memory) = context
             .attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK)
-            .map_err(|_| unavailable())?;
-        Self::validate_capabilities(major, minor, warp, threads, shared_memory)?;
+        else {
+            return Ok(None);
+        };
+        if Self::validate_capabilities(major, minor, warp, threads, shared_memory).is_err() {
+            return Ok(None);
+        }
         let (free, total) = context.mem_get_info().map_err(|_| unavailable())?;
+        #[cfg(not(any(feature = "cuda", test)))]
+        let _ = total;
 
         // SAFETY: the backend creates exactly one stream and synchronizes it
         // before every readback or request completion. This call precedes all
         // allocations, so no slice can depend on cudarc event tracking.
         unsafe { context.disable_event_tracking() };
         let stream = context.new_stream().map_err(|_| unavailable())?;
-        Ok(Self {
+        Ok(Some(Self {
             context,
             stream,
             free_bytes: u64::try_from(free).map_err(|_| arithmetic())?,
+            #[cfg(any(feature = "cuda", test))]
             total_bytes: u64::try_from(total).map_err(|_| arithmetic())?,
-        })
+        }))
     }
 
     fn validate_capabilities(
@@ -71,6 +98,16 @@ impl Device {
             bail!("CUDA device does not satisfy the required capabilities")
         }
     }
+}
+
+#[cfg(all(test, feature = "cuda-hybrid"))]
+pub(crate) fn reset_probe_count() {
+    PROBE_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(all(test, feature = "cuda-hybrid"))]
+pub(crate) fn probe_count() -> usize {
+    PROBE_COUNT.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 fn unavailable() -> color_eyre::Report {

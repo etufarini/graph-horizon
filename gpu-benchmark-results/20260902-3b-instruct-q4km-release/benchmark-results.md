@@ -1,12 +1,12 @@
 # GPU Backend Benchmark
 
-**Machine:** NVIDIA GeForce RTX 2060
+**Machine:** Linux x86_64 CUDA validation host
 
 **OS:** Linux 7.0.0-30-generic
 
 **CPU:** AMD Ryzen 7 3800X 8-Core Processor
 
-**GPU / SoC:** NVIDIA GeForce RTX 2060
+**GPU / SoC:** NVIDIA CUDA device
 
 **GPU memory:** 6 GB VRAM
 

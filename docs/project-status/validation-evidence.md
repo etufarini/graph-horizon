@@ -363,7 +363,7 @@ link here rather than duplicating device models.
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
 | Metal | Suite, oracles, teacher row, and Apple M4/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
-| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the frozen RTX 2060 tuple | QUALIFIED |
+| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
@@ -372,9 +372,9 @@ extend to unmeasured hardware. Details are summarized in
 ### CUDA implementation gate — 1 September 2026
 
 The CUDA runtime checkpoint is `c58e154` on branch `feat/cuda-backend`; its
-offline-build checkpoint is `4cf4546`. The local tuple matched the frozen
-hardware/toolchain boundary: Linux `x86_64`, NVIDIA GeForce RTX 2060 with
-compute capability 7.5 and 6144 MiB, driver 595.84, and CUDA Toolkit 12.4.131.
+offline-build checkpoint is `4cf4546`. The local tuple matched the recorded
+hardware/toolchain boundary: Linux `x86_64`, compute capability 7.5, 6144 MiB,
+driver 595.84, and CUDA Toolkit 12.4.131.
 
 | Gate | Result |
 |---|---|

@@ -21,9 +21,9 @@ The authenticated 3B artifact used throughout the investigation was
 
 ## CUDA Qualification Measurement
 
-CUDA is **qualified**, not production, only for the Linux `x86_64`, RTX 2060,
-driver 595.84, CUDA Toolkit 12.4.131, authenticated 3B Instruct Q4_K_M,
-context-4096, f16/int8 KV tuple in
+CUDA is **qualified**, not production, only for the recorded Linux `x86_64`
+validation environment with driver 595.84, CUDA Toolkit 12.4.131,
+authenticated 3B Instruct Q4_K_M, context-4096, and f16/int8 KV tuple in
 [validation evidence](validation-evidence.md#cuda-implementation-gate--1-september-2026).
 The qualification run's separate context-2048 f16 measurement recorded 1.28
 prompt tok/s and 0.59 end-to-end decode tok/s.

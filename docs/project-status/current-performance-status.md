@@ -10,10 +10,11 @@ available in Git history.
 
 The retained implementation specializes CPU, Vulkan, and Metal inference for
 Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models, and includes a
-standalone CUDA backend qualified on one frozen 3B tuple. It adds no public API,
-model-name route, or device-name route. Specialized device paths are capability-,
-vendor-family-, format-, and shape-gated and preserve a generic operation
-fallback where the backend defines one.
+standalone CUDA backend plus a CUDA hybrid composition profile qualified on one
+frozen 3B tuple. It adds no public API, model-name route, or device-name route.
+Specialized device paths are capability-, vendor-family-, format-, and
+shape-gated and preserve a generic operation fallback where the backend defines
+one.
 
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
@@ -32,6 +33,13 @@ A later CUDA/Vulkan benchmark completed its short and medium CUDA workloads but
 timed out on the long CUDA workload, so it reports no comparative winner. Its
 [generated report](../../gpu-benchmark-results/20260902-3b-instruct-q4km-release/benchmark-results.md)
 is performance evidence only and does not broaden the qualified tuple.
+
+CUDA hybrid was qualified separately at implementation commit `61c8b57` for
+context 4096 and both f16 and int8 KV. Its 100% all-GPU, 25% mixed, and 0%
+CPU-only rows passed the frozen numeric, endpoint, crossing, and lifecycle
+gates. This campaign recorded no performance comparison and makes no production
+claim; neighboring devices, software, artifacts, model sizes, contexts, and KV
+schemes remain unmeasured.
 
 ## Integration Identity
 
@@ -54,8 +62,8 @@ The package version is `0.1.5`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 `v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
 `v0.1.3` corrects release identity, `v0.1.4` prepares generic release model
-selection and a closed family dispatcher, and `v0.1.5` adds the qualified CUDA
-profile and installer path.
+selection and a closed family dispatcher, and `v0.1.5` prepares the qualified
+CUDA profiles and installer paths.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 

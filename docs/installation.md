@@ -32,7 +32,9 @@ Models are acquired separately. See
 
 ## Quick Install
 
-The public bootstrap installs the stable `v0.1.5` release.
+The commands below are prepared for the authenticated `v0.1.5` bootstrap after
+that exact candidate is published. They do not claim publication; `v0.1.4`
+remains the current stable release.
 
 ### Apple Silicon and Metal
 
@@ -64,12 +66,43 @@ curl --fail --location --silent --show-error \
   | bash -s -- --backend cuda
 ```
 
+### Hybrid profiles
+
+On Apple Silicon macOS with the Xcode command-line Metal tools:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend metal-hybrid
+```
+
+On Linux `x86_64` with a working Vulkan loader and driver:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend vulkan-hybrid
+```
+
+On Linux `x86_64` with an NVIDIA driver and CUDA Toolkit `nvcc`:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend cuda-hybrid
+```
+
+The backend argument selects one compile-time profile. Hybrid placement is
+chosen only when a model loads and can be constrained with
+`--vram-weights-percent` and `--vram-reserve-mib`. No hybrid profile enables
+prefix-KV reuse.
+
 Use `--backend cpu` when GPU execution is not required.
 
 ## Local Installer Options
 
 ```text
-support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda \
+support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   [--profile release|fast] [--prefix /absolute/install/prefix]
 ```
 
@@ -79,14 +112,16 @@ runtime backend switch or fallback.
 | Platform | Accepted build backends |
 |---|---|
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
-| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid`, `cuda` |
+| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid`, `cuda`, `cuda-hybrid` |
 
-The installer accepts CUDA only for Linux `x86_64` and requires `nvcc` before
-starting the frontend or Rust build. CUDA compilation embeds PTX targeting
-compute capability 7.5; runtime loading uses the NVIDIA driver and visible
-device ordinal 0. CUDA has no hybrid placement or prefix-KV reuse. Installer
-availability does not broaden its **qualified** status beyond the exact tuple
-in [validation evidence](project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
+The installer accepts both CUDA profiles only for Linux `x86_64` and requires
+`nvcc` before starting the frontend or Rust build. Compilation embeds PTX
+targeting compute capability 7.5; runtime loading uses the driver and visible
+device ordinal 0. `cuda` remains all-GPU-or-error. `cuda-hybrid` composes the
+existing CPU and CUDA numeric paths with an immutable separate-memory plan.
+Neither profile supports prefix-KV reuse. Installer availability does not
+broaden their **qualified** status beyond the exact tuples in
+[validation evidence](project-status/validation-evidence.md#current-backend-evidence).
 
 `release` is the default Cargo profile; `fast` is the alternative. The prefix
 must be absolute, must not be the filesystem root, and must contain no `.` or

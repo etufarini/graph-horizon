@@ -17,7 +17,7 @@ Recognizing a GGUF format is not KV evidence.
 - a readable Ministral Q4_K_M artifact authenticated by size and SHA-256;
 - recorded Git revision and Cargo profile;
 - one buildable `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`, or
-  `cuda` profile;
+  `cuda`, or `cuda-hybrid` profile;
 - context `4096` without a placement change;
 - hardware and driver required by that backend;
 - a numeric metric and threshold fixed before observing the result.
@@ -56,7 +56,7 @@ support/profiling/validate-kv.sh \
   --model "/path/to/model.gguf" --backend cpu --context 4096
 ```
 
-The script accepts all five profiles and runs f16 followed by int8. It does not
+The script accepts all seven profiles and runs f16 followed by int8. It does not
 authenticate `models.tsv`, compare output or placement, apply a threshold, or
 assign a verdict; those remain responsibilities of this procedure and the
 reviewed report.

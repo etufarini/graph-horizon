@@ -48,23 +48,38 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
-## v0.1.5 CUDA Installer Candidate — 2 September 2026
+## v0.1.5 CUDA Profiles Candidate — 3 September 2026
 
 The compatible CUDA backend and qualification changes after v0.1.4 select patch
-version `0.1.5`. The candidate adds CUDA to the local and public installer
-interfaces, admits it only on Linux `x86_64`, and requires `nvcc` before any
-build tool runs. Installer fixtures cover the accepted tuple, rejected macOS
-and Linux aarch64 tuples, missing `nvcc`, and exact Cargo feature forwarding.
+version `0.1.5`. The candidate adds standalone and hybrid CUDA to the local
+installer interface, admits both only on Linux `x86_64`, and requires `nvcc`
+before any build tool runs. Installer fixtures cover the accepted tuple,
+rejected macOS and Linux aarch64 tuples, missing `nvcc`, and exact Cargo feature
+forwarding.
 
-This installer path does not change CUDA's maturity or evidence boundary. Its
-qualified claim remains limited to the frozen tuple in the CUDA implementation
-gate below; neighboring hardware, toolkit, model, context, and KV configurations
-remain unclaimed.
+This installer path does not change either profile's maturity or evidence
+boundary. Their qualified claims remain limited to the frozen tuples in the
+CUDA implementation gates below; neighboring hardware, toolkit, model, context,
+KV, and placement configurations remain unclaimed.
 
 Qualification results belong only to the exact clean candidate commit recorded
 in the future release report. The future annotated tag, archive-embedded commit,
 versioned archive root, and adjacent checksum must all identify that commit.
 Publication and exact-commit public readiness remain external verification.
+
+The generic `v0.1.5` bootstrap retains one authenticated archive identity and
+forwards installer arguments unchanged. Local fixtures pass for exact
+`vulkan-hybrid`, `metal-hybrid`, and `cuda-hybrid` forwarding, unsafe archive
+members, symlinks, checksum mismatch, cleanup, and delegated status. Stable-tag
+quick-install documentation is prepared, but publication was not authorized in
+this implementation task.
+
+| Published hybrid quick-install row | Terminal state |
+|---|---|
+| Release tag, archive, checksum, and embedded commit identity | external verification: no authorized `v0.1.5` publication was supplied for this task |
+| Vulkan-hybrid clean-prefix install | external verification: published bootstrap prerequisite absent |
+| Metal-hybrid clean-prefix install | external verification: published bootstrap and required platform prerequisites absent |
+| CUDA-hybrid clean-prefix install | external verification: published bootstrap prerequisite absent |
 
 ## v0.1.4 Release — 26 August 2026
 
@@ -364,6 +379,7 @@ link here rather than duplicating device models.
 | Metal | Suite, oracles, teacher row, and recorded Apple silicon/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
 | CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
+| CUDA-hybrid | Shared hybrid suite, physical-device transfer checks, and six authenticated f16/int8 all-GPU/mixed/CPU-only rows on the recorded CUDA tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
@@ -419,6 +435,46 @@ prompt_tokens=5 completion_tokens=32 decoded_tokens=30 prompt_tps_mean=1.28 prom
 The benchmark is not correctness evidence and does not broaden qualification.
 Neighboring GPUs, drivers, toolkits, artifacts, and model sizes remain
 unclaimed.
+
+### CUDA-hybrid implementation gate — 3 September 2026
+
+The qualified runtime checkpoint is `61c8b57` on branch `feat/cuda-backend`.
+The clean working tree matched Linux `x86_64`, compute capability 7.5, 6144
+MiB device memory, driver 595.84, CUDA Toolkit 12.4.131, and visible device
+ordinal 0. The artifact authenticated as exactly 2,147,023,008 bytes with
+SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`;
+the oracle was llama.cpp
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Every row used context 4096
+without reduction and the public Q4_K_M profile.
+
+| KV | Requested weights | Observed placement | Result |
+|---|---:|---|---|
+| f16 | 100% | all-GPU | PASS |
+| int8 | 100% | all-GPU | PASS |
+| f16 | 25% | mixed, positive CPU and CUDA layers | PASS |
+| int8 | 25% | mixed, positive CPU and CUDA layers | PASS |
+| f16 | 0% | CPU-only | PASS |
+| int8 | 0% | CPU-only | PASS |
+
+Each row passed exact prompt-ID comparison, placed every one of 16 oracle
+tokens in the local top two, emitted one successful terminal event, and emitted
+none after immediate cancellation. Both mixed rows observed the exact crossing
+formula and one CPU-to-CUDA crossing per prefill batch or decode token. Each
+all-GPU completion sequence equalled its standalone CUDA control; each CPU-only
+sequence equalled its CPU control. Both endpoint pairs were checked separately
+for f16 and int8.
+
+The same checkpoint passed warnings-denied CPU, standalone CUDA, and CUDA-hybrid
+Clippy; their complete test suites; Vulkan and Vulkan-hybrid compile checks;
+feature-conflict and dependency-isolation gates; shell fixtures; source
+structure; and patch integrity. CUDA kernel and module sources were unchanged.
+CUDA hybrid composes the existing CPU and CUDA numeric paths with separate
+RAM/VRAM planning, immutable placement, 32-row all-GPU and 4-row mixed prefill,
+and a synchronous checked FP32 crossing. It adds no prefix-KV reuse, unified
+memory, multi-GPU ownership, numeric kernel, performance comparison, or
+production claim. Neighboring hardware, software, artifacts, model sizes,
+contexts, KV schemes, and placement percentages remain unclaimed.
 
 ## Integrated Post-Cleanup Evidence
 

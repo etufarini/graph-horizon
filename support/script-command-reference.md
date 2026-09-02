@@ -95,11 +95,11 @@ hostnames, usernames, generated text, and other private machine identity.
 validate-weights.sh --models-dir DIR
 
 validate-kv.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   --context N
 
 profile.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   --context N --kv f16|int8 [--weights-percent 0..100]
 ```
 
@@ -112,7 +112,7 @@ procedure is defined by the
 
 ```text
 parity-check.sh --models-dir DIR --model-id ID \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda --kv f16|int8 \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid --kv f16|int8 \
   --reference-server PATH [--reference-port PORT] \
   [--weights-percent 0..100 \
    --expect-mode all-gpu|all-metal|mixed|cpu-only]
@@ -123,8 +123,9 @@ The script authenticates one catalogued Q4_K_M artifact, starts one CPU
 are distinct rows. Protocol, code, parity, placement, or lifecycle mismatches
 fail the row; missing infrastructure remains external verification.
 
-CUDA is standalone: `--weights-percent` and `--expect-mode` are rejected for
-it. CUDA parity reports no placement and does not enable prefix caching.
+Standalone CUDA rejects `--weights-percent` and `--expect-mode` and reports no
+placement. CUDA hybrid requires both placement arguments and accepts
+`all-gpu`, `mixed`, or `cpu-only`. Neither profile enables prefix caching.
 
 The complete sequence of 16 `local_ids` from each available homogeneous
 hybrid endpoint must equal the corresponding standalone backend sequence.

@@ -18,9 +18,9 @@ not define runtime behavior or record validation results.
 - `family/mistral/parity.rs`: bounded oracle-vector parsing and model-neutral top-two criterion for the harness only.
 - `tests/semantic.rs`: test-only Reasoning qualifier owning corpus, sampling, scoring, stop telemetry, and markers.
 - `family/mistral/graph/`: dense operation order shared by backends; no placement decision.
-- `runtime/`: homogeneous or partitioned lifecycle; partitioned execution owns one CPU prefix, one crossing, and one device suffix.
+- `runtime/`: homogeneous or partitioned lifecycle; partitioned execution owns one CPU prefix, one checked crossing per mixed pass, and one device suffix.
 - `backend/`: tensor contract, weight source, static selection, and CPU/Vulkan/Metal/CUDA implementations; `backend/hybrid/` owns placement and both resource sets.
-- `backend/cuda/`: one context and stream, embedded PTX module, checked device buffers, homogeneous memory preflight, and operation dispatch; no family policy or hybrid placement.
+- `backend/cuda/`: one context and stream, embedded PTX module, checked device buffers, standalone preflight, hybrid resource adaptation and residual upload, and one unchanged operation dispatch; no family policy or alternate hybrid numerics.
 - `gguf/`: bounded parsing, metadata, and tensor index, including Q8_0 diagnosis and rejection; no backend allocation.
 - `kv_cache/`: f16/int8 scheme, layout, and request lifecycle.
 - `sampling.rs`: deterministic or sampled token selection and private RNG.

@@ -13,9 +13,9 @@ documentation.
 [![CI](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml/badge.svg)](https://github.com/etufarini/graph-horizon/actions/workflows/ci.yml)
 
 Graph Horizon is a focused local Rust runtime for Ministral 3 GGUF inference
-across CPU, Vulkan, Metal, and standalone CUDA, with hybrid CPU/GPU placement
-for Vulkan and Metal and built-in terminal and Web interfaces. It supports the
-Instruct and Reasoning 2512 models in the 3B, 8B, and 14B sizes.
+across CPU, Vulkan, Metal, and CUDA, with hybrid CPU/accelerator placement for
+Vulkan, Metal, and CUDA and built-in terminal and Web interfaces. It supports
+the Instruct and Reasoning 2512 models in the 3B, 8B, and 14B sizes.
 
 The Web UI can optionally send one explicit Web or News query to a public
 provider. Graph Horizon has no standalone server mode or supported public HTTP
@@ -48,10 +48,12 @@ platform coverage.
 
 ## Quick Install
 
-### Stable release
+### Prepared v0.1.5 release
 
-The installer builds Graph Horizon from source and installs it in
-`$HOME/.local/bin` by default. Review the complete
+After the exact `v0.1.5` candidate is published, the commands below build Graph
+Horizon from its authenticated source release and install it in
+`$HOME/.local/bin` by default. They are prepared release commands, not evidence
+that publication has occurred. Review the complete
 [prerequisites and installation options](docs/installation.md) before running it.
 
 On Apple Silicon macOS with the Xcode command-line Metal tools:
@@ -78,6 +80,35 @@ curl --fail --location --silent --show-error \
   | bash -s -- --backend cuda
 ```
 
+For automatic CPU/accelerator placement, install the matching hybrid profile.
+On Apple Silicon macOS with the Xcode command-line Metal tools:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend metal-hybrid
+```
+
+On Linux `x86_64` with a working Vulkan loader and driver:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend vulkan-hybrid
+```
+
+On Linux `x86_64` with an NVIDIA driver and CUDA Toolkit `nvcc`:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend cuda-hybrid
+```
+
+Quick install selects one compile-time profile. Automatic placement occurs
+later when a model loads and can be constrained with the existing runtime
+placement flags. Prefix-KV reuse is unavailable for every hybrid profile.
+
 Use `--backend cpu` instead when GPU execution is not required. If the command
 is not found after installation, add the default binary directory to the
 current shell:
@@ -88,24 +119,32 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ### CUDA qualification boundary
 
-The installer accepts CUDA only on Linux `x86_64` and requires `nvcc` before it
-builds any project asset. The backend uses visible device ordinal 0, has no
-hybrid placement or prefix-KV cache, and its **qualified** claim is limited to
-the recorded hardware, driver, toolkit, model, context, and KV tuple
-recorded in the
-[validation evidence](docs/project-status/validation-evidence.md#cuda-implementation-gate--1-september-2026).
-Neighboring CUDA configurations remain unclaimed; see the
+The installer accepts `cuda` and `cuda-hybrid` only on Linux `x86_64` and
+requires `nvcc` before it builds any project asset. Both use visible device
+ordinal 0 and the existing capability floor. `cuda-hybrid` composes the CPU and
+CUDA numeric backends; it adds no numeric backend or kernel. Its immutable plan
+uses separate RAM and VRAM, with all-GPU, mixed, and CPU-only modes. Mixed
+execution performs one synchronous CPU-to-CUDA residual crossing per pass.
+
+Neither CUDA profile supports prefix-KV reuse. The **qualified**
+`cuda-hybrid` claim is limited to the six recorded 3B Instruct, context-4096,
+f16/int8 placement rows at the exact implementation commit in
+[validation evidence](docs/project-status/validation-evidence.md#cuda-hybrid-implementation-gate--3-september-2026).
+This is not a production or performance claim. Neighboring devices, software,
+artifacts, model sizes, contexts, and KV schemes remain unclaimed; see the
 [backend status](docs/engine/backend-support-status.md) for the exact boundary.
 
 ## Stable Release And Main
 
-The latest stable release is a published version frozen by an immutable
+The current published stable release is `v0.1.4`, frozen by an immutable
 annotated tag. Its release claims and validation evidence apply only to that
-exact tagged commit. `main` contains ongoing development, may be ahead of the
-stable tag, and is not automatically release-qualified.
+exact tagged commit. `v0.1.5` remains a source candidate until its exact final
+commit, annotated tag, archive, and checksum are published and verified. `main`
+contains ongoing development, may be ahead of the stable tag, and is not
+automatically release-qualified.
 
-The stable-release Quick Install deliberately uses the `v0.1.5` tag instead of
-`main`. See the
+The prepared `v0.1.5` commands deliberately use the future immutable tag
+instead of `main`. See the
 [release notes](docs/project-status/release-notes.md) and
 [exact validation evidence](docs/project-status/validation-evidence.md) for the
 scope and identity of published claims.

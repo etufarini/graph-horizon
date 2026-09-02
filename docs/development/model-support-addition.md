@@ -162,8 +162,8 @@ cargo run --no-default-features --features cpu --example bench -- \
   /path/to/model.gguf --context 4096 --kv f16
 ```
 
-Repeat with `vulkan`, `vulkan-hybrid`, `metal`, or `metal-hybrid` only when
-those rows are claimed. Record context,
+Repeat with `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid`, `cuda`, or
+`cuda-hybrid` only when those rows are claimed. Record context,
 KV, build profile, hardware, prompt, generation length, warmup and repetitions.
 An allocation failure is capacity evidence, not a correctness result.
 

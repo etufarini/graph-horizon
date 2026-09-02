@@ -837,6 +837,26 @@ fn bootstrap_forwards_arguments_and_cleans_temporary_tree() {
     );
     assert!(!temp.exists());
 
+    for backend in ["vulkan-hybrid", "metal-hybrid", "cuda-hybrid"] {
+        fs::remove_file(&argument_log).unwrap();
+        let hybrid_args = ["--backend", backend];
+        let output = run_bootstrap(&fixture, &bin, &temp, &argument_log, &archive, &hybrid_args);
+        assert!(
+            output.status.success(),
+            "backend={backend} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(&argument_log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            hybrid_args
+        );
+        assert!(!temp.exists());
+    }
+
     fs::remove_file(&argument_log).unwrap();
     let output = Command::new("/bin/bash")
         .arg(fixture.join("install.sh"))

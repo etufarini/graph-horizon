@@ -196,7 +196,10 @@ printf 'rustc %s (fixture)\n' "${GRAPH_HORIZON_TEST_RUST_VERSION:-1.88.0}"
 [[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
 "#,
     );
-    write_executable(&bin.join("nvcc"), b"#!/usr/bin/env bash\nexit 0\n");
+    write_executable(
+        &bin.join("nvcc"),
+        b"#!/usr/bin/env bash\n[[ -z \"${GRAPH_HORIZON_NVCC_FAIL:-}\" ]]\n",
+    );
     (fixture, root, bin, log)
 }
 
@@ -1135,6 +1138,24 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Metal compiler is unavailable"));
     assert!(fs::read(&log).unwrap().is_empty());
+
+    fs::write(&log, []).unwrap();
+    let prefix = fixture.join("cuda compiler");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args(["--backend", "cuda", "--prefix", prefix.to_str().unwrap()])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_OS", "Linux")
+        .env("GRAPH_HORIZON_TEST_ARCH", "x86_64")
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
+        .env("GRAPH_HORIZON_NVCC_FAIL", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CUDA compiler is unavailable"));
+    assert!(fs::read(&log).unwrap().is_empty());
     fs::remove_dir_all(fixture).unwrap();
 }
 
@@ -1393,6 +1414,7 @@ fn installer_requires_profile_and_preflights_gpu_toolchains() {
     assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda"));
     assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
     assert!(source.find("command -v nvcc").unwrap() < source.find("npm ci").unwrap());
+    assert!(source.find("nvcc --version").unwrap() < source.find("npm ci").unwrap());
     assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
 }

@@ -99,6 +99,7 @@ if [[ "${backend}" == metal || "${backend}" == metal-hybrid ]]; then
 fi
 if [[ "${backend}" == cuda ]]; then
     command -v nvcc >/dev/null 2>&1 || fail "CUDA requires nvcc"
+    nvcc --version >/dev/null 2>&1 || fail "CUDA compiler is unavailable"
 fi
 
 (

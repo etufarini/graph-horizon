@@ -134,9 +134,9 @@ def markdown(data: dict[str, Any]) -> str:
     machine = data["machine"]
     lines = [
         "# GPU Backend Benchmark", "",
-        f"**Machine:** {safe(machine['machine'])}  ", f"**OS:** {safe(machine['os'])}  ",
-        f"**CPU:** {safe(machine['cpu'])}  ", f"**GPU / SoC:** {safe(machine['gpu'])}  ",
-        f"**GPU memory:** {safe(machine['memory'])}  ", f"**GPU driver:** {safe(machine['gpu_driver'])}  ",
+        f"**Machine:** {safe(machine['machine'])}", "", f"**OS:** {safe(machine['os'])}", "",
+        f"**CPU:** {safe(machine['cpu'])}", "", f"**GPU / SoC:** {safe(machine['gpu'])}", "",
+        f"**GPU memory:** {safe(machine['memory'])}", "", f"**GPU driver:** {safe(machine['gpu_driver'])}", "",
         f"**Available runtime backends:** {', '.join(LABELS.get(name, name) for name in data['runtime_backends']) or 'none'}",
         "", "## Configuration", "", *configuration(data), "", "## Performance", "",
         *performance_table(data), "", "Medians are calculated from the individual measurements in `benchmark-results.json`.",

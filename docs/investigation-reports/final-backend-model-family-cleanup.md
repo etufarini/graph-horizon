@@ -42,7 +42,7 @@ in `1bfe337`; corrected runtime `e7edc83` then passed the complete available AMD
 matrix. The exact sequence is recorded in
 [`amd-deep-clean-regression-repair.md`](amd-deep-clean-regression-repair.md).
 
-The cleanup host is Linux x86_64 with an Intel i5-9600K and NVIDIA RTX 3060
+The cleanup host is Linux x86_64 with an Intel i5-9600K and NVIDIA Vulkan validation GPU
 12 GiB, driver 595.84, Vulkan 1.4.329. At cleanup report start, AMD and Apple
 Metal execution were external qualification requirements for candidate
 `1bfe337`; the later status is recorded above and in the qualification snapshot.
@@ -465,7 +465,7 @@ production file was added.
 
 After these edits, formatting and warning-denied Clippy pass for CPU, Vulkan,
 and Vulkan-hybrid. Workspace all-target tests pass in all three profiles; the
-Vulkan runs execute the available RTX 3060 numeric/lifecycle kernel coverage.
+Vulkan runs execute the available NVIDIA Vulkan validation GPU numeric/lifecycle kernel coverage.
 Real-artifact, quality, performance, and cross-hardware qualification are
 recorded separately below after the candidate is frozen.
 
@@ -663,9 +663,9 @@ model/artifact-name execution hack remains.
 
 | Backend | Candidate SHA | Device | Status |
 |---|---|---|---|
-| AMD Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | RX 6750 XT / RADV | FAIL: intermittent MMVQ scratch-ordering defect; repaired descendant `e7edc83` passed |
-| NVIDIA Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | RTX 3060 12 GiB, driver 595.84 | PASS locally: routes/build/tests/parity/quality/performance |
-| Apple Metal | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | Apple M4/macOS host required | external verification on this exact candidate |
+| AMD Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | AMD Vulkan validation GPU / RADV | FAIL: intermittent MMVQ scratch-ordering defect; repaired descendant `e7edc83` passed |
+| NVIDIA Vulkan | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | NVIDIA Vulkan validation GPU 12 GiB, driver 595.84 | PASS locally: routes/build/tests/parity/quality/performance |
+| Apple Metal | `1bfe33753c8b7cfb21b6c254800a3970a1cdf5fd` | Apple silicon/macOS validation host required | external verification on this exact candidate |
 
 For the NVIDIA run, physical Vulkan numeric/lifecycle tests passed, all six
 artifacts across both KV schemes passed on standalone Vulkan, 3B
@@ -748,11 +748,12 @@ row that cannot execute is not a PASS.
 
 #### AMD Vulkan packet
 
-Use the qualified AMD family tuple: Radeon RX 6750 XT / RDNA2 (`gfx1031`), or a
-project-accepted equivalent AMD qualification device, with a current RADV
-Vulkan driver. Record GPU, PCI ID, VRAM, Mesa/RADV and loader versions,
-reported Vulkan API, subgroup size, subgroup-size control, FP16, integer-dot,
-workgroup/shared-memory limits, and whether cooperative matrix is exposed.
+Use the qualified AMD family tuple: an AMD Vulkan validation GPU with RDNA2
+(`gfx1031`), or a project-accepted equivalent qualification device, with a
+current RADV Vulkan driver. Record architecture, VRAM, Mesa/RADV and loader
+versions, reported Vulkan API, subgroup size, subgroup-size control, FP16,
+integer-dot, workgroup/shared-memory limits, and whether cooperative matrix is
+exposed.
 The candidate SHA remains fixed even if the installed driver is newer than the
 historical Mesa 26.0.3 tuple.
 
@@ -793,12 +794,13 @@ or unacknowledged fallback.
 
 #### Apple Metal packet
 
-Use the qualified Apple tuple: Apple M4 with 10 GPU cores and 24 GB unified
-memory on macOS arm64 with Metal 4, or a project-accepted equivalent Apple
-qualification device. Record Mac model, chip/GPU cores, unified memory, macOS
-build, Xcode/Metal toolchain, supported GPU families, maximum buffer length,
-recommended working set, SIMD width, maximum threads, threadgroup memory,
-Metal 4 availability, power state, swap/page-fault state, and thermal warnings.
+Use the qualified Apple tuple: an Apple silicon validation host with 10 GPU
+cores and 24 GB unified memory on macOS arm64 with Metal 4, or a
+project-accepted equivalent qualification device. Record GPU capabilities and
+core count, unified memory, macOS build, Xcode/Metal toolchain, supported GPU
+families, maximum buffer length, recommended working set, SIMD width, maximum
+threads, threadgroup memory, Metal 4 availability, power state,
+swap/page-fault state, and thermal warnings.
 
 - Run the common build/test commands for `metal` and `metal-hybrid`; successful
   compilation is the current Metal shader-compilation gate.

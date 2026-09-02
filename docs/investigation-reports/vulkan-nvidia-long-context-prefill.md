@@ -42,7 +42,7 @@ global stop, not a claim that the hardware is at a physical limit.
 | Branch | `perf/nvidia-long-context-prefill-20260821` |
 | Baseline / production SHA | `e3d23f2102661c5cb95310a11873ad974ab2c831` (no production delta) |
 | Checkpoint / integration | branch tip `011952b`; merged by PR #38 (`8884465`) |
-| GPU | NVIDIA GeForce RTX 3060 12 GiB, GA104/Ampere, PCI device `0x2487` |
+| GPU | NVIDIA Vulkan validation GPU 12 GiB, Ampere |
 | Driver / Vulkan | NVIDIA 595.84 / device API 1.4.329, loader 1.4.341 |
 | Subgroup / capabilities | 32 lanes; FP16; integer dot; KHR cooperative matrix; NV Matrix2 |
 | Physical limits | 28 SMs; 360.048 GB/s nominal memory; 2.25 MiB L2; 65,536 registers/SM; 102,400 B shared/SM |

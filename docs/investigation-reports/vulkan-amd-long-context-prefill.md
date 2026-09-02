@@ -16,7 +16,7 @@ behind capability, format, shape, row-count, and context-position gates.
 - Retained implementation: `1942208`.
 - Branch: `perf/amd-long-context-prefill`.
 - Later integration: branch tip `23d8186`; merged by PR #39 (`8e2f8cc`).
-- Device: AMD Radeon RX 6750 XT, Navi 22 / RDNA2 / `gfx1031`, 40 CUs.
+- Device: AMD Vulkan validation GPU, RDNA2, `gfx1031`, 40 CUs.
 - Driver: RADV, Mesa 26.0.3, Vulkan 1.4.335.
 - Device-local memory: 12,868,124,672 bytes.
 - Relevant limits: 64 KiB LDS, reported subgroup 64, required wave32 control,

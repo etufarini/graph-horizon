@@ -106,6 +106,18 @@ def collect(payload: dict[str, Any], backend: str, plan: dict[str, Any], cfg: ar
                        "workload": plan["name"], "backend": backend, "repetition": repetition})
 
 
+def redact_hardware_identity(data: dict[str, Any]) -> dict[str, Any]:
+    public = json.loads(json.dumps(data))
+    metal = "metal" in public["runtime_backends"]
+    public["machine"]["machine"] = "Apple silicon validation host" if metal else "GPU validation host"
+    public["machine"]["gpu"] = "Apple silicon GPU" if metal else "NVIDIA GPU"
+    public["machine"].pop("gpu_id", None)
+    for run in public["runs"]:
+        for field in ("device_id", "gpu_name", "hardware_gpu_id"):
+            run.pop(field, None)
+    return public
+
+
 def main() -> int:
     cfg = arguments()
     model = cfg.model.expanduser()
@@ -176,6 +188,7 @@ def main() -> int:
             "workloads": plans, "runs": runs, "summaries": aggregate, "comparison": check,
             "runtime_backends": sorted(probes), "completed_backends": complete,
             "backend_status": status, "failures": failures}
+    data = redact_hardware_identity(data)
     (output / OUTPUTS[0]).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     generate(data, output)
     if not complete:

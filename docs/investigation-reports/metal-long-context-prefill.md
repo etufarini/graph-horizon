@@ -30,8 +30,8 @@ tokens in 70.942 seconds and generates all 256 requested tokens at 18.72 tok/s.
 | Qualified source before docs | `305a848` |
 | Final ordinary binary | SHA-256 `15ec669193e5be0876fba60e277c7da735d1e7fdcb963a1340c4826db40d3df6` |
 | Branch | `perf/metal-long-context-prefill` |
-| Device | Apple M4, 10 GPU cores, 24 GB unified memory |
-| Host | fanless MacBook Air, macOS 26.3, Metal 4 |
+| Device | Apple silicon GPU, 10 cores, 24 GB unified memory |
+| Host | fanless Apple silicon validation host, macOS 26.3, Metal 4 |
 | Model | `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` |
 | Model identity | 2,147,023,008 bytes; SHA-256 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8` |
 | Graph Horizon | pure Metal, all layers Metal, context 32,768, F16 KV, rows 64 |

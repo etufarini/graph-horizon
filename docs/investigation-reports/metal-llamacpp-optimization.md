@@ -29,7 +29,7 @@ without new evidence.
 
 ## Qualified tuple
 
-- Apple M4 with 10 GPU cores, 24 GB unified memory, Metal 4, macOS 26.3.
+- Apple silicon validation host with 10 GPU cores, 24 GB unified memory, Metal 4, macOS 26.3.
 - Both diagnostics-free release binaries were rebuilt from the SHAs above.
 - llama.cpp was built with `GGML_METAL=ON`, its embedded Metal library, full
   GPU offload, F16 K/V, flash attention enabled, batch 64, and microbatch 64.
@@ -39,8 +39,8 @@ without new evidence.
   repeated `N - 5` times, then `[1032, 4]`. llama.cpp reports `cache_n=0` and
   `prompt_n=N` for every retained request.
 - Each workload uses one warm-up and three measured requests. Long workloads
-  run serially because this MacBook Air is fanless. CV above 1% is retained and
-  identified rather than filtered.
+  run serially because the validation host is fanless. CV above 1% is retained
+  and identified rather than filtered.
 - Graph Horizon TTFT includes tokenization, first sampling, and the first public
   text delta. llama.cpp `prompt_ms` is prompt evaluation only. Graph Horizon
   decode counts public text deltas; llama.cpp counts model tokens. These event

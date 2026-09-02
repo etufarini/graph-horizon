@@ -30,8 +30,8 @@ device the runtime will actually use:
   "backend": "cuda",
   "runtime": {"name": "Example Runtime", "version": "1.2.3"},
   "device": {
-    "id": "GPU-fbe2e4b5-f33d-ab11-9bb8-7ecb4d750ea2",
-    "name": "NVIDIA GeForce RTX 2060"
+    "id": "cuda-device-0",
+    "name": "NVIDIA GPU"
   },
   "model": {
     "identifier": "model-family-q4_k_m",
@@ -43,7 +43,9 @@ device the runtime will actually use:
 
 Use a stable physical-device UUID where the runtime exposes one. CUDA and
 Vulkan IDs may differ in punctuation or the `GPU-` prefix; the orchestrator
-normalizes those forms, not unrelated identifiers.
+normalizes those forms, not unrelated identifiers. The ID and device name are
+used only for local same-device validation and are removed from versioned
+benchmark artifacts.
 
 ## Count
 
@@ -73,8 +75,8 @@ Perform exactly one request and return one raw measurement:
 ```json
 {
   "backend": "cuda",
-  "device_id": "GPU-fbe2e4b5-f33d-ab11-9bb8-7ecb4d750ea2",
-  "gpu_name": "NVIDIA GeForce RTX 2060",
+  "device_id": "cuda-device-0",
+  "gpu_name": "NVIDIA GPU",
   "runtime_name": "Example Runtime",
   "runtime_version": "1.2.3",
   "runtime_config": "greedy; fixed device; no early EOS",

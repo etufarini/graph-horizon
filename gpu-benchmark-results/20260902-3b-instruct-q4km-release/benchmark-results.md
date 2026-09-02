@@ -1,12 +1,12 @@
 # GPU Backend Benchmark
 
-**Machine:** Linux x86_64 CUDA validation host
+**Machine:** GPU validation host
 
 **OS:** Linux 7.0.0-30-generic
 
 **CPU:** AMD Ryzen 7 3800X 8-Core Processor
 
-**GPU / SoC:** NVIDIA CUDA device
+**GPU / SoC:** NVIDIA GPU
 
 **GPU memory:** 6 GB VRAM
 

@@ -16,8 +16,8 @@ runtime, token counts, context, batch, sampling, or runtime options differ.
 ## Invariants
 
 - Compare CUDA and Vulkan only on the same Linux or Windows NVIDIA GPU.
-- On macOS, run Metal only and report the human-readable Mac model and unified
-  memory. Never invent a CUDA/Vulkan comparison there.
+- On macOS, run Metal only and report Apple silicon plus unified memory without
+  a commercial Mac or SoC model. Never invent a CUDA/Vulkan comparison there.
 - Use the same readable model file, SHA-256, quantization, prompt text, actual
   prompt tokens, generated tokens, context, batch, seed, temperature, runtime
   version, and fixed adapter arguments for both backends.
@@ -111,7 +111,9 @@ The selected output directory receives:
 
 Existing output files are never overwritten. Use a new directory for each run.
 The Markdown report intentionally records model name and hash, not its private
-absolute path.
+absolute path. Versioned outputs use neutral host/GPU labels and omit physical
+device identifiers; exact identity exists only transiently during same-device
+validation.
 
 ## Failures
 

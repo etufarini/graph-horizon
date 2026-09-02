@@ -26,7 +26,7 @@ backend = value("--backend")
 if mode == "probe":
     print(json.dumps({"available": True, "backend": backend,
         "runtime": {"name": "Fixture Runtime", "version": "1.0"},
-        "device": {"id": "GPU-11111111-2222-3333-4444-555555555555" if backend != "metal" else "apple-1", "name": "Fixture GPU"},
+        "device": {"id": "fixture-device-0" if backend != "metal" else "fixture-metal-0", "name": "Fixture GPU"},
         "model": {"identifier": "fixture-model", "quantization": "Q4_K_M", "context_limit": 8192}}))
 elif mode == "count":
     prompt = open(value("--prompt-file"), encoding="utf-8").read()
@@ -36,7 +36,7 @@ elif mode == "run":
     prompt_tokens, generated = prompt.count("benchmark"), int(value("--max-tokens"))
     factor = 2 if backend == "cuda" else 1
     print(json.dumps({"backend": backend,
-        "device_id": "GPU-11111111-2222-3333-4444-555555555555" if backend != "metal" else "apple-1",
+        "device_id": "fixture-device-0" if backend != "metal" else "fixture-metal-0",
         "gpu_name": "Fixture GPU", "runtime_name": "Fixture Runtime", "runtime_version": "1.0",
         "runtime_config": "greedy; fixed device; no early EOS",
         "model_identifier": "fixture-model", "quantization": "Q4_K_M",
@@ -53,7 +53,7 @@ else:
 def machine(backends: dict) -> dict:
     return {
         "machine": "Fixture Workstation", "os": "Linux fixture", "cpu": "Fixture CPU",
-        "gpu": "Fixture GPU", "gpu_id": "GPU-11111111-2222-3333-4444-555555555555",
+        "gpu": "Fixture GPU", "gpu_id": "fixture-device-0",
         "memory": "12 GB VRAM", "gpu_driver": "1.0", "cuda_version": "13.0",
         "vulkan_version": "1.4", "backends": backends,
     }
@@ -80,9 +80,13 @@ class SkillValidation(unittest.TestCase):
         self.assertEqual(code, 0)
         data = json.loads((output / "benchmark-results.json").read_text(encoding="utf-8"))
         self.assertEqual(len(data["runs"]), 18)
+        self.assertEqual(data["machine"]["gpu"], "NVIDIA GPU")
+        self.assertNotIn("gpu_id", data["machine"])
+        self.assertTrue(all("device_id" not in row and "gpu_name" not in row for row in data["runs"]))
         self.assertTrue(data["comparison"]["valid"])
         self.assertEqual({row["samples"] for row in data["summaries"]}, {3})
         report = (output / "benchmark-results.md").read_text(encoding="utf-8")
+        self.assertFalse(any(line.endswith((" ", "\t")) for line in report.splitlines()))
         self.assertIn("+100.0%", report)
         self.assertIn("+33.3%", report)
         png = (output / "benchmark-results.png").read_bytes()
@@ -101,13 +105,13 @@ class SkillValidation(unittest.TestCase):
 
     def test_metal_report_uses_mac_identity(self) -> None:
         detected = machine({"metal": {"available": True, "reason": None}})
-        detected.update({"machine": "MacBook Pro M4 Pro", "os": "Darwin 25.0", "gpu": "Apple M4 Pro",
-                         "gpu_id": "apple-1", "memory": "48 GB unified memory", "metal_runtime": "26.0"})
+        detected.update({"machine": "Apple silicon validation host", "os": "Darwin 25.0", "gpu": "Apple silicon GPU",
+                         "gpu_id": "fixture-metal-0", "memory": "48 GB unified memory", "metal_runtime": "26.0"})
         code, output, state = self.run_benchmark(detected)
         self.addCleanup(state.cleanup)
         self.assertEqual(code, 0)
         report = (output / "benchmark-results.md").read_text(encoding="utf-8")
-        self.assertIn("MacBook Pro M4 Pro", report)
+        self.assertIn("Apple silicon validation host", report)
         self.assertIn("48 GB unified memory", report)
         self.assertIn("not applicable on macOS", report)
 

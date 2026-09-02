@@ -152,7 +152,7 @@ tree happens to match.
 | Bounded temporary cleanup | PASS |
 
 The public benchmark used Graph Horizon 0.1.2, Linux 7.0.0-30-generic x86_64,
-an AMD Ryzen 5 5500, and an AMD Radeon RX 6750 XT with RADV/Mesa
+an AMD Ryzen 5 5500, and an AMD Vulkan validation GPU with RADV/Mesa
 26.0.3-1ubuntu1. The Vulkan loader exposed instance 1.4.341 and device API
 1.4.335. The fixed tuple was Vulkan, f16 KV, context 2048, 64 maximum tokens,
 one warm-up, three measured repetitions, and the prompt “Spiega in una frase
@@ -215,7 +215,7 @@ the current directory. v0.1.1 installs only regular files below
 the executable.
 
 Environment on 23 August 2026: Linux x86_64, CPU packaging smoke with an AMD
-Radeon RX 6750 XT available, Rust/Cargo 1.97.1 plus minimum toolchain 1.88.0,
+AMD Vulkan validation GPU available, Rust/Cargo 1.97.1 plus minimum toolchain 1.88.0,
 Node.js 24.18.0, and npm 11.16.0.
 
 | v0.1.1 gate | Result |
@@ -301,7 +301,7 @@ annotated `v0.1.0` tag. If that tag is absent or resolves elsewhere, this
 section qualifies no revision.
 
 Environment on 22 August 2026: Linux x86_64 `7.0.0-30-generic`, Intel Core
-i5-9600K, NVIDIA RTX 3060 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
+i5-9600K, NVIDIA Vulkan validation GPU 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
 1.95.0, minimum Rust/Cargo 1.88.0, Node.js 24.15.0, npm 11.12.1, GCC 15.2.0,
 six catalog-matching Q4_K_M files, and llama.cpp `13f2b28b0`.
 
@@ -359,9 +359,9 @@ link here rather than duplicating device models.
 | Profile | Reviewed evidence | Technical status |
 |---|---|---|
 | CPU | Synthetic suite and post-repair real matrix across six artifacts and f16/int8; no performance promise | REFERENCE |
-| Vulkan | Suites, numeric oracles, and real NVIDIA RTX 3060 / AMD RX 6750 XT matrices | PRODUCTION |
+| Vulkan | Suites, numeric oracles, and real NVIDIA/AMD Vulkan validation GPU matrices | PRODUCTION |
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
-| Metal | Suite, oracles, teacher row, and Apple M4/macOS 26.3 measurements | QUALIFIED |
+| Metal | Suite, oracles, teacher row, and recorded Apple silicon/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
 | CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
 
@@ -429,14 +429,14 @@ schemes passed, as did four endpoints. External rows were six missing Q8_0 files
 and 28 Metal rows unavailable on Linux. The same runtime produced
 `qualified=6 not_qualified=0 external_verification=0` semantically.
 
-Separate Apple M4 evidence qualifies only its declared Metal tuple. RTX 3060
-and RX 6750 XT results likewise do not qualify every NVIDIA or AMD device. See
-[AMD cleanup-regression repair](../investigation-reports/amd-deep-clean-regression-repair.md).
+Separate Apple silicon evidence qualifies only its declared Metal tuple.
+NVIDIA and AMD Vulkan validation results likewise do not qualify every device.
+See [AMD cleanup-regression repair](../investigation-reports/amd-deep-clean-regression-repair.md).
 
 ## Preliminary v0.1.0 Campaign
 
-The 19 August 2026 campaign used Vulkan-hybrid all-GPU on Linux x86_64, RTX
-3060 12 GiB, driver 595.84, f16 KV, context 4096, and llama.cpp
+The 19 August 2026 campaign used Vulkan-hybrid all-GPU on a Linux x86_64 NVIDIA
+validation GPU with 12 GiB, driver 595.84, f16 KV, context 4096, and llama.cpp
 `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. There were no retries.
 
 | Model | Semantic generation | Teacher-forced | Historical result |

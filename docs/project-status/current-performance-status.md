@@ -69,7 +69,7 @@ and their distinct evidence boundaries.
 | Per-8 Q8/DP4A Q4 decode | DP4A, Q4_K, scratch and shape contract | exact float Q4 decode | 8B/128 decode 26.64 → 35.06 tok/s across the full program |
 | Vectorized GQA decode | exact GQA relation and device limits | generic attention decode | retained after focused parity and six-model qualification |
 | Tiled and Matrix2 attention | qualified subgroup, shared-memory, and shape caps | wide/generic attention | improves short and long prefill without changing the public contract |
-| AMD Q4 MMQ prefill | AMD, accelerated integer dot, Q4_K, aligned shape and bounded scratch | portable Q4 batch kernel | RX 6750 XT 3B/128 TTFT 624.35 → 223.07 ms |
+| AMD Q4 MMQ prefill | AMD, accelerated integer dot, Q4_K, aligned shape and bounded scratch | portable Q4 batch kernel | AMD Vulkan validation GPU 3B/128 TTFT 624.35 → 223.07 ms |
 | AMD bounded prefill submissions | AMD vendor plus graph depth/context | existing 256-row Vulkan capacity elsewhere | 3B/28K reset → 191.055 s at 128 rows; 8B/28K reset → 352.347 s at 64 rows |
 | AMD split-history GQA prefill attention | AMD DP4A/wave32 resources, F16 KV, head 128, exact 4:1 GQA, rows <=64, ending position >=2K | existing tiled/Matrix2/portable attention | 8B/15K TTFT 134.843 → 117.022 s; 8B/28K 350.907 → 273.108 s |
 | AMD required-wave32 Q6 decode/logits | AMD plus Vulkan subgroup-size control | default-subgroup pipeline | adds 6.3--6.5% at 3B KV128/2K on top of GQA |
@@ -87,9 +87,9 @@ so performance decisions are less sensitive to outliers.
 ## Historical NVIDIA A/B Comparison
 
 On 2026-08-18, commit `bc0145d` and the retained Vulkan candidate were rebuilt
-in release mode and measured on the same RTX 3060 with the authenticated 3B
-model, Vulkan, F16 KV, context 4096, a 128-token prompt, one warm-up, and three
-repetitions.
+in release mode and measured on the same NVIDIA Vulkan validation GPU with the
+authenticated 3B model, Vulkan, F16 KV, context 4096, a 128-token prompt, one
+warm-up, and three repetitions.
 
 | Metric | `origin/main` | Retained candidate | Change |
 |---|---:|---:|---:|
@@ -125,7 +125,7 @@ tokens and is not subtracted from the table.
 
 ### AMD Final Comparison
 
-These rows use the RX 6750 XT, RADV 26.0.3, full Vulkan placement, F16 KV, and
+These rows use the AMD Vulkan validation GPU, RADV 26.0.3, full Vulkan placement, F16 KV, and
 the pinned llama.cpp Vulkan build `9bebfcb4b`.
 
 | Workload | AMD final | llama.cpp | Final ratio |
@@ -155,9 +155,9 @@ not a performance-qualified backend.
 
 ### Metal Final Comparison
 
-These rows use an Apple M4 10-core GPU on macOS 26.3, full Metal placement,
-F16 KV, and pinned llama.cpp `13f2b28b0`. Graph Horizon TTFT includes a broader
-public-event boundary than llama.cpp prompt evaluation.
+These rows use a 10-core Apple silicon validation GPU on macOS 26.3, full Metal
+placement, F16 KV, and pinned llama.cpp `13f2b28b0`. Graph Horizon TTFT includes
+a broader public-event boundary than llama.cpp prompt evaluation.
 
 | Workload | Metal final | llama.cpp | Final ratio |
 |---|---:|---:|---:|
@@ -200,7 +200,7 @@ than in the working documentation.
 
 ## Remaining Limit
 
-Fresh RTX 3060 long-context profiling is recorded in
+Fresh NVIDIA Vulkan validation GPU long-context profiling is recorded in
 [the NVIDIA prefill checkpoint](../investigation-reports/vulkan-nvidia-long-context-prefill.md) and
 [the NVIDIA decode checkpoint](../investigation-reports/vulkan-nvidia-long-context-decode.md).
 The motivating 15,435-token prefill symptom no longer reproduces: fresh 8B
@@ -224,7 +224,7 @@ about 42% to direct Q4 Matrix2, 39% to attention, 16% to staged Q6 Matrix2, and
 to the 1.7x target; doing so would require a separately approved model-adaptation
 and quality-validation effort.
 
-On the RX 6750 XT, exact split-history F16 GQA attention is now retained after
+On the AMD Vulkan validation GPU, exact split-history F16 GQA attention is now retained after
 reducing 8B TTFT by 13.22% at 15K and 22.17% at 28K. At 15K the causally
 re-attributed shares are exact Q6_K 34.44%, attention 33.08%, Q4 31.71%, and
 other work 0.77%. Four history splits regressed about 39%, larger Q4/Q6 tiles

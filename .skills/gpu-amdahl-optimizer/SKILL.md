@@ -3,9 +3,10 @@ name: gpu-amdahl-optimizer
 description: >-
   Find and implement substantial GPU inference performance improvements using
   critical-path profiling, Amdahl's law, correctness gates, and reproducible
-  A/B benchmarks. Use for Graph Horizon decode, prefill, or TTFT optimization
-  on CUDA, Vulkan, or Metal; do not use for unmeasured micro-optimization or
-  backend-comparison reports without implementation.
+  A/B benchmarks across short, medium, and long workloads. Use for Graph
+  Horizon decode, prefill, or TTFT optimization on CUDA, Vulkan, or Metal; do
+  not use for unmeasured micro-optimization or backend-comparison reports
+  without implementation.
 ---
 
 <!--
@@ -64,6 +65,57 @@ clean worktree, use a dedicated `perf/<experiment>` branch rather than `main`,
 authenticate the model with `support/models.tsv`, capture the complete baseline
 tuple, and predeclare the target, intentional variable, correctness gate,
 controls, stability limit, and retention threshold.
+
+## Triage Short, Medium, and Long
+
+An explicit task matrix or representative production workload takes priority.
+Otherwise, first inspect the newest `gpu-benchmark-results/**/benchmark-results.json`.
+Use its calibrated short, medium, and long definitions as screening evidence
+only when model SHA, selected backend, physical device, runtime code, context,
+KV, placement, sampling, and adapter options match; inspect intervening commits
+for runtime-affecting changes. A stale or invalid cross-backend comparison may
+suggest a symptom but is not an A/B baseline.
+
+If no comparable matrix exists, predeclare a cheap three-row screen using the
+same authenticated 3B model, backend, context allocation, KV, placement, build,
+sampling, hardware, and environmental controls. Calibrate deterministic prompts
+with the engine tokenizer and record actual `prompt_tokens`; never estimate
+tokens from characters or words. With the canonical context, target prompt
+histories near 128 tokens for **short**, 1,024 for **medium**, and the largest
+safe value near 3,584 for **long**, leaving the declared generation and template
+reserve inside the same 4,096-token context. Use 32 requested tokens for this
+screen so prompt history is the intentional variable. If the task uses another
+context, preserve the same idea: roughly 3%, 25%, and 87.5% of the usable prompt
+budget, fixed before results are read.
+
+For every regime, derive fixed-work elapsed time and attribute its critical
+path. Do not compare raw TTFT milliseconds with tokens/second, choose long just
+because it contains more work, or count prefill twice through TTFT. Build a
+candidate table containing regime, phase, `p`, credible `s`, added overhead,
+conservative predicted percentage gain, absolute time saved, and uncertainty.
+A repeated timeout or incomplete row receives diagnostic priority, not a
+fabricated score.
+
+Choose autonomously in this order:
+
+1. Apply user-supplied workload weights or a named regime.
+2. Otherwise choose the candidate with the largest conservative predicted
+   end-to-end percentage gain that clears the retention threshold.
+3. When candidates are indistinguishable within uncertainty, prefer one that
+   benefits multiple regimes; if still tied, use medium as the representative
+   default.
+
+The chosen regime is the objective and the other runnable regimes are controls.
+After correctness and a provisional passing A/B on the objective, run the
+candidate on both controls before committing it. Apply the canonical control
+regression limit. Restore a candidate that improves one regime by harming
+another beyond that limit. After every retained change, refresh affected rows,
+recompute Amdahl fractions, and rerank; the next bottleneck may be in another
+phase or regime.
+
+Expand beyond the declared context or use a larger model only when the screen
+shows a context-, capacity-, layout-, or memory-dependent bottleneck. Declare
+that extension before measuring it and never change placement to make a row fit.
 
 ## Run Unattended After Preflight
 

@@ -65,6 +65,51 @@ authenticate the model with `support/models.tsv`, capture the complete baseline
 tuple, and predeclare the target, intentional variable, correctness gate,
 controls, stability limit, and retention threshold.
 
+## Run Unattended After Preflight
+
+The backend choice is the only permitted interactive pause. Skip it when the
+invocation names one backend. Resolve the target, model access, baseline tuple,
+completion condition, and budget before starting the long run; then continue
+without per-candidate approval. The optimization request authorizes local
+profiling, temporary instrumentation, reversible experiments, focused test or
+benchmark support, restoration of rejected candidates, and local commits within
+its scope. It does not authorize new dependencies, public API changes, pushes,
+pull requests, merges, or machine configuration changes. Classify candidates
+that require ungranted authority as out of scope and continue without waiting.
+
+When the request does not choose among prefill, TTFT, and decode, use the
+initial public benchmark and timeline to select the largest measured
+end-to-end bottleneck. When it gives no completion threshold, use the canonical
+retention threshold and stop rules. Missing model, hardware, oracle, or other
+access required by the selected gate becomes an exact external-verification
+result, never a late clarification.
+
+If the task gives no overall deadline, use an eight-hour wall-clock budget.
+Keep the canonical per-comparison limit inside it and do not start a candidate
+that cannot reasonably finish its correctness and A/B gates before the
+deadline. Run only one GPU measurement at a time.
+
+Use or create one persistent report in `docs/investigation-reports/` from the
+baseline onward. Record the branch, baseline revision, authenticated tuple,
+deadline, environment, current candidate and phase, exact commands, raw
+measurements, terminal decisions, and retained commits. Update it after the
+baseline and after every candidate decision; commit reproducible checkpoints
+that contain no rejected production code. This report is the recovery source,
+not memory or an assumed process state. At completion, make it self-contained
+and add it to `docs/investigation-reports/README.md`.
+
+For each long-running command, keep and poll the same live process handle. An
+observation timeout is not a command failure and never justifies launching a
+duplicate. Retry an actual transient command failure once with the identical
+tuple. After a repeated failure, record `not_verified`, restore any unaccepted
+production edit, and continue with independent viable candidates. A correctness
+failure rejects and restores that candidate without stopping the campaign.
+
+Never leave an interrupted candidate implicitly accepted. On recovery, inspect
+the branch, worktree, report, and live processes; either reproduce its gates or
+restore only that candidate before continuing. Stop autonomously with a final
+report when a terminal condition is reached rather than waiting for user input.
+
 ## Attribute Cost Before Optimizing
 
 Use a profiling funnel so each more intrusive tool answers a narrower question:

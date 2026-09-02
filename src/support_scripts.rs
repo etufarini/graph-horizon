@@ -236,14 +236,14 @@ fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
 [[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
 [[ "$4" == --show-error && "$5" == --output ]]
 case "$7" in
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.4/graph-horizon-0.1.4.tar.gz)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.5/graph-horizon-0.1.5.tar.gz)
     cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
     ;;
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.4/graph-horizon-0.1.4.tar.gz.sha256)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.5/graph-horizon-0.1.5.tar.gz.sha256)
     if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then
-      printf '%064d  graph-horizon-0.1.4.tar.gz\n' 0 > "$6"
+      printf '%064d  graph-horizon-0.1.5.tar.gz\n' 0 > "$6"
     else
-      printf '%s  graph-horizon-0.1.4.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
+      printf '%s  graph-horizon-0.1.5.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
     fi
     ;;
   *) exit 2 ;;
@@ -276,7 +276,7 @@ exec /usr/bin/tar "$@"
 
 fn source_archive(fixture: &Path, name: &str, complete: bool, with_symlink: bool) -> PathBuf {
     let tree = fixture.join(format!("{name} tree"));
-    let root = tree.join("graph-horizon-0.1.4");
+    let root = tree.join("graph-horizon-0.1.5");
     fs::create_dir_all(root.join("support")).unwrap();
     fs::create_dir_all(root.join("web/frontend")).unwrap();
     write_executable(
@@ -301,7 +301,7 @@ exit "${GRAPH_HORIZON_DELEGATE_STATUS:-0}"
             archive.to_str().unwrap(),
             "-C",
             tree.to_str().unwrap(),
-            "graph-horizon-0.1.4",
+            "graph-horizon-0.1.5",
         ])
         .output()
         .unwrap();
@@ -887,8 +887,8 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
     let safe = source_archive(&fixture, "listed source", true, false);
     for (index, members) in [
         "/absolute/member\n",
-        "graph-horizon-0.1.4/../escape\n",
-        "graph-horizon-0.1.4/./member\n",
+        "graph-horizon-0.1.5/../escape\n",
+        "graph-horizon-0.1.5/./member\n",
         "another-root/member\n",
         "",
     ]
@@ -2832,7 +2832,7 @@ cp "$GRAPH_HORIZON_TEMPLATE/support/installed-product" "$prefix/bin/graph-horizo
         &template.join("support/installed-product"),
         r#"#!/usr/bin/env bash
 case "${1:-}" in
-  --version) echo 'graph-horizon 0.1.4'; exit 0 ;;
+  --version) echo 'graph-horizon 0.1.5'; exit 0 ;;
   --help) echo 'Usage: graph-horizon [options]'; exit 0 ;;
 esac
 backend="${0%/bin/graph-horizon}"; backend="${backend##*/prefix-}"

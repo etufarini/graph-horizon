@@ -149,6 +149,21 @@ approved, ensure that every file adheres to the following checklist:
 - Stop when the task's explicit completion conditions are satisfied; do not keep
   optimizing after the measured result is sufficient.
 
+## Hardware-Neutral Documentation
+
+- Do not add commercial GPU, accelerator, or SoC model names to current or
+  public documentation, installation and release commands, qualification
+  tables, or versioned benchmark artifacts unless the user explicitly requests
+  that exact disclosure.
+- Express support and qualification boundaries through operating system,
+  architecture, backend capabilities, memory, driver or toolchain, model,
+  context, and data-format requirements.
+- Refer to machine-dependent results as a recorded validation environment. Keep
+  exact device identity in private raw logs rather than tracked repository
+  material.
+- Before committing documentation or benchmark results, search the changed
+  tracked files for newly introduced hardware product names.
+
 ## Change Policy
 
 Before editing, identify:

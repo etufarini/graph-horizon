@@ -12,6 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import benchmark
+from chart import BAR_GAP, BAR_WIDTH, CARD_WIDTH, bar_x
 from hardware import detect
 from report import markdown
 from results import comparison, summaries
@@ -128,6 +129,12 @@ class SkillValidation(unittest.TestCase):
         self.assertEqual((plans[0]["desired_prompt_tokens"], plans[0]["generated_tokens"]), (128, 128))
         self.assertEqual((plans[1]["desired_prompt_tokens"], plans[1]["generated_tokens"]), (750, 250))
         self.assertIn("reduced to fit", plans[2]["adjustment"])
+
+    def test_chart_backend_columns_are_separate_and_inside_the_card(self) -> None:
+        first, second = (bar_x(60, index, 2) for index in range(2))
+        self.assertEqual(second - first - BAR_WIDTH, BAR_GAP)
+        self.assertGreaterEqual(first, 60)
+        self.assertLessEqual(second + BAR_WIDTH, 60 + CARD_WIDTH)
 
     def test_skill_links_and_live_detection(self) -> None:
         root = Path(__file__).resolve().parent.parent

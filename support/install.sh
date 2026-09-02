@@ -17,7 +17,7 @@ prefix="${GRAPH_HORIZON_INSTALL_PREFIX:-${HOME}/.local}"
 
 usage() {
     printf '%s\n' \
-        "usage: install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid [--profile release|fast] [--prefix PATH]"
+        "usage: install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda [--profile release|fast] [--prefix PATH]"
 }
 
 fail() {
@@ -53,10 +53,10 @@ while (($#)); do
 done
 
 [[ -n "${backend}" ]] \
-    || fail "--backend is required; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid"
+    || fail "--backend is required; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid, cuda"
 case "${backend}" in
-    cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;;
-    *) fail "invalid backend: ${backend}; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid" ;;
+    cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda) ;;
+    *) fail "invalid backend: ${backend}; accepted: cpu, vulkan, vulkan-hybrid, metal, metal-hybrid, cuda" ;;
 esac
 case "${profile}" in
     release|fast) ;;
@@ -89,13 +89,16 @@ os="$(uname -s)"
 arch="$(uname -m)"
 case "${os}/${arch}/${backend}" in
     Darwin/arm64/cpu|Darwin/arm64/vulkan|Darwin/arm64/vulkan-hybrid|Darwin/arm64/metal|Darwin/arm64/metal-hybrid) ;;
-    Linux/x86_64/cpu|Linux/x86_64/vulkan|Linux/x86_64/vulkan-hybrid) ;;
-    *) fail "unsupported platform/backend: ${os}/${arch}/${backend}; Metal requires macOS on arm64" ;;
+    Linux/x86_64/cpu|Linux/x86_64/vulkan|Linux/x86_64/vulkan-hybrid|Linux/x86_64/cuda) ;;
+    *) fail "unsupported platform/backend: ${os}/${arch}/${backend}; Metal requires macOS on arm64; CUDA requires Linux on x86_64" ;;
 esac
 if [[ "${backend}" == metal || "${backend}" == metal-hybrid ]]; then
     command -v xcrun >/dev/null 2>&1 || fail "Metal requires xcrun"
     xcrun -f metal >/dev/null 2>&1 || fail "Metal compiler is unavailable"
     xcrun -f metallib >/dev/null 2>&1 || fail "Metal library tool is unavailable"
+fi
+if [[ "${backend}" == cuda ]]; then
+    command -v nvcc >/dev/null 2>&1 || fail "CUDA requires nvcc"
 fi
 
 (

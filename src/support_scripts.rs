@@ -196,6 +196,7 @@ printf 'rustc %s (fixture)\n' "${GRAPH_HORIZON_TEST_RUST_VERSION:-1.88.0}"
 [[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
 "#,
     );
+    write_executable(&bin.join("nvcc"), b"#!/usr/bin/env bash\nexit 0\n");
     (fixture, root, bin, log)
 }
 
@@ -1079,8 +1080,11 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         ("Linux", "x86_64", "cpu", true),
         ("Linux", "x86_64", "vulkan", true),
         ("Linux", "x86_64", "vulkan-hybrid", true),
+        ("Linux", "x86_64", "cuda", true),
         ("Linux", "x86_64", "metal", false),
         ("Linux", "x86_64", "metal-hybrid", false),
+        ("Darwin", "arm64", "cuda", false),
+        ("Linux", "aarch64", "cuda", false),
         ("Darwin", "x86_64", "cpu", false),
         ("FreeBSD", "x86_64", "cpu", false),
     ];
@@ -1325,7 +1329,7 @@ fn installer_rejects_linked_frontend_assets_before_rust_build() {
 }
 
 #[test]
-fn installer_requires_profile_and_preflights_metal() {
+fn installer_requires_profile_and_preflights_gpu_toolchains() {
     let fixture = fixture_dir("installer preflight");
     let bin = fixture.join("bin");
     let mutation = fixture.join("build tool called");
@@ -1359,9 +1363,36 @@ fn installer_requires_profile_and_preflights_metal() {
     );
     assert!(!mutation.exists());
 
+    for tool in ["bash", "install", "find", "curl"] {
+        write_executable(&bin.join(tool), b"#!/bin/sh\nexit 0\n");
+    }
+    write_executable(
+        &bin.join("uname"),
+        b"#!/bin/sh\ncase \"$1\" in -s) printf 'Linux\\n' ;; -m) printf 'x86_64\\n' ;; esac\n",
+    );
+    write_executable(
+        &bin.join("rustc"),
+        b"#!/bin/sh\nprintf 'rustc 1.88.0 (fixture)\\n'\n",
+    );
+    let output = Command::new("/bin/bash")
+        .arg(repository().join("support/install.sh"))
+        .args(["--backend", "cuda"])
+        .env("PATH", &bin)
+        .env("GRAPH_HORIZON_MUTATION_LOG", &mutation)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("CUDA requires nvcc")
+    );
+    assert!(!mutation.exists());
+
     let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
-    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid"));
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda"));
     assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
+    assert!(source.find("command -v nvcc").unwrap() < source.find("npm ci").unwrap());
     assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
 }

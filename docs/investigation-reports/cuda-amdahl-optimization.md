@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: serial matmul attribution; no production candidate is active
-- Current phase: stable short baseline captured, narrow profiling pending
+- Current candidate: block-parallel matmul reduction
+- Current phase: candidate implementation pending; profiler removed
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -113,6 +113,40 @@ target/debug/examples/tokenize "$MODEL" "$PROMPT"
 
 Result: 128, 1,024, and 3,584 prompt tokens for the declared rows.
 
+Narrow CUDA attribution used the short prompt, two requested tokens, no warm-up,
+one repetition, and `CUDA_LAUNCH_BLOCKING=1`. Temporary dispatch timing grouped
+host-return latency by kernel and was removed immediately after acquisition.
+
+```text
+instrumented TTFT=125305.60 ms
+all timed kernels=126220.296 ms
+matmul_batched=124854.456 ms (98.9179%, 806 launches)
+logits=628.005 ms (0.4975%, 2 launches)
+matmul=267.983 ms (0.2123%, 104 launches)
+attention_prefill_f16=234.422 ms (0.1857%, 104 launches)
+rmsnorm=112.374 ms (0.0890%, 262 launches)
+all remaining kernels=123.056 ms (0.0975%)
+```
+
+The instrumented TTFT was 0.4% below the unprofiled baseline mean, inside the
+baseline dispersion. Because the backend uses one ordered stream, forcing launch
+completion exposed per-kernel time without removing normal kernel overlap. The
+single diagnostic repetition is attribution evidence, not an A/B performance
+record.
+
+## Amdahl ranking
+
+| Regime / phase | Candidate | `p` | Credible local `s` | Added `o` | Predicted global speedup | Ideal ceiling | Absolute time saved | Uncertainty |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Short / prefill | One block per output row with parallel K reduction | 0.9892 | 8× | 0.005 | 7.17× | 92.4× | about 108.6 s | One profiled repetition; `p` excludes single matmul and logits, so it is conservative |
+
+The candidate changes only matmul launch geometry and the category-K matmul
+kernel. It replaces one serial K loop per output with 256 partial sums reduced
+inside one block. The invariant is unchanged tensor bounds, formats, and one
+output per `(token,row)`. The main risk is floating-point reordering, so this is
+a numeric candidate: CUDA packed-format error tests and pinned real-model top-two
+parity must pass before any candidate benchmark is interpreted.
+
 Baseline, attribution, candidate decisions, correctness results, and exact A/B
 records are appended below as the campaign advances.
 
@@ -140,7 +174,10 @@ TTFT and model decode elapsed time, so prompt/prefill is the selected objective.
 | Candidate | Target | Terminal state | Evidence / revision |
 |---|---|---|---|
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
+| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | running | Amdahl prediction 7.17×; correctness pending |
 
 ## Remaining measured bottleneck
 
-Prompt/prefill is the largest public phase. Kernel-level attribution is pending.
+The serial-K batched matmul owns 98.92% of measured kernel time. If the parallel
+candidate is retained, the next profile must rerank attention, normalization,
+launch overhead, and any remaining matmul work.

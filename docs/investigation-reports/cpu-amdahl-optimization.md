@@ -12,8 +12,9 @@ remains outside tracked documentation.
 - Baseline revision: `302512d97348d4851c48d972cd297d1fe3c531f3`
 - Started: `2026-09-04T17:48:47+02:00`
 - Unattended deadline: `2026-09-05T01:48:47+02:00`
-- State: attribution
-- Retained revisions: none
+- Completed: `2026-09-04T18:20:38+02:00`
+- State: complete; quantitative stop reached
+- Retained production revisions: none
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
 reference backend on this Linux `x86_64` host. The GPU-oriented optimizer
@@ -126,8 +127,8 @@ declared temporary attribution structure is:
 - root and engine `Cargo.toml`: one diagnostic feature line each;
 - `backend/cpu/profile.rs` (~80 productive lines): CPU boundary aggregation
   and one stderr report, with no runtime responsibility when disabled;
-- `backend/cpu/backend.rs` and `backend/cpu/buffer.rs` (~35 added productive
-  lines total): narrow operation and transfer timer scopes.
+- `backend/cpu/backend.rs` (~35 added productive lines): narrow operation
+  timer scopes.
 
 This instrumentation reuses the repository's removed 2026-08 CPU profiler
 design, is built only under the diagnostic feature, and will be removed before
@@ -175,7 +176,7 @@ medium estimates are about 0.22 and 1.85 seconds.
   with AVX-512F+VL in the existing batched float kernel, reusing each activation
   load across four rows instead of two. The arithmetic for each row retains the
   existing AVX2/FMA instruction sequence and horizontal reduction.
-- Eligibility: `x86_64`, AVX2, FMA, F16C, AVX-512F, and AVX-512VL; batched Q4_K
+- Eligibility: `x86_64`, AVX2, FMA, AVX-512F, and AVX-512VL; batched Q4_K
   only. Existing two-row and scalar paths remain the fallback.
 - Invariants: canonical weights, activation/output layout, precision, worker
   partition, per-row accumulation order, placement, and public API are unchanged.
@@ -215,4 +216,54 @@ removed without rewriting history.
 
 ## Final verification and result
 
-Pending.
+No production optimization was retained. The final runtime tree is identical
+to baseline revision `302512d`; only this investigation report and its index
+entry remain on the branch. Conceptual complexity therefore did not increase.
+
+The restored short bookend was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=34.76 prompt_tps_median=34.97 prompt_tps_stddev=0.48 prompt_tps_cv=0.0138 ttft_ms_mean=3683.18 ttft_ms_median=3660.52 ttft_ms_stddev=51.12 ttft_cv=0.0139 model_decode_tps_mean=12.26 model_decode_tps_median=12.29 model_decode_tps_stddev=0.05 model_decode_tps_cv=0.0038 decode_tps_mean=11.88 decode_tps_median=11.90 decode_tps_stddev=0.04 decode_tps_cv=0.0037 delta_interval_ms_mean=84.20 delta_interval_ms_median=83.95 delta_interval_ms_stddev=2.23 delta_interval_ms_cv=0.0265 decode_begin_tps=11.78 decode_middle_tps=11.93 decode_end_tps=11.90
+```
+
+This bookend shows session drift relative to the initial baseline: prompt was
+9.31% faster while model decode was 8.58% slower. Against the closer restored
+bookend, CPU-01 still improves prompt only 4.95%, lowers TTFT 4.72%, and
+regresses both decode controls by about 5.55%. It remains a rejection under
+both the frozen baseline comparison and the local bookend diagnosis.
+
+The campaign stops quantitatively: CPU-01 was the only new current-host
+candidate whose conservative predicted whole-request gain cleared 5%, and it
+failed the decode control. After removal, the largest remaining measured
+bottleneck is Q4_K batched matmul at 62.72--68.47% of accounted time. The next
+independent bounded candidates predict only 2.0% for long attention and 1.1%
+for Q6; historically closed candidates have no changed premise. A larger
+packed-GEMM subsystem remains outside the economic boundary established by its
+measured compact predecessor (-17.3% prompt, +1.41 GiB RSS), while a wider
+query-tiled attention design remains below its conservative retention gate.
+
+Profiler caveats: hardware counters were unavailable, backend timers added
+17.28% to short TTFT, and no claim uses a profiled duration as an end-to-end
+result. External verification remains the pinned real-model parity server at
+revision `13f2b28b0`; the available `9bebfcb4b` binary was not substituted.
+
+Final restored-tree gates:
+
+```sh
+cargo fmt --all -- --check
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-final cargo check --workspace \
+  --locked --no-default-features --features cpu
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-final cargo test --workspace \
+  --locked --release --no-default-features --features cpu
+git diff --check
+git diff --quiet 302512d -- . \
+  ':(exclude)docs/investigation-reports/cpu-amdahl-optimization.md' \
+  ':(exclude)docs/investigation-reports/README.md'
+```
+
+Formatting, locked CPU workspace check, and diff checks passed. The release
+suite passed 170 root tests (three live/external ignored), 163 engine tests
+(two authenticated ignored), documentation, four family-agnostic tests (one
+authenticated ignored), and 12 semantic tests (one authenticated ignored).
+The runtime-tree comparison against the baseline was empty. Added tracked
+documentation also passed the hardware-product-name audit.

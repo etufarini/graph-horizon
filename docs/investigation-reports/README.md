@@ -15,6 +15,7 @@ and [validation evidence](../project-status/validation-evidence.md).
 | Report | Scope |
 |---|---|
 | [CUDA Amdahl optimization](cuda-amdahl-optimization.md) | Matmul and attention attribution, retained CUDA kernels, rejected candidates, and quantitative stop |
+| [CPU Amdahl optimization](cpu-amdahl-optimization.md) | Short/medium/long CPU attribution, rejected AVX-512 row blocking, and quantitative stop |
 | [NVIDIA Vulkan long-context prefill](vulkan-nvidia-long-context-prefill.md) | Prefill attribution, routing correction, and quantitative stop |
 | [NVIDIA Vulkan long-context decode](vulkan-nvidia-long-context-decode.md) | Decode attribution, routing, residency, and reranking |
 | [AMD Vulkan long-context prefill](vulkan-amd-long-context-prefill.md) | Split-GQA route and qualification |

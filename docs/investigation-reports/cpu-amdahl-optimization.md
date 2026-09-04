@@ -18,6 +18,7 @@ remains outside tracked documentation.
 - Completed: `2026-09-04T20:06:49+02:00`
 - State: complete; retained improvement and quantitative stop
 - Retained production revisions: `c76c8b9` (CPU-02 cache-sized token tiling)
+  and `82634e4` (minimum-Rust CPUID safety compatibility)
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
 reference backend on this Linux `x86_64` host. The GPU-oriented optimizer
@@ -436,6 +437,13 @@ largest remaining measured bottleneck is quantized batched matmul, estimated at
 about 82% of short prefill after CPU-02; no independent bounded candidate has a
 conservative predicted gain of 5% or more.
 
+The first PR CI run exposed a toolchain-compatibility boundary: CPUID intrinsics
+are unsafe on the repository's minimum Rust but safe on the newer validation
+toolchain. Revision `82634e4` retains the narrow unsafe block required by the
+minimum compiler and suppresses only `unused_unsafe` for newer compilers. It
+does not change generated work or the benchmarked policy. The exact CI Clippy
+command and the five focused Q4_K tests pass after the correction.
+
 Final retained-tree gates:
 
 ```sh
@@ -452,8 +460,9 @@ git diff --check
 
 Formatting, locked CPU check, warning-denied Clippy, diff checks, and the release
 suite passed. The hardware-product-name audit found no new product name in
-tracked changes. The final branch contains retained production commit
-`c76c8b9`, reproducible report checkpoints, and no rejected production code.
+tracked changes. The final branch contains retained production commits
+`c76c8b9` and `82634e4`, reproducible report checkpoints, and no rejected
+production code.
 The untracked pre-existing development Markdown was preserved untouched and is
 not part of the branch.
 

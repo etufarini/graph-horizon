@@ -12,7 +12,7 @@ remains outside tracked documentation.
 - Baseline revision: `302512d97348d4851c48d972cd297d1fe3c531f3`
 - Started: `2026-09-04T17:48:47+02:00`
 - Unattended deadline: `2026-09-05T01:48:47+02:00`
-- State: baseline acquisition
+- State: attribution
 - Retained revisions: none
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
@@ -87,7 +87,37 @@ principally this host's AVX-512/VNNI capability or new current-revision cost.
 
 ## Baseline and attribution
 
-Pending.
+The baseline build completed once in 11.97 seconds. One warm-up plus three
+measured requests completed in 27 seconds for short, 143 seconds for medium,
+and 529 seconds for long. All objective and decode CVs are below 1.6%, so no
+stability rerun is allowed or needed.
+
+| Regime | Prompt tokens | Prompt tok/s | TTFT ms | Model decode tok/s | Public decode tok/s | TTFT CV | Model-decode CV |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Short | 128 | 31.80 | 4,025.70 | 13.41 | 12.99 | 1.51% | 1.32% |
+| Medium | 1,024 | 30.12 | 34,001.14 | 11.96 | 11.21 | 0.15% | 0.77% |
+| Long | 3,584 | 27.81 | 128,854.94 | 8.99 | 8.42 | 0.41% | 1.08% |
+
+For the fixed 32-completion-token work, the approximate model-decode intervals
+are 2.39, 2.68, and 3.56 seconds. TTFT therefore owns about 62.8%, 92.7%, and
+97.3% of the corresponding TTFT-plus-decode intervals. Prompt/prefill is the
+selected objective in every regime; model and public-delta decode are controls.
+The long row has the largest objective fraction, while a candidate must still
+pass short and medium controls before retention.
+
+Exact public command shape (the prompt word count is selected per row):
+
+```sh
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-baseline cargo build --locked \
+  --release --no-default-features --features cpu --example bench
+/tmp/graph-horizon-cpu-target-baseline/release/examples/bench "$MODEL" \
+  --context 4096 --kv f16 --prompt "$PROMPT" --max-tokens 32 \
+  --warmup 1 --reps 3
+```
+
+The public benchmark is the end-to-end authority. Narrow one-repetition,
+two-token diagnostics used below are attribution only and are never compared
+as public performance results.
 
 ## Candidate ledger
 

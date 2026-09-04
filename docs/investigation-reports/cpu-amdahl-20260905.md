@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: baseline captured; temporary CPU timeline and overhead comparison running.
+- State: attribution complete; CPU25-01 declared, awaiting isolated implementation.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 0 / 0 / 0 / 0 / 0.
 
@@ -65,9 +65,39 @@ new bounded mechanism with a sufficient ideal ceiling.
 
 ## Active candidate pool
 
-Not populated before the required preflight and fresh baseline attribution.
-No production candidate is implicitly accepted. Amdahl fractions, benchmark
-results and a quantitative stop are not yet established.
+The active queue below is populated from the completed fresh attribution.
+Fractions refer to fixed-work request time, including prompt and decode; medium
+Q4 has the largest conservative percentage opportunity. Predictions are ranges
+of engineering estimates, not inferential confidence intervals. All IDs belong
+to this campaign; historical CPU-01 through CPU-07 are separate.
+
+| ID / premise | Regime / phase | Conservative p | Local s | Added o | Predicted global gain / ideal ceiling | Saved time | Cost / risk / uncertainty | State |
+|---|---|---:|---:|---:|---|---|---|---|
+| CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | small two-file edit; exact layout risk; cache benefit unmeasured | ready |
+| CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .55 | 1.10 | .002 | 5.04% / 2.22x | 1.57 s | small SIMD edit; exact gate; register-pressure risk | ready |
+| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .18 | 1.20 | .005 | 2.56% / 1.22x | .82 s | bounded kernel experiment; scratch traffic may outweigh removed decode | deferred |
+| CPU25-04: fit wide activation tiles to L2 shared by SMT siblings | medium / prefill | .18 | 1.10 | .005 | 1.15% / 1.22x | .37 s | cheap policy experiment; extra weight passes; inspect after CPU25-01 | deferred |
+| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .13 | 1.30 | .005 | 2.56% / 1.15x | 3.78 s | medium kernel/layout edit; exact causal-mask and output gates needed | deferred |
+| CPU25-06: bounded worker handoff spin before sleeping | short / decode | unknown | unknown | unknown | not scored | unknown | requires narrower wake/join attribution; borrowed-job lifetime risk | deferred |
+
+CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
+profiled complete request, versus 40.1% short and 55.8% long. Conservative
+fractions .55/.35/.48 discount instrument and environmental uncertainty.
+CPU25-02 attacks accumulator-chain scheduling rather than activation layout.
+CPU25-03 uses transient per-worker rows, not the historically rejected large
+persistent repacking. CPU25-04 addresses the opposite side of the rejected
+oversized-tile experiment: current 21-row wide tiles occupy 756 KiB each while
+two SMT siblings share one 1 MiB L2 (`shared_cpu_list` confirms this). CPU25-05
+shares across query positions, not across the already grouped four GQA heads.
+CPU25-06 cannot be ranked from total kernel time alone and needs evidence first.
+
+Non-RoPE elementwise work, KV writes, embedding, logits and public plumbing
+together own only about 2.9% of the medium fixed-work interval: removing all of
+them has a ceiling near 3%, so those mechanism families are not filler entries.
+RoPE head-coefficient reuse has an unchanged historical negative result; revisit
+only if a retained change changes its global premise or a different reuse
+lifetime is evidenced. No GPU transfers exist on this selected backend.
+No queue entry has been counted as an attempt yet.
 
 ## Preflight checkpoint
 
@@ -257,3 +287,66 @@ awk -f <recovery-directory>/profile.awk <recovery-directory>/diagnostic-profile-
 Next action is to poll the same diagnostic handle, inspect all rows and their
 overhead, then remove only the temporary profiler before implementing the
 highest-ranked distinct candidate. No optimization attempt has been counted.
+
+### Completed attribution and overhead
+
+All six diagnostic children and their wrapper completed successfully. The
+private raw timeline and per-shape totals remain reproducible with `profile.awk`.
+
+| Regime | Unprofiled TTFT ms | Profiled TTFT ms | Observed overhead | Q4 prefill ms | Q6 prefill ms | RoPE ms | Attention prefill ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Short | 3661.80 | 4152.89 | 13.41% | 2822.473 | 676.589 | 456.708 | 40.276 |
+| Medium | 35515.50 | 38727.61 | 9.04% | 26430.498 | 5623.487 | 3877.631 | 1578.518 |
+| Long | 118153.48 | 134534.29 | 13.86% | 77166.736 | 18365.258 | 13983.164 | 20713.955 |
+
+Profiled first-logits / last-operation timeline boundaries are 4.153/7.048 s,
+38.727/41.853 s and 134.533/138.182 s. Prefill gaps between timed operations
+are .919/7.884/42.317 ms respectively; decode gaps are 7.631/7.794/9.720 ms.
+Q4's 3072x9216 batched shape owns roughly half its prefill cost. The main-loop
+assembly performs 128 floating-point operations per token/two-row/sub-block,
+with 128 activation bytes, 64 accumulator-read bytes and 64 accumulator-write
+bytes: .5 FLOP/byte at that L1 interface, excluding weight decode. These counts
+bound a plausible data-movement limiter but do not prove hardware bandwidth
+saturation. No unavailable hardware counter is invented.
+
+The no-warm-up diagnostic records differ materially from the canonical screen
+even without a code change; CV within one series does not bound between-run
+drift. Therefore acquire a fresh adjacent A/B from the preserved applicable
+baseline for each candidate. Use canonical warm-up/repetitions and controls,
+and never interpret diagnostic throughput as retained performance evidence.
+During a 50-second diagnostic activity sample, inference averaged 831.62% CPU,
+the editor 22.05% CPU and desktop shell 6.34% CPU. These background clients were
+observed, not terminated or reconfigured; their activity is a measurement caveat.
+
+All temporary production instrumentation has been removed with focused patches;
+`git diff --quiet 6238489 -- Cargo.toml crates` passed. The private diagnostic
+binary, patch and logs are retained. No profiler enters the candidate gates.
+
+### CPU25-01 predeclaration
+
+Objective: medium prompt throughput. Short/long prompt throughput and all TTFT,
+model-decode and public-decode metrics remain controls. The intentional change
+packs the already widened Q4 activation into `[32-value sub-block][token][32]`
+order once per batched operation, then feeds contiguous 32-float token windows
+to the existing two-output-row SIMD kernel. Single-row tails and scalar fallback
+retain their existing inputs. The same weight decode, FMA order, horizontal sum,
+output transpose, FP16 narrowing, worker policy and decode path remain invariant.
+
+Smallest production structure, no new file/function/dependency/public API:
+
+```text
+crates/graph_horizon_engine/src/backend/cpu/kernels/matmul/
+  q4k.rs       (~360 productive lines, existing K; replace pair dispatcher with packing/selection)
+  q4k_simd.rs  (~310 productive lines, existing K; change pair-kernel activation address only)
+```
+
+Main risk: the additional activation allocation/copy and changed cache working
+set may cost more than contiguous access saves. Peak extra transient storage is
+`n * in_dim * 4` bytes; no persistent weight or KV representation changes.
+Correctness before performance: exact batched FP16 results against the unchanged
+single-row batched SIMD oracle across narrow/wide shapes, odd row counts and
+tile tails; existing Q4 tests; CPU release workspace suite; CPU feature check;
+pinned real-model F16 parity with baseline top-one IDs also checked. Then build
+the candidate binary, run fresh medium A/B with one warm-up and three measured
+repetitions, and run both control regimes after a provisional objective pass.
+The two-hour comparison budget starts with the fresh objective A acquisition.

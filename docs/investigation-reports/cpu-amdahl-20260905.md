@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-01 kept; preparing post-change attribution and queue rerank.
+- State: CPU25-01 kept; refreshed attribution complete; CPU25-02 selected.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 1 / 1 / 0 / 0 / 1.
 
@@ -74,13 +74,13 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | ID / premise | Regime / phase | Conservative p | Local s | Added o | Predicted global gain / ideal ceiling | Saved time | Cost / risk / uncertainty | State |
 |---|---|---:|---:|---:|---|---|---|---|
 | CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | initial prediction; measured medium prompt +20.681%, all gates pass | kept |
-| CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .55 | 1.10 | .002 | 5.04% / 2.22x | 1.57 s | small SIMD edit; exact gate; register-pressure risk | ready |
-| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .18 | 1.20 | .005 | 2.56% / 1.22x | .82 s | bounded kernel experiment; scratch traffic may outweigh removed decode | deferred |
+| CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | refreshed profile; small SIMD edit; exact gate; register-pressure risk | ready |
+| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
-| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .13 | 1.30 | .005 | 2.56% / 1.15x | 3.78 s | medium kernel/layout edit; exact causal-mask and output gates needed | deferred |
-| CPU25-06: bounded worker handoff spin before sleeping | short / decode | unknown | unknown | unknown | not scored | unknown | requires narrower wake/join attribution; borrowed-job lifetime risk | deferred |
+| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | refreshed profile; exact causal-mask and output gates needed | deferred |
+| CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | prefill / pending refreshed regime | unknown | unknown | unknown | not scored | unknown | target conversion/copy/rotation, not rejected coefficient reuse; exact gate required | deferred |
-| CPU25-08: smaller dynamically assigned independent output chunks | pending worker profile | unknown | unknown | unknown | not scored | unknown | possible tail imbalance versus more allocations/dispatch bookkeeping | deferred |
+| CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -517,3 +517,100 @@ kernel, so it would not require a public buffer API. CPU25-08 is deferred until
 worker finish-time spread proves a material tail: its chunks must remain
 disjoint independent outputs, preserving reduction order. Neither has been
 scored or counted. Rerank every non-terminal entry after the fresh profile.
+
+The temporary worker profiler built successfully. Diagnostic session `52045`
+runs `screen.sh cpu25-01-bench retained-base 32 0 1` followed by
+`screen.sh cpu25-01-profile-bench retained-profile 32 0 1`, with all three
+regimes and paths rooted in the private raw directory above. Poll that session,
+do not duplicate it. The tracked instrumentation diff and its untracked module
+are preserved privately as `worker-profile.diff` and `worker-profile.rs`.
+No candidate timing or correctness decision uses these instrumented builds.
+
+### Retained-checkpoint attribution results
+
+Session `52045` and telemetry `38907` completed successfully. All temporary
+profiling files and feature wiring were removed with a focused patch, restoring
+the production files exactly to `13b2ab4`; only this report remained modified.
+The private profiler diff/module and binary remain reproducible diagnostics.
+
+| Regime | Unprofiled TTFT ms | Profiled TTFT ms | Observed difference | Unprofiled / profiled model decode tok/s |
+|---|---:|---:|---:|---:|
+| short | 3688.99 | 3643.17 | -1.24% | 6.63 / 6.72 |
+| medium | 32140.86 | 31073.58 | -3.32% | 6.76 / 6.43 |
+| long | 121441.71 | 123356.25 | +1.58% | 5.22 / 5.32 |
+
+These are zero-warm-up, single-repetition diagnostics, not retention records.
+The negative apparent overhead on two rows exposes environmental/run drift;
+it does not mean timestamping is free or accelerates inference. Decode is
+substantially slower than the earlier canonical A/B in both builds. Temperature
+observations reached 92 C, desktop clients remained present, and no machine
+policy was changed. Fresh adjacent unprofiled A/B remains mandatory.
+
+| Profiled critical-path quantity, ms | short | medium | long |
+|---|---:|---:|---:|
+| First logits boundary | 3642.858 | 31073.210 | 123355.475 |
+| Last backend operation | 8404.178 | 36050.279 | 129371.061 |
+| Prefill Q4 | 2088.886 | 18198.687 | 61356.168 |
+| Prefill Q6 | 899.998 | 5939.653 | 19862.679 |
+| Prefill RoPE | 472.905 | 3683.026 | 13296.280 |
+| Prefill attention | 40.565 | 1992.277 | 24453.685 |
+| Decode Q4 | 2964.915 | 3061.148 | 3474.176 |
+| Decode Q6 | 570.519 | 816.510 | 577.108 |
+| Decode attention | 73.252 | 325.517 | 1246.578 |
+| Prefill gaps | .884 | 7.815 | 50.336 |
+| Decode gaps | 6.996 | 7.824 | 9.221 |
+
+The Q4 prefill fractions of the full profiled request are .249/.505/.474;
+CPU25-02 uses conservative medium p=.42. Its selected local s=1.12 is an
+engineering hypothesis, not a counter-derived saturation claim. Assembly still
+has two serial four-FMA chains per token, without inner-loop vector stack
+spills. Two-token interleaving increases independent chains without arithmetic
+reassociation. The medium 3072-by-9216 shape remains about half of Q4 time.
+
+Worker records use the same monotonic origin and fit inside their enclosing
+operation spans. `workers.awk` validates slot order, interval containment and
+start/end bounds. For each dispatch it computes duration minus the maximum
+worker duration (uncovered-time bound) and duration minus mean worker duration
+(imbalance-plus-handoff bound). They overlap and MUST NOT be added. Unequal
+chunk lengths, preemption, timestamp overhead and wake latency all affect them.
+
+Representative bounds: medium prefill Q4 dispatch 17582.468 ms, uncovered
+1522.677 ms, imbalance-plus-handoff 3457.925 ms, post-last-worker join 85.303 ms.
+Short decode Q4 dispatch 2938.602 ms, uncovered 373.811 ms, imbalance-plus-handoff
+725.773 ms, join 42.863 ms. Long prefill attention dispatch 24195.578 ms,
+uncovered 677.420 ms, imbalance-plus-handoff 3928.266 ms. This supports bounded
+handoff and load-balancing experiments, not a claim that all spread is removable.
+
+Queue rerank: CPU25-02 first, CPU25-05 next by predicted full-request effect,
+then CPU25-03; CPU25-06 has only about .17 s predicted savings in the short
+decode-only interval (about 2% of the whole short request), and needs a bounded
+spin/idle design before becoming ready. CPU25-08's conservative ceiling is low,
+but its upper causal range can clear 5%; do not close it solely on the lower
+prediction. CPU25-07 still needs narrower rotation/conversion attribution and
+is not assigned the entire RoPE bucket. CPU25-04 remains closed unchanged.
+These entries remain distinct from historical rejected experiments.
+
+### CPU25-02 predeclaration
+
+Baseline is retained CPU25-01 (`13b2ab4`). Objective: medium prompt throughput;
+TTFT and both decode metrics are controls, followed by short and long controls
+only after a provisional medium pass. Tuple, repetitions, stability/rerun rule,
+5% retention threshold and 5% maximum control regression remain unchanged.
+
+Intentional variable: execute two token iterations together inside the existing
+two-output-row Q4 AVX2 kernel, interleaving four independent accumulator chains.
+Keep each accumulator's exact sub-block/chunk order; retain the original odd
+token tail, scalar fallback, single-token routing and packed representation.
+No allocation, scheduling, weights, KV or public interface changes.
+
+Necessary tree: `backend/cpu/kernels/matmul/q4k_simd.rs` (~350 productive lines,
+existing category K). No new production file or function. Main risk is register
+pressure introducing spills and reducing throughput, checked in emitted code
+and the unprofiled benchmark. Complexity cost is one explicit two-token loop
+plus the existing tail, acceptable only if the declared performance gate passes.
+
+Correctness before performance: existing bit-exact packed-batch comparison
+against the unchanged single-row kernel (including odd batches and tile tails),
+all focused Q4 tests, release CPU workspace tests, CPU feature check, and pinned
+real-model F16 parity with output compared to the baseline record. Failed
+correctness rejects this candidate. No test tolerance or oracle changes.

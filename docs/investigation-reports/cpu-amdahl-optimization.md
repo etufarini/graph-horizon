@@ -12,8 +12,10 @@ remains outside tracked documentation.
 - Baseline revision: `302512d97348d4851c48d972cd297d1fe3c531f3`
 - Started: `2026-09-04T17:48:47+02:00`
 - Unattended deadline: `2026-09-05T01:48:47+02:00`
-- Completed: `2026-09-04T18:20:38+02:00`
-- State: complete; quantitative stop reached
+- First pass completed: `2026-09-04T18:20:38+02:00`
+- Resumed: `2026-09-04T19:27:55+02:00`
+- Current unattended deadline: `2026-09-05T03:27:55+02:00`
+- State: active; cache-premise continuation
 - Retained production revisions: none
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
@@ -136,6 +138,48 @@ any candidate correctness or A/B measurement. Its overhead is measured against
 an identical unprofiled diagnostic row.
 
 ## Candidate ledger
+
+### Continuation after the first quantitative stop
+
+The first pass stopped too early because it carried forward the 256 KiB L2
+premise of the historical six-core host. The current host has a 1 MiB unified
+L2 per physical core (shared only by its two hardware threads), while
+`token_tile` still targets a 192 KiB activation working set. For the dominant
+`in_dim=3072`, `n=32` Q4_K calls this forces two 16-token tiles and therefore
+two complete weight decode passes even though all 32 activation rows occupy
+384 KiB and fit in the current L2. This is independent of the rejected
+AVX-512 row block: it uses the existing AVX2 arithmetic and cannot alter the
+decode route.
+
+CPU-02 pre-declaration:
+
+- Target: short prompt/prefill throughput; medium and long prompt throughput,
+  TTFT, model decode, and public decode are controls.
+- Intentional variable: size the existing activation tile from the CPU's
+  reported L2 capacity instead of the historical fixed 192 KiB budget, retaining
+  the existing `[16, 64]` bound.
+- Invariants: weight and activation layout, arithmetic and reduction order,
+  batch size, worker count, output transpose, decode path, and public API stay
+  unchanged. Unsupported cache discovery retains the current 256 KiB premise.
+- Smallest change: the existing category-K `token_tile` policy and a focused
+  policy test; no new file, dependency, or persistent allocation.
+- Main risk: a larger activation tile can evict weights or worker scratch and
+  lose more locality than the eliminated decode pass saves.
+- Correctness before performance: formatting, focused Q4_K/Q6_K batched parity,
+  then the locked release CPU workspace suite. Authenticated parity remains
+  external verification while the required pinned reference-server revision is
+  unavailable.
+- Stability and retention: the existing canonical CV, 5% objective, 5%
+  control, and A/B rules remain unchanged.
+
+From the current profile, Q4_K and Q6_K batched work own conservatively 75% of
+the short fixed-work interval. The affected 3072-wide Q4_K shapes alone own
+about 51%. Eliminating one of two weight-decode passes has a conservative local
+speedup of 1.12x for those shapes, giving `p=0.45`, `s=1.12`, negligible added
+overhead, a predicted global speedup of 1.046x, and an ideal ceiling of 1.82x.
+That is slightly below the keep threshold, but the broader affected shapes and
+the exact current-host cache premise make one bounded experiment warranted;
+it must still clear 5% in the public benchmark to remain.
 
 The profiled short diagnostic reported 4,411.37 ms TTFT versus 3,761.54 ms
 unprofiled (+17.28%); whole-process wall time was 5.73 versus 5.05 seconds

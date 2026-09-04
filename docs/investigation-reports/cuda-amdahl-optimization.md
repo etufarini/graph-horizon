@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: block-parallel matmul reduction
-- Current phase: retained; post-change attribution and reranking pending
+- Current candidate: four-token batched matmul weight reuse
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -139,6 +139,7 @@ record.
 | Regime / phase | Candidate | `p` | Credible local `s` | Added `o` | Predicted global speedup | Ideal ceiling | Absolute time saved | Uncertainty |
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | Short / prefill | One block per output row with parallel K reduction | 0.9892 | 8× | 0.005 | 7.17× | 92.4× | about 108.6 s | One profiled repetition; `p` excludes single matmul and logits, so it is conservative |
+| Short / prefill after first keep | Reuse each decoded weight across four batch tokens | 0.9207 | 2× | 0.010 | 1.82× | 12.6× | about 2.8 s | One profiled repetition; local speedup discounted from four-token reuse to 2× |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -146,6 +147,27 @@ inside one block. The invariant is unchanged tensor bounds, formats, and one
 output per `(token,row)`. The main risk is floating-point reordering, so this is
 a numeric candidate: CUDA packed-format error tests and pinned real-model top-two
 parity must pass before any candidate benchmark is interpreted.
+
+Post-change attribution repeated the same two-token diagnostic command after
+commit `5d52db5`; temporary timing was again removed before the next candidate.
+
+```text
+instrumented TTFT=6162.62 ms
+all timed kernels=6227.641 ms
+matmul_batched=5734.055 ms (92.0743%, 806 launches)
+attention_prefill_f16=238.042 ms (3.8223%, 104 launches)
+rmsnorm=113.053 ms (1.8153%, 262 launches)
+rope=56.011 ms (0.8994%, 6708 launches)
+all remaining kernels=86.480 ms (1.3887%)
+```
+
+The next candidate changes only batched matmul: one block processes up to four
+tokens for one output row, decoding each quantized weight once and applying it
+to four inputs. Each token still visits K indices in the same ascending-stride
+order and uses the same tree reduction as the retained kernel. The intended
+variable is weight reuse; tensor layout, formats, placement, and public APIs are
+unchanged. Its predeclared correctness gate is exact batched-versus-single
+kernel output plus the same local and pinned real-model gates.
 
 Baseline, attribution, candidate decisions, correctness results, and exact A/B
 records are appended below as the campaign advances.
@@ -230,9 +252,10 @@ manufacture a runnable substitute.
 |---|---|---|---|
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
 | Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
+| Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | running | Amdahl prediction 1.82×; correctness pending |
 
 ## Remaining measured bottleneck
 
-The serial-K batched matmul owns 98.92% of measured kernel time. If the parallel
-candidate is retained, the next profile must rerank attention, normalization,
-launch overhead, and any remaining matmul work.
+After the first retained change, batched matmul still owns 92.07% of measured
+kernel time. Its repeated quantized-weight decode across batch tokens is the
+largest remaining removable cost.

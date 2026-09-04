@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: decode-specialized four-token matmul
-- Current phase: retained; matrix reranking
+- Current candidate: eight-token prefill tile
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -144,6 +144,7 @@ record.
 | Short / both after first keep | Warp-first block reduction | 0.9207 | 1.10× | 0.002 | 1.089× | 12.6× | about 0.52 s of profiled kernel time | Replaces eight block-wide barriers with one; benefit depends on reduction share within matmul |
 | Short / both after first keep | 128-thread matmul blocks | 0.9207 | 1.10× | 0.001 | 1.090× | 12.6× | about 0.53 s of profiled kernel time | Doubles per-thread dot work but halves block synchronization and may improve residency |
 | Short / prefill after second keep | Reuse weights across four batch tokens, preserving the one-row path | 0.9158 | 2× | 0.010 | 1.81× | 11.9× | about 2.67 s of profiled kernel time | Prior tiling measured +113.5% prefill; the new premise removes its one-row decode overhead |
+| Short / prefill after third keep | Increase the isolated prefill tile from four to eight tokens | 0.7842 | 1.4× | 0.010 | 1.27× | 4.63× | about 0.54 s of profiled kernel time | Weight reuse doubles; register and shared-memory pressure may limit the local gain |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -307,6 +308,7 @@ manufacture a runnable substitute.
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
 | Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
+| Eight-token prefill tile | Short prefill; decode and TTFT controls | running | Post-keep Amdahl prediction +27%; correctness pending |
 
 ## Later candidates
 
@@ -409,3 +411,16 @@ Against the second retained checkpoint, medium prompt throughput improved
 improved 0.69%. Objective and throughput-control CVs were at most 0.21%; no
 control regressed. Complete wall time was 159.90 seconds. Terminal state:
 `keep`.
+
+Post-tile blocking attribution measured 2,397.888 ms across timed kernels.
+Batched matmul remains largest at 1,880.349 ms (78.4169%, 728 launches),
+followed by f16 prefill attention at 230.000 ms (9.5918%, 104 launches),
+RMSNorm at 110.915 ms (4.6255%, 262 launches), and rope at 53.217 ms
+(2.2193%, 6,708 launches). Instrumented TTFT was 2,346.78 ms, consistent with
+the unprofiled short mean. Temporary timing code was removed.
+
+The next candidate changes only the prefill tile width from four to eight.
+Decode remains routed through the accepted one-row kernel. The grid uses
+ceiling `rows/8`; each valid token preserves the same per-thread and tree
+accumulation order. The main risk is increased register and shared-memory
+pressure, while bounds, layouts, formats, and interfaces remain unchanged.

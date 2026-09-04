@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: four-token batched matmul weight reuse
-- Current phase: candidate declared; implementation pending
+- Current candidate: none; accepted baseline restored
+- Current phase: four-token reuse rejected; next-candidate ranking pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -169,6 +169,21 @@ variable is weight reuse; tensor layout, formats, placement, and public APIs are
 unchanged. Its predeclared correctness gate is exact batched-versus-single
 kernel output plus the same local and pinned real-model gates.
 
+The four-token candidate passed the CPU workspace, CUDA check, 11 selected
+error-matrix tests, all 32 CUDA tests, exact f16 batched-versus-single output for
+F16/Q4/Q5/Q6, and pinned real-model parity with all 16 top-1 IDs equal to the
+oracle. Its short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=44.42 prompt_tps_median=44.39 prompt_tps_stddev=0.07 prompt_tps_cv=0.0016 ttft_ms_mean=2881.51 ttft_ms_median=2883.47 ttft_ms_stddev=4.61 ttft_cv=0.0016 model_decode_tps_mean=9.42 model_decode_tps_median=9.42 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0003 decode_tps_mean=9.13 decode_tps_median=9.13 decode_tps_stddev=0.00 decode_tps_cv=0.0004 delta_interval_ms_mean=109.50 delta_interval_ms_median=109.43 delta_interval_ms_stddev=2.44 delta_interval_ms_cv=0.0223 decode_begin_tps=9.38 decode_middle_tps=9.14 decode_end_tps=8.91
+```
+
+Prompt throughput improved 113.5% and TTFT fell 53.1%, but model decode and
+public-delta decode regressed 6.08% and 6.17%. Both exceed the 5% control limit.
+Objective CV was below 5%, so the canonical rerun rule did not apply. Terminal
+state: `reject: decode control regression`; all candidate code and its focused
+test change were removed without rewriting history.
+
 Baseline, attribution, candidate decisions, correctness results, and exact A/B
 records are appended below as the campaign advances.
 
@@ -252,10 +267,10 @@ manufacture a runnable substitute.
 |---|---|---|---|
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
 | Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
-| Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | running | Amdahl prediction 1.82×; correctness pending |
+| Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
 
 ## Remaining measured bottleneck
 
 After the first retained change, batched matmul still owns 92.07% of measured
-kernel time. Its repeated quantized-weight decode across batch tokens is the
-largest remaining removable cost.
+kernel time. Four-token weight reuse improved that path but violated the decode
+control gate; the accepted tree is restored to commit `eb1f049` plus this report.

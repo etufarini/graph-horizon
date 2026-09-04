@@ -204,25 +204,39 @@ pub(super) fn row_dot_q4k_batched_scalar(
     }
 }
 
-// Token-tile width for the batched kernel. The AVX2 batched kernel keeps a per-token
-// 8-lane partial accumulator (`tb*8` f32); the FULL prompt (n ≈ 1k) makes that scratch
-// 32 KB, which exactly fills/thrashes L1 so every sub-block's acc load+store spills to
-// L2. Processing the row in tiles of TOKEN_TILE tokens shrinks the live acc to
-// `TOKEN_TILE*8*4` = 2 KB (comfortably L1-resident) so the acc stays in L1 across the
-// row. The weight row is re-decoded once per tile (n/TOKEN_TILE passes), a ~6/TOKEN_TILE
-// compute overhead — at 64 that is ~9%, far less than the L1-thrash it removes. Output
-// is unchanged: each token is dotted in the identical per-sub-block order, so the result
-// is bit-identical to the untiled kernel (and to the per-token path).
 // Token-tile width for the batched kernel, ADAPTIVE to `in_dim`. Within a token tile,
 // the kernel re-reads each token's `in_dim`-float activation row across the 8 sub-blocks
-// of every 256-block, so the live activation working set is `tile × in_dim × 4` bytes;
-// keeping it within L2 (256 KB on this Skylake) is what makes the wide `down`/`gate`/`up`
-// projections (in_dim 3072) fast — at a fixed tile of 64 their tile is 768 KB and thrashes
-// L2 (measured 43 vs 73 GFLOP/s). We size the tile so `tile × in_dim × 4 ≈ 192 KB` (¾ L2,
-// leaving room for the decoded weights + acc), clamped to [16, 64]: ≤64 keeps the acc
-// L1-resident and the lower bound caps the per-tile weight re-decode overhead (~6/tile).
+// of every 256-block, so the live activation working set is `tile × in_dim × 4`
+// bytes. Keep it near ¾ of the private L2, leaving room for decoded weights and the
+// small lane-accumulator scratch. The [16, 64] bounds cap both repeated weight decode
+// and scratch size; changing the tile does not change per-token accumulation order.
 pub(super) fn token_tile(in_dim: usize) -> usize {
-    (49_152 / in_dim).clamp(16, 64)
+    #[cfg(target_arch = "x86_64")]
+    #[allow(unused_unsafe)] // `__cpuid` became safe after the repository's minimum Rust.
+    let l2_bytes = unsafe {
+        use core::arch::x86_64::__cpuid;
+
+        // SAFETY: CPUID is always available in x86_64 user mode. Extended leaf
+        // 0x80000006 reports per-core L2 size in KiB; zero or an absent leaf keeps
+        // the historical 256 KiB policy instead of guessing a larger cache.
+        let max_extended = __cpuid(0x8000_0000).eax;
+        if max_extended >= 0x8000_0006 {
+            let kib = (__cpuid(0x8000_0006).ecx >> 16) as usize;
+            kib.checked_mul(1024)
+                .filter(|&bytes| bytes > 0)
+                .unwrap_or(256 * 1024)
+        } else {
+            256 * 1024
+        }
+    };
+    #[cfg(not(target_arch = "x86_64"))]
+    let l2_bytes = 256 * 1024;
+
+    token_tile_for_l2(in_dim, l2_bytes)
+}
+
+fn token_tile_for_l2(in_dim: usize, l2_bytes: usize) -> usize {
+    (l2_bytes.saturating_mul(3) / 16 / in_dim).clamp(16, 64)
 }
 
 // Batched Q4_K matmul: y[n][out_dim] = A[n][in_dim] · Wᵀ, token-major. Each output
@@ -455,5 +469,13 @@ mod tests {
             let tol = 8e-2 * want.abs().max(1e-3);
             assert!((value - want).abs() <= tol, "logit {o}: {value} vs {want}");
         }
+    }
+
+    #[test]
+    fn token_tile_tracks_l2_without_leaving_bounds() {
+        assert_eq!(token_tile_for_l2(3072, 256 * 1024), 16);
+        assert_eq!(token_tile_for_l2(3072, 1024 * 1024), 64);
+        assert_eq!(token_tile_for_l2(9216, 1024 * 1024), 21);
+        assert_eq!(token_tile_for_l2(256, 1024 * 1024), 64);
     }
 }

@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: warp-first block reduction
-- Current phase: candidate declared; implementation pending
+- Current phase: interesting result rejected; matrix reranking
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -302,6 +302,7 @@ manufacture a runnable substitute.
 | Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
 | Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
 | Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
+| Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
 
 ## Remaining measured bottleneck
 
@@ -316,3 +317,18 @@ reduces the 256 partial sums within warps before combining eight warp totals.
 It removes seven block-wide barriers without changing formats, bounds, launch
 geometry, or interfaces. The accumulation tree changes, so packed-format error
 tests and pinned real-model parity must pass before performance is interpreted.
+
+The warp-first reduction passed formatting, the CUDA workspace check, the full
+CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests, and
+pinned real-model parity with all 16 top-1 IDs equal to the oracle. Its short
+record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=21.81 prompt_tps_median=21.81 prompt_tps_stddev=0.02 prompt_tps_cv=0.0009 ttft_ms_mean=5868.54 ttft_ms_median=5868.33 ttft_ms_stddev=5.50 ttft_cv=0.0009 model_decode_tps_mean=10.33 model_decode_tps_median=10.33 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0002 decode_tps_mean=10.01 decode_tps_median=10.01 decode_tps_stddev=0.00 decode_tps_cv=0.0002 delta_interval_ms_mean=99.87 delta_interval_ms_median=99.80 delta_interval_ms_stddev=2.33 delta_interval_ms_cv=0.0233 decode_begin_tps=10.30 decode_middle_tps=10.04 decode_end_tps=9.75
+```
+
+Against the retained checkpoint, prompt throughput improved 4.81%, TTFT fell
+4.57%, model decode improved 2.99%, and public-delta decode improved 2.88%.
+CVs were at most 0.09% for the objective and throughput controls. This is the
+predeclared `interesting` band, not a keep: terminal state
+`reject: stable gain below 5%`; the code was restored.

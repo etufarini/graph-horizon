@@ -119,6 +119,21 @@ The public benchmark is the end-to-end authority. Narrow one-repetition,
 two-token diagnostics used below are attribution only and are never compared
 as public performance results.
 
+Hardware counters and sampling are unavailable because
+`kernel.perf_event_paranoid=4`; changing host policy is outside scope. The
+declared temporary attribution structure is:
+
+- root and engine `Cargo.toml`: one diagnostic feature line each;
+- `backend/cpu/profile.rs` (~80 productive lines): CPU boundary aggregation
+  and one stderr report, with no runtime responsibility when disabled;
+- `backend/cpu/backend.rs` and `backend/cpu/buffer.rs` (~35 added productive
+  lines total): narrow operation and transfer timer scopes.
+
+This instrumentation reuses the repository's removed 2026-08 CPU profiler
+design, is built only under the diagnostic feature, and will be removed before
+any candidate correctness or A/B measurement. Its overhead is measured against
+an identical unprofiled diagnostic row.
+
 ## Candidate ledger
 
 Pending baseline attribution and Amdahl ranking.

@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: 128-thread matmul blocks
-- Current phase: candidate declared; implementation pending
+- Current phase: retained; final attribution pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -304,6 +304,7 @@ manufacture a runnable substitute.
 | Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
 | Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
+| 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass |
 
 ## Remaining measured bottleneck
 
@@ -340,3 +341,26 @@ once; fewer threads double the per-thread ascending-stride dot work while
 halving shared reduction work and potentially increasing resident blocks. No
 format, buffer, grid, or interface changes. Assignment and reduction order
 change, so this remains behind the full numeric and real-model gates.
+
+The 128-thread candidate passed formatting, the CUDA workspace check, the full
+CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests,
+and pinned real-model parity with all 16 top-1 IDs equal to the oracle. Its
+short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=22.12 prompt_tps_median=22.10 prompt_tps_stddev=0.05 prompt_tps_cv=0.0023 ttft_ms_mean=5786.24 ttft_ms_median=5790.58 ttft_ms_stddev=13.18 ttft_cv=0.0023 model_decode_tps_mean=10.34 model_decode_tps_median=10.34 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0004 decode_tps_mean=10.03 decode_tps_median=10.03 decode_tps_stddev=0.00 decode_tps_cv=0.0003 delta_interval_ms_mean=99.72 delta_interval_ms_median=99.65 delta_interval_ms_stddev=2.33 delta_interval_ms_cv=0.0234 decode_begin_tps=10.32 decode_middle_tps=10.05 decode_end_tps=9.76
+```
+
+Against the retained checkpoint, short prompt throughput improved 6.29%, TTFT
+fell 5.91%, model decode improved 3.09%, and public-delta decode improved 3.08%.
+Objective and decode CVs were at most 0.23%; the short gate passed.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=17.85 prompt_tps_median=17.85 prompt_tps_stddev=0.00 prompt_tps_cv=0.0003 ttft_ms_mean=57365.45 ttft_ms_median=57370.13 ttft_ms_stddev=14.97 ttft_cv=0.0003 model_decode_tps_mean=3.08 model_decode_tps_median=3.08 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0001 decode_tps_mean=2.89 decode_tps_median=2.89 decode_tps_stddev=0.00 decode_tps_cv=0.0001 delta_interval_ms_mean=345.74 delta_interval_ms_median=334.50 delta_interval_ms_stddev=61.07 delta_interval_ms_cv=0.1766 decode_begin_tps=3.01 decode_middle_tps=2.99 decode_end_tps=2.70
+```
+
+Against the retained checkpoint, medium prompt throughput improved 5.75%,
+TTFT fell 5.43%, model decode improved 1.32%, and public-delta decode improved
+1.40%. Objective CV was 0.03%; no control regressed. Terminal state: `keep`.

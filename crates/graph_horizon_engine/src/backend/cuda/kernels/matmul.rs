@@ -53,7 +53,7 @@ pub(crate) fn encode(
             Arg::U32(format),
         ],
         (output_width, 1, 1),
-        (256, 1, 1),
+        (128, 1, 1),
     )
 }
 
@@ -97,6 +97,6 @@ pub(crate) fn encode_batched(
             Arg::U32(format),
         ],
         (output_width, rows, 1),
-        (256, 1, 1),
+        (128, 1, 1),
     )
 }

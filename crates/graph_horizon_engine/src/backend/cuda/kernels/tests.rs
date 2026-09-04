@@ -618,6 +618,121 @@ fn attention_gqa_scores_match_reference_for_both_kv_schemes() -> Result<()> {
     Ok(())
 }
 
+// Dense scores at the end of a long cache exercise reduction drift, GQA reuse,
+// partial blocks and causal masking; the scalar reference uses stored KV values.
+#[test]
+fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
+    const ROWS: usize = 3;
+    const HEADS: usize = 2;
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    for (dim, context) in [(3, 17), (128, 3584), (256, 129)] {
+        let base = context - ROWS;
+        let keys = (0..context * dim)
+            .map(|i| ((i * 13 + 7) % 37) as f32 / 16.0 - 1.0)
+            .collect::<Vec<_>>();
+        let values = (0..context * dim)
+            .map(|i| ((i * 11 + 3) % 31) as f32 / 8.0 - 2.0)
+            .collect::<Vec<_>>();
+        let queries = (0..ROWS * HEADS * dim)
+            .map(|i| ((i * 7 + 5) % 29) as f32 / 16.0 - 0.75)
+            .collect::<Vec<_>>();
+        let key_input = upload_f16(&device, &keys)?;
+        let value_input = upload_f16(&device, &values)?;
+        let query_input = upload_f16(&device, &queries)?;
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            let cache = kv(&device, scheme, context, dim)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::kv_write::encode(
+                &encoder,
+                &module,
+                &cache,
+                &key_input,
+                &value_input,
+                0,
+                0,
+                cache.meta_base_for(KvRole::Key),
+                cache.meta_base_for(KvRole::Value),
+                context as u32,
+            )?;
+            run(&device, encoder)?;
+            let row_bytes = (HEADS * dim * 2) as u64;
+            let output = CudaBuffer::allocate(&device, row_bytes * ROWS as u64, CudaFormat::F16)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::attention::prefill(
+                &encoder,
+                &module,
+                &output,
+                &query_input,
+                &cache,
+                HEADS as u32,
+                base as u32,
+                ROWS as u32,
+                0,
+            )?;
+            run(&device, encoder)?;
+            let actual = read_f16(&device, &output, ROWS * HEADS * dim)?;
+            let stored_keys = keys
+                .chunks_exact(dim)
+                .map(|v| stored_kv_vector(scheme, v))
+                .collect::<Vec<_>>();
+            let stored_values = values
+                .chunks_exact(dim)
+                .map(|v| stored_kv_vector(scheme, v))
+                .collect::<Vec<_>>();
+            for row in 0..ROWS {
+                for head in 0..HEADS {
+                    let offset = (row * HEADS + head) * dim;
+                    let query = &queries[offset..offset + dim];
+                    let scores = stored_keys[..=base + row]
+                        .iter()
+                        .map(|key| {
+                            query.iter().zip(key).map(|(q, k)| q * k).sum::<f32>()
+                                / (dim as f32).sqrt()
+                        })
+                        .collect::<Vec<_>>();
+                    let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    let weights = scores
+                        .iter()
+                        .map(|s| (s - maximum).exp())
+                        .collect::<Vec<_>>();
+                    let denominator = weights.iter().sum::<f32>();
+                    for d in 0..dim {
+                        let expected = weights
+                            .iter()
+                            .zip(&stored_values)
+                            .map(|(w, v)| w * v[d])
+                            .sum::<f32>()
+                            / denominator;
+                        close(actual[offset + d], expected);
+                    }
+                }
+            }
+            let decode = CudaBuffer::allocate(&device, row_bytes, CudaFormat::F16)?;
+            let query = query_input.view(row_bytes * (ROWS - 1) as u64, row_bytes)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::attention::decode(
+                &encoder,
+                &module,
+                &decode,
+                &query,
+                &cache,
+                HEADS as u32,
+                (context - 1) as u32,
+                0,
+            )?;
+            run(&device, encoder)?;
+            for (decoded, prefilled) in read_f16(&device, &decode, HEADS * dim)?
+                .into_iter()
+                .zip(&actual[(ROWS - 1) * HEADS * dim..])
+            {
+                close(decoded, *prefilled);
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn attention_rejects_empty_overflow_gqa_and_context_before_submission() -> Result<()> {
     let device = Device::acquire()?;

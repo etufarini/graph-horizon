@@ -5,17 +5,15 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start and current retained runtime: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- State: running, preflight/baseline; no production changes.
+- State: running, baseline and correctness complete; timeline acquisition; no production changes.
 - Attempts: 0/10 minimum. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: none.
 
-Recovery checkpoint: baseline runner process 702047 and long-row child 702696
-were confirmed live; tool session `6964` is the acquisition handle. Poll that
-same handle or inspect these processes and `baseline-long.json` before taking
-any action. An observation timeout does not authorize a duplicate benchmark.
-When baseline ends, run `python3 target/cuda-amdahl-20260905/run.py gate baseline`
-and verify the parity log starts with `pass:`. Then collect one diagnostic
+Recovery checkpoint: baseline tool session `6964` completed successfully; all
+three raw records and metadata are present. Correctness runner session `66222`
+completed local tests; separate parity session `89689` passed after correcting
+the private model link (details below). Collect one diagnostic
 32-token, zero-warmup, one-repetition trace for each regime using the copied
 baseline executable, `LD_PRELOAD` set to the absolute private `timeline.so`,
 stdout as a diagnostic benchmark record and stderr as private CSV. Use
@@ -96,14 +94,17 @@ Prompt SHA-256 values, respectively:
 |---|---:|---:|---:|---:|---:|
 | Short | 60.40 (0.0152) | 2119.50 (0.0153) | 10.31 (0.0433) | 10.00 (0.0433) | 23.03 |
 | Medium | 54.79 (0.0010) | 18690.88 (0.0010) | 3.14 (0.0016) | 2.94 (0.0016) | 118.89 |
-| Long | pending | pending | pending | pending | running |
+| Long | 41.71 (0.0001) | 85919.58 (0.0001) | 1.04 (0.0008) | 0.98 (0.0008) | 467.59 |
 
 Short emits 32 completion tokens / 32 deltas, medium 32 / 31. Fixed-work
 approximation from aggregate means is TTFT + (decoded_tokens-1)/decode_tps:
 5.2195 s short (40.6% TTFT), 28.8950 s medium (64.7% TTFT). This measures
 through the last public delta without counting first sampling twice. These inverse means
 are descriptive approximations, not an exact mean elapsed time or isolated
-prefill attribution. Long and the timeline must settle candidate priorities.
+prefill attribution. Long emits 32 completion tokens and 31 public deltas:
+approximately 116.532 s through the final delta, of which 73.7% is TTFT.
+The complete long acquisition passed without timeout, so it is a runnable
+control for every candidate. Timeline attribution must settle priorities.
 
 Exact baseline commands (repository root; model symlink points to authenticated
 bytes, and the copied executable preserves baseline A across later builds):
@@ -125,8 +126,29 @@ correlation IDs and dropped-record checks following the current official
 [CUPTI activity documentation](https://docs.nvidia.com/cupti/main/main.html).
 GPU intervals are unioned; API time is not added to overlapping GPU time.
 
-Local correctness preflight and timeline are pending the active baseline.
+Local correctness preflight passed; timeline acquisition is running.
 No speedup or largest hotspot is yet claimed.
 RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, CUDA_VISIBLE_DEVICES, CUDA_LAUNCH_BLOCKING,
 OMP_NUM_THREADS and RAYON_NUM_THREADS were unset. Short and medium pre/post
 device counters show no increment in software power capping or thermal slowdown.
+
+Before numeric experiments, added one focused existing-file CUDA test for dense
+attention scores with f16/int8 KV at `(head_dim, context)` values `(3,17)`,
+`(128,3584)`, `(256,129)`, two query heads sharing one KV head, and three causal
+queries near the end of cache. It compares stored-value scalar references and
+prefill/decode using the unchanged canonical local numeric bound. This is
+test-only gate support, no productive runtime lines or new production file.
+
+Baseline gate results: formatting and CUDA workspace check passed; CPU workspace
+170 root and 164 engine unit tests plus integration suites passed; 11 selected
+error-matrix tests and all 33 CUDA tests passed. The new long-history test passes
+on the untouched production runtime. Pinned real-model f16 parity passed with
+all 16 recorded local top-1 token IDs equal to the oracle.
+
+Initial parity invocation exited before inference with a byte-count mismatch:
+`artifact_size` uses `stat` without dereferencing symbolic links. The original
+artifact itself was already authenticated. Replaced only the campaign-owned
+symlink with a hard link to the same file, then reran the unchanged canonical
+parity command with the required local `LD_LIBRARY_PATH`. Log:
+`baseline-parity-hardlink.log`. No oracle, threshold, runtime or artifact bytes
+changed. This setup correction is not an optimization attempt.

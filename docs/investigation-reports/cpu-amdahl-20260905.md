@@ -132,3 +132,25 @@ Current measurement handle at launch: execution session `33595`. Poll the live
 handle and inspect its process before treating any observation timeout as a
 failure. The runner serializes the three regimes and aborts on a token-count
 mismatch or benchmark failure.
+
+### Baseline acquisition in progress
+
+Short completed successfully with the calibrated 128 prompt tokens and 32
+completion tokens / public deltas:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=35.78 prompt_tps_median=35.78 prompt_tps_stddev=0.48 prompt_tps_cv=0.0135 ttft_ms_mean=3578.33 ttft_ms_median=3577.86 ttft_ms_stddev=48.18 ttft_cv=0.0135 model_decode_tps_mean=12.91 model_decode_tps_median=13.29 model_decode_tps_stddev=0.92 model_decode_tps_cv=0.0716 decode_tps_mean=12.50 decode_tps_median=12.87 decode_tps_stddev=0.89 decode_tps_cv=0.0715 delta_interval_ms_mean=80.28 delta_interval_ms_median=78.14 delta_interval_ms_stddev=6.74 delta_interval_ms_cv=0.0839 decode_begin_tps=12.59 decode_middle_tps=12.65 decode_end_tps=12.26
+```
+
+The prompt CV is 1.35%; model/public decode CVs are 7.16%/7.15%, a control
+uncertainty to preserve, not a claimed improvement or grounds for a selective
+rerun. Medium is still running. The live runner PID is `283031`; observation
+session `33595` remains valid. Read-only environment observation runs under
+session `34328`, automatically ending when that runner exits, and writes
+`baseline-telemetry.log`. No production or test code has been edited.
+
+Next actions: finish and inspect all three screen rows; declare and measure
+temporary synchronous CPU operation attribution, including overhead; populate
+and rank the active pool from the fresh profile; implement isolated candidates
+with correctness before A/B. Do not count reference preparation, history or
+screen rows toward the ten attempts.

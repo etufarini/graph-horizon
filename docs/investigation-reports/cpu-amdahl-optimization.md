@@ -16,7 +16,8 @@ remains outside tracked documentation.
 - Resumed: `2026-09-04T19:27:55+02:00`
 - Current unattended deadline: `2026-09-05T03:27:55+02:00`
 - State: active; cache-premise continuation
-- Retained production revisions: none
+- Retained production revisions: CPU-02 cache-sized token tiling (recorded
+  below; revision assigned by its evidence commit)
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
 reference backend on this Linux `x86_64` host. The GPU-oriented optimizer
@@ -278,11 +279,53 @@ State: `reject: decode control regression`. Medium and long controls were not
 run after the terminal short failure. All CPU-01 production and test code was
 removed without rewriting history.
 
-## Final verification and result
+### CPU-02 — cache-sized token tiling
 
-No production optimization was retained. The final runtime tree is identical
-to baseline revision `302512d`; only this investigation report and its index
-entry remain on the branch. Conceptual complexity therefore did not increase.
+The implementation reads the per-core L2 capacity from architectural CPUID
+leaf `0x80000006` on `x86_64`, falls back to the historical 256 KiB premise
+when the leaf is absent or reports zero, and targets three quarters of that
+capacity. The existing 16--64 bounds remain. No arithmetic, data layout,
+allocation lifetime, or public interface changed.
+
+The predeclared focused gate passed five Q4_K tests and three Q6_K tests,
+including batched parity and explicit 256 KiB/1 MiB tile-policy cases. The
+locked release CPU workspace passed 170 root tests (three live tests ignored),
+164 engine tests (two authenticated tests ignored), documentation, four
+family-agnostic tests (one authenticated test ignored), and 12 semantic tests
+(one authenticated test ignored).
+
+| Regime | Metric | Baseline | Candidate | Delta | Baseline CV | Candidate CV |
+|---|---|---:|---:|---:|---:|---:|
+| Short | Prompt tok/s | 30.68 | 33.20 | +8.21% | 3.25% | 2.92% |
+| Short | TTFT ms | 4,174.92 | 3,858.00 | -7.59% | 3.30% | 2.95% |
+| Short | Model decode tok/s | 13.13 | 13.72 | +4.49% | 3.91% | 4.81% |
+| Short | Public decode tok/s | 12.71 | 13.29 | +4.56% | 3.91% | 4.80% |
+| Medium rerun | Prompt tok/s | 25.61 | 26.79 | +4.61% | 2.02% | 1.29% |
+| Medium rerun | TTFT ms | 39,998.39 | 38,227.34 | -4.43% | 2.01% | 1.30% |
+| Medium rerun | Model decode tok/s | 9.92 | 10.51 | +5.95% | 2.24% | 0.32% |
+| Medium rerun | Public decode tok/s | 9.30 | 9.85 | +5.91% | 2.24% | 0.33% |
+| Long | Prompt tok/s | 27.32 | 31.09 | +13.80% | 0.22% | 2.37% |
+| Long | TTFT ms | 131,196.13 | 115,338.56 | -12.09% | 0.22% | 2.40% |
+| Long | Model decode tok/s | 9.11 | 9.24 | +1.43% | 0.55% | 1.50% |
+| Long | Public decode tok/s | 8.54 | 8.66 | +1.41% | 0.55% | 1.51% |
+
+The first medium pair was 37.44 -> 28.06 prompt tok/s, but the candidate
+objective CV was 5.30% and its decode CV was 6.96%. The one complete rerun
+allowed by the protocol produced the stable paired row above; no selective
+third run was made. All three accepted pairs used the same authenticated model,
+context, KV, prompt construction, requested generation, warm-up, repetitions,
+worker policy, and build profile.
+
+State: `keep`. The short objective clears 5%; every objective and control CV in
+the deciding records is at most 4.81%; medium and long do not regress; and
+correctness passed. Pinned real-model parity remains
+`external verification: unsupported llama.cpp revision` exactly as for CPU-01.
+
+## First-pass verification and result
+
+No production optimization was retained by the first pass. At that checkpoint,
+the runtime tree was identical to baseline revision `302512d`; only this
+investigation report and its index entry were present on the branch.
 
 The restored short bookend was:
 
@@ -296,9 +339,9 @@ bookend, CPU-01 still improves prompt only 4.95%, lowers TTFT 4.72%, and
 regresses both decode controls by about 5.55%. It remains a rejection under
 both the frozen baseline comparison and the local bookend diagnosis.
 
-The campaign stops quantitatively: CPU-01 was the only new current-host
+The first pass stopped quantitatively: CPU-01 was then the only new current-host
 candidate whose conservative predicted whole-request gain cleared 5%, and it
-failed the decode control. After removal, the largest remaining measured
+failed the decode control. After removal, the largest measured
 bottleneck is Q4_K batched matmul at 62.72--68.47% of accounted time. The next
 independent bounded candidates predict only 2.0% for long attention and 1.1%
 for Q6; historically closed candidates have no changed premise. A larger

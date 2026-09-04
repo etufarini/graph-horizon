@@ -31,8 +31,8 @@ prompt tok/s and 0.59 end-to-end decode tok/s.
 
 A later CUDA/Vulkan benchmark completed its short and medium CUDA workloads but
 timed out on the long CUDA workload, so it reports no comparative winner. Its
-[generated report](../../gpu-benchmark-results/20260902-3b-instruct-q4km-release/benchmark-results.md)
-is performance evidence only and does not broaden the qualified tuple.
+generated report is untracked local performance evidence only and does not
+broaden the qualified tuple.
 
 CUDA hybrid was qualified separately at implementation commit `61c8b57` for
 context 4096 and both f16 and int8 KV. Its 100% all-GPU, 25% mixed, and 0%

@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: none; accepted baseline restored
-- Current phase: four-token reuse rejected; next-candidate ranking pending
+- Current candidate: warp-broadcast Q4 scale/min metadata
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -140,6 +140,7 @@ record.
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | Short / prefill | One block per output row with parallel K reduction | 0.9892 | 8× | 0.005 | 7.17× | 92.4× | about 108.6 s | One profiled repetition; `p` excludes single matmul and logits, so it is conservative |
 | Short / prefill after first keep | Reuse each decoded weight across four batch tokens | 0.9207 | 2× | 0.010 | 1.82× | 12.6× | about 2.8 s | One profiled repetition; local speedup discounted from four-token reuse to 2× |
+| Short / both after first keep | Broadcast Q4 scale/min metadata within each warp | 0.697 | 1.10× | 0.002 | 1.065× | 3.30× | about 0.38 s | Q4 share derived from authenticated tensor shapes; local gain is conservative but not counter-profiled |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -183,6 +184,21 @@ public-delta decode regressed 6.08% and 6.17%. Both exceed the 5% control limit.
 Objective CV was below 5%, so the canonical rerun rule did not apply. Terminal
 state: `reject: decode control regression`; all candidate code and its focused
 test change were removed without rewriting history.
+
+The authenticated inventory has 156 Q4_K matrices and 26 Q6_K layer matrices.
+Using hidden width 3,072 and FFN width 9,216, Q4 projections account for about
+75.7% of per-layer matmul multiply-accumulates. Applied to the measured 92.07%
+matmul share, the Q4 metadata candidate owns a conservative `p=0.697` of the
+short fixed-work interval.
+
+For each 32-lane Q4 group, all lanes currently decode the same two scale/min
+codes and the same two f16 block factors. The third candidate computes those
+values in lane zero and broadcasts their exact f32 bits with warp shuffles;
+quant nibbles and per-lane multiplication remain unchanged. The intended
+variable is redundant metadata arithmetic; no layout, precision, accumulation
+order, or public interface changes. The exact kernel gate pins the accepted
+Q4/Q5 patterned-output f16 bits to `d4b6,ce2d` and `d93c,d46d`; Q6 control bits
+are `51fd,4d1e`. Full local CUDA and real-model parity gates still apply.
 
 Baseline, attribution, candidate decisions, correctness results, and exact A/B
 records are appended below as the campaign advances.
@@ -268,9 +284,11 @@ manufacture a runnable substitute.
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
 | Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
 | Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
+| Warp-broadcast Q4 scale/min metadata | Short prefill and decode | running | Amdahl prediction +6.5%; correctness pending |
 
 ## Remaining measured bottleneck
 
 After the first retained change, batched matmul still owns 92.07% of measured
 kernel time. Four-token weight reuse improved that path but violated the decode
-control gate; the accepted tree is restored to commit `eb1f049` plus this report.
+control gate. Redundant Q4 metadata decoding is the next candidate above the
+retention threshold.

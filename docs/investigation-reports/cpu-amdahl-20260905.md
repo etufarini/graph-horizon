@@ -421,3 +421,19 @@ The comparison started at 2026-09-05T01:14:42+02:00, so its two-hour limit is
 commands and label prefixes, changing only the final regime argument to `long`.
 They must pass before CPU25-01 becomes `kept` or receives a production commit.
 Do not start a second candidate while this comparison is active.
+
+Current live control session: `11862`; first child PID `295024` at launch.
+The older objective session `25513` and short-control session `73799` both
+completed successfully and must not be restarted. Resume by polling `11862`
+and reading `cpu25-01-{a,b}-long.{out,time,start,end}`. If all controls pass,
+complete retained-tree checks, commit CPU25-01 with its evidence, refresh the
+affected operation profile and rerank the same pool. Otherwise restore only
+CPU25-01, record its terminal reason and consider a bounded variant justified
+by that reason. There are still at least nine required new attempts remaining.
+
+Additional historical detail consulted: `dd83f5a` documents that head-level
+RoPE coefficient reuse removed only 115 ms despite a much larger timed bucket;
+F16 conversion/copy and rotation were the remaining cost. This supports a
+future investigation of direct SIMD rotation in the FP16 buffer, a different
+mechanism from coefficient caching. Do not assign it a ready score or count
+an attempt before assessing the current post-decision profile and exact gate.

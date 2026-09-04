@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: decode-specialized four-token matmul
-- Current phase: candidate declared; implementation pending
+- Current phase: retained; matrix reranking
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -306,7 +306,7 @@ manufacture a runnable substitute.
 | Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
-| Decode-specialized four-token matmul | Short prefill; decode and TTFT controls | running | New premise preserves the accepted one-row path while reusing weights only for batched rows |
+| Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
 
 ## Later candidates
 
@@ -383,3 +383,29 @@ decode. Tensor formats, per-token accumulation order, output layout, and public
 interfaces remain unchanged. The grid's token dimension becomes ceiling
 `rows/4`; checked arithmetic must reject overflow. Exact batched-versus-single
 output, all local gates, and pinned parity precede performance.
+
+The decode-specialized tile passed formatting, the CUDA workspace check, the
+full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests, exact batched-versus-single f16 output for F16/Q4/Q5/Q6, and pinned
+real-model parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=55.57 prompt_tps_median=55.58 prompt_tps_stddev=0.04 prompt_tps_cv=0.0008 ttft_ms_mean=2303.37 ttft_ms_median=2302.88 ttft_ms_stddev=1.79 ttft_cv=0.0008 model_decode_tps_mean=10.50 model_decode_tps_median=10.50 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0003 decode_tps_mean=10.18 decode_tps_median=10.18 decode_tps_stddev=0.00 decode_tps_cv=0.0003 delta_interval_ms_mean=98.20 delta_interval_ms_median=98.27 delta_interval_ms_stddev=2.37 delta_interval_ms_cv=0.0241 decode_begin_tps=10.49 decode_middle_tps=10.20 decode_end_tps=9.91
+```
+
+Against the second retained checkpoint, short prompt throughput improved
+151.2%, TTFT fell 60.2%, model decode improved 1.55%, and public-delta decode
+improved 1.50%. Objective and throughput-control CVs were at most 0.08%.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=34.81 prompt_tps_median=34.77 prompt_tps_stddev=0.07 prompt_tps_cv=0.0021 ttft_ms_mean=29414.59 ttft_ms_median=29446.95 ttft_ms_stddev=60.75 ttft_cv=0.0021 model_decode_tps_mean=3.10 model_decode_tps_median=3.10 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0016 decode_tps_mean=2.91 decode_tps_median=2.90 decode_tps_stddev=0.00 decode_tps_cv=0.0015 delta_interval_ms_mean=344.18 delta_interval_ms_median=332.96 delta_interval_ms_stddev=60.68 delta_interval_ms_cv=0.1763 decode_begin_tps=3.03 decode_middle_tps=3.00 decode_end_tps=2.71
+```
+
+Against the second retained checkpoint, medium prompt throughput improved
+95.0%, TTFT fell 48.7%, model decode improved 0.65%, and public-delta decode
+improved 0.69%. Objective and throughput-control CVs were at most 0.21%; no
+control regressed. Complete wall time was 159.90 seconds. Terminal state:
+`keep`.

@@ -83,6 +83,19 @@ pub(crate) fn encode_batched(
     if output_width == 0 || rows == 0 {
         return Err(super::arithmetic());
     }
+    if rows == 1 {
+        return encode(
+            encoder,
+            module,
+            out,
+            input,
+            weight,
+            input_width,
+            output_width,
+            false,
+        );
+    }
+    let token_groups = rows.checked_add(3).ok_or_else(super::arithmetic)? / 4;
     dispatch::launch(
         encoder,
         module,
@@ -96,7 +109,7 @@ pub(crate) fn encode_batched(
             Arg::U32(rows),
             Arg::U32(format),
         ],
-        (output_width, rows, 1),
+        (output_width, token_groups, 1),
         (128, 1, 1),
     )
 }

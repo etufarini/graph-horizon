@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: attribution complete; CPU25-01 declared, awaiting isolated implementation.
+- State: CPU25-01 correctness passed; fresh objective A/B in progress.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 0 / 0 / 0 / 0 / 0.
+- Current attempts / kept / rejected / not_verified / closed-untried: 1 / 0 / 0 / 0 / 1 (one attempt still in progress).
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -76,7 +76,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | small two-file edit; exact layout risk; cache benefit unmeasured | ready |
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .55 | 1.10 | .002 | 5.04% / 2.22x | 1.57 s | small SIMD edit; exact gate; register-pressure risk | ready |
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .18 | 1.20 | .005 | 2.56% / 1.22x | .82 s | bounded kernel experiment; scratch traffic may outweigh removed decode | deferred |
-| CPU25-04: fit wide activation tiles to L2 shared by SMT siblings | medium / prefill | .18 | 1.10 | .005 | 1.15% / 1.22x | .37 s | cheap policy experiment; extra weight passes; inspect after CPU25-01 | deferred |
+| CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .13 | 1.30 | .005 | 2.56% / 1.15x | 3.78 s | medium kernel/layout edit; exact causal-mask and output gates needed | deferred |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode | unknown | unknown | unknown | not scored | unknown | requires narrower wake/join attribution; borrowed-job lifetime risk | deferred |
 
@@ -86,8 +86,10 @@ fractions .55/.35/.48 discount instrument and environmental uncertainty.
 CPU25-02 attacks accumulator-chain scheduling rather than activation layout.
 CPU25-03 uses transient per-worker rows, not the historically rejected large
 persistent repacking. CPU25-04 addresses the opposite side of the rejected
-oversized-tile experiment: current 21-row wide tiles occupy 756 KiB each while
-two SMT siblings share one 1 MiB L2 (`shared_cpu_list` confirms this). CPU25-05
+oversized-tile experiment, but inspection closed its premise before trial:
+both siblings read the SAME shared activation allocation and tile, so 756 KiB
+does not become 1512 KiB in their shared L2. Only their small accumulator/weight
+scratch differs. No duplicated activation allocation exists to remove. CPU25-05
 shares across query positions, not across the already grouped four GQA heads.
 CPU25-06 cannot be ranked from total kernel time alone and needs evidence first.
 
@@ -97,7 +99,7 @@ them has a ceiling near 3%, so those mechanism families are not filler entries.
 RoPE head-coefficient reuse has an unchanged historical negative result; revisit
 only if a retained change changes its global premise or a different reuse
 lifetime is evidenced. No GPU transfers exist on this selected backend.
-No queue entry has been counted as an attempt yet.
+CPU25-01 has reached correctness and started A/B; no other queue entry counts.
 
 ## Preflight checkpoint
 
@@ -350,3 +352,43 @@ pinned real-model F16 parity with baseline top-one IDs also checked. Then build
 the candidate binary, run fresh medium A/B with one warm-up and three measured
 repetitions, and run both control regimes after a provisional objective pass.
 The two-hour comparison budget starts with the fresh objective A acquisition.
+
+### CPU25-01 correctness and live A/B
+
+Implemented only in the two declared kernel files: the existing SIMD pair
+function now takes the full packed batch stride, and its activation address
+becomes `in0 * batch + token * 32`. An obsolete pair dispatcher was removed;
+scalar pairs and odd-row tails retain their original arithmetic/input. No new
+production function was needed. Added transient packing increases conceptual
+complexity by one explicit local representation; the experiment measures
+whether its cache benefit justifies that cost.
+
+The focused exact test passed for input widths 256, 512, 3072 and 9216; batches
+2, 5, 21, 32, 33 and 65; and 13 output rows, exercising odd rows and both tile
+boundaries. It compares actual batched FP16 outputs bit-for-bit against the
+unchanged original single-row SIMD kernel, not against another packed index
+formula. All six focused Q4 tests passed.
+
+The CPU release workspace passed 170 root, 165 engine, one documentation
+integration, four family-agnostic and 12 semantic tests (seven declared external
+tests ignored). The CPU feature check passed. Pinned F16 parity passed and its
+complete output is byte-identical to the initial baseline parity record,
+including all sixteen local top-one IDs. The release benchmark build passed.
+
+Evidence files: `cpu25-01-exact.log`, `cpu25-01-workspace.log`,
+`cpu25-01-check.log`, `cpu25-01-parity.log`, `cpu25-01-build.log`,
+`cpu25-01.patch`, and `cpu25-01-bench` in the private recovery directory.
+No candidate code is committed or accepted yet.
+
+Live objective comparison session `25513` runs these sequential commands:
+
+```sh
+bash <recovery-directory>/screen.sh <recovery-directory>/baseline-bench cpu25-01-a 32 1 3 medium
+bash <recovery-directory>/screen.sh <recovery-directory>/cpu25-01-bench cpu25-01-b 32 1 3 medium
+```
+
+The runner was extended with an explicit regime argument only after the prior
+runner completed; `bash -n` passed. Each command still calibrates exact prompt
+IDs and uses canonical generation, warm-up and repetitions. Poll this session
+before starting anything else; then classify the objective and, if provisional
+keep, acquire paired short and long controls before retention.

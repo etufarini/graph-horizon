@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: eight-token prefill tile
-- Current phase: candidate declared; implementation pending
+- Current phase: rejected; final verification pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -308,7 +308,7 @@ manufacture a runnable substitute.
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
 | Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
-| Eight-token prefill tile | Short prefill; decode and TTFT controls | running | Post-keep Amdahl prediction +27%; correctness pending |
+| Eight-token prefill tile | Short prefill; decode and TTFT controls | **reject** | Objective +1.71%; below 3% with stable controls; code restored |
 
 ## Later candidates
 
@@ -424,3 +424,19 @@ Decode remains routed through the accepted one-row kernel. The grid uses
 ceiling `rows/8`; each valid token preserves the same per-thread and tree
 accumulation order. The main risk is increased register and shared-memory
 pressure, while bounds, layouts, formats, and interfaces remain unchanged.
+
+The eight-token tile passed formatting, the CUDA workspace check, the full CPU
+workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests, exact
+batched-versus-single f16 output for F16/Q4/Q5/Q6 across two groups and a tail,
+and pinned parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=56.52 prompt_tps_median=56.48 prompt_tps_stddev=0.06 prompt_tps_cv=0.0011 ttft_ms_mean=2264.83 ttft_ms_median=2266.10 ttft_ms_stddev=2.55 ttft_cv=0.0011 model_decode_tps_mean=10.50 model_decode_tps_median=10.50 model_decode_tps_stddev=0.01 model_decode_tps_cv=0.0009 decode_tps_mean=10.18 decode_tps_median=10.18 decode_tps_stddev=0.01 decode_tps_cv=0.0008 delta_interval_ms_mean=98.26 delta_interval_ms_median=98.04 delta_interval_ms_stddev=2.39 delta_interval_ms_cv=0.0243 decode_begin_tps=10.48 decode_middle_tps=10.20 decode_end_tps=9.90
+```
+
+Against the accepted four-token tile, prompt throughput improved only 1.71%
+and TTFT fell 1.67%; the two decode means were unchanged at printed precision.
+Objective and throughput-control CVs were at most 0.11%, so no rerun applies.
+Terminal state: `reject: stable gain below 3%`; code and expanded candidate-only
+test dimensions were restored.

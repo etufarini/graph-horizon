@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: preflight; authenticating the required correctness oracle.
+- State: preflight passed; acquiring the public short/medium/long baseline.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 0 / 0 / 0 / 0 / 0.
 
@@ -68,3 +68,67 @@ new bounded mechanism with a sufficient ideal ceiling.
 Not populated before the required preflight and fresh baseline attribution.
 No production candidate is implicitly accepted. Amdahl fractions, benchmark
 results and a quantitative stop are not yet established.
+
+## Preflight checkpoint
+
+The pinned upstream commit fetched and built successfully with the existing
+CMake/GNU toolchain, CPU-only and static libraries. The shallow checkout first
+reported a seven-character commit, which the unchanged parity script rejected
+because it requires the nine-character prefix. Setting `core.abbrev=9` only in
+that isolated checkout and rebuilding its version metadata resolves the
+representation mismatch without changing the reference code or oracle gate.
+
+Private recovery directory:
+`/home/emanuele/Documenti/hack/cpu-amdahl-20260905.QFkZOu`.
+It contains the isolated `oracle` checkout, build logs, `baseline-bench`, and
+`screen.sh`. The model is the authenticated catalog filename in
+`/home/emanuele/.local/share/Trash/files/models`; it is read in place, never
+restored, moved or changed. The runner derives each deterministic prompt with
+124/1020/3580 space-separated `benchmark` words and a final period, and checks
+the engine tokenizer's exact count before each row. It records stdout, elapsed
+resource statistics and start/end timestamps separately. No benchmark has yet
+been acquired while the reference build runs.
+
+Passed at the immutable production baseline:
+
+```sh
+cargo test --workspace --locked --release --no-default-features --features cpu
+cargo check --workspace --locked --no-default-features --features cpu
+cargo build --locked --release --no-default-features --features cpu \
+  --example bench --example tokenize
+```
+
+The suite passed 170 root tests, 164 engine tests, one documentation integration
+test, four family-agnostic tests and 12 semantic tests; seven declared external
+tests were ignored. Real-model parity is running separately using
+`support/testing/parity-check.sh --models-dir <catalog-directory>
+--model-id 3b-instruct --backend cpu --kv f16 --reference-server
+<recovery-directory>/oracle/build/bin/llama-server`.
+
+Environment: six physical/twelve logical CPU threads, one NUMA node, 1 MiB L2
+per core, shared 16 MiB L3, AVX2/FMA/F16C and AVX-512 capabilities, performance
+governor, Rust 1.96.1. No settings were changed. Hardware counters are disabled
+by `perf_event_paranoid=4`; temporary synchronous operation timers will be
+needed after the public screen, with an explicit overhead comparison.
+
+Pinned-reference F16 parity passed before the screen. All sixteen oracle tokens
+were in the local top two and all local top-one IDs matched the oracle:
+`6319,92683,1772,2007,1049,1055,1617,8379,1032,1049,1057,1918,4847,1603,1051,1050`.
+Exact prompt IDs:
+`1,17,18,3,6605,4842,3456,1032,1049,1055,10039,1032,1049,1057,1063,4`.
+The reference's full source revision is verified by Git and its binary now
+reports `13f2b28b0`; no reference implementation or threshold was changed.
+The parity command's successful output is preserved in
+`baseline-parity-verified-revision.log`. Oracle and build processes completed
+before any public benchmark was started.
+
+Screen command (same private recovery directory as above):
+
+```sh
+bash <recovery-directory>/screen.sh <recovery-directory>/baseline-bench baseline
+```
+
+Current measurement handle at launch: execution session `33595`. Poll the live
+handle and inspect its process before treating any observation timeout as a
+failure. The runner serializes the three regimes and aborts on a token-count
+mismatch or benchmark failure.

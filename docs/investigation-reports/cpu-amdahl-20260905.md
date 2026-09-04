@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: baseline captured; preparing temporary CPU timeline attribution.
+- State: baseline captured; temporary CPU timeline and overhead comparison running.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 0 / 0 / 0 / 0 / 0.
 
@@ -226,3 +226,34 @@ clean before applying the predeclared temporary profiler. Linux kernel is
 7.0.0-30-generic and both RUSTFLAGS variables were empty. The long inference
 process had about 2.2 GiB RSS and zero process swap; raw thermal/frequency
 observations are preserved without changing any machine setting.
+
+### Live attribution checkpoint
+
+The declared profiler is now applied locally, formatted, and built successfully
+with `cargo build --locked --release --no-default-features --features
+cpu-profile --example bench` (1.70 s). Realized size is 50 total lines for
+`profile.rs`, 36 added lines in the existing trait implementation, nine module
+wiring lines and two manifest feature lines. The standalone diagnostic binary
+is saved as `profile-bench`; `baseline-bench` remains unchanged. Instrumentation
+is uncommitted and must be removed before any candidate's correctness gate.
+
+Live diagnostic session: `26423`, sequentially running:
+
+```sh
+bash <recovery-directory>/screen.sh <recovery-directory>/baseline-bench diagnostic-base 32 0 1
+bash <recovery-directory>/screen.sh <recovery-directory>/profile-bench diagnostic-profile 32 0 1
+```
+
+Each invocation visits short, medium and long once. This is the predeclared
+overhead comparison, not an objective A/B or a countable candidate. A private
+`profile.awk` parser verifies non-overlapping spans, splits prefill/decode at
+the first completed logits call, and reports per-operation and matmul-shape
+times plus gaps. To consume a finished row:
+
+```sh
+awk -f <recovery-directory>/profile.awk <recovery-directory>/diagnostic-profile-medium.time | sort
+```
+
+Next action is to poll the same diagnostic handle, inspect all rows and their
+overhead, then remove only the temporary profiler before implementing the
+highest-ranked distinct candidate. No optimization attempt has been counted.

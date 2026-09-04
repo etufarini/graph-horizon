@@ -181,6 +181,13 @@ That is slightly below the keep threshold, but the broader affected shapes and
 the exact current-host cache premise make one bounded experiment warranted;
 it must still clear 5% in the public benchmark to remain.
 
+The resumed same-session short baseline at revision `f1e3669` completed with
+all objective and control CVs below 5%:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=30.68 prompt_tps_median=30.97 prompt_tps_stddev=1.00 prompt_tps_cv=0.0325 ttft_ms_mean=4174.92 ttft_ms_median=4133.11 ttft_ms_stddev=137.61 ttft_cv=0.0330 model_decode_tps_mean=13.13 model_decode_tps_median=13.15 model_decode_tps_stddev=0.51 model_decode_tps_cv=0.0391 decode_tps_mean=12.71 decode_tps_median=12.73 decode_tps_stddev=0.50 decode_tps_cv=0.0391 delta_interval_ms_mean=78.73 delta_interval_ms_median=78.23 delta_interval_ms_stddev=3.85 delta_interval_ms_cv=0.0489 decode_begin_tps=12.91 decode_middle_tps=12.73 decode_end_tps=12.52
+```
+
 The profiled short diagnostic reported 4,411.37 ms TTFT versus 3,761.54 ms
 unprofiled (+17.28%); whole-process wall time was 5.73 versus 5.05 seconds
 (+13.47%). Dynamic labels and boundary locking therefore make these timers

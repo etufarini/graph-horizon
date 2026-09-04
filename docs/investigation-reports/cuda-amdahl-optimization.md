@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: warp-broadcast Q4 scale/min metadata
-- Current phase: candidate declared; implementation pending
+- Current phase: rejected; matrix reranking
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -200,6 +200,22 @@ order, or public interface changes. The exact kernel gate pins the accepted
 Q4/Q5 patterned-output f16 bits to `d4b6,ce2d` and `d93c,d46d`; Q6 control bits
 are `51fd,4d1e`. Full local CUDA and real-model parity gates still apply.
 
+The metadata-broadcast candidate passed formatting, the CUDA workspace check,
+the full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests including its exact patterned-output bit gate, and pinned real-model
+parity with all 16 top-1 IDs equal to the oracle. Its short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=17.16 prompt_tps_median=17.20 prompt_tps_stddev=0.06 prompt_tps_cv=0.0036 ttft_ms_mean=7458.31 ttft_ms_median=7443.18 ttft_ms_stddev=26.63 ttft_cv=0.0036 model_decode_tps_mean=9.00 model_decode_tps_median=9.02 model_decode_tps_stddev=0.04 model_decode_tps_cv=0.0043 decode_tps_mean=8.72 decode_tps_median=8.75 decode_tps_stddev=0.04 decode_tps_cv=0.0042 delta_interval_ms_mean=114.62 delta_interval_ms_median=114.29 delta_interval_ms_stddev=3.15 delta_interval_ms_cv=0.0275 decode_begin_tps=8.97 decode_middle_tps=8.76 decode_end_tps=8.50
+```
+
+Against the retained checkpoint, prompt throughput regressed 17.5%, TTFT
+increased 21.3%, model decode regressed 10.3%, and public-delta decode regressed
+10.4%. Objective and decode CVs were at most 0.43%, so the canonical rerun rule
+did not apply. Terminal state: `reject: objective and control regression`; the
+candidate implementation and its exact candidate-only bit assertions were
+removed.
+
 Baseline, attribution, candidate decisions, correctness results, and exact A/B
 records are appended below as the campaign advances.
 
@@ -284,11 +300,13 @@ manufacture a runnable substitute.
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
 | Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
 | Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
-| Warp-broadcast Q4 scale/min metadata | Short prefill and decode | running | Amdahl prediction +6.5%; correctness pending |
+| Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
 
 ## Remaining measured bottleneck
 
 After the first retained change, batched matmul still owns 92.07% of measured
 kernel time. Four-token weight reuse improved that path but violated the decode
-control gate. Redundant Q4 metadata decoding is the next candidate above the
-retention threshold.
+control gate. Warp-broadcasting Q4 metadata increased execution time despite
+eliminating redundant arithmetic, indicating that shuffle and dependency
+latency dominate the saved scalar work on this kernel geometry. The matrix is
+reranked from the restored retained checkpoint.

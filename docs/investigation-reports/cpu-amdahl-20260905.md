@@ -154,3 +154,46 @@ temporary synchronous CPU operation attribution, including overhead; populate
 and rank the active pool from the fresh profile; implement isolated candidates
 with correctness before A/B. Do not count reference preparation, history or
 screen rows toward the ten attempts.
+
+### Attribution structure, declared before activation
+
+Prepared `profile.patch` in the private recovery directory; it has not yet
+changed production sources. Once the complete unprofiled baseline finishes,
+apply it on this clean dedicated branch and build a separate diagnostic binary.
+Only synchronized CPU backend boundaries are timed; a range ends after worker
+join, so operation totals do not sum overlapping workers. Store a timeline in
+memory and print it after inference, including matmul input/output dimensions
+and batch count. This permits phase and shape attribution without putting
+per-event output on the measured path.
+
+Necessary temporary tree and productive-line estimates:
+
+```text
+Cargo.toml                                      (+1 diagnostic feature line)
+crates/graph_horizon_engine/Cargo.toml           (+1 diagnostic feature line)
+crates/graph_horizon_engine/src/backend/cpu/
+  mod.rs                                       (~85 lines total; module wiring)
+  backend.rs                                   (~190 lines; existing I delegator)
+  profile.rs                                   (~50 lines; timeline collection)
+```
+
+Invariant: no arithmetic, scheduling, data layout, worker count or public
+configuration changes. Main risk: timer calls and code placement perturb the
+profiled execution. Measure the overhead with paired unprofiled/profiled
+diagnostics using the same three prompts, 32 requested tokens, zero warm-up and
+one measured repetition. These diagnostics are attribution only; all retained
+performance decisions still use the public canonical 1/3 warm-up/repetition
+tuple. Remove all temporary instrumentation before candidate correctness and
+performance. No permanent profiler or dependency is introduced.
+
+Static inspection of the baseline Q4 two-row kernel confirms a serial token
+loop with four strided activation loads, two accumulator reads and two writes
+per 32-value sub-block. Disassembly shows no vector stack spill inside that
+token loop. After attribution, assess activation layout and accumulator reuse
+as distinct mechanisms; the earlier four-output-row experiments do not test
+either premise. Do not infer an Amdahl score from this inspection alone.
+
+Medium baseline completed: 1024 prompt tokens, 32 model completion tokens and
+31 public deltas; prompt 34.34 tok/s (CV 0.32%), TTFT 29823.14 ms (CV 0.32%),
+model decode 11.11 tok/s (CV 0.87%), public decode 10.41 deltas/s (CV 0.88%).
+The full record is preserved in `baseline-medium.out`. Long remains active.

@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: block-parallel prefill attention
-- Current phase: candidate declared; implementation pending
+- Current phase: retained; matrix reranking
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -310,7 +310,7 @@ manufacture a runnable substitute.
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
 | Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
 | Eight-token prefill tile | Short prefill; decode and TTFT controls | **reject** | Objective +1.71%; below 3% with stable controls; code restored |
-| Block-parallel prefill attention | Short prefill; decode and TTFT controls | running | Post-tile Amdahl prediction +6.3%; correctness pending |
+| Block-parallel prefill attention | Short prefill; medium and decode controls | **keep** | Short objective +8.58%; medium +55.3%; controls pass; retained in the next checkpoint |
 
 ## Later candidates
 
@@ -450,3 +450,29 @@ each thread retains one value accumulator. Decode keeps the accepted serial
 body. The block width is the next power of two covering the validated head
 dimension (at most 256). The main risk is reordered score reduction; existing
 f16/int8 attention bounds and pinned real-model parity gate performance.
+
+The parallel attention candidate passed formatting, the CUDA workspace check,
+the full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests including f16/int8 causal and prefill/decode attention bounds, and pinned
+real-model parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=60.34 prompt_tps_median=60.34 prompt_tps_stddev=0.07 prompt_tps_cv=0.0012 ttft_ms_mean=2121.35 ttft_ms_median=2121.36 ttft_ms_stddev=2.53 ttft_cv=0.0012 model_decode_tps_mean=10.47 model_decode_tps_median=10.49 model_decode_tps_stddev=0.03 model_decode_tps_cv=0.0029 decode_tps_mean=10.16 decode_tps_median=10.17 decode_tps_stddev=0.03 decode_tps_cv=0.0029 delta_interval_ms_mean=98.46 delta_interval_ms_median=98.61 delta_interval_ms_stddev=2.34 delta_interval_ms_cv=0.0238 decode_begin_tps=10.46 decode_middle_tps=10.16 decode_end_tps=9.89
+```
+
+Against the four-token checkpoint, short prompt throughput improved 8.58% and
+TTFT fell 7.90%; model and public-delta decode regressed only 0.29% and 0.20%.
+Objective and throughput-control CVs were at most 0.29%.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=54.06 prompt_tps_median=54.07 prompt_tps_stddev=0.02 prompt_tps_cv=0.0004 ttft_ms_mean=18942.37 ttft_ms_median=18939.54 ttft_ms_stddev=7.14 ttft_cv=0.0004 model_decode_tps_mean=3.09 model_decode_tps_median=3.09 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0012 decode_tps_mean=2.90 decode_tps_median=2.90 decode_tps_stddev=0.00 decode_tps_cv=0.0012 delta_interval_ms_mean=344.99 delta_interval_ms_median=333.63 delta_interval_ms_stddev=60.69 delta_interval_ms_cv=0.1759 decode_begin_tps=3.02 decode_middle_tps=3.00 decode_end_tps=2.71
+```
+
+Against the four-token checkpoint, medium prompt throughput improved 55.3%
+and TTFT fell 35.6%; model and public-delta decode regressed only 0.32% and
+0.34%. Objective and throughput-control CVs were at most 0.12%; no control
+crossed the 5% limit. Complete wall time was 118.16 seconds. Terminal state:
+`keep`.

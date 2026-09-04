@@ -2,11 +2,11 @@
 name: gpu-amdahl-optimizer
 description: >-
   Find and implement substantial GPU inference performance improvements using
-  critical-path profiling, Amdahl's law, correctness gates, and reproducible
-  A/B benchmarks across short, medium, and long workloads. Use for Graph
-  Horizon decode, prefill, or TTFT optimization on CUDA, Vulkan, or Metal; do
-  not use for unmeasured micro-optimization or backend-comparison reports
-  without implementation.
+  critical-path profiling, a ranked candidate pool, Amdahl's law, correctness
+  gates, and reproducible A/B benchmarks across short, medium, and long
+  workloads. Use for Graph Horizon decode, prefill, or TTFT optimization on
+  CUDA, Vulkan, or Metal; do not use for unmeasured micro-optimization or
+  backend-comparison reports without implementation.
 ---
 
 <!--
@@ -91,27 +91,62 @@ budget, fixed before results are read.
 For every regime, derive fixed-work elapsed time and attribute its critical
 path. Do not compare raw TTFT milliseconds with tokens/second, choose long just
 because it contains more work, or count prefill twice through TTFT. Build a
-candidate table containing regime, phase, `p`, credible `s`, added overhead,
-conservative predicted percentage gain, absolute time saved, and uncertainty.
-A repeated timeout or incomplete row receives diagnostic priority, not a
-fabricated score.
+candidate pool before the first production edit. Each entry records a stable
+ID, technical premise and evidence, regime, phase, `p`, credible `s`, added
+overhead, conservative predicted percentage gain, ideal ceiling, absolute time
+saved, experiment cost and risk, uncertainty, and state. A repeated timeout or
+incomplete row receives diagnostic priority, not a fabricated score.
+
+The pool is the persistent work queue, not a one-time list used only to select
+the first experiment. Populate it from distinct mechanisms supported by the
+measured critical path: removing work or transfers, reusing data, changing
+parallelism or launch geometry, reducing synchronization, and changing layout,
+fusion, ownership, or orchestration when relevant. Do not add filler ideas;
+omit an irrelevant mechanism with a short evidence-based reason. If only one
+candidate is viable, explicitly close the other material hotspots or mechanism
+families before editing it.
+
+Use these states:
+
+- `ready`: sufficiently bounded to implement and measure;
+- `deferred`: plausible, but waiting for evidence from a higher-ranked entry;
+- `kept`, `rejected`, or `not_verified`: the canonical terminal outcome;
+- `closed`: not worth implementing because its ideal ceiling cannot reach the
+  target threshold, an unchanged historical result falsifies its premise, or
+  its implementation requires ungranted authority outside the task.
+
+`deferred` is not terminal. A rejected implementation closes only its exact
+premise. A bounded variant remains a distinct candidate when it directly
+removes the measured cause of failure. A missing verification prerequisite
+uses the canonical `not_verified` or `external verification` result; never mark
+it `closed` merely to empty the pool.
 
 Choose autonomously in this order:
 
 1. Apply user-supplied workload weights or a named regime.
-2. Otherwise choose the candidate with the largest conservative predicted
-   end-to-end percentage gain that clears the retention threshold.
+2. Otherwise choose the `ready` candidate with the largest credible
+   end-to-end effect, using experiment cost and uncertainty to break close
+   rankings.
 3. When candidates are indistinguishable within uncertainty, prefer one that
    benefits multiple regimes; if still tied, use medium as the representative
    default.
+
+The retention threshold classifies measured results; it is not an automatic
+pre-implementation cutoff. Rank by conservative predicted gain, but allow a
+cheap bounded experiment below that prediction when its ideal ceiling can
+reach the threshold and uncertainty or diagnostic value is material. Close a
+candidate without implementation only under the `closed` rules above.
 
 The chosen regime is the objective and the other runnable regimes are controls.
 After correctness and a provisional passing A/B on the objective, run the
 candidate on both controls before committing it. Apply the canonical control
 regression limit. Restore a candidate that improves one regime by harming
-another beyond that limit. After every retained change, refresh affected rows,
-recompute Amdahl fractions, and rerank; the next bottleneck may be in another
-phase or regime.
+another beyond that limit. After every candidate decision, update its pool
+state, propagate the evidence to related premises, and rerank all non-terminal
+entries. After every retained change, also refresh affected rows and recompute
+Amdahl fractions; the next bottleneck may be in another phase or regime. After
+a rejection, consider a bounded variant that removes the observed failure,
+then continue with the next `ready` candidate rather than ending the campaign.
 
 Expand beyond the declared context or use a larger model only when the screen
 shows a context-, capacity-, layout-, or memory-dependent bottleneck. Declare
@@ -144,11 +179,12 @@ deadline. Run only one GPU measurement at a time.
 Use or create one persistent report in `docs/investigation-reports/` from the
 baseline onward. Record the branch, baseline revision, authenticated tuple,
 deadline, environment, current candidate and phase, exact commands, raw
-measurements, terminal decisions, and retained commits. Update it after the
-baseline and after every candidate decision; commit reproducible checkpoints
-that contain no rejected production code. This report is the recovery source,
-not memory or an assumed process state. At completion, make it self-contained
-and add it to `docs/investigation-reports/README.md`.
+measurements, complete candidate pool with states, terminal decisions, and
+retained commits. Update it after the baseline and after every candidate
+decision; commit reproducible checkpoints that contain no rejected production
+code. This report is the recovery source, not memory or an assumed process
+state. At completion, make it self-contained and add it to
+`docs/investigation-reports/README.md`.
 
 For each long-running command, keep and poll the same live process handle. An
 observation timeout is not a command failure and never justifies launching a
@@ -226,8 +262,10 @@ and cleanup costs in `o` rather than treating them as free.
 Use the task's or canonical process's threshold. If neither defines one, reject
 a candidate before implementation when even its ideal ceiling cannot plausibly
 improve the target by 5%. Prefer the largest credible global effect, not the
-largest local speedup. Recalculate `p` after each retained change and do not
-bundle independent candidates.
+largest local speedup. A conservative prediction below 5% lowers priority but
+does not by itself close a bounded candidate whose ideal ceiling reaches 5%.
+Recalculate `p` after each retained change and do not bundle independent
+candidates.
 
 ## Run the Investigation Loop
 
@@ -238,8 +276,9 @@ layout, or memory property.
 Repeat:
 
 ```text
-profile -> quantify with Amdahl -> change one thing -> prove correctness
-        -> repeat the identical A/B benchmark -> commit or restore
+profile -> populate and rank the pool -> select one candidate -> change one thing
+        -> prove correctness -> repeat the identical A/B benchmark
+        -> commit or restore -> update and rerank the pool -> select the next
 ```
 
 Keep artifact bytes, prompt, token counts, context, KV, placement, sampling,
@@ -280,10 +319,20 @@ One retained optimization is one local commit containing its before/after
 evidence. Remove rejected production candidates without destructive history
 rewrites and record their negative result concisely so it is not repeated.
 
-Stop at the task's completion condition, the documented budget, an unusable
-correctness oracle, or when no measured candidate has a sufficiently large
-conservative Amdahl ceiling. Do not continue into micro-optimization after the
-measured goal is met.
+Stop immediately at an explicit task completion condition, the documented
+budget, or an unusable correctness oracle. Otherwise, declare a quantitative
+stop only when all of these are true:
+
+1. every pool entry is terminal, with no `ready` or `deferred` candidate left;
+2. a fresh discovery pass over the current largest measured bottleneck found
+   no new bounded candidate;
+3. every material remaining hotspot is closed because its ideal ceiling is
+   below the retention threshold or all credible mechanisms are falsified,
+   infeasible, or outside the authorized scope.
+
+The absence of a candidate whose conservative prediction already clears the
+retention threshold is not sufficient to stop. Do not continue into
+micro-optimization after the measured goal or the quantitative stop is met.
 
 ## Final Report
 
@@ -293,6 +342,7 @@ benchmark tuple; historical evidence consulted; an Amdahl table with `p`, local
 candidate's terminal state and retained commit; exact before/after target,
 variability, and control metrics; correctness and benchmark commands with
 results; profiler caveats and external-verification items; remaining risks; and
-the largest remaining measured bottleneck.
+the largest remaining measured bottleneck. Include every pool entry and explain
+why any unimplemented entry was closed or remained `not_verified`.
 
 The final branch must contain only accepted changes or the restored baseline.

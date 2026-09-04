@@ -178,10 +178,12 @@ From the current profile, Q4_K and Q6_K batched work own conservatively 75% of
 the short fixed-work interval. The affected 3072-wide Q4_K shapes alone own
 about 51%. Eliminating one of two weight-decode passes has a conservative local
 speedup of 1.12x for those shapes, giving `p=0.45`, `s=1.12`, negligible added
-overhead, a predicted global speedup of 1.046x, and an ideal ceiling of 1.82x.
-That is slightly below the keep threshold, but the broader affected shapes and
-the exact current-host cache premise make one bounded experiment warranted;
-it must still clear 5% in the public benchmark to remain.
+overhead, a predicted global speedup of 1.051x, and an ideal ceiling of 1.82x.
+The contemporaneous checkpoint recorded 1.046x and described it as slightly
+below the keep threshold; the final audit found that arithmetic transcription
+error. The corrected estimate narrowly clears the threshold, while the broader
+affected shapes and exact current-host cache premise reinforce the bounded
+experiment; it must still clear 5% in the public benchmark to remain.
 
 The resumed same-session short baseline at revision `f1e3669` completed with
 all objective and control CVs below 5%:

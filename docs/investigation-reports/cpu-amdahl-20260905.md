@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-01 correctness passed; fresh objective A/B in progress.
+- State: CPU25-01 objective and short control passed; long A/B control running.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 1 / 0 / 0 / 0 / 1 (one attempt still in progress).
 
@@ -392,3 +392,32 @@ runner completed; `bash -n` passed. Each command still calibrates exact prompt
 IDs and uses canonical generation, warm-up and repetitions. Poll this session
 before starting anything else; then classify the objective and, if provisional
 keep, acquire paired short and long controls before retention.
+
+### CPU25-01 provisional performance
+
+The fresh medium A/B completed and passed the objective and local controls.
+The paired short control then passed. No stability rerun was needed.
+
+| Regime | Metric | A | B | Delta | CV A | CV B |
+|---|---|---:|---:|---:|---:|---:|
+| Medium objective | Prompt tok/s | 32.88 | 39.68 | +20.681% | .13% | 1.07% |
+| Medium | TTFT ms | 31141.03 | 25810.57 | -17.117% | .13% | 1.06% |
+| Medium | Model decode tok/s | 11.29 | 11.25 | -.354% | .47% | .73% |
+| Medium | Public decode deltas/s | 10.59 | 10.54 | -.472% | .46% | .73% |
+| Short control | Prompt tok/s | 32.65 | 43.42 | +32.986% | .12% | 1.11% |
+| Short | TTFT ms | 3920.61 | 2948.05 | -24.806% | .12% | 1.11% |
+| Short | Model decode tok/s | 12.58 | 12.17 | -3.259% | .40% | .85% |
+| Short | Public decode deltas/s | 12.18 | 11.79 | -3.202% | .39% | .84% |
+
+Each medium row has 1024 prompt tokens, 32 completion tokens and 31 deltas;
+short has 128/32/32. Full single-line records and time/resource metadata are
+saved under `cpu25-01-{a,b}-{medium,short}`. The medium fixed-work request
+estimate improves from 33.975 to 28.655 seconds, distinct from prompt-only
+throughput. Disassembly confirms contiguous packed activation addressing;
+the existing FMA sequence and accumulator memory operations remain.
+
+The comparison started at 2026-09-05T01:14:42+02:00, so its two-hour limit is
+03:14:42+02:00. Long paired controls are now running sequentially with the same
+commands and label prefixes, changing only the final regime argument to `long`.
+They must pass before CPU25-01 becomes `kept` or receives a production commit.
+Do not start a second candidate while this comparison is active.

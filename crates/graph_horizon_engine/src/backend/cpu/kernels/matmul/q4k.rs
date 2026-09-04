@@ -212,12 +212,13 @@ pub(super) fn row_dot_q4k_batched_scalar(
 // and scratch size; changing the tile does not change per-token accumulation order.
 pub(super) fn token_tile(in_dim: usize) -> usize {
     #[cfg(target_arch = "x86_64")]
-    let l2_bytes = {
+    #[allow(unused_unsafe)] // `__cpuid` became safe after the repository's minimum Rust.
+    let l2_bytes = unsafe {
         use core::arch::x86_64::__cpuid;
 
-        // CPUID is always available in x86_64 user mode. Extended leaf 0x80000006
-        // reports per-core L2 size in KiB; zero or an absent leaf keeps the
-        // historical 256 KiB policy instead of guessing a larger cache.
+        // SAFETY: CPUID is always available in x86_64 user mode. Extended leaf
+        // 0x80000006 reports per-core L2 size in KiB; zero or an absent leaf keeps
+        // the historical 256 KiB policy instead of guessing a larger cache.
         let max_extended = __cpuid(0x8000_0000).eax;
         if max_extended >= 0x8000_0006 {
             let kib = (__cpuid(0x8000_0006).ecx >> 16) as usize;

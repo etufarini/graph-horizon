@@ -12,8 +12,9 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: block-parallel prefill attention
-- Current phase: retained; matrix reranking
+- Completed: `2026-09-04T03:05:19+02:00`
+- Terminal state: complete; quantitative stop reached
+- Retained revisions: `5d52db5`, `a9f6466`, `34c9525`, `0056aa3`
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -21,6 +22,30 @@ TTFT are controls. The short row is the first objective because it can acquire
 a stable current-revision baseline within the two-hour comparison limit. The
 medium and largest safe rows are controls when runnable. The matrix is reranked
 after attribution and after every retained change.
+
+## Final result
+
+Four focused changes were retained: block-parallel matmul reduction,
+128-thread matmul launches, decode-isolated four-token prefill tiling, and
+block-parallel prefill attention. The final tree changes no public interface,
+tensor layout, format, allocation, placement, or dependency. Based on the
+printed aggregate means, the end-to-end result is:
+
+| Regime | Metric | Baseline | Final | Change |
+|---|---|---:|---:|---:|
+| Short | Prompt throughput | 1.02 tok/s | 60.34 tok/s | +5,815.7% |
+| Short | TTFT | 125,823.46 ms | 2,121.35 ms | -98.3% |
+| Short | Model decode | 1.08 tok/s | 10.47 tok/s | +869.4% |
+| Short | Public-delta decode | 1.05 tok/s | 10.16 tok/s | +867.6% |
+| Medium | Prompt throughput | 1.01 tok/s | 54.06 tok/s | +5,252.5% |
+| Medium | TTFT | 1,012,305.08 ms | 18,942.37 ms | -98.1% |
+| Medium | Model decode | 0.87 tok/s | 3.09 tok/s | +255.2% |
+| Medium | Public-delta decode | 0.82 tok/s | 2.90 tok/s | +253.7% |
+
+Complete warm-up-plus-measurement wall time fell from 624.23 to 21.79 seconds
+on short and from 4,196.92 to 118.16 seconds on medium. The long row remains
+`not_verified: time budget exceeded` under the unchanged two-hour comparison
+limit. Every retained objective and throughput-control CV is below 0.4%.
 
 ## Authenticated tuple
 
@@ -272,7 +297,7 @@ prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=20.81 p
 Wall time including warm-up was 38.34 seconds. Against the stable baseline,
 prompt throughput improved 1,940.2%, TTFT fell 95.1%, model decode throughput
 improved 828.7%, and public-delta decode improved 826.7%. All available CVs are
-below 1%; this is a provisional passing A/B pending the medium control.
+below 1%; this was a provisional passing A/B before the medium control.
 
 Medium control baseline:
 
@@ -308,9 +333,9 @@ manufacture a runnable substitute.
 | Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
-| Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
+| Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; `34c9525` |
 | Eight-token prefill tile | Short prefill; decode and TTFT controls | **reject** | Objective +1.71%; below 3% with stable controls; code restored |
-| Block-parallel prefill attention | Short prefill; medium and decode controls | **keep** | Short objective +8.58%; medium +55.3%; controls pass; retained in the next checkpoint |
+| Block-parallel prefill attention | Short prefill; medium and decode controls | **keep** | Short objective +8.58%; medium +55.3%; controls pass; `0056aa3` |
 
 ## Later candidates
 
@@ -476,3 +501,31 @@ and TTFT fell 35.6%; model and public-delta decode regressed only 0.32% and
 0.34%. Objective and throughput-control CVs were at most 0.12%; no control
 crossed the 5% limit. Complete wall time was 118.16 seconds. Terminal state:
 `keep`.
+
+Final blocking attribution measured 2,205.433 ms across timed kernels. Batched
+matmul remains largest at 1,891.092 ms (85.7470%, 728 launches), followed by
+RMSNorm at 111.234 ms (5.0436%, 262 launches), rope at 48.580 ms (2.2028%,
+6,708 launches), parallel prefill attention at 35.107 ms (1.5918%, 104
+launches), and decode attention at 32.686 ms (1.4820%, 26 launches).
+Instrumented TTFT was 2,155.16 ms, consistent with the unprofiled final short
+mean. Nsight tools were unavailable, so these are host-blocking attribution
+measurements rather than hardware-counter profiles. Temporary timing code was
+removed.
+
+The campaign stops before its wall-clock deadline because no remaining
+measured candidate has a conservative global ceiling at or above the 5% keep
+threshold. Doubling the dominant matmul tile from four to eight tokens produced
+only +1.71% with low variance, establishing the practical local reuse limit.
+RMSNorm's absolute infinite-speedup ceiling is 5.31%, so any finite credible
+local speedup falls below the gate; all other individual kernels have smaller
+ceilings. The largest remaining bottleneck is therefore the four-token
+quantized batched matmul, whose next improvement would require a different
+cooperative/tensor-core design rather than further tuning of this row kernel.
+
+Final verification passed formatting, CUDA workspace check, the CPU workspace
+suites (173 root and 163 engine tests plus integration suites), 11 selected
+error-matrix tests, all 32 CUDA tests, and authenticated parity. Every retained
+numeric candidate produced all 16 top-1 IDs exactly equal to the pinned
+`13f2b28b0` oracle. Conceptual complexity increased only inside the two
+category-K kernels because work is now explicitly distributed; orchestration
+remains direct at 115 lines for matmul and 44 lines for prefill attention.

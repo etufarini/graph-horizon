@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: eight-token prefill tile
-- Current phase: rejected; final verification pending
+- Current candidate: block-parallel prefill attention
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -145,6 +145,7 @@ record.
 | Short / both after first keep | 128-thread matmul blocks | 0.9207 | 1.10× | 0.001 | 1.090× | 12.6× | about 0.53 s of profiled kernel time | Doubles per-thread dot work but halves block synchronization and may improve residency |
 | Short / prefill after second keep | Reuse weights across four batch tokens, preserving the one-row path | 0.9158 | 2× | 0.010 | 1.81× | 11.9× | about 2.67 s of profiled kernel time | Prior tiling measured +113.5% prefill; the new premise removes its one-row decode overhead |
 | Short / prefill after third keep | Increase the isolated prefill tile from four to eight tokens | 0.7842 | 1.4× | 0.010 | 1.27× | 4.63× | about 0.54 s of profiled kernel time | Weight reuse doubles; register and shared-memory pressure may limit the local gain |
+| Short / prefill after third keep | One block per attention row/head with parallel head-dimension reduction | 0.0959 | 3× | 0.005 | 1.063× | 1.106× | about 0.15 s of profiled kernel time | Ceiling is narrow; synchronization per context token may consume the local gain |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -309,6 +310,7 @@ manufacture a runnable substitute.
 | 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
 | Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; retained in the next checkpoint |
 | Eight-token prefill tile | Short prefill; decode and TTFT controls | **reject** | Objective +1.71%; below 3% with stable controls; code restored |
+| Block-parallel prefill attention | Short prefill; decode and TTFT controls | running | Post-tile Amdahl prediction +6.3%; correctness pending |
 
 ## Later candidates
 
@@ -440,3 +442,11 @@ and TTFT fell 1.67%; the two decode means were unchanged at printed precision.
 Objective and throughput-control CVs were at most 0.11%, so no rerun applies.
 Terminal state: `reject: stable gain below 3%`; code and expanded candidate-only
 test dimensions were restored.
+
+The attention candidate changes only prefill: one block owns a `(row, q-head)`
+pair, threads own head-dimension elements, and a shared tree reduction produces
+each causal score. Online softmax order across tokens remains unchanged and
+each thread retains one value accumulator. Decode keeps the accepted serial
+body. The block width is the next power of two covering the validated head
+dimension (at most 256). The main risk is reordered score reduction; existing
+f16/int8 attention bounds and pinned real-model parity gate performance.

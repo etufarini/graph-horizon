@@ -13,7 +13,7 @@ accordance with the repository hardware-neutral documentation policy.
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
 - Current candidate: block-parallel matmul reduction
-- Current phase: candidate implementation pending; profiler removed
+- Current phase: retained; post-change attribution and reranking pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -169,12 +169,67 @@ stable during acquisition; objective and control CVs were below 1%. For the
 fixed 128-prompt/32-completion work, TTFT contributes about 80.9% of the sum of
 TTFT and model decode elapsed time, so prompt/prefill is the selected objective.
 
+Candidate correctness gates, run before candidate performance:
+
+```sh
+cargo fmt --all -- --check
+cargo check --workspace --locked --no-default-features --features cuda
+cargo test --workspace --locked --no-default-features --features cpu
+cargo test -p graph_horizon_engine --locked --no-default-features \
+  --features cuda error_matrix -- --nocapture
+cargo test -p graph_horizon_engine --locked --no-default-features \
+  --features cuda 'backend::cuda::' -- --nocapture
+support/testing/parity-check.sh --models-dir "$MODELS" --model-id 3b-instruct \
+  --backend cuda --kv f16 --reference-server "$PINNED_LLAMA_SERVER"
+```
+
+Results: formatting and CUDA check passed; CPU workspace suites passed (170 root
+and 163 engine tests, plus integration suites); all 11 selected error-matrix
+tests and all 32 CUDA tests passed. The parity runner used its exact pinned
+`13f2b28b0` oracle and all 16 local top-1 token IDs equaled the oracle token IDs,
+which is stronger than its required top-two bound.
+
+Short candidate record:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=20.81 prompt_tps_median=20.82 prompt_tps_stddev=0.07 prompt_tps_cv=0.0033 ttft_ms_mean=6149.64 ttft_ms_median=6147.80 ttft_ms_stddev=20.39 ttft_cv=0.0033 model_decode_tps_mean=10.03 model_decode_tps_median=10.02 model_decode_tps_stddev=0.03 model_decode_tps_cv=0.0034 decode_tps_mean=9.73 decode_tps_median=9.71 decode_tps_stddev=0.03 decode_tps_cv=0.0034 delta_interval_ms_mean=102.78 delta_interval_ms_median=102.70 delta_interval_ms_stddev=2.35 delta_interval_ms_cv=0.0228 decode_begin_tps=10.00 decode_middle_tps=9.75 decode_end_tps=9.48
+```
+
+Wall time including warm-up was 38.34 seconds. Against the stable baseline,
+prompt throughput improved 1,940.2%, TTFT fell 95.1%, model decode throughput
+improved 828.7%, and public-delta decode improved 826.7%. All available CVs are
+below 1%; this is a provisional passing A/B pending the medium control.
+
+Medium control baseline:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=1.01 prompt_tps_median=1.01 prompt_tps_stddev=0.00 prompt_tps_cv=0.0001 ttft_ms_mean=1012305.08 ttft_ms_median=1012240.63 ttft_ms_stddev=141.85 ttft_cv=0.0001 model_decode_tps_mean=0.87 model_decode_tps_median=0.87 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0014 decode_tps_mean=0.82 decode_tps_median=0.82 decode_tps_stddev=0.00 decode_tps_cv=0.0014 delta_interval_ms_mean=1224.14 delta_interval_ms_median=1183.26 delta_interval_ms_stddev=213.32 delta_interval_ms_cv=0.1743 decode_begin_tps=0.85 decode_middle_tps=0.84 decode_end_tps=0.77
+```
+
+Medium control candidate:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=16.88 prompt_tps_median=16.88 prompt_tps_stddev=0.02 prompt_tps_cv=0.0014 ttft_ms_mean=60658.02 ttft_ms_median=60675.86 ttft_ms_stddev=86.82 ttft_cv=0.0014 model_decode_tps_mean=3.04 model_decode_tps_median=3.04 model_decode_tps_stddev=0.01 model_decode_tps_cv=0.0037 decode_tps_mean=2.85 decode_tps_median=2.85 decode_tps_stddev=0.01 decode_tps_cv=0.0037 delta_interval_ms_mean=350.33 delta_interval_ms_median=338.15 delta_interval_ms_stddev=61.48 delta_interval_ms_cv=0.1755 decode_begin_tps=2.96 decode_middle_tps=2.96 decode_end_tps=2.67
+```
+
+The complete A and B wall times were 4,196.92 and 285.45 seconds. Prompt
+throughput improved 1,571.3%, TTFT fell 94.0%, model decode throughput improved
+249.4%, and public-delta decode improved 247.6%. Objective CVs were 0.01% and
+0.14%; no control regressed.
+
+The long-row baseline was not started. Scaling the measured medium baseline by
+prompt work predicts about 3,543 seconds per request and about 236 minutes for
+the required warm-up plus three measurements. That exceeds the canonical
+two-hour comparison limit, so the row is `not_verified: time budget exceeded`.
+The workload, context, generation reserve, and placement were not changed to
+manufacture a runnable substitute.
+
 ## Candidate ledger
 
 | Candidate | Target | Terminal state | Evidence / revision |
 |---|---|---|---|
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
-| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | running | Amdahl prediction 7.17×; correctness pending |
+| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
 
 ## Remaining measured bottleneck
 

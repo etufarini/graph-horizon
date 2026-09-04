@@ -33,7 +33,9 @@ pub(crate) fn encode(
     )?;
     let weight_bytes = super::weight_bytes(weight.format(), input_width, output_width)?;
     let format = super::format_code(weight.format())?;
-    let (grid, block) = dispatch::one_dim(u64::from(output_width))?;
+    if output_width == 0 {
+        return Err(super::arithmetic());
+    }
     dispatch::launch(
         encoder,
         module,
@@ -50,8 +52,8 @@ pub(crate) fn encode(
             Arg::U32(output_width),
             Arg::U32(format),
         ],
-        grid,
-        block,
+        (output_width, 1, 1),
+        (256, 1, 1),
     )
 }
 
@@ -78,7 +80,9 @@ pub(crate) fn encode_batched(
     super::span(out, CudaFormat::F16, output_bytes)?;
     let weight_bytes = super::weight_bytes(weight.format(), input_width, output_width)?;
     let format = super::format_code(weight.format())?;
-    let (grid, block) = dispatch::one_dim(output_items)?;
+    if output_width == 0 || rows == 0 {
+        return Err(super::arithmetic());
+    }
     dispatch::launch(
         encoder,
         module,
@@ -92,7 +96,7 @@ pub(crate) fn encode_batched(
             Arg::U32(rows),
             Arg::U32(format),
         ],
-        grid,
-        block,
+        (output_width, rows, 1),
+        (256, 1, 1),
     )
 }

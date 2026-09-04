@@ -5,7 +5,7 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: CPU25-01, the production commit containing its decision below.
+- Retained production checkpoint: `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
 - State: CPU25-01 kept; preparing post-change attribution and queue rerank.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
@@ -79,6 +79,8 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .13 | 1.30 | .005 | 2.56% / 1.15x | 3.78 s | medium kernel/layout edit; exact causal-mask and output gates needed | deferred |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode | unknown | unknown | unknown | not scored | unknown | requires narrower wake/join attribution; borrowed-job lifetime risk | deferred |
+| CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | prefill / pending refreshed regime | unknown | unknown | unknown | not scored | unknown | target conversion/copy/rotation, not rejected coefficient reuse; exact gate required | deferred |
+| CPU25-08: smaller dynamically assigned independent output chunks | pending worker profile | unknown | unknown | unknown | not scored | unknown | possible tail imbalance versus more allocations/dispatch bookkeeping | deferred |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -476,3 +478,42 @@ Inherited `c76c8b9` and `82634e4` remain outside current-campaign counts.
 Pending: fresh attribution on the retained checkpoint, rerank CPU25-02/03/05/06,
 replenish distinct candidates from that evidence, and complete at least nine
 more countable attempts. This is not the campaign's final quantitative stop.
+
+### Retained-checkpoint profiling plan
+
+CPU25-01 is production commit `13b2ab4`. The runtime and worktree are clean at
+that checkpoint. Refresh the same three regimes with unprofiled/profiled
+32-token, zero-warm-up, one-repetition diagnostics. Preserve canonical benchmark
+decisions separately; diagnostics are never current-campaign attempts.
+
+The original operation spans cannot distinguish compute from worker wake/join
+and unequal completion times inside an operation. Add temporary per-slot start
+and finish timestamps to answer that narrower question. Worker timestamps use
+separate cache-line-aligned atomic slots; the coordinator copies them only
+after all slots join. This preserves the existing borrowed-job lifetime and
+avoids a logging mutex on worker completion. A common monotonic origin makes
+the worker records attributable to the enclosing backend span.
+
+Temporary structure and productive-line estimates:
+
+```text
+Cargo.toml / engine Cargo.toml         (+1 diagnostic feature line each)
+backend/cpu/mod.rs                    (~85 lines; diagnostic wiring)
+backend/cpu/backend.rs                (~260 lines; existing I delegator)
+backend/cpu/pool.rs                   (~170 lines; unchanged scheduling plus timestamps)
+backend/cpu/profile.rs                (~150 lines; operation/worker timeline collection)
+```
+
+No scheduling candidate is implemented by this instrumentation. Main risk:
+timestamping and post-join snapshots inflate measured handoff time. Measure
+fresh overhead and treat any inferred scheduling ceiling as a bound requiring
+an unprofiled reversible experiment, not as achieved savings. Remove all
+instrumentation before the next candidate correctness/performance gates.
+
+CPU25-07 is newly deferred from the historical evidence that conversion/copy
+and rotation dominated the failed coefficient-reuse experiment. The existing
+`CpuBuffer::with_bytes_mut` already provides a scoped exact window for such a
+kernel, so it would not require a public buffer API. CPU25-08 is deferred until
+worker finish-time spread proves a material tail: its chunks must remain
+disjoint independent outputs, preserving reduction order. Neither has been
+scored or counted. Rerank every non-terminal entry after the fresh profile.

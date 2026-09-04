@@ -10,9 +10,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 use graph_horizon_engine::BackendMemory;
-#[cfg(feature = "vulkan-hybrid")]
+#[cfg(any(feature = "vulkan-hybrid", feature = "cuda-hybrid"))]
 use graph_horizon_engine::PlacementReport;
 use graph_horizon_engine::{
     Engine, EngineConfig, Event, EventSink, KvQuant, Message, Request, Role,
@@ -90,6 +94,7 @@ fn source_structure() {
     const I: &[&str] = &[
         "src/backend/contract.rs",
         "src/backend/cpu/backend.rs",
+        "src/backend/cuda/backend.rs",
         "src/backend/hybrid/contract.rs",
         "src/backend/metal/backend.rs",
         "src/backend/vulkan/backend.rs",
@@ -115,6 +120,7 @@ fn source_structure() {
         "src/backend/cpu/kernels/matmul/q6k_simd.rs",
     ];
     const TEST_FIXTURES: &[&str] = &[
+        "src/backend/cuda/kernels/tests.rs",
         "src/family/mistral/generation/tests.rs",
         "src/family/mistral/graph/shape.rs",
     ];
@@ -180,6 +186,11 @@ fn source_structure() {
 
     let mut shaders = Vec::new();
     collect(
+        &manifest().join("src/backend/cuda/shaders"),
+        "cuh",
+        &mut shaders,
+    );
+    collect(
         &manifest().join("src/backend/metal/shaders"),
         "metal",
         &mut shaders,
@@ -228,6 +239,19 @@ fn hybrid_numeric_dispatch_uses_effective_placement() {
     let loader = fs::read_to_string(metal.join("loader.rs")).expect("Metal loader source");
     assert!(loader.contains("selection.layers.start > 0"));
     assert!(loader.contains("!selection.embedding && selection.tail"));
+
+    let cuda = manifest().join("src/backend/cuda");
+    let mut numeric = Vec::new();
+    collect(&cuda.join("kernels"), "rs", &mut numeric);
+    numeric.push(cuda.join("backend.rs"));
+    for path in numeric {
+        let source = fs::read_to_string(&path).expect("CUDA numeric source");
+        assert!(
+            !source.contains("feature = \"cuda-hybrid\""),
+            "{} dispatches numerically from a Cargo profile",
+            path.display()
+        );
+    }
 }
 
 #[test]
@@ -315,7 +339,7 @@ fn removed_surface_scan() {
     assert!(scan.stdout.is_empty());
 }
 
-#[cfg(feature = "vulkan-hybrid")]
+#[cfg(any(feature = "vulkan-hybrid", feature = "cuda-hybrid"))]
 #[test]
 fn hybrid_placement_contract() {
     let source = fs::read_to_string(manifest().join("src/backend/hybrid/placement/separate.rs"))
@@ -411,7 +435,11 @@ fn required_usize(name: &str) -> usize {
 }
 
 fn assert_placement(engine: &Engine, percentage: Option<u8>) {
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     {
         let expected = std::env::var("GRAPH_HORIZON_EXPECTED_MODE")
             .expect("GRAPH_HORIZON_EXPECTED_MODE required for hybrid profiles");
@@ -437,7 +465,11 @@ fn assert_placement(engine: &Engine, percentage: Option<u8>) {
             );
         }
     }
-    #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+    #[cfg(not(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    )))]
     {
         assert!(percentage.is_none());
         assert!(engine.placement().is_none());

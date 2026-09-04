@@ -32,7 +32,9 @@ impl<'a> OutputWeight<'a> {
         feature = "cpu",
         feature = "vulkan-hybrid",
         feature = "metal",
-        feature = "metal-hybrid"
+        feature = "metal-hybrid",
+        feature = "cuda",
+        feature = "cuda-hybrid"
     ))]
     pub(crate) fn is_tied(&self) -> bool {
         matches!(self, Self::Tied)
@@ -56,7 +58,13 @@ impl<'a> WeightGroups<'a> {
         }
     }
 
-    #[cfg(any(test, feature = "vulkan", feature = "vulkan-hybrid", feature = "metal"))]
+    #[cfg(any(
+        test,
+        feature = "vulkan",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "cuda"
+    ))]
     fn tensors(&self) -> Vec<&'a TensorInfo> {
         let mut tensors = Vec::new();
         tensors.extend([self.embedding, self.tail.norm]);
@@ -91,7 +99,13 @@ impl WeightSelection {
 pub(crate) trait WeightSource {
     fn groups(&self) -> WeightGroups<'_>;
 
-    #[cfg(any(test, feature = "vulkan", feature = "vulkan-hybrid", feature = "metal"))]
+    #[cfg(any(
+        test,
+        feature = "vulkan",
+        feature = "vulkan-hybrid",
+        feature = "metal",
+        feature = "cuda"
+    ))]
     fn tensors(&self) -> Vec<&TensorInfo> {
         self.groups().tensors()
     }

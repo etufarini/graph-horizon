@@ -118,6 +118,7 @@ pub(crate) fn yarn(cfg: &MistralConfig) -> Yarn {
             feature = "cpu",
             feature = "vulkan-hybrid",
             feature = "metal-hybrid",
+            feature = "cuda-hybrid",
             test
         ))]
         log_multiplier: cfg.yarn_log_multiplier,

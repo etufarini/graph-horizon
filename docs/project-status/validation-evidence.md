@@ -8,22 +8,21 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.4` is the current release candidate. No local or remote
-`v0.1.4` tag or GitHub Release existed at preparation time. Graph Horizon
-`0.1.3` remains the current published stable release. Its annotated
-local and anonymous remote tag, published source archive, and archive-embedded
-commit all resolve to `147f3e2c25aeca1cc1721a101d639d108533d81a`.
+Graph Horizon `0.1.5` is the current release candidate. No local or remote
+`v0.1.5` tag exists at preparation time. Graph Horizon `0.1.4` remains the
+current published stable release. Its annotated local and anonymous remote tag,
+published source archive, and archive-embedded commit all resolve to
+`dd485f3a44363880bf11fc5bc69d77f149415025`.
 The published archive SHA-256 is
-`868abcbbccfcf0d0f230c622ed3f0343218f8db4a291e16fa601d52124399aab`,
-and its root is `graph-horizon-0.1.3/`.
+`7db3d1b03d9b5003801c069b2fb8ae0345caaa9e67287f8e3d1fa2f7d18c8b6d`,
+and its root is `graph-horizon-0.1.4/`.
 
-The release-triggered GitHub workflow failed because checkout fetched the
-annotated tag and then rewrote its local ref to the peeled commit before the
-verifier ran. A direct anonymous run of the same verifier passes all remote tag,
-archive, checksum, commit, and member-path checks. The current development
-change makes the workflow check out the default branch while retaining the
-complete tag graph; the hosted rerun remains external verification until that
-workflow change reaches GitHub.
+The earlier v0.1.3 release-triggered GitHub workflow failed because checkout
+fetched the annotated tag and then rewrote its local ref to the peeled commit
+before the verifier ran. A direct anonymous run of the same verifier passes all
+remote tag, archive, checksum, commit, and member-path checks. The subsequent
+change made the workflow check out the default branch while retaining the
+complete tag graph.
 
 The previous `v0.1.2` release has an immutable annotated tag and source assets,
 but an independent audit found that they identify different commits. The local
@@ -32,12 +31,13 @@ and anonymous remote tag resolve to
 `30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a historical
 release-identity defect even though the commits have the same Git tree.
 
-The `v0.1.0`, `v0.1.1`, `v0.1.2`, and `v0.1.3` tags and assets remain immutable. They
-must not be moved, deleted, or replaced; any correction must use a later
-version. `main` is the moving development branch and may advance beyond a
-release tag. That normal branch movement is unrelated to the v0.1.2 defect.
+The `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, and `v0.1.4` tags and assets remain
+immutable. They must not be moved, deleted, or replaced; any correction must
+use a later version. `main` is the moving development branch and may advance
+beyond a release tag. That normal branch movement is unrelated to the v0.1.2
+defect.
 
-Current Cargo and frontend versions are `0.1.4`. Historical v0.1.2 release
+Current Cargo and frontend versions are `0.1.5`. Historical v0.1.2 release
 identity is exclusively the commit resolved by `v0.1.2^{commit}`. The final
 v0.1.0 campaign supersedes, for its own contract, preliminary runtime evidence at
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` and
@@ -48,23 +48,56 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
-## v0.1.4 Release-Readiness Candidate — 26 August 2026
+## v0.1.5 CUDA Profiles Candidate — 3 September 2026
+
+The compatible CUDA backend and qualification changes after v0.1.4 select patch
+version `0.1.5`. The candidate adds standalone and hybrid CUDA to the local
+installer interface, admits both only on Linux `x86_64`, and requires `nvcc`
+before any build tool runs. Installer fixtures cover the accepted tuple,
+rejected macOS and Linux aarch64 tuples, missing `nvcc`, and exact Cargo feature
+forwarding.
+
+This installer path does not change either profile's maturity or evidence
+boundary. Their qualified claims remain limited to the frozen tuples in the
+CUDA implementation gates below; neighboring hardware, toolkit, model, context,
+KV, and placement configurations remain unclaimed.
+
+Qualification results belong only to the exact clean candidate commit recorded
+in the future release report. The future annotated tag, archive-embedded commit,
+versioned archive root, and adjacent checksum must all identify that commit.
+Publication and exact-commit public readiness remain external verification.
+
+The generic `v0.1.5` bootstrap retains one authenticated archive identity and
+forwards installer arguments unchanged. Local fixtures pass for exact
+`vulkan-hybrid`, `metal-hybrid`, and `cuda-hybrid` forwarding, unsafe archive
+members, symlinks, checksum mismatch, cleanup, and delegated status. Stable-tag
+quick-install documentation is prepared, but publication was not authorized in
+this implementation task.
+
+| Published hybrid quick-install row | Terminal state |
+|---|---|
+| Release tag, archive, checksum, and embedded commit identity | external verification: no authorized `v0.1.5` publication was supplied for this task |
+| Vulkan-hybrid clean-prefix install | external verification: published bootstrap prerequisite absent |
+| Metal-hybrid clean-prefix install | external verification: published bootstrap and required platform prerequisites absent |
+| CUDA-hybrid clean-prefix install | external verification: published bootstrap prerequisite absent |
+
+## v0.1.4 Release — 26 August 2026
 
 The compatible release-readiness changes after v0.1.3 select patch version
-`0.1.4`. The candidate updates only current package, installer, documentation,
+`0.1.4`. The release updates only its package, installer, documentation,
 and fixture versions while preserving every v0.1.0–v0.1.3 tag, asset identity,
 and historical result.
 
-The candidate simplifies repository guidance while protecting AI-development
+The release simplifies repository guidance while protecting AI-development
 material, selects an explicit authenticated catalog model during public
 readiness, keeps model-family dispatch closed, and corrects the hosted
 release-integrity checkout. It changes no supported runtime behavior, numeric
 operation, public API, model profile, or backend policy.
 
-Qualification results belong only to the exact clean candidate commit recorded
-in the external release report. The future annotated tag, archive-embedded
-commit, versioned archive root, and adjacent checksum must all identify that
-same commit. A later `main` commit is unrelated to that immutable identity.
+Qualification results belong only to the exact clean release commit. The
+annotated tag, archive-embedded commit, versioned archive root, and adjacent
+checksum identify that same commit. A later `main` commit is unrelated to that
+immutable identity.
 
 | v0.1.4 preparation gate | Result |
 |---|---|
@@ -134,7 +167,7 @@ tree happens to match.
 | Bounded temporary cleanup | PASS |
 
 The public benchmark used Graph Horizon 0.1.2, Linux 7.0.0-30-generic x86_64,
-an AMD Ryzen 5 5500, and an AMD Radeon RX 6750 XT with RADV/Mesa
+an AMD Ryzen 5 5500, and an AMD Vulkan validation GPU with RADV/Mesa
 26.0.3-1ubuntu1. The Vulkan loader exposed instance 1.4.341 and device API
 1.4.335. The fixed tuple was Vulkan, f16 KV, context 2048, 64 maximum tokens,
 one warm-up, three measured repetitions, and the prompt “Spiega in una frase
@@ -197,7 +230,7 @@ the current directory. v0.1.1 installs only regular files below
 the executable.
 
 Environment on 23 August 2026: Linux x86_64, CPU packaging smoke with an AMD
-Radeon RX 6750 XT available, Rust/Cargo 1.97.1 plus minimum toolchain 1.88.0,
+AMD Vulkan validation GPU available, Rust/Cargo 1.97.1 plus minimum toolchain 1.88.0,
 Node.js 24.18.0, and npm 11.16.0.
 
 | v0.1.1 gate | Result |
@@ -283,7 +316,7 @@ annotated `v0.1.0` tag. If that tag is absent or resolves elsewhere, this
 section qualifies no revision.
 
 Environment on 22 August 2026: Linux x86_64 `7.0.0-30-generic`, Intel Core
-i5-9600K, NVIDIA RTX 3060 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
+i5-9600K, NVIDIA Vulkan validation GPU 12 GiB, driver 595.84/Vulkan 1.4.329, Rust/Cargo
 1.95.0, minimum Rust/Cargo 1.88.0, Node.js 24.15.0, npm 11.12.1, GCC 15.2.0,
 six catalog-matching Q4_K_M files, and llama.cpp `13f2b28b0`.
 
@@ -341,14 +374,107 @@ link here rather than duplicating device models.
 | Profile | Reviewed evidence | Technical status |
 |---|---|---|
 | CPU | Synthetic suite and post-repair real matrix across six artifacts and f16/int8; no performance promise | REFERENCE |
-| Vulkan | Suites, numeric oracles, and real NVIDIA RTX 3060 / AMD RX 6750 XT matrices | PRODUCTION |
+| Vulkan | Suites, numeric oracles, and real NVIDIA/AMD Vulkan validation GPU matrices | PRODUCTION |
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
-| Metal | Suite, oracles, teacher row, and Apple M4/macOS 26.3 measurements | QUALIFIED |
+| Metal | Suite, oracles, teacher row, and recorded Apple silicon/macOS 26.3 measurements | QUALIFIED |
 | Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
+| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
+| CUDA-hybrid | Shared hybrid suite, physical-device transfer checks, and six authenticated f16/int8 all-GPU/mixed/CPU-only rows on the recorded CUDA tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
 [current performance status](current-performance-status.md).
+
+### CUDA implementation gate — 1 September 2026
+
+The CUDA runtime checkpoint is `c58e154` on branch `feat/cuda-backend`; its
+offline-build checkpoint is `4cf4546`. The local tuple matched the recorded
+hardware/toolchain boundary: Linux `x86_64`, compute capability 7.5, 6144 MiB,
+driver 595.84, and CUDA Toolkit 12.4.131.
+
+| Gate | Result |
+|---|---|
+| Locked CUDA all-target check and Clippy `-D warnings` | PASS |
+| CUDA release engine suite | PASS: engine 139, documentation 1, family integration 4, semantic integration 12; four real-artifact tests ignored |
+| Physical-device operation oracles | PASS: F16 and packed signed Q4_K/Q5_K/Q6_K matmul, dense operations, exact multi-vector f16/int8 KV layout, dimension-128 grouped-query causal attention and decode equality, argmax/top-k ordering |
+| Capability, allocation, aliased kernel view, upload, module, stream-latch, and full loader-transaction failpoint tests | PASS |
+| CPU regression, Vulkan/Vulkan-hybrid checks, CUDA conflict rows, dependency isolation, structure, K/I markers, and unsafe-boundary audit | PASS |
+| Authenticated 3B Instruct parity at context 4096, f16 KV | PASS: 16/16 oracle tokens in the local top two, exact local top-one sequence, one terminal event, silent cancellation, no placement |
+| Authenticated 3B Instruct parity at context 4096, int8 KV | PASS: 16/16 oracle tokens in the local top two, exact local top-one sequence, one terminal event, silent cancellation, no placement |
+| Fixed context-2048 f16 benchmark | PASS: one warm-up and three measured repetitions; positive finite timing and throughput fields |
+
+The generated 140,654-byte PTX contained each of the 16 required entry names
+exactly once. The plan's literal unbounded search also counts
+`cuda_matmul_batched` as a second `cuda_matmul` occurrence, so the audit used an
+opening-parenthesis boundary after each complete name; runtime module loading
+independently resolved the same fixed function set on the physical device.
+
+The artifact authenticated as exactly 2,147,023,008 bytes with SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`, and
+the oracle reported llama.cpp revision
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Both KV rows produced the same
+local and oracle sequence:
+
+```text
+6319,92683,1772,2007,1049,1055,1617,8379,1032,1049,1057,1918,4847,1603,1051,1050
+```
+
+The first f16 attempt at checkpoint `2487739` exposed a pre-parity defect: a
+request-local raw byte arena was rejected when an operation supplied its
+checked concrete element span. Checkpoint `c58e154` corrected that boundary
+without weakening typed weight validation. The final f16 and int8 rows each
+ran once on the corrected revision without changing the frozen tuple.
+
+The fixed measurement-only benchmark used context 2048, f16 KV, prompt `Ciao`,
+32 maximum tokens, one warm-up, and three repetitions. Its complete record was:
+
+```text
+prompt_tokens=5 completion_tokens=32 decoded_tokens=30 prompt_tps_mean=1.28 prompt_tps_median=1.28 prompt_tps_stddev=0.01 prompt_tps_cv=0.0046 ttft_ms_mean=3918.94 ttft_ms_median=3916.91 ttft_ms_stddev=18.02 ttft_cv=0.0046 model_decode_tps_mean=0.65 model_decode_tps_median=0.65 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0002 decode_tps_mean=0.59 decode_tps_median=0.59 decode_tps_stddev=0.00 decode_tps_cv=0.0002 delta_interval_ms_mean=1700.51 delta_interval_ms_median=1590.92 delta_interval_ms_stddev=405.62 delta_interval_ms_cv=0.2385 decode_begin_tps=0.57 decode_middle_tps=0.63 decode_end_tps=0.63
+```
+
+The benchmark is not correctness evidence and does not broaden qualification.
+Neighboring GPUs, drivers, toolkits, artifacts, and model sizes remain
+unclaimed.
+
+### CUDA-hybrid implementation gate — 3 September 2026
+
+The qualified runtime checkpoint is `61c8b57` on branch `feat/cuda-backend`.
+The clean working tree matched Linux `x86_64`, compute capability 7.5, 6144
+MiB device memory, driver 595.84, CUDA Toolkit 12.4.131, and visible device
+ordinal 0. The artifact authenticated as exactly 2,147,023,008 bytes with
+SHA-256
+`9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`;
+the oracle was llama.cpp
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Every row used context 4096
+without reduction and the public Q4_K_M profile.
+
+| KV | Requested weights | Observed placement | Result |
+|---|---:|---|---|
+| f16 | 100% | all-GPU | PASS |
+| int8 | 100% | all-GPU | PASS |
+| f16 | 25% | mixed, positive CPU and CUDA layers | PASS |
+| int8 | 25% | mixed, positive CPU and CUDA layers | PASS |
+| f16 | 0% | CPU-only | PASS |
+| int8 | 0% | CPU-only | PASS |
+
+Each row passed exact prompt-ID comparison, placed every one of 16 oracle
+tokens in the local top two, emitted one successful terminal event, and emitted
+none after immediate cancellation. Both mixed rows observed the exact crossing
+formula and one CPU-to-CUDA crossing per prefill batch or decode token. Each
+all-GPU completion sequence equalled its standalone CUDA control; each CPU-only
+sequence equalled its CPU control. Both endpoint pairs were checked separately
+for f16 and int8.
+
+The same checkpoint passed warnings-denied CPU, standalone CUDA, and CUDA-hybrid
+Clippy; their complete test suites; Vulkan and Vulkan-hybrid compile checks;
+feature-conflict and dependency-isolation gates; shell fixtures; source
+structure; and patch integrity. CUDA kernel and module sources were unchanged.
+CUDA hybrid composes the existing CPU and CUDA numeric paths with separate
+RAM/VRAM planning, immutable placement, 32-row all-GPU and 4-row mixed prefill,
+and a synchronous checked FP32 crossing. It adds no prefix-KV reuse, unified
+memory, multi-GPU ownership, numeric kernel, performance comparison, or
+production claim. Neighboring hardware, software, artifacts, model sizes,
+contexts, KV schemes, and placement percentages remain unclaimed.
 
 ## Integrated Post-Cleanup Evidence
 
@@ -359,14 +485,14 @@ schemes passed, as did four endpoints. External rows were six missing Q8_0 files
 and 28 Metal rows unavailable on Linux. The same runtime produced
 `qualified=6 not_qualified=0 external_verification=0` semantically.
 
-Separate Apple M4 evidence qualifies only its declared Metal tuple. RTX 3060
-and RX 6750 XT results likewise do not qualify every NVIDIA or AMD device. See
-[AMD cleanup-regression repair](../investigation-reports/amd-deep-clean-regression-repair.md).
+Separate Apple silicon evidence qualifies only its declared Metal tuple.
+NVIDIA and AMD Vulkan validation results likewise do not qualify every device.
+See [AMD cleanup-regression repair](../investigation-reports/amd-deep-clean-regression-repair.md).
 
 ## Preliminary v0.1.0 Campaign
 
-The 19 August 2026 campaign used Vulkan-hybrid all-GPU on Linux x86_64, RTX
-3060 12 GiB, driver 595.84, f16 KV, context 4096, and llama.cpp
+The 19 August 2026 campaign used Vulkan-hybrid all-GPU on a Linux x86_64 NVIDIA
+validation GPU with 12 GiB, driver 595.84, f16 KV, context 4096, and llama.cpp
 `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. There were no retries.
 
 | Model | Semantic generation | Teacher-forced | Historical result |

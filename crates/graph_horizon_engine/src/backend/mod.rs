@@ -16,6 +16,19 @@ pub(crate) mod source;
 
 pub(crate) use contract::Backend;
 
+#[cfg(all(
+    any(feature = "cuda", feature = "cuda-hybrid"),
+    target_os = "linux",
+    target_arch = "x86_64"
+))]
+pub(crate) mod cuda;
+
+#[cfg(all(
+    any(feature = "cuda", feature = "cuda-hybrid"),
+    not(all(target_os = "linux", target_arch = "x86_64"))
+))]
+compile_error!("cuda profiles require Linux x86_64");
+
 #[cfg(any(feature = "vulkan", feature = "vulkan-hybrid"))]
 pub(crate) mod vulkan;
 
@@ -32,7 +45,12 @@ pub(crate) mod metal;
 ))]
 compile_error!("metal profiles require macOS on Apple Silicon");
 
-#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "cpu",
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(crate) mod cpu;
 
 #[cfg(not(any(
@@ -40,10 +58,12 @@ pub(crate) mod cpu;
     feature = "vulkan",
     feature = "vulkan-hybrid",
     feature = "metal",
-    feature = "metal-hybrid"
+    feature = "metal-hybrid",
+    feature = "cuda",
+    feature = "cuda-hybrid"
 )))]
 compile_error!(
-    "no backend selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
+    "no backend selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, metal-hybrid, cuda, or cuda-hybrid"
 );
 
 #[cfg(any(
@@ -56,8 +76,19 @@ compile_error!(
     all(feature = "cpu", feature = "metal-hybrid"),
     all(feature = "vulkan", feature = "metal-hybrid"),
     all(feature = "vulkan-hybrid", feature = "metal-hybrid"),
-    all(feature = "metal", feature = "metal-hybrid")
+    all(feature = "metal", feature = "metal-hybrid"),
+    all(feature = "cuda", feature = "cpu"),
+    all(feature = "cuda", feature = "vulkan"),
+    all(feature = "cuda", feature = "vulkan-hybrid"),
+    all(feature = "cuda", feature = "metal"),
+    all(feature = "cuda", feature = "metal-hybrid"),
+    all(feature = "cuda-hybrid", feature = "cpu"),
+    all(feature = "cuda-hybrid", feature = "vulkan"),
+    all(feature = "cuda-hybrid", feature = "vulkan-hybrid"),
+    all(feature = "cuda-hybrid", feature = "metal"),
+    all(feature = "cuda-hybrid", feature = "metal-hybrid"),
+    all(feature = "cuda-hybrid", feature = "cuda")
 ))]
 compile_error!(
-    "multiple backend profiles selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, or metal-hybrid"
+    "multiple backend profiles selected: choose exactly one of cpu, vulkan, vulkan-hybrid, metal, metal-hybrid, cuda, or cuda-hybrid"
 );

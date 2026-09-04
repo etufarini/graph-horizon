@@ -7,6 +7,31 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+## Graph Horizon v0.1.5
+
+Graph Horizon v0.1.5 is the source candidate that aligns CUDA with the other
+installer-supported backends and prepares stable hybrid quick-install choices.
+The local installer accepts standalone `cuda` and the `vulkan-hybrid`,
+`metal-hybrid`, and `cuda-hybrid` profiles on their declared platforms. Both
+CUDA profiles require CUDA Toolkit `nvcc` before any frontend or Rust build
+starts and use visible device ordinal 0. No hybrid profile enables prefix-KV
+reuse.
+
+Installer availability does not promote either CUDA profile to production or
+broaden its qualified boundary. CUDA hybrid is qualified only for the frozen
+six-row model, context, KV, placement, hardware, driver, and toolkit tuple in
+validation evidence. No CUDA-hybrid performance comparison is claimed.
+
+After an explicitly authorized publication of the exact candidate as `v0.1.5`,
+the tagged bootstrap can select any of the three hybrid profiles; for example:
+
+```sh
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend cuda-hybrid
+```
+
+Publication, release-integrity verification, and platform-specific installed
+binary smokes remain external verification.
+
 ## Graph Horizon v0.1.4
 
 Graph Horizon v0.1.4 is a release-readiness patch. Release qualification now

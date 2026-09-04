@@ -22,6 +22,8 @@ fn docs_contract() {
     let readme = fs::read_to_string(root.join("README.md")).expect("root README");
     let engine = fs::read_to_string(root.join("crates/graph_horizon_engine/README.md"))
         .expect("engine README");
+    let installation =
+        fs::read_to_string(root.join("docs/installation.md")).expect("installation docs");
     let models = fs::read_to_string(root.join("docs/supported-models-and-formats.md"))
         .expect("supported-model docs");
     let runtime = fs::read_to_string(root.join("docs/command-line/runtime-options.md"))
@@ -108,6 +110,29 @@ fn docs_contract() {
             !readme_flat.contains(unsupported) && !engine_flat.contains(unsupported),
             "unsupported public claim: {unsupported}"
         );
+    }
+
+    for document in [&readme, &installation] {
+        let flat = document.split_whitespace().collect::<Vec<_>>().join(" ");
+        for backend in ["vulkan-hybrid", "metal-hybrid", "cuda-hybrid"] {
+            let command = format!(
+                "https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \\ | bash -s -- --backend {backend}"
+            );
+            assert_eq!(
+                flat.matches(&command).count(),
+                1,
+                "stable quick install must contain exactly one {backend} command"
+            );
+        }
+        for line in document
+            .lines()
+            .filter(|line| line.contains("raw.githubusercontent.com/etufarini/graph-horizon/"))
+        {
+            assert!(
+                line.contains("/v0.1.5/install.sh"),
+                "quick install must use only the v0.1.5 bootstrap: {line}"
+            );
+        }
     }
 
     assert_local_markdown_links(&root);

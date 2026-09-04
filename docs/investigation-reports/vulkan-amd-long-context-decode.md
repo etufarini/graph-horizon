@@ -16,7 +16,7 @@ engine from public text deltas, which do not have a one-to-one relationship.
 - Implementation and retained harness HEAD before this report: `fafabd0`.
 - Branch: `perf/amd-long-context-decode`.
 - Later integration: branch tip `8158d96`; merged by PR #37 (`e3d23f2`).
-- Device: AMD Radeon RX 6750 XT, Navi 22 / RDNA2 / `gfx1031`, 40 CUs.
+- Device: AMD Vulkan validation GPU, RDNA2, `gfx1031`, 40 CUs.
 - Driver: RADV, Mesa 26.0.3, Vulkan 1.4.335.
 - Memory: 12,868,124,672 device-local bytes reported by Vulkan.
 - Native wave: wave32. Vulkan reports subgroup 64 and supports required

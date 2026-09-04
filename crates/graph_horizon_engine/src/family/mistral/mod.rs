@@ -19,7 +19,7 @@ mod version;
 
 use color_eyre::eyre::Result;
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(hybrid_backend)]
 use crate::api::engine::BackendMemory;
 use crate::api::engine::{EngineConfig, ModelMemory, PlacementReport};
 use crate::api::request::{EventSink, Request, SamplingParams};
@@ -90,7 +90,7 @@ impl RuntimeModel {
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
         let shape = graph::MistralGraph::shape(&contract.config);
-        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+        #[cfg(not(hybrid_backend))]
         let memory = memory::homogeneous(
             &contract.tensors,
             &contract.config,
@@ -107,7 +107,7 @@ impl RuntimeModel {
             settings.vram_weights_percent,
             settings.vram_reserve_mib,
         )?;
-        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        #[cfg(hybrid_backend)]
         let memory = memory::hybrid(selection::placement(&backend))?;
         Ok(Self {
             name,
@@ -139,7 +139,7 @@ impl RuntimeModel {
     }
 
     pub(crate) fn placement(&self) -> Option<PlacementReport> {
-        #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+        #[cfg(hybrid_backend)]
         {
             selection::placement(&self.backend).map(|plan| {
                 let memory = |bytes: crate::backend::hybrid::BackendBytes| BackendMemory {
@@ -161,7 +161,7 @@ impl RuntimeModel {
                 }
             })
         }
-        #[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+        #[cfg(not(hybrid_backend))]
         {
             None
         }

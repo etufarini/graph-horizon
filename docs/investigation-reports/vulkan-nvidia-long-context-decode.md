@@ -38,7 +38,7 @@ required pipelines exist. At 14B/15K, TTFT falls 230.888 -> 33.549 seconds
 | Later integration | branch tip `079acb2`; merged by PR #35 (`e955b26`) |
 | Baseline | `87e3e4b1bb17e811caac030f69261bd0498284ec` |
 | Production | `2228a7a` |
-| GPU | NVIDIA GeForce RTX 3060 12 GiB, Ampere GA104, PCI device `0x2487` |
+| GPU | NVIDIA Vulkan validation GPU 12 GiB, Ampere |
 | Driver / Vulkan | 595.84 / device API 1.4.329, loader 1.4.341 |
 | Subgroup / caps | 32 lanes; FP16, INT8 dot, cooperative matrix, Matrix2 |
 | Limits used | 256-thread GQA; 512-row Matrix2 prefill; 102,400 B shared/SM |

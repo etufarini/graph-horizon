@@ -8,23 +8,55 @@
 use color_eyre::eyre::{Result, eyre};
 
 use crate::api::engine::ModelMemory;
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 use crate::backend::hybrid::HybridPlan;
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use crate::backend::hybrid::weights::model::WeightBytes;
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use crate::backend::source::WeightSource;
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use crate::kv_cache::layout;
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use crate::kv_cache::scheme::KvQuant;
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use crate::kv_cache::scheme::KvRole;
 
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 use super::MistralConfig;
 
-#[cfg(not(any(feature = "vulkan-hybrid", feature = "metal-hybrid")))]
+#[cfg(not(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+)))]
 pub(super) fn homogeneous(
     tensors: &dyn WeightSource,
     config: &MistralConfig,
@@ -56,7 +88,11 @@ pub(super) fn homogeneous(
     })
 }
 
-#[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+#[cfg(any(
+    feature = "vulkan-hybrid",
+    feature = "metal-hybrid",
+    feature = "cuda-hybrid"
+))]
 pub(super) fn hybrid(plan: Option<&HybridPlan>) -> Result<ModelMemory> {
     let plan = plan.ok_or_else(|| eyre!("hybrid placement unavailable"))?;
     Ok(ModelMemory {

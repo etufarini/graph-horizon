@@ -17,7 +17,8 @@ shell configuration.
 - Rust and Cargo 1.88 or newer;
 - Node.js and npm 22.12 or newer;
 - a working Vulkan loader and driver for Vulkan builds;
-- macOS arm64 and the Xcode `metal` and `metallib` tools for Metal builds.
+- macOS arm64 and the Xcode `metal` and `metallib` tools for Metal builds;
+- Linux `x86_64`, an NVIDIA driver, and CUDA Toolkit `nvcc` for CUDA builds.
 
 Verify the Metal tools explicitly:
 
@@ -29,30 +30,79 @@ xcrun -f metallib
 Models are acquired separately. See
 [supported models and formats](supported-models-and-formats.md).
 
-## Public Bootstrap
+## Quick Install
+
+The commands below are prepared for the authenticated `v0.1.5` bootstrap after
+that exact candidate is published. They do not claim publication; `v0.1.4`
+remains the current stable release.
+
+### Apple Silicon and Metal
 
 On Apple Silicon macOS:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.4/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
   | bash -s -- --backend metal
 ```
+
+### Linux x86_64 and Vulkan
 
 On Linux `x86_64` with Vulkan:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.4/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
   | bash -s -- --backend vulkan
 ```
+
+### Linux x86_64 and CUDA
+
+On Linux `x86_64` with an NVIDIA driver and CUDA Toolkit `nvcc`:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend cuda
+```
+
+### Hybrid profiles
+
+On Apple Silicon macOS with the Xcode command-line Metal tools:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend metal-hybrid
+```
+
+On Linux `x86_64` with a working Vulkan loader and driver:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend vulkan-hybrid
+```
+
+On Linux `x86_64` with an NVIDIA driver and CUDA Toolkit `nvcc`:
+
+```sh
+curl --fail --location --silent --show-error \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  | bash -s -- --backend cuda-hybrid
+```
+
+The backend argument selects one compile-time profile. Hybrid placement is
+chosen only when a model loads and can be constrained with
+`--vram-weights-percent` and `--vram-reserve-mib`. No hybrid profile enables
+prefix-KV reuse.
 
 Use `--backend cpu` when GPU execution is not required.
 
 ## Local Installer Options
 
 ```text
-support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
+support/install.sh --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   [--profile release|fast] [--prefix /absolute/install/prefix]
 ```
 
@@ -62,7 +112,16 @@ runtime backend switch or fallback.
 | Platform | Accepted build backends |
 |---|---|
 | macOS arm64 | `cpu`, `vulkan`, `vulkan-hybrid`, `metal`, `metal-hybrid` |
-| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid` |
+| Linux x86_64 | `cpu`, `vulkan`, `vulkan-hybrid`, `cuda`, `cuda-hybrid` |
+
+The installer accepts both CUDA profiles only for Linux `x86_64` and requires
+`nvcc` before starting the frontend or Rust build. Compilation embeds PTX
+targeting compute capability 7.5; runtime loading uses the driver and visible
+device ordinal 0. `cuda` remains all-GPU-or-error. `cuda-hybrid` composes the
+existing CPU and CUDA numeric paths with an immutable separate-memory plan.
+Neither profile supports prefix-KV reuse. Installer availability does not
+broaden their **qualified** status beyond the exact tuples in
+[validation evidence](project-status/validation-evidence.md#current-backend-evidence).
 
 `release` is the default Cargo profile; `fast` is the alternative. The prefix
 must be absolute, must not be the filesystem root, and must contain no `.` or

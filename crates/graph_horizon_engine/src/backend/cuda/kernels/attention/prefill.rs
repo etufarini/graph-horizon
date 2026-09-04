@@ -1,0 +1,35 @@
+/*
+ * graph_horizon_engine — CUDA batched causal-attention dispatch.
+ */
+
+use color_eyre::eyre::Result;
+
+use super::super::super::exec::dispatch;
+use super::super::super::module::{Kernel, Module};
+use super::super::super::{CudaBuffer, CudaEncoder};
+use crate::kv_cache::Kv;
+use crate::kv_cache::scheme::KvQuant;
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode(
+    encoder: &CudaEncoder,
+    module: &Module,
+    out: &CudaBuffer,
+    query: &CudaBuffer,
+    kv: &Kv<CudaBuffer>,
+    q_heads: u32,
+    base: u32,
+    rows: u32,
+    layer: u32,
+) -> Result<()> {
+    let args = super::validate(out, query, kv, q_heads, base, rows, layer)?;
+    let kernel = match kv.scheme {
+        KvQuant::F16 => Kernel::AttentionPrefillF16,
+        KvQuant::Int8 => Kernel::AttentionPrefillInt8,
+    };
+    let total = u64::from(rows)
+        .checked_mul(u64::from(q_heads))
+        .ok_or_else(super::super::arithmetic)?;
+    let (grid, block) = dispatch::one_dim(total)?;
+    dispatch::launch(encoder, module, kernel, &args, grid, block)
+}

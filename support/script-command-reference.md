@@ -30,7 +30,8 @@ Installer behavior is documented separately in the
 Real-model campaigns require authenticated, read-only GGUF artifacts plus
 `curl`, `jq`, `stat`, and either `sha256sum` or `shasum -a 256`. Oracle parity
 requires `llama-server` at revision `13f2b28b0`. Metal profiles additionally
-require macOS arm64 and `xcrun metal`/`metallib`.
+require macOS arm64 and `xcrun metal`/`metallib`. CUDA rows require Linux
+`x86_64`, `nvcc` at build time, and an NVIDIA driver at runtime.
 
 Artifact identities and SHA-256 records are in [`models.tsv`](models.tsv).
 Every model directory is supplied explicitly as `--models-dir DIR`; scripts do
@@ -51,12 +52,13 @@ The end-user installer interface and installed paths are documented in the
 
 ## Release Integrity
 
-Run the verifier from a checkout containing the annotated version tag:
+After publication, run the verifier from a checkout containing the annotated
+version tag:
 
 ```sh
 support/testing/release-integrity.sh \
   --repository etufarini/graph-horizon \
-  --tag v0.1.4
+  --tag v0.1.5
 ```
 
 The command resolves the local and anonymous remote tag, downloads the named
@@ -93,11 +95,11 @@ hostnames, usernames, generated text, and other private machine identity.
 validate-weights.sh --models-dir DIR
 
 validate-kv.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   --context N
 
 profile.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
   --context N --kv f16|int8 [--weights-percent 0..100]
 ```
 
@@ -110,7 +112,7 @@ procedure is defined by the
 
 ```text
 parity-check.sh --models-dir DIR --model-id ID \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --kv f16|int8 \
+  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid --kv f16|int8 \
   --reference-server PATH [--reference-port PORT] \
   [--weights-percent 0..100 \
    --expect-mode all-gpu|all-metal|mixed|cpu-only]
@@ -120,6 +122,10 @@ The script authenticates one catalogued Q4_K_M artifact, starts one CPU
 `llama-server` on loopback, and terminates only that process. `f16` and `int8`
 are distinct rows. Protocol, code, parity, placement, or lifecycle mismatches
 fail the row; missing infrastructure remains external verification.
+
+Standalone CUDA rejects `--weights-percent` and `--expect-mode` and reports no
+placement. CUDA hybrid requires both placement arguments and accepts
+`all-gpu`, `mixed`, or `cpu-only`. Neither profile enables prefix caching.
 
 The complete sequence of 16 `local_ids` from each available homogeneous
 hybrid endpoint must equal the corresponding standalone backend sequence.

@@ -52,7 +52,7 @@ capabilities, formats, resources, and shapes.
 
 | Capability | Value | Evidence class |
 |---|---:|---|
-| GPU | Apple M4, 10 GPU cores | queried |
+| GPU | Apple silicon validation host, 10 GPU cores | queried |
 | OS | macOS 26.3, build 25D125 | queried |
 | Metal | Metal 4; compiler 32023.864 | queried |
 | GPU families | Apple7/8/9, Common3, Metal4 | previously queried |
@@ -682,7 +682,7 @@ P05e is isolated as `a428d17` and removed by `01510ac`. It passes the same
 | 28,000 | 11.65 tok/s | 11.50 tok/s | established P05d endpoint | -1.29% | established by 2K/8K reps |
 
 All outcomes are below the 10% retention gate. Four splits are the measured
-winner on this Apple M4 despite Vulkan's eight-split implementation;
+winner on this Apple silicon validation host despite Vulkan's eight-split implementation;
 optimization-principle parity does not require copying a device-specific split
 count.
 

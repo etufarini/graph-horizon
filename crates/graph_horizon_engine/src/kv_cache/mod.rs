@@ -18,6 +18,7 @@
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 pub(crate) mod int8;
@@ -49,7 +50,10 @@ impl<Buf> Kv<Buf> {
     #[cfg(any(
         feature = "vulkan",
         feature = "vulkan-hybrid",
-        all(test, any(feature = "cpu", feature = "metal-hybrid"))
+        all(
+            test,
+            any(feature = "cpu", feature = "metal-hybrid", feature = "cuda-hybrid")
+        )
     ))]
     pub(crate) fn meta_base(&self) -> u64 {
         self.meta_base_for(KvRole::Key)

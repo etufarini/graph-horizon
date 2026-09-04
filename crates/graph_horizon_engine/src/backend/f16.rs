@@ -11,6 +11,7 @@
     feature = "cpu",
     feature = "vulkan-hybrid",
     feature = "metal-hybrid",
+    feature = "cuda-hybrid",
     test
 ))]
 pub(crate) fn f16_to_f32(h: u16) -> f32 {

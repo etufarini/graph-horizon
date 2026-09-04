@@ -12,7 +12,8 @@ implicit deletion, renaming, merging, or consolidation.
 
 Before changing code, identify the invariant, smallest viable change, and main
 risk. Every build selects exactly one profile—`cpu`, `vulkan`,
-`vulkan-hybrid`, `metal`, or `metal-hybrid`—with defaults disabled:
+`vulkan-hybrid`, `metal`, `metal-hybrid`, `cuda`, or `cuda-hybrid`—with
+defaults disabled:
 
 ```sh
 cargo fmt --all -- --check

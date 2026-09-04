@@ -196,6 +196,10 @@ printf 'rustc %s (fixture)\n' "${GRAPH_HORIZON_TEST_RUST_VERSION:-1.88.0}"
 [[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
 "#,
     );
+    write_executable(
+        &bin.join("nvcc"),
+        b"#!/usr/bin/env bash\n[[ -z \"${GRAPH_HORIZON_NVCC_FAIL:-}\" ]]\n",
+    );
     (fixture, root, bin, log)
 }
 
@@ -235,14 +239,14 @@ fn bootstrap_fixture(label: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
 [[ "$#" == 7 && "$1" == --fail && "$2" == --location && "$3" == --silent ]]
 [[ "$4" == --show-error && "$5" == --output ]]
 case "$7" in
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.4/graph-horizon-0.1.4.tar.gz)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.5/graph-horizon-0.1.5.tar.gz)
     cp "$GRAPH_HORIZON_TEST_ARCHIVE" "$6"
     ;;
-  https://github.com/etufarini/graph-horizon/releases/download/v0.1.4/graph-horizon-0.1.4.tar.gz.sha256)
+  https://github.com/etufarini/graph-horizon/releases/download/v0.1.5/graph-horizon-0.1.5.tar.gz.sha256)
     if [[ -n "${GRAPH_HORIZON_BAD_CHECKSUM:-}" ]]; then
-      printf '%064d  graph-horizon-0.1.4.tar.gz\n' 0 > "$6"
+      printf '%064d  graph-horizon-0.1.5.tar.gz\n' 0 > "$6"
     else
-      printf '%s  graph-horizon-0.1.4.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
+      printf '%s  graph-horizon-0.1.5.tar.gz\n' "$(/usr/bin/sha256sum "$GRAPH_HORIZON_TEST_ARCHIVE" | /usr/bin/awk '{print $1}')" > "$6"
     fi
     ;;
   *) exit 2 ;;
@@ -275,7 +279,7 @@ exec /usr/bin/tar "$@"
 
 fn source_archive(fixture: &Path, name: &str, complete: bool, with_symlink: bool) -> PathBuf {
     let tree = fixture.join(format!("{name} tree"));
-    let root = tree.join("graph-horizon-0.1.4");
+    let root = tree.join("graph-horizon-0.1.5");
     fs::create_dir_all(root.join("support")).unwrap();
     fs::create_dir_all(root.join("web/frontend")).unwrap();
     write_executable(
@@ -300,7 +304,7 @@ exit "${GRAPH_HORIZON_DELEGATE_STATUS:-0}"
             archive.to_str().unwrap(),
             "-C",
             tree.to_str().unwrap(),
-            "graph-horizon-0.1.4",
+            "graph-horizon-0.1.5",
         ])
         .output()
         .unwrap();
@@ -651,6 +655,21 @@ fn support_scripts_reject_invalid_values_before_execution() {
             ],
         ),
         (
+            "support/profiling/profile.sh",
+            vec![
+                "--model",
+                model,
+                "--backend",
+                "cuda",
+                "--context",
+                "1",
+                "--kv",
+                "f16",
+                "--weights-percent",
+                "100",
+            ],
+        ),
+        (
             "support/profiling/validate-kv.sh",
             vec!["--backend", "invalid", "--context", "1"],
         ),
@@ -686,6 +705,25 @@ fn support_scripts_reject_invalid_values_before_execution() {
                 "f16",
                 "--reference-server",
                 model,
+            ],
+        ),
+        (
+            "support/testing/parity-check.sh",
+            vec![
+                "--models-dir",
+                model,
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                "cuda",
+                "--kv",
+                "f16",
+                "--reference-server",
+                model,
+                "--weights-percent",
+                "100",
+                "--expect-mode",
+                "all-gpu",
             ],
         ),
         (
@@ -799,6 +837,26 @@ fn bootstrap_forwards_arguments_and_cleans_temporary_tree() {
     );
     assert!(!temp.exists());
 
+    for backend in ["vulkan-hybrid", "metal-hybrid", "cuda-hybrid"] {
+        fs::remove_file(&argument_log).unwrap();
+        let hybrid_args = ["--backend", backend];
+        let output = run_bootstrap(&fixture, &bin, &temp, &argument_log, &archive, &hybrid_args);
+        assert!(
+            output.status.success(),
+            "backend={backend} stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            fs::read_to_string(&argument_log)
+                .unwrap()
+                .lines()
+                .collect::<Vec<_>>(),
+            hybrid_args
+        );
+        assert!(!temp.exists());
+    }
+
     fs::remove_file(&argument_log).unwrap();
     let output = Command::new("/bin/bash")
         .arg(fixture.join("install.sh"))
@@ -852,8 +910,8 @@ fn bootstrap_rejects_unsafe_or_incomplete_archives() {
     let safe = source_archive(&fixture, "listed source", true, false);
     for (index, members) in [
         "/absolute/member\n",
-        "graph-horizon-0.1.4/../escape\n",
-        "graph-horizon-0.1.4/./member\n",
+        "graph-horizon-0.1.5/../escape\n",
+        "graph-horizon-0.1.5/./member\n",
         "another-root/member\n",
         "",
     ]
@@ -1045,8 +1103,14 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         ("Linux", "x86_64", "cpu", true),
         ("Linux", "x86_64", "vulkan", true),
         ("Linux", "x86_64", "vulkan-hybrid", true),
+        ("Linux", "x86_64", "cuda", true),
+        ("Linux", "x86_64", "cuda-hybrid", true),
         ("Linux", "x86_64", "metal", false),
         ("Linux", "x86_64", "metal-hybrid", false),
+        ("Darwin", "arm64", "cuda", false),
+        ("Darwin", "arm64", "cuda-hybrid", false),
+        ("Linux", "aarch64", "cuda", false),
+        ("Linux", "aarch64", "cuda-hybrid", false),
         ("Darwin", "x86_64", "cpu", false),
         ("FreeBSD", "x86_64", "cpu", false),
     ];
@@ -1096,6 +1160,29 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         .unwrap();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("Metal compiler is unavailable"));
+    assert!(fs::read(&log).unwrap().is_empty());
+
+    fs::write(&log, []).unwrap();
+    let prefix = fixture.join("cuda compiler");
+    let output = Command::new("/bin/bash")
+        .arg(root.join("support/install.sh"))
+        .args([
+            "--backend",
+            "cuda-hybrid",
+            "--prefix",
+            prefix.to_str().unwrap(),
+        ])
+        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
+        .env("HOME", fixture.join("home"))
+        .env("GRAPH_HORIZON_TEST_OS", "Linux")
+        .env("GRAPH_HORIZON_TEST_ARCH", "x86_64")
+        .env("GRAPH_HORIZON_TEST_LOG", &log)
+        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
+        .env("GRAPH_HORIZON_NVCC_FAIL", "1")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("CUDA compiler is unavailable"));
     assert!(fs::read(&log).unwrap().is_empty());
     fs::remove_dir_all(fixture).unwrap();
 }
@@ -1291,7 +1378,7 @@ fn installer_rejects_linked_frontend_assets_before_rust_build() {
 }
 
 #[test]
-fn installer_requires_profile_and_preflights_metal() {
+fn installer_requires_profile_and_preflights_gpu_toolchains() {
     let fixture = fixture_dir("installer preflight");
     let bin = fixture.join("bin");
     let mutation = fixture.join("build tool called");
@@ -1325,9 +1412,37 @@ fn installer_requires_profile_and_preflights_metal() {
     );
     assert!(!mutation.exists());
 
+    for tool in ["bash", "install", "find", "curl"] {
+        write_executable(&bin.join(tool), b"#!/bin/sh\nexit 0\n");
+    }
+    write_executable(
+        &bin.join("uname"),
+        b"#!/bin/sh\ncase \"$1\" in -s) printf 'Linux\\n' ;; -m) printf 'x86_64\\n' ;; esac\n",
+    );
+    write_executable(
+        &bin.join("rustc"),
+        b"#!/bin/sh\nprintf 'rustc 1.88.0 (fixture)\\n'\n",
+    );
+    let output = Command::new("/bin/bash")
+        .arg(repository().join("support/install.sh"))
+        .args(["--backend", "cuda-hybrid"])
+        .env("PATH", &bin)
+        .env("GRAPH_HORIZON_MUTATION_LOG", &mutation)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("CUDA requires nvcc")
+    );
+    assert!(!mutation.exists());
+
     let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
-    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid"));
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid"));
     assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
+    assert!(source.find("command -v nvcc").unwrap() < source.find("npm ci").unwrap());
+    assert!(source.find("nvcc --version").unwrap() < source.find("npm ci").unwrap());
     assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
 }
@@ -1354,11 +1469,13 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cpu",
+            "cuda-hybrid",
             "--context",
             "1",
             "--kv",
             "f16",
+            "--weights-percent",
+            "25",
         ])
         .env("PATH", &path)
         .env("GRAPH_HORIZON_TEST_ARGS", &log)
@@ -1374,7 +1491,31 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
         1,
         "model path was split or omitted"
     );
+    assert!(arguments.contains("--weights-percent\n25\n"));
     assert_eq!(fs::read(&model).unwrap(), original);
+
+    let run = Command::new("bash")
+        .arg(repository().join("support/testing/run-graph-horizon.sh"))
+        .args([
+            "--model",
+            model.to_str().unwrap(),
+            "--backend",
+            "cuda-hybrid",
+            "--context",
+            "1",
+            "--kv",
+            "f16",
+        ])
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_TEST_ARGS", &log)
+        .output()
+        .unwrap();
+    assert!(run.status.success());
+    assert!(
+        fs::read_to_string(&log)
+            .unwrap()
+            .contains("--features\ncuda-hybrid\n")
+    );
 
     assert_scripts_quote_model_variables(&repository());
     fs::remove_dir_all(fixture).unwrap();
@@ -1488,7 +1629,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cpu",
+            "cuda-hybrid",
             "--context",
             "4096",
         ])
@@ -1586,7 +1727,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             "/missing/q4.gguf",
             "--backend",
-            "cpu",
+            "cuda",
             "--context",
             "4096",
         ],
@@ -1595,7 +1736,7 @@ printf '%s  %s\n' "$digest" "$model"
     assert!(
         String::from_utf8(missing.stdout)
             .unwrap()
-            .contains("Q4_K_M cpu: external verification: artifact is missing or unreadable")
+            .contains("Q4_K_M cuda: external verification: artifact is missing or unreadable")
     );
 
     let kv_source =
@@ -1802,6 +1943,92 @@ while :; do /bin/sleep 0.05; done
     assert!(cargo_call.contains("--features cpu --example tokenize"));
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
+
+    let cuda_port = free_port();
+    let cuda = Command::new("bash")
+        .arg(repository().join("support/testing/parity-check.sh"))
+        .args([
+            "--models-dir",
+            models.to_str().unwrap(),
+            "--model-id",
+            "3b-instruct",
+            "--backend",
+            "cuda",
+            "--kv",
+            "f16",
+            "--reference-server",
+            server.to_str().unwrap(),
+            "--reference-port",
+            &cuda_port,
+        ])
+        .env("PATH", &path)
+        .env("GRAPH_HORIZON_TEMP_DIR", &temp)
+        .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
+        .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
+        .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
+        .env("GRAPH_HORIZON_TEST_UNAME_M", "x86_64")
+        .output()
+        .unwrap();
+    assert!(
+        cuda.status.success(),
+        "{}",
+        String::from_utf8_lossy(&cuda.stderr)
+    );
+    assert!(
+        String::from_utf8(cuda.stdout)
+            .unwrap()
+            .starts_with("pass: model_id=3b-instruct backend=cuda kv=f16")
+    );
+    assert!(fs::read_to_string(&cargo_log).unwrap().contains(
+        "--features cuda --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+    ));
+
+    for (percent, mode) in [("100", "all-gpu"), ("25", "mixed"), ("0", "cpu-only")] {
+        let hybrid_port = free_port();
+        let hybrid = Command::new("bash")
+            .arg(repository().join("support/testing/parity-check.sh"))
+            .args([
+                "--models-dir",
+                models.to_str().unwrap(),
+                "--model-id",
+                "3b-instruct",
+                "--backend",
+                "cuda-hybrid",
+                "--kv",
+                "f16",
+                "--reference-server",
+                server.to_str().unwrap(),
+                "--reference-port",
+                &hybrid_port,
+                "--weights-percent",
+                percent,
+                "--expect-mode",
+                mode,
+            ])
+            .env("PATH", &path)
+            .env("GRAPH_HORIZON_TEMP_DIR", &temp)
+            .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
+            .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
+            .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
+            .env("GRAPH_HORIZON_TEST_UNAME_M", "x86_64")
+            .output()
+            .unwrap();
+        assert!(
+            hybrid.status.success(),
+            "{}",
+            String::from_utf8_lossy(&hybrid.stderr)
+        );
+        assert!(
+            String::from_utf8(hybrid.stdout)
+                .unwrap()
+                .starts_with("pass: model_id=3b-instruct backend=cuda-hybrid kv=f16")
+        );
+        let calls = fs::read_to_string(&cargo_log).unwrap();
+        assert!(calls.contains(
+            "--features cuda-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+        ));
+        assert!(calls.contains(&format!("percent={percent}\nmode={mode}")));
+    }
 
     let endpoint_port = free_port();
     let endpoint = Command::new("bash")
@@ -2705,7 +2932,7 @@ cp "$GRAPH_HORIZON_TEMPLATE/support/installed-product" "$prefix/bin/graph-horizo
         &template.join("support/installed-product"),
         r#"#!/usr/bin/env bash
 case "${1:-}" in
-  --version) echo 'graph-horizon 0.1.4'; exit 0 ;;
+  --version) echo 'graph-horizon 0.1.5'; exit 0 ;;
   --help) echo 'Usage: graph-horizon [options]'; exit 0 ;;
 esac
 backend="${0%/bin/graph-horizon}"; backend="${backend##*/prefix-}"

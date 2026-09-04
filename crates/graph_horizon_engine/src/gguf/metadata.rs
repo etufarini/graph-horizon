@@ -17,7 +17,9 @@ pub(crate) struct ModelMetadata {
         feature = "vulkan",
         feature = "vulkan-hybrid",
         feature = "metal",
-        feature = "metal-hybrid"
+        feature = "metal-hybrid",
+        feature = "cuda",
+        feature = "cuda-hybrid"
     ))]
     pub block_count: usize,
     pub embedding_length: usize,
@@ -74,7 +76,9 @@ impl ModelMetadata {
             feature = "vulkan",
             feature = "vulkan-hybrid",
             feature = "metal",
-            feature = "metal-hybrid"
+            feature = "metal-hybrid",
+            feature = "cuda",
+            feature = "cuda-hybrid"
         ))]
         let block_count = req_u("block_count")? as usize;
         let feed_forward_length = req_u("feed_forward_length")? as usize;
@@ -84,7 +88,9 @@ impl ModelMetadata {
                 feature = "vulkan",
                 feature = "vulkan-hybrid",
                 feature = "metal",
-                feature = "metal-hybrid"
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
             ))]
             block_count,
             embedding_length,

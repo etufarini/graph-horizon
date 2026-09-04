@@ -17,7 +17,7 @@ runtime path explicit without claiming support for another family prematurely.
 ## Backend features
 
 The crate does not select a backend by default: the consumer enables exactly
-one of the five profiles.
+one of the seven profiles.
 
 ```sh
 cargo check -p graph_horizon_engine --no-default-features --features cpu
@@ -25,6 +25,8 @@ cargo check -p graph_horizon_engine --no-default-features --features vulkan
 cargo check -p graph_horizon_engine --no-default-features --features vulkan-hybrid
 cargo check -p graph_horizon_engine --no-default-features --features metal
 cargo check -p graph_horizon_engine --no-default-features --features metal-hybrid
+cargo check -p graph_horizon_engine --no-default-features --features cuda
+cargo check -p graph_horizon_engine --no-default-features --features cuda-hybrid
 ```
 
 Build availability does not assign support status. The primary labels are:
@@ -36,8 +38,10 @@ Build availability does not assign support status. The primary labels are:
 | `vulkan-hybrid` | **qualified** | CPU plus Vulkan with an immutable all-GPU, mixed, or CPU-only plan |
 | `metal` | **qualified** | Entire model on Metal or an error |
 | `metal-hybrid` | **qualified** | CPU plus Metal with all-Metal, mixed, or CPU-only modes |
+| `cuda` | **qualified** | Entire model on visible NVIDIA device ordinal 0 or an error; claim limited to the frozen Linux x86_64 tuple in validation evidence |
+| `cuda-hybrid` | **qualified** | CPU plus CUDA with all-GPU, mixed, or CPU-only modes; claim limited to the frozen six-row tuple in validation evidence |
 
-Vulkan and Metal admit devices through backend-local capability contracts;
+Vulkan, Metal, and CUDA admit devices through backend-local capability contracts;
 optional specialization is unavailable unless its complete measured profile is
 present, and portable operation fallbacks remain available. Runtime admission
 does not by itself extend a support claim to unverified hardware. `reference`
@@ -48,9 +52,10 @@ while exact current hardware, driver, and operating-system tuples are owned by
 [validation evidence](../../docs/project-status/validation-evidence.md#current-backend-evidence).
 
 The hybrid plan is immutable after loading. Only the mixed plan copies the
-residual from CPU to GPU, once per pass; each layer's KV remains on its backend.
-The report contains the mode, split, layer counts, and CPU/GPU breakdown of
-weights, KV, scratch, fixed, staging, crossing, and reserve memory.
+residual from CPU to the accelerator, once per pass; CUDA performs that crossing
+as one synchronous checked FP32 transfer. Each layer's KV remains on its
+backend. The report contains the mode, split, layer counts, and CPU/accelerator
+breakdown of weights, KV, scratch, fixed, staging, crossing, and reserve memory.
 
 ### Semantic Reasoning qualification
 
@@ -134,8 +139,8 @@ The `Engine` methods expose the resolved `context_limit`, immutable `memory`,
 optional hybrid `placement`, model-profile `default_sampling`, ordinary
 `generate`, and caller-keyed `generate_cached`. The cached form reuses an exact
 rendered-token prefix only on standalone Vulkan and Metal and only for the same
-16-byte key; CPU and hybrid profiles run the ordinary generation path. One
-different key or prefix can replace the retained slot.
+16-byte key; CPU, CUDA, and hybrid profiles run the ordinary generation path.
+One different key or prefix can replace the retained slot.
 
 ## Chat
 
@@ -201,13 +206,18 @@ memory and is neither truncated nor reduced. The effective limit is returned by
 - percentage `0`: CPU-only with no device initialization;
 - percentage `100`: device-only endpoint (`all-gpu` or `all-metal`).
 
-Vulkan uses separate RAM and VRAM; automatic RAM is
+Vulkan and CUDA hybrid use separate RAM and VRAM; automatic RAM is
 `floor(MemAvailable × 90 / 100)` on Linux, and the automatic VRAM reserve is the
-greater of 256 MiB and 5%.
+greater of 256 MiB and 5%. CUDA hybrid uses 32-row all-GPU and 4-row mixed
+prefill; percentage zero avoids CUDA initialization and selects CPU-only.
 Metal uses unified memory: CPU and Metal compete for the same capacity derived
 from physical memory and the recommended working set. Allocation, pipeline,
 kernel, transfer, readback, or decoder errors after plan selection do not cause
 a retry.
+The standalone CUDA profile is homogeneous and uses a checked VRAM preflight with the greater of
+256 MiB and 5% reserved by default. It never creates a CPU split or reports
+placement. No hybrid profile supports prefix-KV reuse. CUDA hybrid does not add
+unified memory, multi-GPU execution, new kernels, or a fallback after selection.
 
 ## Verification
 

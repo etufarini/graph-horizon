@@ -22,7 +22,11 @@ pub(crate) struct MistralGraph;
 
 impl LayeredGraph for MistralGraph {
     type Config = super::MistralConfig;
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     type Batch<'a, B: Backend>
         = prefill::BatchBuffers<'a, B>
     where
@@ -31,19 +35,61 @@ impl LayeredGraph for MistralGraph {
     fn shape(config: &Self::Config) -> RuntimeShape {
         RuntimeShape {
             block_count: config.block_count,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             embedding: config.embedding_length,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             q: config.q_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             k: config.k_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             v: config.v_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             attention: config.attention_width,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             feed_forward: config.feed_forward_length,
-            #[cfg(any(feature = "metal", feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+            #[cfg(any(
+                feature = "metal",
+                feature = "vulkan-hybrid",
+                feature = "metal-hybrid",
+                feature = "cuda",
+                feature = "cuda-hybrid"
+            ))]
             vocab: config.vocab_size,
             kv_heads: config.kv_head_count,
             key_length: config.key_length,
@@ -64,7 +110,11 @@ impl LayeredGraph for MistralGraph {
         forward::token(backend, config, kv, token, position)
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn embedding<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
@@ -74,7 +124,11 @@ impl LayeredGraph for MistralGraph {
         forward::embedding(backend, encoder, config, token)
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn range<B: Backend>(
         backend: &B,
         encoder: &B::Encoder,
@@ -86,7 +140,11 @@ impl LayeredGraph for MistralGraph {
         forward::range(backend, encoder, config, kv, layers, position)
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn tail<B: Backend>(backend: &B, encoder: &B::Encoder, config: &Self::Config) {
         tail::record(backend, encoder, config);
     }
@@ -111,7 +169,11 @@ impl LayeredGraph for MistralGraph {
         )
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn batch<'a, B: Backend>(
         backend: &'a B,
         config: &Self::Config,
@@ -120,12 +182,20 @@ impl LayeredGraph for MistralGraph {
         prefill::BatchBuffers::new(backend, config, row_capacity)
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn batch_residual<'a, B: Backend>(batch: &'a Self::Batch<'_, B>) -> &'a B::Buffer {
         batch.all(prefill::X)
     }
 
-    #[cfg(any(feature = "vulkan-hybrid", feature = "metal-hybrid"))]
+    #[cfg(any(
+        feature = "vulkan-hybrid",
+        feature = "metal-hybrid",
+        feature = "cuda-hybrid"
+    ))]
     fn record_batch<B: Backend>(
         backend: &B,
         config: &Self::Config,

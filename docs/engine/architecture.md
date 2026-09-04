@@ -128,3 +128,9 @@ Engine -> family::Model -> selected family -> runtime <- backend
 Static backend selection keeps each build to one dependency and resource
 policy. Supported families, profiles, and the Rust library facade are defined
 in the [engine crate contract](../../crates/graph_horizon_engine/README.md).
+
+The shared partitioned runtime owns every hybrid plan, CPU prefix, accelerator
+suffix, and crossing. Concrete Vulkan, Metal, and CUDA modules own only their
+device resources, memory policy, and numeric operations. In particular,
+`cuda-hybrid` reuses the existing CUDA operation dispatch and PTX module; no
+family module or backend-pair module owns alternate CUDA numerics.

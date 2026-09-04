@@ -22,7 +22,7 @@ while (($#)); do
         --backend) (($# >= 2)) || fail "missing --backend value"; backend="$2"; shift 2 ;;
         --context) (($# >= 2)) || fail "missing --context value"; context="$2"; shift 2 ;;
         --help|-h)
-            echo "usage: validate-kv.sh --model PATH --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --context N"
+            echo "usage: validate-kv.sh --model PATH --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid --context N"
             exit 0
             ;;
         *) fail "unknown argument: $1" ;;
@@ -30,7 +30,7 @@ while (($#)); do
 done
 
 [[ -n "$model" ]] || fail "--model is required"
-case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) fail "invalid backend" ;; esac
+case "$backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid) ;; *) fail "invalid backend" ;; esac
 [[ "$context" =~ ^[1-9][0-9]*$ ]] || fail "context must be >= 1"
 
 if [[ ! -r "$model" ]]; then

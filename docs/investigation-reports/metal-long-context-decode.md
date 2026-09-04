@@ -22,7 +22,7 @@ tip is `f0c3120`.
 
 ## Environment And Inputs
 
-- Device: MacBook Air `Mac16,13`, Apple M4 with 10 GPU cores and 24 GB unified
+- Device: Apple silicon validation host with 10 GPU cores and 24 GB unified
   memory, Metal 4, macOS 26.3 (`25D125`), connected to AC power.
 - Model: `Ministral-3-14B-Instruct-2512-Q4_K_M.gguf`, 8,239,593,024 bytes,
   SHA-256 `824e0f3373e69b84f2cae46fdcb9bd1ebc6ab3bfc7acc125d818b7b8178cc613`.

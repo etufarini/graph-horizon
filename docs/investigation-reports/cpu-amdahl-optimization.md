@@ -16,8 +16,7 @@ remains outside tracked documentation.
 - Resumed: `2026-09-04T19:27:55+02:00`
 - Current unattended deadline: `2026-09-05T03:27:55+02:00`
 - State: active; cache-premise continuation
-- Retained production revisions: CPU-02 cache-sized token tiling (recorded
-  below; revision assigned by its evidence commit)
+- Retained production revisions: `c76c8b9` (CPU-02 cache-sized token tiling)
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
 reference backend on this Linux `x86_64` host. The GPU-oriented optimizer
@@ -320,6 +319,22 @@ State: `keep`. The short objective clears 5%; every objective and control CV in
 the deciding records is at most 4.81%; medium and long do not regress; and
 correctness passed. Pinned real-model parity remains
 `external verification: unsupported llama.cpp revision` exactly as for CPU-01.
+
+### CPU-03 — one worker per physical core screen
+
+- Target: short prompt/prefill throughput after CPU-02; decode remains a
+  control.
+- Intentional variable: process affinity exposes either all 12 logical CPUs or
+  one hardware thread from each of the six physical cores. The runtime's
+  unchanged `available_parallelism` policy therefore selects 12 or six workers.
+- New premise: the historical thread-policy screen ran on a six-core/six-thread
+  host; the current host has SMT and has not been screened for sibling
+  contention.
+- Correctness: no code, arithmetic, data, or runtime option changes. This is a
+  performance-only causal screen of the existing supported affinity boundary.
+- Stability and retention: one warm-up, three repetitions, 5% CV and objective
+  threshold, and 5% decode control limit. A production policy candidate is
+  warranted only if this screen clears the objective threshold.
 
 ## First-pass verification and result
 

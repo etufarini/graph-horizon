@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: warp-broadcast Q4 scale/min metadata
-- Current phase: rejected; matrix reranking
+- Current candidate: warp-first block reduction
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -141,6 +141,7 @@ record.
 | Short / prefill | One block per output row with parallel K reduction | 0.9892 | 8× | 0.005 | 7.17× | 92.4× | about 108.6 s | One profiled repetition; `p` excludes single matmul and logits, so it is conservative |
 | Short / prefill after first keep | Reuse each decoded weight across four batch tokens | 0.9207 | 2× | 0.010 | 1.82× | 12.6× | about 2.8 s | One profiled repetition; local speedup discounted from four-token reuse to 2× |
 | Short / both after first keep | Broadcast Q4 scale/min metadata within each warp | 0.697 | 1.10× | 0.002 | 1.065× | 3.30× | about 0.38 s | Q4 share derived from authenticated tensor shapes; local gain is conservative but not counter-profiled |
+| Short / both after first keep | Warp-first block reduction | 0.9207 | 1.10× | 0.002 | 1.089× | 12.6× | about 0.52 s of profiled kernel time | Replaces eight block-wide barriers with one; benefit depends on reduction share within matmul |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -309,4 +310,9 @@ kernel time. Four-token weight reuse improved that path but violated the decode
 control gate. Warp-broadcasting Q4 metadata increased execution time despite
 eliminating redundant arithmetic, indicating that shuffle and dependency
 latency dominate the saved scalar work on this kernel geometry. The matrix is
-reranked from the restored retained checkpoint.
+reranked from the restored retained checkpoint. The fourth candidate retains
+one output per block and the same per-thread ascending-stride dot products, but
+reduces the 256 partial sums within warps before combining eight warp totals.
+It removes seven block-wide barriers without changing formats, bounds, launch
+geometry, or interfaces. The accumulation tree changes, so packed-format error
+tests and pinned real-model parity must pass before performance is interpreted.

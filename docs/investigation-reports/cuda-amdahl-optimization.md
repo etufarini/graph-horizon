@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: 128-thread matmul blocks
-- Current phase: retained; final attribution pending
+- Current candidate: decode-specialized four-token matmul
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -143,6 +143,7 @@ record.
 | Short / both after first keep | Broadcast Q4 scale/min metadata within each warp | 0.697 | 1.10× | 0.002 | 1.065× | 3.30× | about 0.38 s | Q4 share derived from authenticated tensor shapes; local gain is conservative but not counter-profiled |
 | Short / both after first keep | Warp-first block reduction | 0.9207 | 1.10× | 0.002 | 1.089× | 12.6× | about 0.52 s of profiled kernel time | Replaces eight block-wide barriers with one; benefit depends on reduction share within matmul |
 | Short / both after first keep | 128-thread matmul blocks | 0.9207 | 1.10× | 0.001 | 1.090× | 12.6× | about 0.53 s of profiled kernel time | Doubles per-thread dot work but halves block synchronization and may improve residency |
+| Short / prefill after second keep | Reuse weights across four batch tokens, preserving the one-row path | 0.9158 | 2× | 0.010 | 1.81× | 11.9× | about 2.67 s of profiled kernel time | Prior tiling measured +113.5% prefill; the new premise removes its one-row decode overhead |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -300,13 +301,14 @@ manufacture a runnable substitute.
 | Candidate | Target | Terminal state | Evidence / revision |
 |---|---|---|---|
 | Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
-| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; retained in this commit |
+| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; `5d52db5` |
 | Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
 | Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
 | Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
-| 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass |
+| 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
+| Decode-specialized four-token matmul | Short prefill; decode and TTFT controls | running | New premise preserves the accepted one-row path while reusing weights only for batched rows |
 
-## Remaining measured bottleneck
+## Later candidates
 
 After the first retained change, batched matmul still owns 92.07% of measured
 kernel time. Four-token weight reuse improved that path but violated the decode
@@ -364,3 +366,20 @@ prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=17.85 
 Against the retained checkpoint, medium prompt throughput improved 5.75%,
 TTFT fell 5.43%, model decode improved 1.32%, and public-delta decode improved
 1.40%. Objective CV was 0.03%; no control regressed. Terminal state: `keep`.
+
+Post-change blocking attribution measured 5,831.506 ms across timed kernels.
+Batched matmul remains largest at 5,340.382 ms (91.5781%, 806 launches),
+followed by f16 prefill attention at 237.469 ms (4.0722%, 104 launches) and
+RMSNorm at 114.838 ms (1.9693%, 262 launches); every other kernel is
+individually below 1%. Instrumented TTFT was 5,778.95 ms, consistent with the
+unprofiled short mean. Temporary timing code was removed.
+
+This reranking changes the rejected token-tiling premise. For a single row, the
+next candidate executes the accepted one-token dot path exactly. For multiple
+rows, each block handles up to four tokens for one output row, decoding each
+weight once and accumulating four independent dot products. This targets the
+measured prefill reuse while removing the extra accumulators and branches from
+decode. Tensor formats, per-token accumulation order, output layout, and public
+interfaces remain unchanged. The grid's token dimension becomes ceiling
+`rows/4`; checked arithmetic must reject overflow. Exact batched-versus-single
+output, all local gates, and pinned parity precede performance.

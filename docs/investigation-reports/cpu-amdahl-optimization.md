@@ -136,7 +136,58 @@ an identical unprofiled diagnostic row.
 
 ## Candidate ledger
 
-Pending baseline attribution and Amdahl ranking.
+The profiled short diagnostic reported 4,411.37 ms TTFT versus 3,761.54 ms
+unprofiled (+17.28%); whole-process wall time was 5.73 versus 5.05 seconds
+(+13.47%). Dynamic labels and boundary locking therefore make these timers
+diagnostic only. They account for 4,497.76, 37,160.28, and 149,642.67 ms in the
+short, medium, and long two-token rows, including the second model step.
+
+| Regime | Q4_K batched | Q6_K batched | RoPE | Prefill attention |
+|---|---:|---:|---:|---:|
+| Short | 68.47% | 15.05% | 10.20% | 0.81% |
+| Medium | 67.18% | 14.91% | 10.32% | 4.12% |
+| Long | 62.72% | 12.87% | 9.10% | 12.39% |
+
+The Q4 share combines all `n=32` projection/MLP shapes. Temporary profiling
+feature lines, module, timers, and report hook were removed immediately after
+this attribution; no candidate benchmark contains them.
+
+### Initial Amdahl ranking
+
+| Candidate | Regime / phase | Conservative `p` | Credible local `s` | Added `o` | Predicted global gain | Ideal ceiling | Uncertainty |
+|---|---|---:|---:|---:|---:|---:|---|
+| Four-row AVX-512-register Q4 block | short prefill | 0.60 | 1.10 | <0.001 | 5.7% | 2.50x | profile overhead; local gain unmeasured |
+| Same Q4 block | medium prefill | 0.60 | 1.10 | <0.001 | 5.7% | 2.50x | same |
+| Same Q4 block | long prefill | 0.60 | 1.10 | <0.001 | 5.7% | 2.50x | same |
+| Wider exact GQA attention | long prefill | 0.12 | 1.20 | <0.001 | 2.0% | 1.14x | x8 scheduling cost omitted |
+| Wider Q6 vector path | all prefill | 0.12 | 1.10 | <0.001 | 1.1% | 1.14x | no local prototype |
+| RoPE coefficient reuse | all prefill | 0.09 | historical | 0 | 2.7% measured | 1.10x | closed historical result |
+
+The Q4 candidate is selected because it alone clears the 5% conservative gate
+and benefits all regimes. Short is the objective because it has the largest
+measured candidate-owned fraction; medium and long are controls. For the long
+baseline, the conservative model removes about 7.0 seconds of TTFT; short and
+medium estimates are about 0.22 and 1.85 seconds.
+
+### CPU-01 — four-row AVX-512-register Q4 block
+
+- Intentional variable: process four adjacent Q4 output rows together on CPUs
+  with AVX-512F+VL in the existing batched float kernel, reusing each activation
+  load across four rows instead of two. The arithmetic for each row retains the
+  existing AVX2/FMA instruction sequence and horizontal reduction.
+- Eligibility: `x86_64`, AVX2, FMA, F16C, AVX-512F, and AVX-512VL; batched Q4_K
+  only. Existing two-row and scalar paths remain the fallback.
+- Invariants: canonical weights, activation/output layout, precision, worker
+  partition, per-row accumulation order, placement, and public API are unchanged.
+- Smallest change: one category-K SIMD function, a narrow dispatch branch, and
+  a focused exact-output test. No file, dependency, or orchestration change.
+- Main risk: compiler register allocation may spill or wide-ISA execution may
+  reduce clocks, eliminating the intended activation-load saving.
+- Correctness gate before performance: formatting; focused Q4 scalar/SIMD and
+  batched-versus-single tests including exact four-row versus two-row output;
+  CPU workspace suite; authenticated parity if the pinned server is available.
+
+State: declared; implementation pending.
 
 ## Final verification and result
 

@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: starting revision; no new optimization yet.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: preflight passed; acquiring the public short/medium/long baseline.
+- State: baseline captured; preparing temporary CPU timeline attribution.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 0 / 0 / 0 / 0 / 0.
 
@@ -173,7 +173,7 @@ Cargo.toml                                      (+1 diagnostic feature line)
 crates/graph_horizon_engine/Cargo.toml           (+1 diagnostic feature line)
 crates/graph_horizon_engine/src/backend/cpu/
   mod.rs                                       (~85 lines total; module wiring)
-  backend.rs                                   (~190 lines; existing I delegator)
+  backend.rs                                   (~260 lines; existing I delegator)
   profile.rs                                   (~50 lines; timeline collection)
 ```
 
@@ -197,3 +197,32 @@ Medium baseline completed: 1024 prompt tokens, 32 model completion tokens and
 31 public deltas; prompt 34.34 tok/s (CV 0.32%), TTFT 29823.14 ms (CV 0.32%),
 model decode 11.11 tok/s (CV 0.87%), public decode 10.41 deltas/s (CV 0.88%).
 The full record is preserved in `baseline-medium.out`. Long remains active.
+
+### Complete baseline
+
+All three benchmark children completed with exit status zero. The long row is:
+
+```text
+prompt_tokens=3584 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=24.29 prompt_tps_median=24.07 prompt_tps_stddev=0.39 prompt_tps_cv=0.0162 ttft_ms_mean=147603.45 ttft_ms_median=148882.58 ttft_ms_stddev=2366.68 ttft_cv=0.0160 model_decode_tps_mean=8.78 model_decode_tps_median=8.73 model_decode_tps_stddev=0.11 model_decode_tps_cv=0.0120 decode_tps_mean=8.23 decode_tps_median=8.19 decode_tps_stddev=0.10 decode_tps_cv=0.0121 delta_interval_ms_mean=121.50 delta_interval_ms_median=117.51 delta_interval_ms_stddev=21.38 delta_interval_ms_cv=0.1759 decode_begin_tps=8.55 decode_middle_tps=8.48 decode_end_tps=7.71
+```
+
+Approximate fixed-work intervals (TTFT plus 32/model-decode-rate) are 6.06 s,
+32.70 s and 151.25 s. TTFT shares are 59.1%, 91.2% and 97.6%. This is phase
+screening, not isolated prefill timing or a kernel Amdahl attribution. Every
+prompt objective CV is below 1.7%; the short decode variability remains noted.
+
+The shell wrapper exited 2 after the completed long child and its saved end
+timestamp: preparing optional diagnostic arguments had edited the wrapper while
+Bash still held its old read offset. It printed the completed long record twice
+and then reported an unexpected `done`. No inference command was repeated or
+changed: all three `.time` files report child exit 0, each `.out` contains one
+record and each token count matches calibration. `bash -n screen.sh` now passes.
+Treat this as a wrapper bookkeeping error, not a transient inference failure;
+do not selectively rerun these completed measurements. Never edit a live runner
+again. Subsequent diagnostics use a fresh invocation of the verified script.
+
+The production tree still matches the starting revision, and the worktree is
+clean before applying the predeclared temporary profiler. Linux kernel is
+7.0.0-30-generic and both RUSTFLAGS variables were empty. The long inference
+process had about 2.2 GiB RSS and zero process swap; raw thermal/frequency
+observations are preserved without changing any machine setting.

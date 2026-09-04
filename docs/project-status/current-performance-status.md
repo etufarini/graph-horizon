@@ -85,6 +85,7 @@ and their distinct evidence boundaries.
 | Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
 | Request KV reuse | serialized standalone Vulkan or Metal requests; keyed calls may also reuse an identical token prefix | ordinary generation on CPU/hybrid; prefix zero on a key/token mismatch and cache invalidation on failure | avoids reallocating request-local cache while preserving fresh tail logits |
 | CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
+| CPU cache-sized prefill token tiling | x86_64 architectural L2 report and supported quantized batched shapes | historical 256 KiB cache premise and existing 16--64 tile bounds | validation environment short prompt 30.68 → 33.20 tok/s; long prompt 27.32 → 31.09 tok/s |
 | CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
 | Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |
 | Metal pipelined C64 attention QK | Metal matrix path, rows 64, F16 KV, head 128, exact 4:1 GQA | established tiled/segmented/serial Metal attention | 3B/15K TTFT 103.184 → 84.298 s; 28K 280.058 → 214.704 s |
@@ -246,9 +247,12 @@ CUDA remains far below the mature Vulkan path on its completed benchmark rows,
 and the long workload did not finish before the runtime adapter timeout. No
 CUDA optimization or production claim follows from that incomplete comparison.
 
-CPU prefill remains dominated by attention and quantized matrix multiplication;
-the next material designs require new packed-GEMM or query-tiled-attention
-subsystems. Metal's retained pipelined C64 QK schedule removes 44.4% of 15K
+CPU prefill now sizes its quantized-matmul activation tile from architectural
+L2 capacity; the retained A/B improves short prompt throughput by 8.21% and
+long by 13.80% without a decode regression. Quantized batched matmul remains
+the largest measured CPU limit; the next material designs require new
+packed-GEMM or query-tiled-attention subsystems. Metal's retained pipelined C64
+QK schedule removes 44.4% of 15K
 attention time; the complete evidence is in
 [the Metal prefill checkpoint](../investigation-reports/metal-long-context-prefill.md).
 The remaining Metal gap is exact attention's quadratic term, but grouped GQA,

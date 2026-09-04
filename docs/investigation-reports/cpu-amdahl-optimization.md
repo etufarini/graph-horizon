@@ -15,7 +15,8 @@ remains outside tracked documentation.
 - First pass completed: `2026-09-04T18:20:38+02:00`
 - Resumed: `2026-09-04T19:27:55+02:00`
 - Current unattended deadline: `2026-09-05T03:27:55+02:00`
-- State: active; cache-premise continuation
+- Completed: `2026-09-04T20:06:49+02:00`
+- State: complete; retained improvement and quantitative stop
 - Retained production revisions: `c76c8b9` (CPU-02 cache-sized token tiling)
 
 The selected backend is CPU, as explicitly requested. It is a build-supported
@@ -336,6 +337,21 @@ correctness passed. Pinned real-model parity remains
   threshold, and 5% decode control limit. A production policy candidate is
   warranted only if this screen clears the objective threshold.
 
+The all-logical-CPU row measured 32.27 prompt tok/s, 3,967.13 ms TTFT,
+13.49 model-decode tok/s, and 13.07 public-decode tok/s. One worker per physical
+core measured 26.18, 4,889.17 ms, 13.49, and 13.07 respectively: prompt
+throughput regressed 18.87% and TTFT regressed 23.24%, while decode was
+unchanged. Every objective/control CV was at most 2.51%.
+
+The first all-logical-CPU invocation failed before model loading because the
+artifact was moved externally during the campaign. The relocated file was
+reauthenticated at the catalog byte count and SHA-256 and the identical numeric
+tuple was retried once; the repository and artifact bytes were not changed.
+
+State: `reject: prompt objective regression`. No production policy code was
+written; retaining all logical workers is materially better for current-host
+prefill.
+
 ## First-pass verification and result
 
 No production optimization was retained by the first pass. At that checkpoint,
@@ -369,7 +385,7 @@ Profiler caveats: hardware counters were unavailable, backend timers added
 result. External verification remains the pinned real-model parity server at
 revision `13f2b28b0`; the available `9bebfcb4b` binary was not substituted.
 
-Final restored-tree gates:
+First-pass restored-tree gates:
 
 ```sh
 cargo fmt --all -- --check
@@ -389,3 +405,59 @@ suite passed 170 root tests (three live/external ignored), 163 engine tests
 authenticated ignored), and 12 semantic tests (one authenticated ignored).
 The runtime-tree comparison against the baseline was empty. Added tracked
 documentation also passed the hardware-product-name audit.
+
+## Final rerank and stop
+
+Assigning CPU-02's causally removed short TTFT to the previously measured
+Q4_K/Q6_K batched bucket gives an observed local speedup near 1.10x and leaves
+about 82% of the post-change short interval in quantized batched matmul. This
+is an estimate because the boundary profiler added 17.28% overhead; public
+unprofiled A/B records remain the performance authority.
+
+| Candidate / regime | Conservative `p` | Local `s` | Added `o` | Predicted/measured global speedup | Ideal ceiling | Uncertainty |
+|---|---:|---:|---:|---:|---:|---|
+| CPU-02 / short | 0.835 | 1.10 measured | <0.001, included | 1.082x measured | 6.06x | profiled share perturbed |
+| CPU-02 / medium | 0.821 | 1.06 inferred | <0.001, included | 1.046x measured | 5.59x | one permitted thermal rerun |
+| CPU-02 / long | 0.756 | 1.19 inferred | <0.001, included | 1.138x measured | 4.10x | profiled share perturbed |
+| Force one 32-token 9216-wide tile | 0.25 | <=1.10 | uncertain cache spill | <=1.023x | 1.33x | working set exceeds L2 |
+| Wider exact long attention | 0.14 | 1.20 | <0.001 | 1.024x | 1.16x | prior scheduling cost omitted |
+| Wider Q6 vector path | 0.12 | 1.10 | <0.001 | 1.011x | 1.14x | no local prototype |
+
+The remaining 9,216-wide quantized shape still uses two tiles, but forcing all
+32 activation rows into one tile would exceed the reported L2 and predicts only
+about 2.3% globally even before spill cost. The rejected AVX-512 row block has
+less Q4 share after CPU-02 and no new premise that removes its >5% decode
+regression. Packed integer GEMM and wider attention remain the only high ideal
+ceilings, but their bounded predecessors regressed or their credible global
+effects remain below 5%. CPU-03 also closes the current-host SMT premise.
+
+The campaign therefore stops at the canonical quantitative boundary. The
+largest remaining measured bottleneck is quantized batched matmul, estimated at
+about 82% of short prefill after CPU-02; no independent bounded candidate has a
+conservative predicted gain of 5% or more.
+
+Final retained-tree gates:
+
+```sh
+cargo fmt --all -- --check
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-l2-candidate cargo check \
+  --workspace --locked --no-default-features --features cpu
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-l2-candidate cargo clippy \
+  --workspace --locked --release --no-default-features --features cpu \
+  -- -D warnings
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-l2-candidate cargo test \
+  --workspace --locked --release --no-default-features --features cpu
+git diff --check
+```
+
+Formatting, locked CPU check, warning-denied Clippy, diff checks, and the release
+suite passed. The hardware-product-name audit found no new product name in
+tracked changes. The final branch contains retained production commit
+`c76c8b9`, reproducible report checkpoints, and no rejected production code.
+The untracked pre-existing development Markdown was preserved untouched and is
+not part of the branch.
+
+External verification: a runnable `llama-server` at pinned revision
+`13f2b28b0` is unavailable. The only discovered copies are in the desktop
+trash, and one fails dynamic loading before it can report a revision. They were
+not substituted for the required oracle.

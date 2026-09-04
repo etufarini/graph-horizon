@@ -210,15 +210,18 @@ fn dense_operations_cover_f16_q4_q5_q6_and_batch_tails() -> Result<()> {
         super::matmul::encode_batched(&encoder, &module, &batch_out, &batched, &weight, 256, 2, 3)?;
         super::embedding::encode(&encoder, &module, &embedding, &weight, 1, 256)?;
         run(&device, encoder)?;
-        for value in read_f16(&device, &out, 2)? {
+        let single = read_f16(&device, &out, 2)?;
+        for &value in &single {
             close(value, 256.0);
         }
         for value in super::super::exec::readback::logits(&device, &logits, 2)? {
             close(value, 256.0);
         }
-        for value in read_f16(&device, &batch_out, 6)? {
+        let batch = read_f16(&device, &batch_out, 6)?;
+        for &value in &batch {
             close(value, 256.0);
         }
+        assert_eq!(batch, single.repeat(3));
         for value in super::super::exec::readback::logits(&device, &embedding, 256)? {
             close(value, 1.0);
         }

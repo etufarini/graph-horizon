@@ -33,7 +33,9 @@ pub(crate) fn encode(
     )?;
     let weight_bytes = super::weight_bytes(weight.format(), input_width, output_width)?;
     let format = super::format_code(weight.format())?;
-    let (grid, block) = dispatch::one_dim(u64::from(output_width))?;
+    if output_width == 0 {
+        return Err(super::arithmetic());
+    }
     dispatch::launch(
         encoder,
         module,
@@ -50,8 +52,8 @@ pub(crate) fn encode(
             Arg::U32(output_width),
             Arg::U32(format),
         ],
-        grid,
-        block,
+        (output_width, 1, 1),
+        (128, 1, 1),
     )
 }
 
@@ -78,7 +80,22 @@ pub(crate) fn encode_batched(
     super::span(out, CudaFormat::F16, output_bytes)?;
     let weight_bytes = super::weight_bytes(weight.format(), input_width, output_width)?;
     let format = super::format_code(weight.format())?;
-    let (grid, block) = dispatch::one_dim(output_items)?;
+    if output_width == 0 || rows == 0 {
+        return Err(super::arithmetic());
+    }
+    if rows == 1 {
+        return encode(
+            encoder,
+            module,
+            out,
+            input,
+            weight,
+            input_width,
+            output_width,
+            false,
+        );
+    }
+    let token_groups = rows.checked_add(3).ok_or_else(super::arithmetic)? / 4;
     dispatch::launch(
         encoder,
         module,
@@ -92,7 +109,7 @@ pub(crate) fn encode_batched(
             Arg::U32(rows),
             Arg::U32(format),
         ],
-        grid,
-        block,
+        (output_width, token_groups, 1),
+        (128, 1, 1),
     )
 }

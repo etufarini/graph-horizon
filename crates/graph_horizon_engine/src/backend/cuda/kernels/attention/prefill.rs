@@ -30,6 +30,15 @@ pub(crate) fn encode(
     let total = u64::from(rows)
         .checked_mul(u64::from(q_heads))
         .ok_or_else(super::super::arithmetic)?;
-    let (grid, block) = dispatch::one_dim(total)?;
-    dispatch::launch(encoder, module, kernel, &args, grid, block)
+    let groups = u32::try_from(total).map_err(|_| super::super::arithmetic())?;
+    let threads =
+        u32::try_from(kv.head_dim.next_power_of_two()).map_err(|_| super::super::arithmetic())?;
+    dispatch::launch(
+        encoder,
+        module,
+        kernel,
+        &args,
+        (groups, 1, 1),
+        (threads, 1, 1),
+    )
 }

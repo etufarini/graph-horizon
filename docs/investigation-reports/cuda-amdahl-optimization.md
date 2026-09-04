@@ -1,0 +1,531 @@
+<!--
+This report is the recovery source for the 2026-09-04 CUDA optimization
+campaign. Exact commercial device identity remains in private raw logs in
+accordance with the repository hardware-neutral documentation policy.
+-->
+
+# CUDA Amdahl Optimization
+
+## Campaign state
+
+- Branch: `perf/cuda-amdahl-20260904`
+- Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
+- Started: `2026-09-04T00:39:08+02:00`
+- Unattended deadline: `2026-09-04T08:39:08+02:00`
+- Completed: `2026-09-04T03:05:19+02:00`
+- Terminal state: complete; quantitative stop reached
+- Retained revisions: `5d52db5`, `a9f6466`, `34c9525`, `0056aa3`
+
+The target is CUDA end-to-end inference performance. The initial public
+evidence makes prompt/prefill the provisional objective; decode throughput and
+TTFT are controls. The short row is the first objective because it can acquire
+a stable current-revision baseline within the two-hour comparison limit. The
+medium and largest safe rows are controls when runnable. The matrix is reranked
+after attribution and after every retained change.
+
+## Final result
+
+Four focused changes were retained: block-parallel matmul reduction,
+128-thread matmul launches, decode-isolated four-token prefill tiling, and
+block-parallel prefill attention. The final tree changes no public interface,
+tensor layout, format, allocation, placement, or dependency. Based on the
+printed aggregate means, the end-to-end result is:
+
+| Regime | Metric | Baseline | Final | Change |
+|---|---|---:|---:|---:|
+| Short | Prompt throughput | 1.02 tok/s | 60.34 tok/s | +5,815.7% |
+| Short | TTFT | 125,823.46 ms | 2,121.35 ms | -98.3% |
+| Short | Model decode | 1.08 tok/s | 10.47 tok/s | +869.4% |
+| Short | Public-delta decode | 1.05 tok/s | 10.16 tok/s | +867.6% |
+| Medium | Prompt throughput | 1.01 tok/s | 54.06 tok/s | +5,252.5% |
+| Medium | TTFT | 1,012,305.08 ms | 18,942.37 ms | -98.1% |
+| Medium | Model decode | 0.87 tok/s | 3.09 tok/s | +255.2% |
+| Medium | Public-delta decode | 0.82 tok/s | 2.90 tok/s | +253.7% |
+
+Complete warm-up-plus-measurement wall time fell from 624.23 to 21.79 seconds
+on short and from 4,196.92 to 118.16 seconds on medium. The long row remains
+`not_verified: time budget exceeded` under the unchanged two-hour comparison
+limit. Every retained objective and throughput-control CV is below 0.4%.
+
+## Authenticated tuple
+
+| Field | Value |
+|---|---|
+| Catalog ID | `3b-instruct` |
+| Artifact | `Ministral-3-3B-Instruct-2512-Q4_K_M.gguf` |
+| Bytes | `2147023008` |
+| SHA-256 | `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8` |
+| Host | Linux x86_64, CUDA compute capability 8.6, 12 GiB VRAM |
+| Driver / toolkit | `580.173.02` / `12.4` |
+| Rust | `rustc 1.97.1`, `cargo 1.97.1` |
+| Build | Cargo `release`, locked, `--no-default-features --features cuda` |
+| Placement | standalone CUDA, all GPU, visible ordinal 0 |
+| Context / KV | `4096` / `f16` |
+| Sampling | greedy |
+| Requested generation | 32 tokens |
+| Repetitions | one warm-up, three measured |
+
+The machine had ordinary desktop clients resident on the device but no other
+inference or compute campaign. Device utilization, temperature, and performance
+state are checked around each acquisition. System clock, power, fan, and driver
+settings are not changed.
+
+## Calibrated workload screen
+
+Each prompt is the word `benchmark` repeated with a final period. Counts were
+measured with the engine tokenizer at the baseline revision, not estimated.
+
+| Regime | Words | Actual prompt tokens | Prompt SHA-256 |
+|---|---:|---:|---|
+| Short | 124 | 128 | `24bbd008b03e025caf3b6aece0a67c380d27303a33e9d1282fedc1ff1c27a2b8` |
+| Medium | 1,020 | 1,024 | `0bdbe2964b9c8129d215ab61bfbf447b1e7f111cd95167096fe2b3f8568343f8` |
+| Long | 3,580 | 3,584 | `9bd7645ed8e09684e7b84fc90e735e106595c414cf8ff1e0cc9e5bf14a7be5fc` |
+
+The long row leaves 480 context slots for generation and template reserve. A
+row whose baseline cannot finish inside the canonical two-hour per-comparison
+limit is `not_verified: time budget exceeded`; its tuple is not shortened or
+otherwise substituted.
+
+## Predeclared gates and decisions
+
+- Retain (`keep`) only when the declared objective improves by at least 5%,
+  objective CV is at most 5% in both records, correctness passes, and neither
+  TTFT nor non-target throughput regresses by more than 5%.
+- A 3% to 5% stable gain is `interesting` evidence only; candidate code is
+  removed. Less than 3%, a correctness failure, a control regression over 5%,
+  an artifact mismatch, or an incomparable tuple is `reject`.
+- If an objective CV exceeds 5%, rerun the complete A/B tuple exactly once.
+- Scheduling, dispatch, or submission changes require exact parity. Numeric
+  reduction changes require existing CUDA kernel error bounds plus authenticated
+  real-model top-two parity before performance is interpreted.
+- Independent local gates are the CPU workspace tests, the CUDA feature check,
+  CUDA `error_matrix`, and focused kernel tests. The 74-row release matrix is
+  outside this iterative campaign unless a shared backend contract changes.
+
+## Historical evidence
+
+The newest repository matrix at revision `e6c4572` used the same authenticated
+artifact and unchanged numeric CUDA kernels. It recorded about 0.84 prompt
+tokens/s and 0.61 decode tokens/s on its short row, while medium prompt
+throughput remained about 0.83 tokens/s. CUDA did not complete its long row.
+Those records identify a likely linear per-token bottleneck, but loader and
+composition changes since that revision make them screening evidence rather
+than the current A/B baseline.
+
+The reachable CUDA history was inspected through the standalone implementation,
+typed-view safety follow-up, lifecycle and error gates, frozen qualification,
+and later hybrid composition work. No prior CUDA performance candidate or
+rejected optimization report exists.
+
+## Commands and measurements
+
+Artifact authentication:
+
+```sh
+. support/artifact.sh
+artifact_size "$MODEL"
+artifact_sha256 "$MODEL"
+```
+
+Result: catalog size and SHA-256 matched exactly.
+
+Tokenizer calibration:
+
+```sh
+cargo build --locked --no-default-features --features cpu --example tokenize
+target/debug/examples/tokenize "$MODEL" "$PROMPT"
+```
+
+Result: 128, 1,024, and 3,584 prompt tokens for the declared rows.
+
+Narrow CUDA attribution used the short prompt, two requested tokens, no warm-up,
+one repetition, and `CUDA_LAUNCH_BLOCKING=1`. Temporary dispatch timing grouped
+host-return latency by kernel and was removed immediately after acquisition.
+
+```text
+instrumented TTFT=125305.60 ms
+all timed kernels=126220.296 ms
+matmul_batched=124854.456 ms (98.9179%, 806 launches)
+logits=628.005 ms (0.4975%, 2 launches)
+matmul=267.983 ms (0.2123%, 104 launches)
+attention_prefill_f16=234.422 ms (0.1857%, 104 launches)
+rmsnorm=112.374 ms (0.0890%, 262 launches)
+all remaining kernels=123.056 ms (0.0975%)
+```
+
+The instrumented TTFT was 0.4% below the unprofiled baseline mean, inside the
+baseline dispersion. Because the backend uses one ordered stream, forcing launch
+completion exposed per-kernel time without removing normal kernel overlap. The
+single diagnostic repetition is attribution evidence, not an A/B performance
+record.
+
+## Amdahl ranking
+
+| Regime / phase | Candidate | `p` | Credible local `s` | Added `o` | Predicted global speedup | Ideal ceiling | Absolute time saved | Uncertainty |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| Short / prefill | One block per output row with parallel K reduction | 0.9892 | 8× | 0.005 | 7.17× | 92.4× | about 108.6 s | One profiled repetition; `p` excludes single matmul and logits, so it is conservative |
+| Short / prefill after first keep | Reuse each decoded weight across four batch tokens | 0.9207 | 2× | 0.010 | 1.82× | 12.6× | about 2.8 s | One profiled repetition; local speedup discounted from four-token reuse to 2× |
+| Short / both after first keep | Broadcast Q4 scale/min metadata within each warp | 0.697 | 1.10× | 0.002 | 1.065× | 3.30× | about 0.38 s | Q4 share derived from authenticated tensor shapes; local gain is conservative but not counter-profiled |
+| Short / both after first keep | Warp-first block reduction | 0.9207 | 1.10× | 0.002 | 1.089× | 12.6× | about 0.52 s of profiled kernel time | Replaces eight block-wide barriers with one; benefit depends on reduction share within matmul |
+| Short / both after first keep | 128-thread matmul blocks | 0.9207 | 1.10× | 0.001 | 1.090× | 12.6× | about 0.53 s of profiled kernel time | Doubles per-thread dot work but halves block synchronization and may improve residency |
+| Short / prefill after second keep | Reuse weights across four batch tokens, preserving the one-row path | 0.9158 | 2× | 0.010 | 1.81× | 11.9× | about 2.67 s of profiled kernel time | Prior tiling measured +113.5% prefill; the new premise removes its one-row decode overhead |
+| Short / prefill after third keep | Increase the isolated prefill tile from four to eight tokens | 0.7842 | 1.4× | 0.010 | 1.27× | 4.63× | about 0.54 s of profiled kernel time | Weight reuse doubles; register and shared-memory pressure may limit the local gain |
+| Short / prefill after third keep | One block per attention row/head with parallel head-dimension reduction | 0.0959 | 3× | 0.005 | 1.063× | 1.106× | about 0.15 s of profiled kernel time | Ceiling is narrow; synchronization per context token may consume the local gain |
+
+The candidate changes only matmul launch geometry and the category-K matmul
+kernel. It replaces one serial K loop per output with 256 partial sums reduced
+inside one block. The invariant is unchanged tensor bounds, formats, and one
+output per `(token,row)`. The main risk is floating-point reordering, so this is
+a numeric candidate: CUDA packed-format error tests and pinned real-model top-two
+parity must pass before any candidate benchmark is interpreted.
+
+Post-change attribution repeated the same two-token diagnostic command after
+commit `5d52db5`; temporary timing was again removed before the next candidate.
+
+```text
+instrumented TTFT=6162.62 ms
+all timed kernels=6227.641 ms
+matmul_batched=5734.055 ms (92.0743%, 806 launches)
+attention_prefill_f16=238.042 ms (3.8223%, 104 launches)
+rmsnorm=113.053 ms (1.8153%, 262 launches)
+rope=56.011 ms (0.8994%, 6708 launches)
+all remaining kernels=86.480 ms (1.3887%)
+```
+
+The next candidate changes only batched matmul: one block processes up to four
+tokens for one output row, decoding each quantized weight once and applying it
+to four inputs. Each token still visits K indices in the same ascending-stride
+order and uses the same tree reduction as the retained kernel. The intended
+variable is weight reuse; tensor layout, formats, placement, and public APIs are
+unchanged. Its predeclared correctness gate is exact batched-versus-single
+kernel output plus the same local and pinned real-model gates.
+
+The four-token candidate passed the CPU workspace, CUDA check, 11 selected
+error-matrix tests, all 32 CUDA tests, exact f16 batched-versus-single output for
+F16/Q4/Q5/Q6, and pinned real-model parity with all 16 top-1 IDs equal to the
+oracle. Its short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=44.42 prompt_tps_median=44.39 prompt_tps_stddev=0.07 prompt_tps_cv=0.0016 ttft_ms_mean=2881.51 ttft_ms_median=2883.47 ttft_ms_stddev=4.61 ttft_cv=0.0016 model_decode_tps_mean=9.42 model_decode_tps_median=9.42 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0003 decode_tps_mean=9.13 decode_tps_median=9.13 decode_tps_stddev=0.00 decode_tps_cv=0.0004 delta_interval_ms_mean=109.50 delta_interval_ms_median=109.43 delta_interval_ms_stddev=2.44 delta_interval_ms_cv=0.0223 decode_begin_tps=9.38 decode_middle_tps=9.14 decode_end_tps=8.91
+```
+
+Prompt throughput improved 113.5% and TTFT fell 53.1%, but model decode and
+public-delta decode regressed 6.08% and 6.17%. Both exceed the 5% control limit.
+Objective CV was below 5%, so the canonical rerun rule did not apply. Terminal
+state: `reject: decode control regression`; all candidate code and its focused
+test change were removed without rewriting history.
+
+The authenticated inventory has 156 Q4_K matrices and 26 Q6_K layer matrices.
+Using hidden width 3,072 and FFN width 9,216, Q4 projections account for about
+75.7% of per-layer matmul multiply-accumulates. Applied to the measured 92.07%
+matmul share, the Q4 metadata candidate owns a conservative `p=0.697` of the
+short fixed-work interval.
+
+For each 32-lane Q4 group, all lanes currently decode the same two scale/min
+codes and the same two f16 block factors. The third candidate computes those
+values in lane zero and broadcasts their exact f32 bits with warp shuffles;
+quant nibbles and per-lane multiplication remain unchanged. The intended
+variable is redundant metadata arithmetic; no layout, precision, accumulation
+order, or public interface changes. The exact kernel gate pins the accepted
+Q4/Q5 patterned-output f16 bits to `d4b6,ce2d` and `d93c,d46d`; Q6 control bits
+are `51fd,4d1e`. Full local CUDA and real-model parity gates still apply.
+
+The metadata-broadcast candidate passed formatting, the CUDA workspace check,
+the full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests including its exact patterned-output bit gate, and pinned real-model
+parity with all 16 top-1 IDs equal to the oracle. Its short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=17.16 prompt_tps_median=17.20 prompt_tps_stddev=0.06 prompt_tps_cv=0.0036 ttft_ms_mean=7458.31 ttft_ms_median=7443.18 ttft_ms_stddev=26.63 ttft_cv=0.0036 model_decode_tps_mean=9.00 model_decode_tps_median=9.02 model_decode_tps_stddev=0.04 model_decode_tps_cv=0.0043 decode_tps_mean=8.72 decode_tps_median=8.75 decode_tps_stddev=0.04 decode_tps_cv=0.0042 delta_interval_ms_mean=114.62 delta_interval_ms_median=114.29 delta_interval_ms_stddev=3.15 delta_interval_ms_cv=0.0275 decode_begin_tps=8.97 decode_middle_tps=8.76 decode_end_tps=8.50
+```
+
+Against the retained checkpoint, prompt throughput regressed 17.5%, TTFT
+increased 21.3%, model decode regressed 10.3%, and public-delta decode regressed
+10.4%. Objective and decode CVs were at most 0.43%, so the canonical rerun rule
+did not apply. Terminal state: `reject: objective and control regression`; the
+candidate implementation and its exact candidate-only bit assertions were
+removed.
+
+Baseline, attribution, candidate decisions, correctness results, and exact A/B
+records are appended below as the campaign advances.
+
+Short baseline build and benchmark:
+
+```sh
+CARGO_TARGET_DIR=target/perf-baseline cargo build --locked --release \
+  --no-default-features --features cuda --example bench
+target/perf-baseline/release/examples/bench "$MODEL" \
+  --context 4096 --kv f16 --prompt "$SHORT_PROMPT" \
+  --max-tokens 32 --warmup 1 --reps 3
+```
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=1.02 prompt_tps_median=1.02 prompt_tps_stddev=0.01 prompt_tps_cv=0.0054 ttft_ms_mean=125823.46 ttft_ms_median=125462.05 ttft_ms_stddev=684.45 ttft_cv=0.0054 model_decode_tps_mean=1.08 model_decode_tps_median=1.09 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0013 decode_tps_mean=1.05 decode_tps_median=1.05 decode_tps_stddev=0.00 decode_tps_cv=0.0013 delta_interval_ms_mean=951.88 delta_interval_ms_median=951.22 delta_interval_ms_stddev=6.24 delta_interval_ms_cv=0.0066 decode_begin_tps=1.05 decode_middle_tps=1.05 decode_end_tps=1.05
+```
+
+Wall time including warm-up was 624.23 seconds. Device memory and clocks were
+stable during acquisition; objective and control CVs were below 1%. For the
+fixed 128-prompt/32-completion work, TTFT contributes about 80.9% of the sum of
+TTFT and model decode elapsed time, so prompt/prefill is the selected objective.
+
+Candidate correctness gates, run before candidate performance:
+
+```sh
+cargo fmt --all -- --check
+cargo check --workspace --locked --no-default-features --features cuda
+cargo test --workspace --locked --no-default-features --features cpu
+cargo test -p graph_horizon_engine --locked --no-default-features \
+  --features cuda error_matrix -- --nocapture
+cargo test -p graph_horizon_engine --locked --no-default-features \
+  --features cuda 'backend::cuda::' -- --nocapture
+support/testing/parity-check.sh --models-dir "$MODELS" --model-id 3b-instruct \
+  --backend cuda --kv f16 --reference-server "$PINNED_LLAMA_SERVER"
+```
+
+Results: formatting and CUDA check passed; CPU workspace suites passed (170 root
+and 163 engine tests, plus integration suites); all 11 selected error-matrix
+tests and all 32 CUDA tests passed. The parity runner used its exact pinned
+`13f2b28b0` oracle and all 16 local top-1 token IDs equaled the oracle token IDs,
+which is stronger than its required top-two bound.
+
+Short candidate record:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=20.81 prompt_tps_median=20.82 prompt_tps_stddev=0.07 prompt_tps_cv=0.0033 ttft_ms_mean=6149.64 ttft_ms_median=6147.80 ttft_ms_stddev=20.39 ttft_cv=0.0033 model_decode_tps_mean=10.03 model_decode_tps_median=10.02 model_decode_tps_stddev=0.03 model_decode_tps_cv=0.0034 decode_tps_mean=9.73 decode_tps_median=9.71 decode_tps_stddev=0.03 decode_tps_cv=0.0034 delta_interval_ms_mean=102.78 delta_interval_ms_median=102.70 delta_interval_ms_stddev=2.35 delta_interval_ms_cv=0.0228 decode_begin_tps=10.00 decode_middle_tps=9.75 decode_end_tps=9.48
+```
+
+Wall time including warm-up was 38.34 seconds. Against the stable baseline,
+prompt throughput improved 1,940.2%, TTFT fell 95.1%, model decode throughput
+improved 828.7%, and public-delta decode improved 826.7%. All available CVs are
+below 1%; this was a provisional passing A/B before the medium control.
+
+Medium control baseline:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=1.01 prompt_tps_median=1.01 prompt_tps_stddev=0.00 prompt_tps_cv=0.0001 ttft_ms_mean=1012305.08 ttft_ms_median=1012240.63 ttft_ms_stddev=141.85 ttft_cv=0.0001 model_decode_tps_mean=0.87 model_decode_tps_median=0.87 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0014 decode_tps_mean=0.82 decode_tps_median=0.82 decode_tps_stddev=0.00 decode_tps_cv=0.0014 delta_interval_ms_mean=1224.14 delta_interval_ms_median=1183.26 delta_interval_ms_stddev=213.32 delta_interval_ms_cv=0.1743 decode_begin_tps=0.85 decode_middle_tps=0.84 decode_end_tps=0.77
+```
+
+Medium control candidate:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=16.88 prompt_tps_median=16.88 prompt_tps_stddev=0.02 prompt_tps_cv=0.0014 ttft_ms_mean=60658.02 ttft_ms_median=60675.86 ttft_ms_stddev=86.82 ttft_cv=0.0014 model_decode_tps_mean=3.04 model_decode_tps_median=3.04 model_decode_tps_stddev=0.01 model_decode_tps_cv=0.0037 decode_tps_mean=2.85 decode_tps_median=2.85 decode_tps_stddev=0.01 decode_tps_cv=0.0037 delta_interval_ms_mean=350.33 delta_interval_ms_median=338.15 delta_interval_ms_stddev=61.48 delta_interval_ms_cv=0.1755 decode_begin_tps=2.96 decode_middle_tps=2.96 decode_end_tps=2.67
+```
+
+The complete A and B wall times were 4,196.92 and 285.45 seconds. Prompt
+throughput improved 1,571.3%, TTFT fell 94.0%, model decode throughput improved
+249.4%, and public-delta decode improved 247.6%. Objective CVs were 0.01% and
+0.14%; no control regressed.
+
+The long-row baseline was not started. Scaling the measured medium baseline by
+prompt work predicts about 3,543 seconds per request and about 236 minutes for
+the required warm-up plus three measurements. That exceeds the canonical
+two-hour comparison limit, so the row is `not_verified: time budget exceeded`.
+The workload, context, generation reserve, and placement were not changed to
+manufacture a runnable substitute.
+
+## Candidate ledger
+
+| Candidate | Target | Terminal state | Evidence / revision |
+|---|---|---|---|
+| Baseline | Short prefill; decode and TTFT controls | complete | Stable record at `2d7cd89` |
+| Block-parallel matmul reduction | Short prefill; decode and TTFT controls | **keep** | Correctness, short objective, and medium control pass; `5d52db5` |
+| Four-token batched matmul weight reuse | Short prefill; decode and TTFT controls | **reject** | Objective +113.5%; decode controls −6.08%/−6.17%; code restored |
+| Warp-broadcast Q4 scale/min metadata | Short prefill and decode | **reject** | Objective −17.5%; decode controls −10.3%/−10.4%; code restored |
+| Warp-first block reduction | Short prefill and decode | **reject / interesting** | Objective +4.81%; controls improved; below 5% keep threshold; code restored |
+| 128-thread matmul blocks | Short prefill; medium and decode controls | **keep** | Short objective +6.29%; medium +5.75%; all controls pass; `a9f6466` |
+| Decode-specialized four-token matmul | Short prefill; medium and decode controls | **keep** | Short objective +151.2%; medium +95.0%; all controls pass; `34c9525` |
+| Eight-token prefill tile | Short prefill; decode and TTFT controls | **reject** | Objective +1.71%; below 3% with stable controls; code restored |
+| Block-parallel prefill attention | Short prefill; medium and decode controls | **keep** | Short objective +8.58%; medium +55.3%; controls pass; `0056aa3` |
+
+## Later candidates
+
+After the first retained change, batched matmul still owns 92.07% of measured
+kernel time. Four-token weight reuse improved that path but violated the decode
+control gate. Warp-broadcasting Q4 metadata increased execution time despite
+eliminating redundant arithmetic, indicating that shuffle and dependency
+latency dominate the saved scalar work on this kernel geometry. The matrix is
+reranked from the restored retained checkpoint. The fourth candidate retains
+one output per block and the same per-thread ascending-stride dot products, but
+reduces the 256 partial sums within warps before combining eight warp totals.
+It removes seven block-wide barriers without changing formats, bounds, launch
+geometry, or interfaces. The accumulation tree changes, so packed-format error
+tests and pinned real-model parity must pass before performance is interpreted.
+
+The warp-first reduction passed formatting, the CUDA workspace check, the full
+CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests, and
+pinned real-model parity with all 16 top-1 IDs equal to the oracle. Its short
+record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=21.81 prompt_tps_median=21.81 prompt_tps_stddev=0.02 prompt_tps_cv=0.0009 ttft_ms_mean=5868.54 ttft_ms_median=5868.33 ttft_ms_stddev=5.50 ttft_cv=0.0009 model_decode_tps_mean=10.33 model_decode_tps_median=10.33 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0002 decode_tps_mean=10.01 decode_tps_median=10.01 decode_tps_stddev=0.00 decode_tps_cv=0.0002 delta_interval_ms_mean=99.87 delta_interval_ms_median=99.80 delta_interval_ms_stddev=2.33 delta_interval_ms_cv=0.0233 decode_begin_tps=10.30 decode_middle_tps=10.04 decode_end_tps=9.75
+```
+
+Against the retained checkpoint, prompt throughput improved 4.81%, TTFT fell
+4.57%, model decode improved 2.99%, and public-delta decode improved 2.88%.
+CVs were at most 0.09% for the objective and throughput controls. This is the
+predeclared `interesting` band, not a keep: terminal state
+`reject: stable gain below 5%`; the code was restored.
+
+The final local candidate changes only matmul block width from 256 to 128
+threads. Each output still owns one block and every K index is visited exactly
+once; fewer threads double the per-thread ascending-stride dot work while
+halving shared reduction work and potentially increasing resident blocks. No
+format, buffer, grid, or interface changes. Assignment and reduction order
+change, so this remains behind the full numeric and real-model gates.
+
+The 128-thread candidate passed formatting, the CUDA workspace check, the full
+CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests,
+and pinned real-model parity with all 16 top-1 IDs equal to the oracle. Its
+short record was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=22.12 prompt_tps_median=22.10 prompt_tps_stddev=0.05 prompt_tps_cv=0.0023 ttft_ms_mean=5786.24 ttft_ms_median=5790.58 ttft_ms_stddev=13.18 ttft_cv=0.0023 model_decode_tps_mean=10.34 model_decode_tps_median=10.34 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0004 decode_tps_mean=10.03 decode_tps_median=10.03 decode_tps_stddev=0.00 decode_tps_cv=0.0003 delta_interval_ms_mean=99.72 delta_interval_ms_median=99.65 delta_interval_ms_stddev=2.33 delta_interval_ms_cv=0.0234 decode_begin_tps=10.32 decode_middle_tps=10.05 decode_end_tps=9.76
+```
+
+Against the retained checkpoint, short prompt throughput improved 6.29%, TTFT
+fell 5.91%, model decode improved 3.09%, and public-delta decode improved 3.08%.
+Objective and decode CVs were at most 0.23%; the short gate passed.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=17.85 prompt_tps_median=17.85 prompt_tps_stddev=0.00 prompt_tps_cv=0.0003 ttft_ms_mean=57365.45 ttft_ms_median=57370.13 ttft_ms_stddev=14.97 ttft_cv=0.0003 model_decode_tps_mean=3.08 model_decode_tps_median=3.08 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0001 decode_tps_mean=2.89 decode_tps_median=2.89 decode_tps_stddev=0.00 decode_tps_cv=0.0001 delta_interval_ms_mean=345.74 delta_interval_ms_median=334.50 delta_interval_ms_stddev=61.07 delta_interval_ms_cv=0.1766 decode_begin_tps=3.01 decode_middle_tps=2.99 decode_end_tps=2.70
+```
+
+Against the retained checkpoint, medium prompt throughput improved 5.75%,
+TTFT fell 5.43%, model decode improved 1.32%, and public-delta decode improved
+1.40%. Objective CV was 0.03%; no control regressed. Terminal state: `keep`.
+
+Post-change blocking attribution measured 5,831.506 ms across timed kernels.
+Batched matmul remains largest at 5,340.382 ms (91.5781%, 806 launches),
+followed by f16 prefill attention at 237.469 ms (4.0722%, 104 launches) and
+RMSNorm at 114.838 ms (1.9693%, 262 launches); every other kernel is
+individually below 1%. Instrumented TTFT was 5,778.95 ms, consistent with the
+unprofiled short mean. Temporary timing code was removed.
+
+This reranking changes the rejected token-tiling premise. For a single row, the
+next candidate executes the accepted one-token dot path exactly. For multiple
+rows, each block handles up to four tokens for one output row, decoding each
+weight once and accumulating four independent dot products. This targets the
+measured prefill reuse while removing the extra accumulators and branches from
+decode. Tensor formats, per-token accumulation order, output layout, and public
+interfaces remain unchanged. The grid's token dimension becomes ceiling
+`rows/4`; checked arithmetic must reject overflow. Exact batched-versus-single
+output, all local gates, and pinned parity precede performance.
+
+The decode-specialized tile passed formatting, the CUDA workspace check, the
+full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests, exact batched-versus-single f16 output for F16/Q4/Q5/Q6, and pinned
+real-model parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=55.57 prompt_tps_median=55.58 prompt_tps_stddev=0.04 prompt_tps_cv=0.0008 ttft_ms_mean=2303.37 ttft_ms_median=2302.88 ttft_ms_stddev=1.79 ttft_cv=0.0008 model_decode_tps_mean=10.50 model_decode_tps_median=10.50 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0003 decode_tps_mean=10.18 decode_tps_median=10.18 decode_tps_stddev=0.00 decode_tps_cv=0.0003 delta_interval_ms_mean=98.20 delta_interval_ms_median=98.27 delta_interval_ms_stddev=2.37 delta_interval_ms_cv=0.0241 decode_begin_tps=10.49 decode_middle_tps=10.20 decode_end_tps=9.91
+```
+
+Against the second retained checkpoint, short prompt throughput improved
+151.2%, TTFT fell 60.2%, model decode improved 1.55%, and public-delta decode
+improved 1.50%. Objective and throughput-control CVs were at most 0.08%.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=34.81 prompt_tps_median=34.77 prompt_tps_stddev=0.07 prompt_tps_cv=0.0021 ttft_ms_mean=29414.59 ttft_ms_median=29446.95 ttft_ms_stddev=60.75 ttft_cv=0.0021 model_decode_tps_mean=3.10 model_decode_tps_median=3.10 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0016 decode_tps_mean=2.91 decode_tps_median=2.90 decode_tps_stddev=0.00 decode_tps_cv=0.0015 delta_interval_ms_mean=344.18 delta_interval_ms_median=332.96 delta_interval_ms_stddev=60.68 delta_interval_ms_cv=0.1763 decode_begin_tps=3.03 decode_middle_tps=3.00 decode_end_tps=2.71
+```
+
+Against the second retained checkpoint, medium prompt throughput improved
+95.0%, TTFT fell 48.7%, model decode improved 0.65%, and public-delta decode
+improved 0.69%. Objective and throughput-control CVs were at most 0.21%; no
+control regressed. Complete wall time was 159.90 seconds. Terminal state:
+`keep`.
+
+Post-tile blocking attribution measured 2,397.888 ms across timed kernels.
+Batched matmul remains largest at 1,880.349 ms (78.4169%, 728 launches),
+followed by f16 prefill attention at 230.000 ms (9.5918%, 104 launches),
+RMSNorm at 110.915 ms (4.6255%, 262 launches), and rope at 53.217 ms
+(2.2193%, 6,708 launches). Instrumented TTFT was 2,346.78 ms, consistent with
+the unprofiled short mean. Temporary timing code was removed.
+
+The next candidate changes only the prefill tile width from four to eight.
+Decode remains routed through the accepted one-row kernel. The grid uses
+ceiling `rows/8`; each valid token preserves the same per-thread and tree
+accumulation order. The main risk is increased register and shared-memory
+pressure, while bounds, layouts, formats, and interfaces remain unchanged.
+
+The eight-token tile passed formatting, the CUDA workspace check, the full CPU
+workspace suites, all 11 selected error-matrix tests, all 32 CUDA tests, exact
+batched-versus-single f16 output for F16/Q4/Q5/Q6 across two groups and a tail,
+and pinned parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=56.52 prompt_tps_median=56.48 prompt_tps_stddev=0.06 prompt_tps_cv=0.0011 ttft_ms_mean=2264.83 ttft_ms_median=2266.10 ttft_ms_stddev=2.55 ttft_cv=0.0011 model_decode_tps_mean=10.50 model_decode_tps_median=10.50 model_decode_tps_stddev=0.01 model_decode_tps_cv=0.0009 decode_tps_mean=10.18 decode_tps_median=10.18 decode_tps_stddev=0.01 decode_tps_cv=0.0008 delta_interval_ms_mean=98.26 delta_interval_ms_median=98.04 delta_interval_ms_stddev=2.39 delta_interval_ms_cv=0.0243 decode_begin_tps=10.48 decode_middle_tps=10.20 decode_end_tps=9.90
+```
+
+Against the accepted four-token tile, prompt throughput improved only 1.71%
+and TTFT fell 1.67%; the two decode means were unchanged at printed precision.
+Objective and throughput-control CVs were at most 0.11%, so no rerun applies.
+Terminal state: `reject: stable gain below 3%`; code and expanded candidate-only
+test dimensions were restored.
+
+The attention candidate changes only prefill: one block owns a `(row, q-head)`
+pair, threads own head-dimension elements, and a shared tree reduction produces
+each causal score. Online softmax order across tokens remains unchanged and
+each thread retains one value accumulator. Decode keeps the accepted serial
+body. The block width is the next power of two covering the validated head
+dimension (at most 256). The main risk is reordered score reduction; existing
+f16/int8 attention bounds and pinned real-model parity gate performance.
+
+The parallel attention candidate passed formatting, the CUDA workspace check,
+the full CPU workspace suites, all 11 selected error-matrix tests, all 32 CUDA
+tests including f16/int8 causal and prefill/decode attention bounds, and pinned
+real-model parity with all 16 top-1 IDs equal to the oracle. Its short record
+was:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=60.34 prompt_tps_median=60.34 prompt_tps_stddev=0.07 prompt_tps_cv=0.0012 ttft_ms_mean=2121.35 ttft_ms_median=2121.36 ttft_ms_stddev=2.53 ttft_cv=0.0012 model_decode_tps_mean=10.47 model_decode_tps_median=10.49 model_decode_tps_stddev=0.03 model_decode_tps_cv=0.0029 decode_tps_mean=10.16 decode_tps_median=10.17 decode_tps_stddev=0.03 decode_tps_cv=0.0029 delta_interval_ms_mean=98.46 delta_interval_ms_median=98.61 delta_interval_ms_stddev=2.34 delta_interval_ms_cv=0.0238 decode_begin_tps=10.46 decode_middle_tps=10.16 decode_end_tps=9.89
+```
+
+Against the four-token checkpoint, short prompt throughput improved 8.58% and
+TTFT fell 7.90%; model and public-delta decode regressed only 0.29% and 0.20%.
+Objective and throughput-control CVs were at most 0.29%.
+
+Its medium record was:
+
+```text
+prompt_tokens=1024 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=54.06 prompt_tps_median=54.07 prompt_tps_stddev=0.02 prompt_tps_cv=0.0004 ttft_ms_mean=18942.37 ttft_ms_median=18939.54 ttft_ms_stddev=7.14 ttft_cv=0.0004 model_decode_tps_mean=3.09 model_decode_tps_median=3.09 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0012 decode_tps_mean=2.90 decode_tps_median=2.90 decode_tps_stddev=0.00 decode_tps_cv=0.0012 delta_interval_ms_mean=344.99 delta_interval_ms_median=333.63 delta_interval_ms_stddev=60.69 delta_interval_ms_cv=0.1759 decode_begin_tps=3.02 decode_middle_tps=3.00 decode_end_tps=2.71
+```
+
+Against the four-token checkpoint, medium prompt throughput improved 55.3%
+and TTFT fell 35.6%; model and public-delta decode regressed only 0.32% and
+0.34%. Objective and throughput-control CVs were at most 0.12%; no control
+crossed the 5% limit. Complete wall time was 118.16 seconds. Terminal state:
+`keep`.
+
+Final blocking attribution measured 2,205.433 ms across timed kernels. Batched
+matmul remains largest at 1,891.092 ms (85.7470%, 728 launches), followed by
+RMSNorm at 111.234 ms (5.0436%, 262 launches), rope at 48.580 ms (2.2028%,
+6,708 launches), parallel prefill attention at 35.107 ms (1.5918%, 104
+launches), and decode attention at 32.686 ms (1.4820%, 26 launches).
+Instrumented TTFT was 2,155.16 ms, consistent with the unprofiled final short
+mean. Nsight tools were unavailable, so these are host-blocking attribution
+measurements rather than hardware-counter profiles. Temporary timing code was
+removed.
+
+The campaign stops before its wall-clock deadline because no remaining
+measured candidate has a conservative global ceiling at or above the 5% keep
+threshold. Doubling the dominant matmul tile from four to eight tokens produced
+only +1.71% with low variance, establishing the practical local reuse limit.
+RMSNorm's absolute infinite-speedup ceiling is 5.31%, so any finite credible
+local speedup falls below the gate; all other individual kernels have smaller
+ceilings. The largest remaining bottleneck is therefore the four-token
+quantized batched matmul, whose next improvement would require a different
+cooperative/tensor-core design rather than further tuning of this row kernel.
+
+Final verification passed formatting, CUDA workspace check, the CPU workspace
+suites (173 root and 163 engine tests plus integration suites), 11 selected
+error-matrix tests, all 32 CUDA tests, and authenticated parity. Every retained
+numeric candidate produced all 16 top-1 IDs exactly equal to the pinned
+`13f2b28b0` oracle. Conceptual complexity increased only inside the two
+category-K kernels because work is now explicitly distributed; orchestration
+remains direct at 115 lines for matmul and 44 lines for prefill attention.

@@ -106,9 +106,9 @@ pub(super) unsafe fn row_dot_q4k_avx2(a: &[f32], bytes: &[u8], row: usize, in_di
 // lane-parallel accumulator, instead of re-decoding the whole row per token (the
 // prefill amortization — the dequant cost is paid once for the batch). `a` is
 // token-major `[n][in_dim]`; `out[0..n]` receives one dot per token. The per-token
-// accumulation order is identical to `row_dot_q4k_avx2` (sub-block by sub-block,
-// chunk 0..4 into the same 8-lane accumulator), so `out[i]` is BIT-IDENTICAL to the
-// single-token AVX2 kernel — hence to the decode hot-path. `acc` is caller-owned
+// accumulation order is sub-block by sub-block, chunk 0..4 into one 8-lane
+// accumulator, matching the two-row batched kernel exactly. The decode kernel
+// instead uses four accumulators and has a bounded numeric parity gate. `acc` is caller-owned
 // scratch of `n*8` f32 (the 8 lane partials per token); it lives in L1/L2 because
 // `n` accumulators cannot stay in registers. SAFETY: reached only behind a runtime
 // AVX2+FMA check; every load/store stays within `a`/`out`/`acc` (all sized to `n`).
@@ -193,10 +193,13 @@ pub(super) unsafe fn row_dot_q4k_avx2_batched(
 // BIT-IDENTICAL to two separate `row_dot_q4k_avx2_batched` calls. `acc` is
 // caller-owned scratch of `2*n*8` f32: row0's per-token partials in `[0..n*8]`,
 // row1's in `[n*8..2*n*8]`. SAFETY: reached only behind a runtime AVX2+FMA check;
-// every load/store stays within `a`/`out0`/`out1`/`acc` (all sized to `n`), and
+// Activations are [in_dim/32][batch][32], with the slice starting at the
+// current token tile's offset. Each tile has n <= batch token windows. Every
+// load/store stays within the validated packed activation/output/scratch slices, and
 // `row0+1` is a valid row (the caller pairs rows only when two remain).
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
+#[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn row2_dot_q4k_avx2_batched(
     a: &[f32],
     bytes: &[u8],
@@ -205,6 +208,7 @@ pub(super) unsafe fn row2_dot_q4k_avx2_batched(
     out0: &mut [f32],
     out1: &mut [f32],
     acc: &mut [f32],
+    batch: usize,
 ) {
     use core::arch::x86_64::*;
     unsafe {
@@ -261,7 +265,7 @@ pub(super) unsafe fn row2_dot_q4k_avx2_batched(
                 }
                 // One activation load per chunk, reused by both rows' FMAs.
                 for i in 0..n {
-                    let arow = a.as_ptr().add(i * in_dim + in0);
+                    let arow = a.as_ptr().add(in0 * batch + i * 32);
                     let p0 = acc.as_mut_ptr().add(i * 8);
                     let p1 = acc.as_mut_ptr().add((n + i) * 8);
                     let mut a0 = _mm256_loadu_ps(p0);

@@ -5,11 +5,11 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: starting revision; no new optimization yet.
+- Retained production checkpoint: CPU25-01, the production commit containing its decision below.
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-01 objective and short control passed; long A/B control running.
+- State: CPU25-01 kept; preparing post-change attribution and queue rerank.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 1 / 0 / 0 / 0 / 1 (one attempt still in progress).
+- Current attempts / kept / rejected / not_verified / closed-untried: 1 / 1 / 0 / 0 / 1.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -73,7 +73,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 
 | ID / premise | Regime / phase | Conservative p | Local s | Added o | Predicted global gain / ideal ceiling | Saved time | Cost / risk / uncertainty | State |
 |---|---|---:|---:|---:|---|---|---|---|
-| CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | small two-file edit; exact layout risk; cache benefit unmeasured | ready |
+| CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | initial prediction; measured medium prompt +20.681%, all gates pass | kept |
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .55 | 1.10 | .002 | 5.04% / 2.22x | 1.57 s | small SIMD edit; exact gate; register-pressure risk | ready |
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .18 | 1.20 | .005 | 2.56% / 1.22x | .82 s | bounded kernel experiment; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
@@ -437,3 +437,42 @@ F16 conversion/copy and rotation were the remaining cost. This supports a
 future investigation of direct SIMD rotation in the FP16 buffer, a different
 mechanism from coefficient caching. Do not assign it a ready score or count
 an attempt before assessing the current post-decision profile and exact gate.
+
+### CPU25-01 — kept
+
+The long A/B completed at 2026-09-05T01:37:44+02:00, 23 minutes 2 seconds
+after the declared comparison start, within the two-hour budget. Both children
+and the enclosing session `11862` exited successfully. No rerun was used.
+
+| Long control metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 27.03 | 32.36 | +19.719% | .92% | .57% |
+| TTFT ms | 132611.67 | 110765.72 | -16.474% | .91% | .57% |
+| Model decode tok/s | 8.68 | 8.73 | +.576% | .37% | .58% |
+| Public decode deltas/s | 8.13 | 8.19 | +.738% | .36% | .58% |
+
+Both records have 3584 prompt tokens, 32 completion tokens and 31 public
+deltas. The short/medium/long paired prompt gains are +32.986% / +20.681% /
++19.719%; the largest decode control regression is the short row's 3.259%,
+within the 5% limit. All deciding objective and control CVs are at most 1.11%.
+Correctness passed before performance. The terminal decision is `kept`.
+
+Final formatting, warning-denied CPU Clippy and diff checks passed. The last
+source edits clarify the exact input-view invariant and correct inherited
+batched-versus-decode accumulation comments; no measured operation changed.
+Inspection verified `BatchBuffers::scratch` creates exact `rows * width` views
+even when backing buffers have larger capacity, and `CpuBuffer` confines reads
+to that view. Production productive-line upper bounds, including comments, are
+within the declared 360/310 estimates. No new hardware product name appears in
+the added tracked lines.
+
+The source complexity cost is one transient, explicitly indexed activation
+representation; the obsolete pair-dispatch helper was removed. The gain passes
+the predeclared gate, so that local cost is retained. Single-token execution,
+canonical weights, KV payloads and public APIs retain their original contracts.
+
+Current retained changes: CPU25-01 only, in the commit containing this section.
+Inherited `c76c8b9` and `82634e4` remain outside current-campaign counts.
+Pending: fresh attribution on the retained checkpoint, rerank CPU25-02/03/05/06,
+replenish distinct candidates from that evidence, and complete at least nine
+more countable attempts. This is not the campaign's final quantitative stop.

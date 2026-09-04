@@ -187,7 +187,31 @@ medium estimates are about 0.22 and 1.85 seconds.
   batched-versus-single tests including exact four-row versus two-row output;
   CPU workspace suite; authenticated parity if the pinned server is available.
 
-State: declared; implementation pending.
+The focused five-test Q4 gate passed, including exact four-row versus two-row
+f32 output bits. The full release CPU workspace passed: 170 root tests (three
+external/live tests ignored), 164 engine tests (two authenticated tests
+ignored), documentation, four family-agnostic tests (one authenticated test
+ignored), and 12 semantic tests (one authenticated test ignored). The local
+`llama-server` is revision `9bebfcb4b`, not the required pinned `13f2b28b0`, so
+real-model parity is `external verification: unsupported llama.cpp revision`.
+
+Short candidate record:
+
+```text
+prompt_tokens=128 completion_tokens=32 decoded_tokens=32 prompt_tps_mean=36.48 prompt_tps_median=36.52 prompt_tps_stddev=0.50 prompt_tps_cv=0.0137 ttft_ms_mean=3509.36 ttft_ms_median=3504.64 ttft_ms_stddev=48.14 ttft_cv=0.0137 model_decode_tps_mean=11.58 model_decode_tps_median=11.58 model_decode_tps_stddev=0.01 model_decode_tps_cv=0.0009 decode_tps_mean=11.22 decode_tps_median=11.22 decode_tps_stddev=0.01 decode_tps_cv=0.0010 delta_interval_ms_mean=89.15 delta_interval_ms_median=88.81 delta_interval_ms_stddev=2.48 delta_interval_ms_cv=0.0279 decode_begin_tps=11.22 decode_middle_tps=11.21 decode_end_tps=11.17
+```
+
+Against baseline, prompt throughput improved 14.72% and TTFT fell 12.83%, but
+model decode regressed 13.65% and public-delta decode regressed 13.63%. All
+candidate objective/decode CVs are at most 1.37%, so the canonical instability
+rerun does not apply. Disassembly confirms use of EVEX-encoded `ymm16`--`ymm28`
+registers rather than spills; the intended register expansion occurred. Its
+wide-ISA/code-layout effect still harms the unchanged decode path beyond the
+5% control limit.
+
+State: `reject: decode control regression`. Medium and long controls were not
+run after the terminal short failure. All CPU-01 production and test code was
+removed without rewriting history.
 
 ## Final verification and result
 

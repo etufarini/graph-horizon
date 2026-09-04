@@ -10,6 +10,19 @@
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: none.
 
+Recovery checkpoint: baseline runner process 702047 and long-row child 702696
+were confirmed live; tool session `6964` is the acquisition handle. Poll that
+same handle or inspect these processes and `baseline-long.json` before taking
+any action. An observation timeout does not authorize a duplicate benchmark.
+When baseline ends, run `python3 target/cuda-amdahl-20260905/run.py gate baseline`
+and verify the parity log starts with `pass:`. Then collect one diagnostic
+32-token, zero-warmup, one-repetition trace for each regime using the copied
+baseline executable, `LD_PRELOAD` set to the absolute private `timeline.so`,
+stdout as a diagnostic benchmark record and stderr as private CSV. Use
+`analysis.py` to summarize it; reject dropped records and measure overhead
+against matching uninstrumented diagnostic rows if the baseline aggregates do
+not bound it. No production candidate has begun.
+
 ## Invariants and procedure
 
 Keep artifact bytes, backend, placement, context, KV, sampling, build settings,
@@ -86,8 +99,9 @@ Prompt SHA-256 values, respectively:
 | Long | pending | pending | pending | pending | running |
 
 Short emits 32 completion tokens / 32 deltas, medium 32 / 31. Fixed-work
-approximation from aggregate means is TTFT + completion_tokens/model_decode_tps:
-5.223 s short (40.6% TTFT), 28.882 s medium (64.7% TTFT). These inverse means
+approximation from aggregate means is TTFT + (decoded_tokens-1)/decode_tps:
+5.2195 s short (40.6% TTFT), 28.8950 s medium (64.7% TTFT). This measures
+through the last public delta without counting first sampling twice. These inverse means
 are descriptive approximations, not an exact mean elapsed time or isolated
 prefill attribution. Long and the timeline must settle candidate priorities.
 
@@ -113,3 +127,6 @@ GPU intervals are unioned; API time is not added to overlapping GPU time.
 
 Local correctness preflight and timeline are pending the active baseline.
 No speedup or largest hotspot is yet claimed.
+RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, CUDA_VISIBLE_DEVICES, CUDA_LAUNCH_BLOCKING,
+OMP_NUM_THREADS and RAYON_NUM_THREADS were unset. Short and medium pre/post
+device counters show no increment in software power capping or thermal slowdown.

@@ -73,5 +73,43 @@ available. No production edit may precede the measured ranked pool.
 
 ## Measurements and decisions
 
-Pending baseline and local correctness preflight. Baseline/after metrics and
-Amdahl fractions remain unmeasured; no speedup or largest hotspot is yet claimed.
+Calibration at the immutable runtime produced exactly 128 / 1024 / 3584 tokens.
+Prompt SHA-256 values, respectively:
+`24bbd008b03e025caf3b6aece0a67c380d27303a33e9d1282fedc1ff1c27a2b8`,
+`0bdbe2964b9c8129d215ab61bfbf447b1e7f111cd95167096fe2b3f8568343f8`,
+`9bd7645ed8e09684e7b84fc90e735e106595c414cf8ff1e0cc9e5bf14a7be5fc`.
+
+| Baseline regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Short | 60.40 (0.0152) | 2119.50 (0.0153) | 10.31 (0.0433) | 10.00 (0.0433) | 23.03 |
+| Medium | 54.79 (0.0010) | 18690.88 (0.0010) | 3.14 (0.0016) | 2.94 (0.0016) | 118.89 |
+| Long | pending | pending | pending | pending | running |
+
+Short emits 32 completion tokens / 32 deltas, medium 32 / 31. Fixed-work
+approximation from aggregate means is TTFT + completion_tokens/model_decode_tps:
+5.223 s short (40.6% TTFT), 28.882 s medium (64.7% TTFT). These inverse means
+are descriptive approximations, not an exact mean elapsed time or isolated
+prefill attribution. Long and the timeline must settle candidate priorities.
+
+Exact baseline commands (repository root; model symlink points to authenticated
+bytes, and the copied executable preserves baseline A across later builds):
+
+```sh
+cargo build --locked --profile fast --no-default-features --features cuda --example bench --example tokenize
+python3 target/cuda-amdahl-20260905/run.py calibrate baseline
+cp target/fast/examples/bench target/cuda-amdahl-20260905/baseline-bench
+python3 target/cuda-amdahl-20260905/run.py bench baseline target/cuda-amdahl-20260905/baseline-bench short medium long
+```
+
+The private runner records exact expanded commands, elapsed seconds, exit codes,
+raw benchmark stdout, full pre/post device state and one-second telemetry.
+Temporary tools are `run.py` (~80 productive lines, fixed workload orchestration),
+`timeline.c` (~70, CUPTI activity callbacks) and `analysis.py` (~60, interval
+union and phase summary). They introduce no production dependency or interface.
+The trace uses installed CUDA 12.4 structs and concurrent-kernel activity,
+correlation IDs and dropped-record checks following the current official
+[CUPTI activity documentation](https://docs.nvidia.com/cupti/main/main.html).
+GPU intervals are unioned; API time is not added to overlapping GPU time.
+
+Local correctness preflight and timeline are pending the active baseline.
+No speedup or largest hotspot is yet claimed.

@@ -196,6 +196,19 @@ ignored), and 12 semantic tests (one authenticated test ignored). The local
 `llama-server` is revision `9bebfcb4b`, not the required pinned `13f2b28b0`, so
 real-model parity is `external verification: unsupported llama.cpp revision`.
 
+```sh
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-candidate cargo test \
+  -p graph_horizon_engine --locked --release --no-default-features \
+  --features cpu 'backend::cpu::kernels::matmul::q4k' -- --nocapture
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-candidate cargo test \
+  --workspace --locked --release --no-default-features --features cpu
+CARGO_TARGET_DIR=/tmp/graph-horizon-cpu-target-candidate cargo build \
+  --locked --release --no-default-features --features cpu --example bench
+/tmp/graph-horizon-cpu-target-candidate/release/examples/bench "$MODEL" \
+  --context 4096 --kv f16 --prompt "$SHORT_PROMPT" --max-tokens 32 \
+  --warmup 1 --reps 3
+```
+
 Short candidate record:
 
 ```text

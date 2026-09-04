@@ -12,8 +12,8 @@ accordance with the repository hardware-neutral documentation policy.
 - Baseline revision: `2d7cd89380c7d14145fb317a0da06fecf26025eb`
 - Started: `2026-09-04T00:39:08+02:00`
 - Unattended deadline: `2026-09-04T08:39:08+02:00`
-- Current candidate: warp-first block reduction
-- Current phase: interesting result rejected; matrix reranking
+- Current candidate: 128-thread matmul blocks
+- Current phase: candidate declared; implementation pending
 
 The target is CUDA end-to-end inference performance. The initial public
 evidence makes prompt/prefill the provisional objective; decode throughput and
@@ -142,6 +142,7 @@ record.
 | Short / prefill after first keep | Reuse each decoded weight across four batch tokens | 0.9207 | 2× | 0.010 | 1.82× | 12.6× | about 2.8 s | One profiled repetition; local speedup discounted from four-token reuse to 2× |
 | Short / both after first keep | Broadcast Q4 scale/min metadata within each warp | 0.697 | 1.10× | 0.002 | 1.065× | 3.30× | about 0.38 s | Q4 share derived from authenticated tensor shapes; local gain is conservative but not counter-profiled |
 | Short / both after first keep | Warp-first block reduction | 0.9207 | 1.10× | 0.002 | 1.089× | 12.6× | about 0.52 s of profiled kernel time | Replaces eight block-wide barriers with one; benefit depends on reduction share within matmul |
+| Short / both after first keep | 128-thread matmul blocks | 0.9207 | 1.10× | 0.001 | 1.090× | 12.6× | about 0.53 s of profiled kernel time | Doubles per-thread dot work but halves block synchronization and may improve residency |
 
 The candidate changes only matmul launch geometry and the category-K matmul
 kernel. It replaces one serial K loop per output with 256 partial sums reduced
@@ -332,3 +333,10 @@ Against the retained checkpoint, prompt throughput improved 4.81%, TTFT fell
 CVs were at most 0.09% for the objective and throughput controls. This is the
 predeclared `interesting` band, not a keep: terminal state
 `reject: stable gain below 5%`; the code was restored.
+
+The final local candidate changes only matmul block width from 256 to 128
+threads. Each output still owns one block and every K index is visited exactly
+once; fewer threads double the per-thread ascending-stride dot work while
+halving shared reduction work and potentially increasing resident blocks. No
+format, buffer, grid, or interface changes. Assignment and reduction order
+change, so this remains behind the full numeric and real-model gates.

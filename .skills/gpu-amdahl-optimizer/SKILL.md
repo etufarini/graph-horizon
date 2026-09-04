@@ -60,6 +60,19 @@ Include retained changes, corrective follow-ups, reverts, and removed or
 rejected experiments. A commit message is a hypothesis, not measurement
 evidence. Revisit a rejected idea only when new evidence changes a premise.
 
+## Preserve Campaign Identity
+
+Before capturing the baseline, assign a stable campaign ID and immutable
+starting revision. A campaign is one user-authorized objective for one backend
+and benchmark tuple. Resume an interrupted or incomplete campaign with its same
+report, pool, IDs, and evidence; never create a continuation pool. A request
+after completion starts a new campaign unless the user explicitly reopens it.
+
+Keep history outside the active pool. An optimization already in the baseline
+is `inherited`, never current-campaign `kept`, and does not count as an attempt.
+Only a production commit created during this campaign can be `kept`. Revisit a
+historical premise under a new stable ID linked to its old result.
+
 Before the first production edit, follow the canonical process: preserve a
 clean worktree, use a dedicated `perf/<experiment>` branch rather than `main`,
 authenticate the model with `support/models.tsv`, capture the complete baseline
@@ -104,7 +117,9 @@ parallelism or launch geometry, reducing synchronization, and changing layout,
 fusion, ownership, or orchestration when relevant. Do not add filler ideas;
 omit an irrelevant mechanism with a short evidence-based reason. If only one
 candidate is viable, explicitly close the other material hotspots or mechanism
-families before editing it.
+families before editing it. The pool need not contain ten entries initially;
+replenish it from each new profile and candidate result until the minimum
+attempt count is met or an explicit stop makes the campaign incomplete.
 
 Use these states:
 
@@ -120,6 +135,20 @@ premise. A bounded variant remains a distinct candidate when it directly
 removes the measured cause of failure. A missing verification prerequisite
 uses the canonical `not_verified` or `external verification` result; never mark
 it `closed` merely to empty the pool.
+
+## Require Ten Countable Attempts
+
+Unless the user explicitly sets another number, a campaign must make at least
+ten new countable attempts before completion. One distinct technical premise
+counts after its isolated reversible implementation or supported configuration
+change reaches the predeclared correctness gate. A correctness failure counts;
+after correctness passes, the objective A/B must be attempted and classified.
+
+History, inherited results, planning-only `closed` or `deferred` entries,
+retries, stability reruns, duplicates, and unchanged parameter reruns do not
+count. A variant counts only with a distinct evidence-backed premise. Never add
+filler; if credible mechanisms run out first, report `stopped_incomplete:
+insufficient distinct candidates`, not a completed quantitative stop.
 
 Choose autonomously in this order:
 
@@ -171,20 +200,23 @@ retention threshold and stop rules. Missing model, hardware, oracle, or other
 access required by the selected gate becomes an exact external-verification
 result, never a late clarification.
 
-If the task gives no overall deadline, use an eight-hour wall-clock budget.
-Keep the canonical per-comparison limit inside it and do not start a candidate
-that cannot reasonably finish its correctness and A/B gates before the
-deadline. Run only one GPU measurement at a time.
+If the task gives no overall deadline, budget the work around the required
+attempt count rather than imposing a fixed eight-hour completion deadline. Keep
+the canonical per-comparison limit. An explicit deadline remains a hard stop;
+do not start a candidate that cannot reasonably finish its correctness and A/B
+gates before it. Ending below the minimum attempt count is a safe but incomplete
+result. Run only one GPU measurement at a time.
 
 Use or create one persistent report in `docs/investigation-reports/` from the
-baseline onward. Record the branch, baseline revision, authenticated tuple,
-deadline, environment, current candidate and phase, exact commands, raw
-measurements, complete candidate pool with states, terminal decisions, and
-retained commits. Update it after the baseline and after every candidate
-decision; commit reproducible checkpoints that contain no rejected production
-code. This report is the recovery source, not memory or an assumed process
-state. At completion, make it self-contained and add it to
-`docs/investigation-reports/README.md`.
+baseline onward. Resume the matching unfinished report rather than opening a
+second pool. Record the campaign ID, branch, immutable starting revision,
+current retained checkpoint, authenticated tuple, deadline, environment,
+current candidate and phase, exact commands, raw measurements, complete active
+pool with states, attempt count, decisions, and current-campaign retained
+commits. List inherited optimizations separately. Update it after the baseline
+and every decision; commit checkpoints without rejected production code. This
+report is the recovery source. At completion, make it self-contained and add it
+to `docs/investigation-reports/README.md`.
 
 For each long-running command, keep and poll the same live process handle. An
 observation timeout is not a command failure and never justifies launching a
@@ -319,14 +351,17 @@ One retained optimization is one local commit containing its before/after
 evidence. Remove rejected production candidates without destructive history
 rewrites and record their negative result concisely so it is not repeated.
 
-Stop immediately at an explicit task completion condition, the documented
-budget, or an unusable correctness oracle. Otherwise, declare a quantitative
-stop only when all of these are true:
+Stop immediately at an explicit deadline or an unusable correctness oracle,
+but report `stopped_incomplete` when fewer than the required attempts completed.
+Unless the user explicitly waives the attempt minimum, satisfying a performance
+target does not complete the campaign before that minimum. Declare a completed
+quantitative stop only when all of these are true:
 
-1. every pool entry is terminal, with no `ready` or `deferred` candidate left;
-2. a fresh discovery pass over the current largest measured bottleneck found
+1. the campaign has reached its required count of new countable attempts;
+2. every pool entry is terminal, with no `ready` or `deferred` candidate left;
+3. a fresh discovery pass over the current largest measured bottleneck found
    no new bounded candidate;
-3. every material remaining hotspot is closed because its ideal ceiling is
+4. every material remaining hotspot is closed because its ideal ceiling is
    below the retention threshold or all credible mechanisms are falsified,
    infeasible, or outside the authorized scope.
 
@@ -343,6 +378,9 @@ candidate's terminal state and retained commit; exact before/after target,
 variability, and control metrics; correctness and benchmark commands with
 results; profiler caveats and external-verification items; remaining risks; and
 the largest remaining measured bottleneck. Include every pool entry and explain
-why any unimplemented entry was closed or remained `not_verified`.
+why any unimplemented entry was closed or remained `not_verified`. End with two
+summaries: current-campaign attempted, kept, rejected, `not_verified`, and
+closed-untried counts; then inherited optimizations and their original commits.
+Never describe an inherited change as retained by the current campaign.
 
 The final branch must contain only accepted changes or the restored baseline.

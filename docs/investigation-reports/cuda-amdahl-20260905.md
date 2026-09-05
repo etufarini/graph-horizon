@@ -6,10 +6,10 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `99f4330` (C24), above S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C24 kept and all profiles refreshed. C25 rejected/restored; fresh discovery adds C26/C27/C28, C27 selected. Not complete.
-- Attempts: 21 distinct reached correctness (minimum 10): 13 kept, 7 rejected (C06/C08/C13/C18/C20/C23/C25), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained optimization commits15 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C27 kept after all controls; refreshed profiles completed. C26/C28 remain deferred, C25 restored. Not complete.
+- Attempts: 21 distinct reached correctness (minimum 10): 13 kept, 7 rejected (C06/C08/C13/C18/C20/C23/C25), 1 interesting/restored (C07); plus 3 non-counting re-evaluations kept (C17/C22/C27). Total retained optimization commits16 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation).
+- Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24). Separate correctness support: S01 `6d37587`.
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -130,7 +130,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | kept | Exact gates pass; long prompt +13.665%, all controls within 5% |
 | C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/sanitizer gates pass; medium prompt -3.214% |
 | C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | deferred after C27 | Removes the changed WMMA stride implicated by C25; same shared footprint, exact gate required |
-| C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | ready, selected; conservative non-counting C06 re-evaluation | C21 removed duplicate packed work since C06; exact logical tree now retained, F16/batched unchanged |
+| C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -2565,3 +2565,66 @@ weight bytes and must never reduce context/placement or invalidate hybrid
 planning. No implementation or performance claim yet. C09/C21 measured unpacking
 benefits motivate it, but budget/fallback and exact CPU/GPU coefficient semantics
 must be resolved before ranking it ready. It is not closed for mere complexity.
+
+### C27 exact implementation
+
+Clean C24 runtime after C25 restoration uses the already-frozen107 vectors in
+c25-exact-baseline.log; the report-only HEAD9046dbb changes no runtime.
+Implementation touches only the two declared matmul files. Each packed warp
+keeps four stride128 sums; Q4/Q5 and Q6 differ only in which paired leaf is64
+versus32. Restore those tree levels locally, then perform guarded warp shuffles.
+Packed tail return is warp-uniform; F16 keeps the original block tree and grid.
+Existing shared scratch remains in the combined entry for F16, but packed code
+does not use it or execute its block barriers. No extra entry/allocation.
+
+Exact80720 passes all15 kernel tests and107 vectors, empty diff against C24.
+Generated dot/logits resources stay40 registers/1024 shared bytes, zero spills.
+Removed temporary prints; frozen130-token replay underway before one-row and
+canonical gates. This C06 re-evaluation remains excluded from distinct attempts.
+
+C27 frozen130 session5312 and one-row129 session82098 pass f16/int8 with exact
+frozen local IDs. Restored the canonical prompt before canonical64561 and fast
+build97384. No candidate performance has been observed. After canonical tests,
+run both sanitizers on dense_operations_cover_wide_dots_and_output_tails,
+which exercises packed whole-warp output tails and F16 block barriers.
+
+C27 canonical64561 and fast97384 completed successfully: all37 CUDA tests,
+11 error tests, CPU workspace, formatting/CUDA check and both canonical parity
+schemes pass, original16 local IDs unchanged. Sanitizer51039 passes memcheck
+and synccheck with0 errors (.62/.44 s diagnostic test). All predeclared gates
+precede short objective98133 against C24. Temporary source hooks are removed.
+
+C27 short objective98133 provisionally passes: model decode40.29 ->58.93
+token/s (+46.2646%, CV .0019 ->.0018), public39.02 ->57.04 (+46.1814%,
+CV .0011), prompt289.00 ->289.07 (+.0242%, CV .0045), TTFT442.91 ->442.81
+ms (-.0226%, CV .0045), wall4.92 s. Counts128/32/32 unchanged. No rerun.
+Both medium and long controls are mandatory before acceptance; acquire them
+with the same immutable executable, then refresh all three diagnostic profiles.
+
+Read-only C28 capacity inventory from the authenticated bounded GGUF header:
+retained raw2,138,290,176 bytes versus proposed cached4,286,380,032;
+maximum upload staging330,301,440 ->503,316,480. Inventory53 F32 tensors
+(already converted to half),27 Q6 and156 Q4. This is a size calculation, not
+an allocation or performance result. Exact extra retained cost2,148,089,856
+bytes requires a checked all-or-raw fallback against the same reserve, full KV
+and scratch plan. Hybrid loading must retain its current raw-byte contract.
+
+### C27 kept after all controls
+
+Controls31845 completed, unchanged counts128/32/32,1024/32/31,3584/32/31.
+Full candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 289.07 [.0045] | 442.81 [.0045] | 58.93 [.0018] | 57.04 [.0011] | 4.92 |
+| medium | 253.92 [.0026] | 4032.78 [.0026] | 46.04 [.0000 rounded] | 43.14 [.0004] | 19.89 |
+| long | 188.44 [.0001] | 19019.13 [.0001] | 28.20 [.0005] | 26.43 [.0003] | 81.45 |
+
+Against C24, model decode +46.2646/+36.3744/+22.7154%; public
++46.1814/+36.3895/+22.7019%. Largest negative control is medium TTFT
++.2421% (prompt -.2397%), below5%. No rerun; rounded CV is not certainty.
+Stock power-cap increments short .776646 s, medium .639663 s, long0;
+thermal0. Retain the two-file +42/-22 change with its exact logical-tree
+invariant. Four lane sums replace shared cross-warp ownership without adding
+allocation or an interface. S01 remains a separate correctness support fix.
+Refreshed session83911 completed all three diagnostic rows before next selection.

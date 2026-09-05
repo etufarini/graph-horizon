@@ -13,29 +13,38 @@ __device__ __forceinline__ float cuda_dot_format(
         }
         partial[threadIdx.x] = sum;
     } else {
-        // 64 physical threads own all 128 original leaves, paired by shared quant bytes.
-        const uint32_t lane = FORMAT == 3 ? threadIdx.x
-            : (threadIdx.x / 32) * 64 + threadIdx.x % 32;
-        constexpr uint32_t DISTANCE = FORMAT == 3 ? 64 : 32;
+        // One warp owns four original leaves per lane, without regrouping K sums.
+        const uint32_t lane = threadIdx.x % 32;
+        constexpr uint32_t PAIR = FORMAT == 3 ? 64 : 32;
+        constexpr uint32_t SECOND = FORMAT == 3 ? 32 : 64;
         const uint32_t blocks = width / 256;
-        float paired_sum = 0.0f;
+        float second_sum = 0.0f, paired_sum = 0.0f, second_paired_sum = 0.0f;
         for (uint32_t group = 0; group < blocks; ++group) {
             const uint64_t block = (uint64_t(row) * blocks + group)
                 * (FORMAT == 1 ? 144 : FORMAT == 2 ? 176 : 210);
-            const uint32_t i = group * 256 + lane;
-            float first, first_pair, second, second_pair;
-            cuda_weight_pair<FORMAT>(weight, block, lane, first, first_pair);
-            cuda_weight_pair<FORMAT>(weight, block, lane + 128, second, second_pair);
-            sum += __half2float(input[i]) * first;
-            sum += __half2float(input[i + 128]) * second;
-            paired_sum += __half2float(input[i + DISTANCE]) * first_pair;
-            paired_sum += __half2float(input[i + DISTANCE + 128]) * second_pair;
+            #pragma unroll
+            for (uint32_t half = 0; half < 256; half += 128) {
+                const uint32_t i = group * 256 + half + lane;
+                float first, first_pair, second, second_pair;
+                cuda_weight_pair<FORMAT>(weight, block, half + lane, first, first_pair);
+                cuda_weight_pair<FORMAT>(weight, block, half + lane + SECOND, second, second_pair);
+                sum += __half2float(input[i]) * first;
+                second_sum += __half2float(input[i + SECOND]) * second;
+                paired_sum += __half2float(input[i + PAIR]) * first_pair;
+                second_paired_sum += __half2float(input[i + SECOND + PAIR]) * second_pair;
+            }
         }
-        partial[lane] = sum;
-        partial[lane + DISTANCE] = paired_sum;
+        // Restore levels64 then32 before reducing the remaining32 logical lanes.
+        sum = FORMAT == 3 ? (sum + paired_sum) + (second_sum + second_paired_sum)
+                          : (sum + second_sum) + (paired_sum + second_paired_sum);
+        for (uint32_t stride = 16; stride > 0; stride /= 2) {
+            const float other = __shfl_down_sync(0xffffffff, sum, stride);
+            if (lane < stride) sum += other;
+        }
+        return sum;
     }
     __syncthreads();
-    // Restore the same logical tree for packed 64-thread and F16 128-thread blocks.
+    // Only F16 reaches this block-wide tree; packed outputs use independent warps.
     for (uint32_t stride = 64; stride > 0; stride /= 2) {
         if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
         __syncthreads();
@@ -57,9 +66,11 @@ __device__ __forceinline__ float cuda_dot(
 extern "C" __global__ void cuda_matmul(
     const __half *input, const unsigned char *weight, __half *out,
     uint32_t input_width, uint32_t output_width, uint32_t format) {
-    const uint32_t row = blockIdx.x;
+    const uint32_t row = format == 0 ? blockIdx.x : blockIdx.x * 4 + threadIdx.x / 32;
+    // Packed output tails are whole warps; no block barrier occurs on their path.
+    if (row >= output_width) return;
     const float value = cuda_dot(input, weight, format, row, input_width);
-    if (threadIdx.x == 0) out[row] = __float2half_rn(value);
+    if ((format == 0 ? threadIdx.x : threadIdx.x % 32) == 0) out[row] = __float2half_rn(value);
 }
 
 template<uint32_t FORMAT>
@@ -114,9 +125,10 @@ extern "C" __global__ void cuda_matmul_batched(
 extern "C" __global__ void cuda_logits(
     const __half *input, const unsigned char *weight, float *out,
     uint32_t input_width, uint32_t output_width, uint32_t format) {
-    const uint32_t row = blockIdx.x;
+    const uint32_t row = format == 0 ? blockIdx.x : blockIdx.x * 4 + threadIdx.x / 32;
+    if (row >= output_width) return;
     const float value = cuda_dot(input, weight, format, row, input_width);
-    if (threadIdx.x == 0) out[row] = value;
+    if ((format == 0 ? threadIdx.x : threadIdx.x % 32) == 0) out[row] = value;
 }
 
 template<uint32_t FORMAT, uint32_t TOKENS>

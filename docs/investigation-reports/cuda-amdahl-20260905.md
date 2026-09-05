@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `7682cd2` (C16), building on `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C08 rejected/restored; C12 selected.
-- Attempts: 11 reached correctness (minimum 10); kept 7, code rejected/restored 4 (C06/C08/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C12 kept after all controls; refreshed profiles next.
+- Attempts: 12 reached correctness (minimum 10); kept 8, code rejected/restored 4 (C06/C08/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16).
 
@@ -113,11 +113,13 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
-| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | selected | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
+| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | kept | Exact/canonical gates and controls pass; objective +31.712% |
 | C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | rejected, restored | Correctness passed; prefill -0.045% fails its objective despite decode +26.978% |
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
+| C17 | Re-evaluate exact argmax only if C12's retained decode reduction materially raises its removable fraction | Short model decode | deferred until C12 decision/profile | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
+| C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | ready, awaiting current C12 comparison | PTX executes discarded coefficient loads/conversions; exact gate required |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1337,3 +1339,80 @@ dequant arithmetic and exact sum order. Require generated-code evidence that
 the block's half metadata loads are reused; all numerical expressions retain
 the original accessor definitions. Temporary bit prints are removed after the
 exact gate, before the canonical gate and performance.
+
+C08 diagnostic completed with zero dropped records: decode matmul 1168.382 ms
+versus C16 1167.725, logits 148.880 versus 146.607; registers rise 28 -> 32,
+local bytes stay zero. No material kernel gain is visible in this single trace;
+it does not establish occupancy as the cause. C08 remains rejected/restored.
+
+C12 exact gate `25012` passed and all 26 snapshots match frozen baseline.
+Temporary prints removed. Generated PTX proves reuse: within each Q5 block loop
+the bytes at block+0/+1 and +2/+3 load once into two half registers, reused by
+both accessor conversions; two successive `fma.rn.f32` instructions preserve
+the per-thread sum sequence. Q4/Q6 likewise retain original accessor math.
+Canonical `run.py gate c12` runs in `5144`; fast build in `17360` is not a
+performance acquisition. No rejected C08 reduction changes are present.
+
+C12 canonical gates completed: formatting, CUDA workspace check, CPU suites,
+11 error tests, all 37 CUDA tests and pinned f16 parity passed, all 16 top-one
+IDs unchanged. Production +20/-2, one shader. Saved `c12.ptx` and immutable
+`c12-bench`; objective command `run.py bench c12
+target/cuda-amdahl-20260905/c12-bench short`, reference C16. Attempt 12 is pending
+public outcome; other controls run only after provisional keep.
+
+C12 short objective `8848` passed provisionally: model 20.97 -> 27.62
+(+31.712%, CV 0.10% in both), public 20.35 -> 26.82 (+31.794%, CV 0.11%),
+prompt 164.69 -> 165.48 (+0.480%, CV 0.06%), TTFT 777.24 -> 773.52 ms
+(-0.479%, CV 0.06%). Counts 128/32/32 unchanged, wall 8.70 s. Run
+`run.py bench c12 target/cuda-amdahl-20260905/c12-bench medium long` before keep.
+The conservative local 1.04 estimate understated the mechanism's effect;
+refreshed attribution, not the source-level load count, must explain the gain.
+
+Continued read-only discovery of current largest prefill owner adds **C18**.
+In `c12.ptx` (same C16 WMMA body), Q5 loop `$L__BB4_40` loads block half bytes,
+converts and multiplies scale/bias for every quant; only later `$L__BB4_41`
+tests the local K index and skips coefficient stores for 31/32 lanes. Source
+confirms Q4/Q5 need coefficients only at K32 boundaries, Q6 only at K16. This
+is directly observed discarded instruction work, not inferred bandwidth saturation.
+
+C18 gates coefficient calculations in the existing `cuda_weight_parts` helper
+at those format-defined boundaries. Its only caller uses factor/bias solely
+for the corresponding owner lane. All integer quants and consumed coefficients
+remain identical; no shared storage, barriers, geometry, ABI or float operation
+order changes. Existing `shaders/quant.cuh` (~120 productive category-K lines),
+same matmul caller; no new function/file. Risk: preserve the private helper's
+owner-only result invariant and all Q4/Q5/Q6 alignment boundaries explicitly.
+Declare exact SIMT 26-case and tensor 39-case snapshots on accepted runtime,
+existing bounded tests, all canonical gates and pinned f16/int8 parity before A/B.
+Long prompt objective, both other regimes and TTFT/decode controls unchanged.
+Current C16 whole-request p=.6061, conservative s=1.2, o=.001 predicts ~11.1%,
+ideal ceiling ~154%, ~3339 ms saved; lower instruction counts do not guarantee
+that gain because branch divergence and cache-hot loads can limit it. Small
+bounded experiment. Rerank after C12's accepted-or-restored state is known.
+
+Also reserve **C17** as a conditional re-evaluation of C07: only an accepted
+C12 and refreshed decode fraction can change the premise behind C07's 4.595%
+result. This would be the same exact argmax implementation on a materially
+changed accepted runtime, **not an additional countable attempt**, a duplicate
+mechanism, or a stability rerun. Until that evidence exists it stays deferred.
+
+### C12 kept
+
+Controls completed in `49897`; `compare.py c16 c12 short model_decode_tps
+short medium long` passes every fixed threshold. **Keep** after exact snapshots,
+canonical correctness and all controls; no rerun. Candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 165.48 [.0006] | 773.52 [.0006] | 27.62 [.0010] | 26.82 [.0011] | 8.70 |
+| medium | 151.54 [.0025] | 6757.31 [.0025] | 22.21 [.0012] | 20.86 [.0015] | 33.76 |
+| long | 116.39 [.0009] | 30792.26 [.0009] | 13.89 [.0025] | 13.04 [.0024] | 133.16 |
+
+Model decode gains +31.712/+25.409/+15.557%; prompt +.480/+.731/+.189%.
+Counts unchanged in all regimes; no control regression. Stock power-cap counter
+increments short .973722 s, medium .733843 s, long 0; thermal counters zero,
+no setting change or competing inference. Added branch/loop structure is local
+and necessary to make one packed-block address own both contributions; no new
+abstraction, interface, dependency, format or resource ownership. Production
+one shader +20/-2. C12 is kept in this commit; refresh affected timelines and
+recompute fractions before selecting C18/C17/C09/C15.

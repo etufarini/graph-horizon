@@ -7,8 +7,26 @@ __device__ __forceinline__ float cuda_dot_format(
     const __half *input, const unsigned char *weight,
     uint32_t row, uint32_t width, float *partial) {
     float sum = 0.0f;
-    for (uint32_t i = threadIdx.x; i < width; i += blockDim.x) {
-        sum += __half2float(input[i]) * cuda_weight_value(weight, FORMAT, row, i, width);
+    if (FORMAT == 0) {
+        for (uint32_t i = threadIdx.x; i < width; i += blockDim.x) {
+            sum += __half2float(input[i]) * cuda_weight_value(weight, FORMAT, row, i, width);
+        }
+    } else {
+        // The dispatcher uses 128 threads; packed widths contain full 256-value blocks.
+        // Pair each thread's consecutive contributions without changing their sum order.
+        const uint32_t lane = threadIdx.x;
+        const uint32_t blocks = width / 256;
+        for (uint32_t group = 0; group < blocks; ++group) {
+            const uint64_t block = (uint64_t(row) * blocks + group)
+                * (FORMAT == 1 ? 144 : FORMAT == 2 ? 176 : 210);
+            const uint32_t i = group * 256 + lane;
+            const float first = FORMAT == 3 ? cuda_q6_value(weight, block, lane)
+                : cuda_q4_value(weight, block, lane, FORMAT == 2);
+            const float second = FORMAT == 3 ? cuda_q6_value(weight, block, lane + 128)
+                : cuda_q4_value(weight, block, lane + 128, FORMAT == 2);
+            sum += __half2float(input[i]) * first;
+            sum += __half2float(input[i + 128]) * second;
+        }
     }
     partial[threadIdx.x] = sum;
     __syncthreads();

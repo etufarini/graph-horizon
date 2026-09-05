@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `c15f222` (C30), above `4d9e718` (C31), `1a32047` (C29) and the earlier accepted commits listed below; S01 remains a separate correctness fix.
-- State: running, C30 accepted and all profiles refreshed. C28 rejected and fully restored. C32 deferred for a Q6-prefill-only cache design. Not complete.
-- Attempts: 25 distinct reached correctness (minimum 10): 15 kept, 9 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits19 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C37 (this acceptance commit), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C37 accepted after all gates and three public rows; refreshing all profiles. The matrix-load discovery premise remains to be evaluated. Not complete.
+- Attempts: 26 distinct reached correctness (minimum 10): 15 kept, 10 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33), 1 interesting/restored (C07); plus 9 non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36). Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -140,7 +140,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | kept | Long prompt+7.706%; worst control-2.816%; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C31 re-evaluation |
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
 | C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-11.540%; K16 alone does not recover the direct path; non-counting |
-| C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | ready | Restore one publication barrier while preserving row-sum order, padding and direct accumulators; non-counting C33 re-evaluation |
+| C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C33 re-evaluation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3897,3 +3897,72 @@ C34, medium prompt>=5%, CV<=5%, all controls regression<=5%, same time/rerun
 rules. C37 is conservatively non-counting, and C36 remains rejected regardless
 of its outcome. Main risks are shared publication/lifetime, padded addressing
 and barrier cost; no arithmetic regrouping or reduced precision is intended.
+
+C37 baseline15785 passes96.07s and records324 complete matrix outputs (both
+PTX routes and raw/cache representations). Reapply C36 only as the declared
+draft, then change the80 row-sum source to staged A using its padded pitch and
+insert the publication barrier before those reads. The75 branch remains
+untouched; the80 branch now has three uniform barriers. Exact candidate10901
+is running, with a separate fast build40584. No performance yet.
+
+C37 exact10901 passes96.17s; all324 records match baseline byte-for-byte,
+with unchanged scalar/raw-cache assertions. Remove both temporary record
+statements before further gates. Fast40584 passes,75 PTX still byte-identical
+to C34. Ordinary/paired/wide resources56/56/65 registers,6976/13952/8320
+shared bytes,0 spills. The additional barrier does not add shared storage.
+Begin frozen549 before the remaining real-model and canonical gates.
+
+C37 frozen54955511,13063545,12963083 pass both KV schemes with unchanged
+frozen local IDs; hybrid check4825 is clean. Restore canonical prompt before
+full gates. A further source-supported diagnostic distinction is noted, not
+bundled: accepted C32/C34 WMMA uses LDSM.16.M88.4 matrix loads, while the direct
+drafts load operand registers with scalar LDS. Inspect the documented fragment
+mapping and C37's measured result before deciding whether a bounded matrix-load
+variant is warranted; no such variant is implemented or accepted yet.
+
+C37 canonical41057 passes fmt, CUDA check, CPU tests,11error_matrix, all43
+CUDA tests102.15s and f16 parity13.61s. Exact row-sum reuse and all frozen
+gates remain satisfied. Serial standalone-int8/hybrid isolation and sanitizers
+follow before public measurement. The official ISA ldmatrix section has now
+been read, including row-address ownership,16-byte alignment, warp-uniformity,
+register layout and state-space constraints; any later matrix-load candidate
+must prove those mappings and retain the current pending candidate's decision.
+
+C37 isolation79378 passes standalone int8 and25%-mixed f16/int8 with unchanged
+canonical IDs. Start serial memcheck/synccheck over all16 kernel tests and both
+matrix routes; no source hooks or modified prompt remain.
+
+C37 memcheck/synccheck56201 pass all16 kernel tests101.06/95.69s with0 errors,
+including both image routes. Begin the unprofiled medium objective against C34
+after every declared gate; canonical inputs and completion counts are unchanged.
+
+### C37 accepted: direct accumulators with staged row-sum reuse
+
+The medium objective and controls37725 pass against C34, without a stability
+rerun. Means[CV], in prompt t/s, TTFT ms, model decode t/s, public decode t/s:
+
+| Regime | Prompt | TTFT | Model decode | Public decode | Process wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 415.32[.0036] | 308.20[.0036] | 57.83[.0028] | 56.00[.0028] | 4.55 |
+| medium | 385.52[.0005] | 2656.16[.0005] | 54.83[.0020] | 51.35[.0017] | 13.99 |
+| long | 330.48[.0002] | 10844.92[.0002] | 44.63[.0028] | 41.81[.0028] | 47.15 |
+
+Medium objective+23.651293%; prompt controls short+24.731958%, long+19.834651%.
+TTFT decreases19.827272/19.126029/16.551220%; every other control improves,
+with the smallest gain long public decode+1.161384%. Counts remain128/32/32,
+1024/32/31,3584/32/31. All objective CVs pass, the comparison is under one hour,
+and no competing inference or machine-setting change occurred. Stock power-cap
+counter increments short/medium/long .654125/.281122/0s; thermal counters zero.
+These are observational means and CVs, not an inferential significance claim.
+
+Keep the five-file implementation and document the two fixed PTX images. The
+extra image and narrow capability selection are needed to preserve the admitted
+7.5-compatible route while using K16 instructions on8.0+; one module is loaded,
+all23 entry names and public APIs stay unchanged. Tests cover both images in
+this environment, not physical qualification of another device. No new files,
+dependencies or production profiling hooks. The shader remains category K;
+orchestration remains below its predeclared productive-line limits.
+
+Refresh all three profiles in session6851 before ranking the already identified
+matrix-load premise. C33/C35/C36 remain rejected; C37 is a non-counting bounded
+re-evaluation, not an additional distinct attempt.

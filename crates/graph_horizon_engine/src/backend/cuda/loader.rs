@@ -117,7 +117,7 @@ fn load_selected_inner(
         bail!("cuda: model allocation failed");
     }
     let module = if failpoints.function.is_some() {
-        super::module::Module::load_inner(&device.context, failpoints.function)?
+        super::module::Module::load_inner(&device.context, failpoints.function, true)?
     } else {
         super::module::Module::load(&device.context)?
     };

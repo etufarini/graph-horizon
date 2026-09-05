@@ -134,6 +134,137 @@ extern "C" __global__ void cuda_logits(
     if ((format == 0 ? threadIdx.x : threadIdx.x % 32) == 0) out[row] = value;
 }
 
+// Keep the admitted75 WMMA path intact; only the separately selected80 image owns direct MMA.
+#if __CUDA_ARCH__ >= 800
+template<uint32_t FORMAT, uint32_t TOKENS, uint32_t STAGES>
+__device__ __forceinline__ void cuda_matmul_tensor_format(
+    const __half *input, const unsigned char *weight, __half *out,
+    uint32_t width, uint32_t outputs, uint32_t rows,
+    __half *a, __half *b, float *c, float *row_sums, float *factors, float *biases) {
+    const uint32_t token = blockIdx.y * TOKENS;
+    const uint32_t output = blockIdx.x * 64;
+    const uint32_t warp = threadIdx.x / 32;
+    const uint32_t lane = threadIdx.x % 32;
+    const uint32_t group_row = lane / 4;
+    const uint32_t pair = (lane % 4) * 2;
+    // Q4/Q5 share coefficients over 32 values; Q6 changes them every 16.
+    constexpr uint32_t GROUP = FORMAT == 3 || FORMAT == 4 ? 16 : 32;
+    constexpr uint32_t STRIDE = GROUP * STAGES;
+    // Eight half values of padding distribute the eight MMA lane groups over32 banks.
+    constexpr uint32_t PITCH = GROUP + 8;
+    float sums[TOKENS / 2] = {};
+    // Packed widths are positive multiples of 256, so every group is full.
+    for (uint32_t group = 0; group < width / STRIDE; ++group) {
+        const uint32_t base = group * STRIDE;
+        // Two complete warps own coefficients; B staging consumes only quants.
+        // Unused helper results disappear after inlining, preserving the same math.
+        if (threadIdx.x < 64) {
+            const uint32_t column = output + threadIdx.x;
+            #pragma unroll
+            for (uint32_t stage = 0; stage < STAGES; ++stage) {
+                float factor = 0.0f, bias = 0.0f;
+                if (column < outputs) {
+                    cuda_weight_parts<FORMAT>(weight, column, base + stage * GROUP,
+                        width, factor, bias);
+                }
+                factors[stage * 64 + threadIdx.x] = factor;
+                biases[stage * 64 + threadIdx.x] = bias;
+            }
+        }
+        // Padding is physical only: coefficient groups and logical K order stay unchanged.
+        for (uint32_t i = threadIdx.x; i < TOKENS * GROUP; i += 128) {
+            const uint32_t row = token + i / GROUP;
+            #pragma unroll
+            for (uint32_t stage = 0; stage < STAGES; ++stage) {
+                a[stage * TOKENS * PITCH + (i / GROUP) * PITCH + i % GROUP] = row < rows
+                    ? input[uint64_t(row) * width + base + stage * GROUP + i % GROUP]
+                    : __float2half_rn(0.0f);
+            }
+        }
+        for (uint32_t i = threadIdx.x; i < 64 * GROUP; i += 128) {
+            const uint32_t column = output + i / GROUP;
+            const uint32_t shared = (i / GROUP) * PITCH + i % GROUP;
+            if (STAGES == 2) {
+                float low = 0.0f, high = 0.0f;
+                if (column < outputs) {
+                    cuda_quant_pair<FORMAT>(weight, column, base + i % GROUP, width, low, high);
+                }
+                b[shared] = __float2half_rn(low);
+                b[64 * PITCH + shared] = __float2half_rn(high);
+            } else {
+                float factor = 0.0f, bias = 0.0f;
+                const float quant = column < outputs
+                    ? cuda_weight_parts<FORMAT>(weight, column, base + i % GROUP,
+                        width, factor, bias) : 0.0f;
+                b[shared] = __float2half_rn(quant);
+            }
+        }
+        // Publish the staged input before reusing it in the original serial row sum.
+        __syncthreads();
+        if (threadIdx.x < TOKENS) {
+            #pragma unroll
+            for (uint32_t stage = 0; stage < STAGES; ++stage) {
+                float sum = 0.0f;
+                for (uint32_t i = 0; i < GROUP; ++i) {
+                    sum += __half2float(a[stage * TOKENS * PITCH + threadIdx.x * PITCH + i]);
+                }
+                row_sums[stage * TOKENS + threadIdx.x] = sum;
+            }
+        }
+        __syncthreads();
+        // PTX m16n8k16: each lane owns two adjacent columns in rows group_row/+8.
+        // All warp lanes execute every instruction, including padded token/output tails.
+        #pragma unroll
+        for (uint32_t stage = 0; stage < STAGES; ++stage) {
+            #pragma unroll
+            for (uint32_t m = 0; m < TOKENS; m += 16) {
+                #pragma unroll
+                for (uint32_t n = 0; n < 16; n += 8) {
+                    float c0 = 0.0f, c1 = 0.0f, c2 = 0.0f, c3 = 0.0f;
+                    #pragma unroll
+                    for (uint32_t slice = 0; slice < GROUP; slice += 16) {
+                        // Half pairs have four-byte alignment within the shared stage.
+                        const __half *ap = a + stage * TOKENS * PITCH
+                            + (m + group_row) * PITCH + slice + pair;
+                        const __half *bp = b + stage * 64 * PITCH
+                            + (warp * 16 + n + group_row) * PITCH + slice + pair;
+                        const uint32_t a0 = *reinterpret_cast<const uint32_t *>(ap);
+                        const uint32_t a1 = *reinterpret_cast<const uint32_t *>(ap + 8 * PITCH);
+                        const uint32_t b0 = *reinterpret_cast<const uint32_t *>(bp);
+                        const uint32_t a2 = *reinterpret_cast<const uint32_t *>(ap + 8);
+                        const uint32_t a3 = *reinterpret_cast<const uint32_t *>(ap + 8 * PITCH + 8);
+                        const uint32_t b1 = *reinterpret_cast<const uint32_t *>(bp + 8);
+                        asm volatile(
+                            "mma.sync.aligned.m16n8k16.row.col.f32.f16.f16.f32 "
+                            "{%0, %1, %2, %3}, {%4, %5, %6, %7}, {%8, %9}, {%0, %1, %2, %3};"
+                            : "+f"(c0), "+f"(c1), "+f"(c2), "+f"(c3)
+                            : "r"(a0), "r"(a1), "r"(a2), "r"(a3), "r"(b0), "r"(b1));
+                    }
+                    const float values[4] = {c0, c1, c2, c3};
+                    #pragma unroll
+                    for (uint32_t v = 0; v < 4; ++v) {
+                        const uint32_t row = m + group_row + (v / 2) * 8;
+                        const uint32_t column = warp * 16 + n + pair + v % 2;
+                        sums[(m / 16) * 8 + (n / 8) * 4 + v] +=
+                            factors[stage * 64 + column] * values[v]
+                            + biases[stage * 64 + column] * row_sums[stage * TOKENS + row];
+                    }
+                }
+            }
+        }
+        // All consumers finish before the next group replaces shared staging.
+        __syncthreads();
+    }
+    #pragma unroll
+    for (uint32_t part = 0; part < TOKENS / 2; ++part) {
+        const uint32_t row = token + (part / 8) * 16 + group_row + (part % 4 / 2) * 8;
+        const uint32_t column = output + warp * 16 + (part % 8 / 4) * 8 + pair + part % 2;
+        if (row < rows && column < outputs) {
+            out[uint64_t(row) * outputs + column] = __float2half_rn(sums[part]);
+        }
+    }
+}
+#else
 template<uint32_t FORMAT, uint32_t TOKENS, uint32_t STAGES>
 __device__ __forceinline__ void cuda_matmul_tensor_format(
     const __half *input, const unsigned char *weight, __half *out,
@@ -243,14 +374,20 @@ __device__ __forceinline__ void cuda_matmul_tensor_format(
         }
     }
 }
+#endif
 
 template<uint32_t TOKENS, uint32_t STAGES = 1>
 __device__ __forceinline__ void cuda_matmul_tensor_tile(
     const __half *input, const unsigned char *weight, __half *out,
     uint32_t width, uint32_t outputs, uint32_t rows, uint32_t format) {
-    // One staging set per block, aligned for the opaque WMMA fragment API.
+    // The portable image owns shared C; the80 image keeps accumulators in registers.
+#if __CUDA_ARCH__ >= 800
+    __shared__ __align__(32) __half a[TOKENS * 40 * STAGES], b[2560 * STAGES];
+    float *c = nullptr;
+#else
     __shared__ __align__(32) __half a[TOKENS * 32 * STAGES], b[2048 * STAGES];
     __shared__ __align__(32) float c[TOKENS * 64 * STAGES];
+#endif
     __shared__ float row_sums[TOKENS * STAGES], factors[64 * STAGES], biases[64 * STAGES];
     if (format == 1) {
         cuda_matmul_tensor_format<1, TOKENS, STAGES>(input, weight, out, width, outputs, rows,

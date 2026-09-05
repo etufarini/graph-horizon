@@ -72,6 +72,8 @@ pub(crate) struct Module {
     context: Arc<CudaContext>,
     pub(crate) functions: Functions,
     pub(crate) split_attention: bool,
+    #[cfg(test)]
+    pub(crate) tensor_mma16: bool,
 }
 
 // SAFETY: CUDA module/function handles may be used across threads only after
@@ -83,17 +85,30 @@ unsafe impl Sync for Module {}
 
 impl Module {
     pub(crate) fn load(context: &Arc<CudaContext>) -> Result<Self> {
-        Self::load_inner(context, None)
+        Self::load_inner(context, None, true)
     }
 
-    pub(super) fn load_inner(context: &Arc<CudaContext>, fail_at: Option<usize>) -> Result<Self> {
+    pub(super) fn load_inner(
+        context: &Arc<CudaContext>,
+        fail_at: Option<usize>,
+        allow_mma16: bool,
+    ) -> Result<Self> {
         context.bind_to_thread().map_err(|_| load_error())?;
         // Optional optimization capability: query failure preserves the portable path.
         let split_attention = context
             .attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)
             .unwrap_or(0)
             >= 512;
-        let ptx = include_bytes!(concat!(env!("OUT_DIR"), "/cuda_kernels.ptx"));
+        // Select one trusted image. A failed optional query preserves the75-compatible path.
+        let tensor_mma16 = allow_mma16
+            && context
+                .compute_capability()
+                .is_ok_and(|(major, _)| major >= 8);
+        let ptx: &[u8] = if tensor_mma16 {
+            include_bytes!(concat!(env!("OUT_DIR"), "/cuda_kernels_80.ptx"))
+        } else {
+            include_bytes!(concat!(env!("OUT_DIR"), "/cuda_kernels.ptx"))
+        };
         let mut image = Vec::with_capacity(ptx.len().saturating_add(1));
         image.extend_from_slice(ptx);
         image.push(0);
@@ -116,6 +131,8 @@ impl Module {
             context: context.clone(),
             functions: Functions { entries },
             split_attention,
+            #[cfg(test)]
+            tensor_mma16,
         })
     }
 }
@@ -170,13 +187,20 @@ mod tests {
     #[test]
     fn every_function_resolution_failpoint_is_bounded_and_recoverable() -> Result<()> {
         let device = Device::acquire()?;
-        for fail_at in 0..FUNCTION_NAMES.len() {
+        for allow_mma16 in [false, true] {
+            for fail_at in 0..FUNCTION_NAMES.len() {
+                assert_eq!(
+                    Module::load_inner(&device.context, Some(fail_at), allow_mma16)
+                        .err()
+                        .expect("injected CUDA function failure")
+                        .to_string(),
+                    "cuda: kernel module load failed"
+                );
+            }
+            let module = Module::load_inner(&device.context, None, allow_mma16)?;
             assert_eq!(
-                Module::load_inner(&device.context, Some(fail_at))
-                    .err()
-                    .expect("injected CUDA function failure")
-                    .to_string(),
-                "cuda: kernel module load failed"
+                module.tensor_mma16,
+                allow_mma16 && device.context.compute_capability()?.0 >= 8
             );
         }
         Module::load(&device.context)?;

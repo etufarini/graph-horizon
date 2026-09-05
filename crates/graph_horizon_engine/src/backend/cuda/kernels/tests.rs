@@ -424,124 +424,127 @@ fn dense_operations_cover_wide_dots_and_output_tails() -> Result<()> {
 #[test]
 fn packed_prefill_tiles_match_reference_and_preserve_weight_range() -> Result<()> {
     let device = Device::acquire()?;
-    let module = Module::load(&device.context)?;
-    for format in [CudaFormat::Q4K, CudaFormat::Q5K, CudaFormat::Q6K] {
-        let block_bytes = match format {
-            CudaFormat::Q4K => 144,
-            CudaFormat::Q5K => 176,
-            CudaFormat::Q6K => 210,
-            _ => unreachable!(),
-        };
-        let pattern = patterned_weight(format, 5);
-        for width in [256_usize, 768, 3072] {
-            for rows in [16_usize, 17, 32, 33] {
-                for outputs in [17_usize, 65, 8193] {
-                    // One large output grid covers the wide dispatch and both tile tails.
-                    if outputs == 8193 && (width != 256 || rows != 33) {
-                        continue;
-                    }
-                    let raw = (0..outputs * width / 256)
-                        .flat_map(|block| {
-                            let start = (block % 5) * block_bytes;
-                            pattern[start..start + block_bytes].iter().copied()
-                        })
-                        .collect::<Vec<_>>();
-                    let values = (0..width * rows)
-                        .map(|i| ((i * 7 % 31) as f32 - 15.0) * 0.03125)
-                        .collect::<Vec<_>>();
-                    let input = upload_f16(&device, &values)?;
-                    let mut identity = None;
-                    for cache in [None, Some(&module)] {
-                        let weight = super::super::mem::weights::cache::upload(
-                            &device, cache, &raw, format,
-                        )?;
-                        let out = CudaBuffer::allocate(
-                            &device,
-                            (rows * outputs * 2) as u64,
-                            CudaFormat::F16,
-                        )?;
-                        let encoder = CudaEncoder::begin(&device);
-                        super::matmul::encode_batched(
-                            &encoder,
-                            &module,
-                            &out,
-                            &input,
-                            &weight,
-                            width as u32,
-                            outputs as u32,
-                            rows as u32,
-                        )?;
-                        run(&device, encoder)?;
-                        let actual = read_f16(&device, &out, rows * outputs)?;
-                        let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
-                        if let Some(expected) = &identity {
-                            assert_eq!(&bits, expected, "raw/cache tensor bits");
-                        } else {
-                            identity = Some(bits);
+    for allow_mma16 in [false, true] {
+        let module = Module::load_inner(&device.context, None, allow_mma16)?;
+        for format in [CudaFormat::Q4K, CudaFormat::Q5K, CudaFormat::Q6K] {
+            let block_bytes = match format {
+                CudaFormat::Q4K => 144,
+                CudaFormat::Q5K => 176,
+                CudaFormat::Q6K => 210,
+                _ => unreachable!(),
+            };
+            let pattern = patterned_weight(format, 5);
+            for width in [256_usize, 768, 3072] {
+                for rows in [16_usize, 17, 32, 33] {
+                    for outputs in [17_usize, 65, 8193] {
+                        // One large output grid covers the wide dispatch and both tile tails.
+                        if outputs == 8193 && (width != 256 || rows != 33) {
+                            continue;
                         }
-                        for token in 0..rows {
-                            for row in 0..outputs {
-                                let expected = (0..width)
-                                    .map(|i| {
-                                        values[token * width + i]
-                                            * reference_weight(
-                                                format,
-                                                &raw,
-                                                row * (width / 256) + i / 256,
-                                                i % 256,
-                                            )
-                                    })
-                                    .sum::<f32>();
-                                close(actual[token * outputs + row], expected);
+                        let raw = (0..outputs * width / 256)
+                            .flat_map(|block| {
+                                let start = (block % 5) * block_bytes;
+                                pattern[start..start + block_bytes].iter().copied()
+                            })
+                            .collect::<Vec<_>>();
+                        let values = (0..width * rows)
+                            .map(|i| ((i * 7 % 31) as f32 - 15.0) * 0.03125)
+                            .collect::<Vec<_>>();
+                        let input = upload_f16(&device, &values)?;
+                        let mut identity = None;
+                        for cache in [None, Some(&module)] {
+                            let weight = super::super::mem::weights::cache::upload(
+                                &device, cache, &raw, format,
+                            )?;
+                            let out = CudaBuffer::allocate(
+                                &device,
+                                (rows * outputs * 2) as u64,
+                                CudaFormat::F16,
+                            )?;
+                            let encoder = CudaEncoder::begin(&device);
+                            super::matmul::encode_batched(
+                                &encoder,
+                                &module,
+                                &out,
+                                &input,
+                                &weight,
+                                width as u32,
+                                outputs as u32,
+                                rows as u32,
+                            )?;
+                            run(&device, encoder)?;
+                            let actual = read_f16(&device, &out, rows * outputs)?;
+                            let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                            if let Some(expected) = &identity {
+                                assert_eq!(&bits, expected, "raw/cache tensor bits");
+                            } else {
+                                identity = Some(bits);
+                            }
+                            for token in 0..rows {
+                                for row in 0..outputs {
+                                    let expected = (0..width)
+                                        .map(|i| {
+                                            values[token * width + i]
+                                                * reference_weight(
+                                                    format,
+                                                    &raw,
+                                                    row * (width / 256) + i / 256,
+                                                    i % 256,
+                                                )
+                                        })
+                                        .sum::<f32>();
+                                    close(actual[token * outputs + row], expected);
+                                }
                             }
                         }
                     }
                 }
             }
-        }
-        // Reconstructed weights exceed half range, but cancelling products do not.
-        let mut raw = constant_weight(format, 17);
-        for block in raw.chunks_exact_mut(block_bytes) {
-            let (scale, quants) = match format {
-                CudaFormat::Q4K => (0, 16..144),
-                CudaFormat::Q5K => (0, 48..176),
-                CudaFormat::Q6K => (208, 0..128),
-                _ => unreachable!(),
-            };
-            block[scale..scale + 2].copy_from_slice(&f32_to_f16(65504.0).to_le_bytes());
-            block[quants].fill(0x22);
-        }
-        for rows in [16_usize, 32] {
-            let values = (0..rows * 256)
-                .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
-                .collect::<Vec<_>>();
-            let input = upload_f16(&device, &values)?;
-            let mut identity = None;
-            for cache in [None, Some(&module)] {
-                let weight =
-                    super::super::mem::weights::cache::upload(&device, cache, &raw, format)?;
-                let out = CudaBuffer::allocate(&device, (rows * 17 * 2) as u64, CudaFormat::F16)?;
-                let encoder = CudaEncoder::begin(&device);
-                super::matmul::encode_batched(
-                    &encoder,
-                    &module,
-                    &out,
-                    &input,
-                    &weight,
-                    256,
-                    17,
-                    rows as u32,
-                )?;
-                run(&device, encoder)?;
-                let actual = read_f16(&device, &out, rows * 17)?;
-                let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
-                if let Some(expected) = &identity {
-                    assert_eq!(&bits, expected, "raw/cache range bits");
-                } else {
-                    identity = Some(bits);
-                }
-                for value in actual {
-                    close(value, 0.0);
+            // Reconstructed weights exceed half range, but cancelling products do not.
+            let mut raw = constant_weight(format, 17);
+            for block in raw.chunks_exact_mut(block_bytes) {
+                let (scale, quants) = match format {
+                    CudaFormat::Q4K => (0, 16..144),
+                    CudaFormat::Q5K => (0, 48..176),
+                    CudaFormat::Q6K => (208, 0..128),
+                    _ => unreachable!(),
+                };
+                block[scale..scale + 2].copy_from_slice(&f32_to_f16(65504.0).to_le_bytes());
+                block[quants].fill(0x22);
+            }
+            for rows in [16_usize, 32] {
+                let values = (0..rows * 256)
+                    .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+                    .collect::<Vec<_>>();
+                let input = upload_f16(&device, &values)?;
+                let mut identity = None;
+                for cache in [None, Some(&module)] {
+                    let weight =
+                        super::super::mem::weights::cache::upload(&device, cache, &raw, format)?;
+                    let out =
+                        CudaBuffer::allocate(&device, (rows * 17 * 2) as u64, CudaFormat::F16)?;
+                    let encoder = CudaEncoder::begin(&device);
+                    super::matmul::encode_batched(
+                        &encoder,
+                        &module,
+                        &out,
+                        &input,
+                        &weight,
+                        256,
+                        17,
+                        rows as u32,
+                    )?;
+                    run(&device, encoder)?;
+                    let actual = read_f16(&device, &out, rows * 17)?;
+                    let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                    if let Some(expected) = &identity {
+                        assert_eq!(&bits, expected, "raw/cache range bits");
+                    } else {
+                        identity = Some(bits);
+                    }
+                    for value in actual {
+                        close(value, 0.0);
+                    }
                 }
             }
         }

@@ -135,7 +135,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
 | C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | kept | Medium model decode +19.457%, long +61.511%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
-| C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput, selected before implementation | ready after dual-representation design | C28 isolates Q6 prefill saving; medium has highest refreshed whole-request effect; non-counting re-evaluation |
+| C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput | kept | +12.063%, all controls pass; commit10b186c; non-counting C28 re-evaluation |
+| C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | ready | C32 tensor owner68.013% of fixed work; explicit f16/f32 register layout supports a bounded experiment |
+| C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | deferred behind C33 | C32 long tensor attention24.654% of fixed work; increased V reuse versus register pressure and grid parallelism |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3484,3 +3486,41 @@ projection order, grid and batch checks attribute Q6 prefill82.187524/634.392543
 without claiming general bandwidth saturation or attributing load conversion
 to generation. Tensor prefill remains material in every regime; long tensor
 attention alone3652.907027ms is a second material owner. Fresh discovery follows.
+
+### C33/C34 fresh pool and C33 selected design
+
+C33 is a distinct synchronization/accumulator-ownership premise, not another
+tile-size or quant cache retry. C32 whole fixed-work T short/medium/long is
+934.260178/3911.968644/14816.681923ms; tensor p .355187704/.680126791/
+.627247749. Conservative local s1.2,o.003 predicts5.954421/12.404318/
+11.301720%, ideals55.083891/212.623869/168.274705%, savings52.503507/
+431.703208/1504.505019ms. This is an uncertain estimate, not measured stalls.
+C34 eight-real-query reuse has p0/.059279135/.246540153; s1.25,o.003 predicts
+-.299103/.893495/4.855659%, ideals0/6.301459/32.721074%, savings
+-2.802781/34.643718/686.131360ms. C34 remains a credible bounded long candidate
+despite a prediction just below5%; C33 medium ranks first by whole-work effect.
+
+C33 baseline is accepted10b186c, clean worktree confirmed after commit, with
+immutable c32-bench/public/profile records. Change only shaders/matmul.cuh
+(~355 productive lines, existing category K: one matmul operation family).
+No new file/function, host dispatch, allocation, API, dependency or model change.
+Replace opaque WMMA C staging with two N8 tiles per warp using
+mma.sync.aligned.m16n8k8.row.col.f32.f16.f16.f32. The official PTX ISA8.4
+fragment and instruction sections above confirm explicit lane ownership and
+sm75 admission, matching build/cuda.rs and device.rs. Precision stays half
+multiplicands/f32 accumulators; instruction-internal reduction order is not
+specified, so this is a numeric-gated candidate, not claimed bit-equivalent to
+WMMA. Preserve increasing coefficient-group correction and input row-sum order.
+Compute row sums from the same global half inputs before the first block
+publication barrier; all lanes execute uniform MMA loops and the final barrier
+protects replacement of A/B/coefficients/row sums. Remove shared C and its
+store/reload/barrier; preserve M16/M32 and paired eligibility/tails.
+
+Risk: register pressure, scalar shared loads, f32 summation order and warp-uniform
+execution. Gate unchanged scalar .02+.02*abs bounds across107 matrix fixtures,
+raw/cache bit identity, canonical and frozen129/130/549 f16/int8 token parity,
+all CPU/CUDA/error tests, hybrid build and25%-mixed isolation, memcheck/synccheck.
+No threshold relaxation or extra lossy conversion. Then objective medium
+prompt>=5%, CV<=5%, all other controls regression<=5%, canonical rerun and
+two-hour comparison rules. If rejected, preserve evidence, restore exactly and
+use the observed failing owner to evaluate a genuinely bounded follow-up.

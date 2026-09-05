@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C24 kept above S01 `6d37587` and C22; all correctness and three public rows passed. Refreshing C24 profiles; C25 deferred. Not complete.
-- Attempts: 20 distinct reached correctness (minimum 10): 13 kept, 6 rejected (C06/C08/C13/C18/C20/C23), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained optimization commits15 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `99f4330` (C24), above S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C24 kept and all profiles refreshed. C25 rejected/restored; fresh discovery adds C26/C27/C28, C27 selected. Not complete.
+- Attempts: 21 distinct reached correctness (minimum 10): 13 kept, 7 rejected (C06/C08/C13/C18/C20/C23/C25), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained optimization commits15 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation).
 
@@ -128,7 +128,10 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | kept, non-counting bounded re-evaluation | Exact/canonical/extra parity and all controls pass; objective +7.240% |
 | C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -14.059%, TTFT +16.358% |
 | C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | kept | Exact gates pass; long prompt +13.665%, all controls within 5% |
-| C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | deferred after C24 | Exact correction order can remain; larger shared footprint needs isolated entries and resource/gate design |
+| C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/sanitizer gates pass; medium prompt -3.214% |
+| C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | deferred after C27 | Removes the changed WMMA stride implicated by C25; same shared footprint, exact gate required |
+| C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | ready, selected; conservative non-counting C06 re-evaluation | C21 removed duplicate packed work since C06; exact logical tree now retained, F16/batched unchanged |
+| C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2432,3 +2435,133 @@ Diagnostic launch initially used the occupied public label `c24`; exclusive
 log creation rejected it before inference and preserved every public artifact.
 Corrected diagnostic label to `c24-timeline`, session59440, same immutable
 binary and tuple. Refresh all three rows before reranking C25.
+
+C24 committed `99f4330`; diagnostic59440 completed all rows, zero dropped
+records. Prefill/decode ms442.571/802.694,4035.248/957.606,19071.319/1398.475.
+Prefill attention9.498/574.412/6938.256 ms; tensor396.899/3174.015/11139.958.
+Decode dot/logits725.027/720.029/715.604; long decode attention634.327 ms.
+Current largest measured owners remain tensor prefill and packed decode;
+long attention remains material. No saturation claim from static resources.
+
+### C25 bounded design selected before implementation
+
+Restrict paired K32 staging to Q4/Q5 M16 dispatch with outputs<8192. Preserve
+C22 M32 large grids and Q6 exactly through separate ordinary entries. This is
+a pre-performance resource decision: doubling M32 shared14976->29952 would
+reduce its static ceiling6->3 blocks/SM, forcing the144-block measured grid
+into two waves. M16 shared9792->19584 permits5 blocks/SM, still enough for the
+measured32/96/128-block small grids at32 rows. Registers may lower that ceiling;
+verify the generated resources, never claim achieved occupancy from this bound.
+
+Narrowed authenticated Q4 owners155.418/1244.686/4359.191 ms (exclude N9216),
+whole-request p .124807/.249293/.212957. With s=1.1,o=.005: predicted
+.639/1.798/1.457%, ideal14.261/33.208/27.058%, saved7.90/88.19/293.94 ms.
+Medium remains objective. Cheap bounded diagnostic value justifies testing
+below the conservative prediction threshold; the ideal ceiling exceeds5%.
+Cost45–60 minutes, main uncertainty shared/register pressure and compiler reuse.
+
+Structure: existing shaders/matmul.cuh (~275 productive category-K lines),
+kernels/matmul.rs (~155 orchestration lines), module.rs (~145 excluding tests).
+Add a compile-time stage count1/2 to the cohesive tensor helper and one fixed
+paired entry. Ordinary entries instantiate stage1; paired entry only stage2
+Q4/Q5 M16. Two adjacent K32 groups share packed-byte loads and three block
+barriers instead of six, but retain two WMMA accumulators and two f32 correction
+steps in their original order. No weight/cache layout or public API changes.
+
+Freeze current107 matrix vectors before editing, then require exact identity,
+all canonical gates and both frozen129/130-token fixtures for f16/int8. Keep
+the2% scalar bound and all references unchanged. Medium prompt>=5%, CV<=5%,
+all other metrics/regimes controls<=5% regression; two-hour comparison cap.
+Run focused memcheck/synccheck if the new shared layout reaches exact correctness.
+
+C25 baseline51876 and candidate79779 each pass all15 kernel tests and emit107
+frozen vectors; exact diff is empty. Temporary prints removed. Paired entry
+uses56 registers/19584 shared bytes, zero stack/spills; its static shared limit
+is5 blocks/SM as estimated. Generic stride-loop adaptation changes ordinary
+compiler register counts too (M16 63->56, M32 72->71), while their shared
+footprints and all numeric vectors remain identical. This is not byte-identical
+ordinary machine code; controls and subsequent per-shape attribution must cover
+it, and any performance conclusion must disclose that compilation effect.
+Frozen130-token replay91738 passes f16/int8 with exact local IDs;129-token
+one-row replay is next, before canonical gates and performance.
+
+One-row56285 also passes both KV schemes. Before performance, PTX inspection
+shows the compiler did NOT merge low/high quant loads from two independent
+`cuda_weight_parts` calls (Q4 separate u8 registers/addresses; Q5 duplicates
+the high-bit byte too). Complete the already-declared reuse premise explicitly:
+add a narrow paired-integer quant decoder in existing quant.cuh (~180 productive
+category-K lines), called only by stage2. It centralizes the packed K64 invariant;
+stage1 retains the existing helper. Also retain the original group-index loop
+form for stage1 rather than introducing incidental induction-variable changes.
+These are pre-performance implementation corrections within C25, not additional
+attempts or relaxed gates. Repeat exact107 and both frozen fixtures after them.
+
+C25 completed reuse passes exact session70801 (107 vectors, empty diff).
+PTX now explicitly reuses one loaded quant byte for `and ...,15` and `shr ...,4`
+and shares Q5 high bits. Paired resources64 registers/19584 shared, zero spills;
+ordinary M16/M32 resource counts restored to63/72 registers and9792/14976 shared.
+Frozen130 replay98803 passes both schemes. No candidate performance yet.
+
+C25 final one-row replay26344 passes both schemes. Canonical session34101 passes
+fmt/CUDA check/CPU workspace/11 error/all37 CUDA tests and canonical f16/int8
+parity, unchanged local IDs. Fast build5685 completed; tests and canonical
+prompt match HEAD exactly. Focused memcheck/synccheck session62661 runs serially
+on the81-case tensor test with `--error-exitcode 99`, before objective acquisition.
+
+### C25 rejected and restored
+
+Sanitizer62661 completed: memcheck and synccheck both0 errors (22.91/22.58 s
+diagnostic tests). Objective10787 then completed with unchanged1024/32/31 counts.
+Medium prompt254.53 ->246.35 token/s (-3.2138%, CV .0003 ->.0001),
+TTFT4023.04 ->4156.65 ms (+3.3211%, CV .0001), model decode33.76 ->33.83
+(+.2073%, CV .0018), public31.63 ->31.70 (+.2213%, CV .0016), wall21.36 s.
+Stable failed objective: reject, no rerun or control expansion. Power-cap
+increment .993712 s, thermal0. Restore all four production files exactly to
+C24 HEAD, preserve private c25.patch/immutable binary/logs. No rejected code or
+temporary prints/prompts remain. Diagnostic63776 measures the rejected binary
+to attribute the loss and inform bounded alternatives; it is not a public A/B.
+
+C25 diagnostic63776 completed, zero dropped records. Q4 shape ms C24->C25:
+K3072/N4096 275.948->425.588; K3072/N1024 261.098->226.531;
+K4096/N3072 342.099->352.975; K9216/N3072 365.540->379.361.
+Unchanged wide Q4 949.593->941.336 and Q6 total979.737->972.630.
+The loss is localized to the paired entry, not its ordinary controls. Restricting
+the unchanged candidate to N1024 would retain only34.568 ms savings, .86% of
+medium prefill; that measured unchanged subcase does not justify a threshold
+claim or a filler retry. C25's whole premise remains rejected.
+
+Fresh discovery C26 instead changes a concrete new boundary: paired staging
+changed WMMA row pitch32->64. Stage-major A/B tiles could restore the original
+K32 pitch and aligned fragment addresses while still loading each low/high byte
+once and sharing barriers. A bank/transaction penalty is a hypothesis, not a
+measured counter; layout versus resource scheduling remains uncertain. Same
+narrowed owner/p/s/o as C25, medium predicted1.798%, ideal33.208%, cost30–45 min.
+
+C27 revisits warp output ownership only after C21 removed duplicated packed
+loads and exposed a different 64-physical/128-logical leaf representation.
+Keep four original partial sums per warp lane, pair the64 and32 tree levels
+locally, then exact16/8/4/2/1 shuffles. Four output warps per128-thread block
+avoid a one-warp-block occupancy cap; F16 and SIMT batches retain their current
+paths. Unlike C06's stride32 numerical regrouping, all128 logical leaves keep
+their original stride128 contribution order. Conservatively count this as a
+non-counting re-evaluation, not another distinct attempt.
+
+C27 packed dot/logits owners725.027/720.029/715.604 ms give whole-request
+p .582227/.144212/.034959, s=1.1,o=.002: predicted5.366/1.123/.118%,
+ideal139.365/16.851/3.623%, saved63.42/55.47/24.12 ms. Short model decode is
+the objective; both other regimes and prompt/TTFT/public metrics are controls.
+It ranks above C26. Cost30–45 minutes, uncertainty extra live registers versus
+removed block barriers and grid scheduling. Existing matmul.cuh (~280 productive
+category-K lines) and kernels/matmul.rs (~150 orchestration lines), no new file,
+entry, dependency, public API or allocation. Require frozen107 exact matrices,
+canonical gates and frozen129/130 f16/int8 local IDs before performance, plus
+focused synccheck/memcheck. Keep>=5%, CV<=5%, controls<=5%, two-hour comparison.
+
+C28 load-path inspection confirms CudaFormat is crate-private and standalone
+preflight currently budgets retained packed bytes plus maximum upload staging.
+A possible320-byte/256-weight representation stores integer quants and the
+original f32 coefficients without half reconstruction; it increases retained
+weight bytes and must never reduce context/placement or invalidate hybrid
+planning. No implementation or performance claim yet. C09/C21 measured unpacking
+benefits motivate it, but budget/fallback and exact CPU/GPU coefficient semantics
+must be resolved before ranking it ready. It is not closed for mere complexity.

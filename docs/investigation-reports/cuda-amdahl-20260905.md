@@ -5,16 +5,18 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C01, committed with its decision below.
+- Current retained runtime: `61a540a` (C01).
 - State: running, C01 kept; profile refresh and pool reranking next.
 - Attempts: 1/10, kept 1, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: C01 (the production commit containing this decision).
+- Current-campaign retained commits: `61a540a` (C01).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
-are terminal. C01 is accepted. Next acquire `c01-timeline` for all three regimes,
-update fractions and rerank the persistent pool before starting another candidate.
+are terminal. C01 is accepted. Session `3733` is acquiring `c01-timeline` for
+short/medium/long in order; short is complete with zero dropped records. Poll
+the same handle, then update fractions and rerank the persistent pool before
+starting another candidate. No GPU measurement may overlap the active trace.
 Baseline executable, accepted `c01-bench` and all A/B records remain under the
 same campaign directory. No rejected or interrupted production edit remains.
 
@@ -82,9 +84,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 |---|---|---|---|---|
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | kept | Small: reuse existing parallel attention body; score reduction reorders |
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
-| C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms | Short prompt throughput, decode control | deferred until C01 | Moderate; eliminate per-element format branching without new formats; exact gate required |
+| C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
-| C05 | Warp-level score reduction for prefill attention; medium owns 2302.472 ms with block barriers at every context token | Long prompt throughput | deferred until long timeline | Moderate numeric risk; covers a different operation from historical matmul shuffle rejection |
+| C05 | Warp-level score reduction for attention; long prefill owns 28932.070 ms at baseline with block barriers at every context token | Long prompt throughput | deferred until C01 long profile | First test the same reduction tree in a warp for its final five stages; capture exact baseline output before editing; distinct from historical matmul shuffle rejection |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
@@ -302,3 +304,23 @@ not confidence intervals. The retained source is 99 physical lines for the
 category-K attention shader and 41 for checked decode dispatch, comfortably
 within the orchestration limit. Next refresh phase fractions on the accepted
 runtime and continue the pool; this first keep does not complete the campaign.
+
+### Refresh after C01
+
+`python3 target/cuda-amdahl-20260905/run.py trace c01-timeline target/cuda-amdahl-20260905/c01-bench short medium long`
+is active. Short now measures 2063.187 ms before the first sample and 1960.483 ms
+after it. Decode attention falls from 1157.333 to 120.986 ms (about 9.57x local),
+consistent with the measured public gain. Short's remaining largest owner is
+matmul: 1878.154 ms batched + 1243.279 ms single + 155.715 ms logits, about 81.4%
+of the 4023.669 ms total timeline. RMSNorm is 410.318 ms (10.2% overall, 15.45%
+of decode), argmax 108.148 ms (2.69% overall, 5.52% of decode). GPU gaps remain
+17.661 ms overall, so host-side submission still has a small ideal ceiling.
+
+C03 is now ready. C05 can first preserve the current binary reduction tree:
+keep the shared stages above a warp and replace the final five shared/barrier
+stages with ordered warp shuffles. This removes synchronization without changing
+paired additions. Before making that exact candidate, capture the synthetic
+long-history f16/int8 outputs on accepted C01 and require byte equality afterward,
+in addition to all canonical gates. A reordered warp-first variant would be a
+separate later premise only if the remaining barrier cost warrants it. No C05
+production edit has been made; wait for the full refreshed ranking.

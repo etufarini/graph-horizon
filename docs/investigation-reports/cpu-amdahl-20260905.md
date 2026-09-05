@@ -81,7 +81,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | prompt +3.668%: canonical interesting, below keep threshold; restored | rejected (evidence only) |
-| CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
+| CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | many migrations; bounded inherited-mask worker-only Linux route; caller untouched | ready |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | pending memory attribution | unknown | unknown | unknown | not scored | unknown | >2 GiB anonymous weight storage, zero observed huge pages; page-walk cost and safe platform mechanism unresolved | deferred |
@@ -1586,3 +1586,50 @@ framework. CPU25-09's independent migration/locality premise remains open;
 CPU25-10/12 still require bounded feasibility. Next inspect and declare
 worker-local affinity preserving the inherited allowed mask and all logical
 workers. No dynamic-chunk or bounded-spin code remains in production.
+
+### CPU25-09 declaration before implementation
+
+Target short model decode throughput; parent is retained `998b189` and binary
+`cpu25-05-bench`. Medium/long plus short prompt, TTFT and public decode remain
+controls. Same artifact, default twelve participants, context/KV/build, counts,
+canonical 5% gain, objective CV<=5%, <=5% control regression and single complete
+instability rerun. This is not the historical six-physical-thread experiment.
+
+Measured migrations and worker start/finish bounds justify a bounded causal
+trial, not a claim that migration counts themselves are critical-path time.
+Use uncertain p=.03–.12, s=1.5, o=.002: .81–3.95% predicted gain, ideal
+3.09–13.64%, approximately .02–.10 s on the refreshed short decode interval.
+The conservative prediction is low; the upper ceiling and cheap diagnosis keep
+the trial viable. It precedes more complex unresolved VNNI/backing mechanisms.
+
+Intentional variable: on Linux x86_64 only, each daemon CPU worker reads its
+inherited allowed mask once and restricts itself to its assigned allowed logical
+CPU. Activate only if the pool's participant count equals that mask's population;
+otherwise leave affinity unchanged. Worker IDs 1..count map to allowed CPUs
+at those indices, leaving the first CPU unassigned by workers. The caller
+remains unbound within its original mask; do not claim it is forced onto the
+remaining CPU. All logical workers still exist, idle behavior and pool handoff
+remain unchanged. The kernel enforces any additional cpuset constraints.
+
+Necessary tree and productive estimates:
+
+```text
+cpu/mod.rs       (~85 lines; +2 cfg/module wiring lines)
+cpu/pool.rs      (~150 lines; +2 cfg/call lines before worker loop)
+cpu/locality.rs  (~55 lines; one worker-local affinity/FFI boundary, plus tests)
+```
+
+The new distinct helper belongs to the existing CPU domain, not a lone-module
+folder. It owns only a bounded 128-byte native Linux x86_64 mask. Read/set errors,
+larger kernel masks and mismatched participant counts fall back unchanged; no
+dynamic CPU-set framework or new dependency. Standard C ABI calls use PID zero,
+never another process/thread ID. No global scheduling, priority, topology,
+governor, cpuset or caller-affinity change. Risks: pinning competes with desktop
+work, the unbound caller may contend with a worker, and setup/portability errors.
+
+Correctness before performance: in a separate test thread, exercise mismatched
+count/caller-ID no-ops and a sparse two-CPU inherited mask, verifying the selected
+CPU stays inside it and parent affinity is unchanged. Full CPU workspace tests,
+CPU check, Clippy, format/diff and exact pinned F16 parity follow. Verify actual
+benchmark worker masks and unchanged caller mask read-only before crediting any
+gain; if affinity never activates, do not claim a locality improvement.

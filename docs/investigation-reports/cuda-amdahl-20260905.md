@@ -3694,3 +3694,9 @@ at most4 rows, so check its unchanged eligibility and run25%-mixed parity.
 Objective long prompt>=5%, CV<=5%, every control regression<=5%, unchanged
 C32 public baseline and canonical time/rerun rules. C34 is non-counting; C36
 remains deferred, not closed or silently dropped.
+
+C34 boundary baseline4697 passes in2.66s on restored C32. Permanently add
+(dim128,context529,rows8) and (128,521,9) to the existing14 cases, with a
+future-NaN check for the9-query case starting at512. Original cases, scalar
+references, fallback checks and bounds remain; this is support coverage, not
+a production optimization. Capture temporary exact records next.

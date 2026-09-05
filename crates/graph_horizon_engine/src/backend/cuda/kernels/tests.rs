@@ -989,6 +989,8 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
         (3, 514, 3),
         (129, 1025, 3),
         (256, 4097, 3),
+        (128, 529, 8),
+        (128, 521, 9),
     ] {
         let base = context - rows;
         let keys = (0..context * dim)
@@ -1120,7 +1122,9 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                     close(decoded, expected_values[offset]);
                 }
             }
-            if scheme == KvQuant::F16 && rows == 4 && (dim == 16 || context == 529) {
+            if scheme == KvQuant::F16
+                && ((rows == 4 && (dim == 16 || context == 529)) || (rows == 9 && context == 521))
+            {
                 // Masked future K/V must not affect an earlier query, even via 0 * NaN.
                 let poisoned = upload_f16(&device, &vec![f32::NAN; dim])?;
                 let future = ((base + 1) * dim * 2) as u64;

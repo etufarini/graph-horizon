@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C37 (this acceptance commit), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C37 accepted after all gates and three public rows; refreshing all profiles. The matrix-load discovery premise remains to be evaluated. Not complete.
-- Attempts: 26 distinct reached correctness (minimum 10): 15 kept, 10 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33), 1 interesting/restored (C07); plus 9 non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36). Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `483ea2a` (C37), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C37 accepted and all profiles refreshed. C38 passes exact/frozen/canonical gates, isolation and sanitizers pending; no public performance yet. C39 deferred. Not complete.
+- Attempts: 27 distinct reached correctness (minimum 10): 15 kept, 10 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33), 1 interesting/restored (C07), 1 pending (C38); plus 9 non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36). Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -141,7 +141,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
 | C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-11.540%; K16 alone does not recover the direct path; non-counting |
 | C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; commit483ea2a; non-counting C33 re-evaluation |
-| C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | ready | Same K16 registers, arithmetic, padding and barriers; exact fragment mapping and alignment gate |
+| C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | rejected, restored | All gates pass; medium prompt-5.107%, TTFT+5.384%; saved patch and diagnostics |
+| C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | ready | C34 bounded reuse extension; s1.4,o.002 predict6.057%; exact output gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4013,3 +4014,88 @@ ceilings43.421230/178.645739/172.539295%, savings21.931560/182.874554/641.383849
 Medium wins the uncertainty tie and is objective; >=5%, CV<=5%, all controls
 <=5% regression and the unchanged two-hour comparison limit. C38 is one distinct
 transport premise only after reaching correctness; no attempt is counted yet.
+
+C38 exact76557 passes97.30s with324 records identical to the frozen C37 output
+(`diff -q` on complete `c37-bits:` records, exit0). Temporary logging removed;
+start frozen549 parity. This is distinct attempt27, pending performance and
+classification. Fresh attention inspection also identifies a bounded C34
+extension: all sixteen real queries can occupy the existing M16 QK tile instead
+of eight, sharing K/V loads and QK work. This source-supported premise is
+deferred behind C38, not closed on a low prediction; quantify/rank after C38's
+decision and any refreshed profiles. No attention change is implemented yet.
+
+C38 frozen54999134,13069609 and12954226 pass both KV with unchanged local IDs.
+Canonical prompt restored exactly. Fast40327 and hybrid check58060 pass; SASS
+confirms LDSM.x4/.x2 in the tensor entries, not just attention. Ordinary/paired/
+wide resources56/57/68 registers,6976/13952/8320 shared bytes, zero spills; the
+compute75 PTX remains byte-identical to C37. Begin canonical gates, then serial
+isolation and both-image sanitizers. No public C38 performance measured yet.
+
+C38 canonical29826 passes fmt, CUDA workspace check, CPU9.25s,11error_matrix,
+all43 CUDA tests101.69s and canonical f16 parity13.75s. Begin serial isolation,
+then `compute-sanitizer --tool memcheck|synccheck --error-exitcode 99` on the
+same debug binary, filter `backend::cuda::kernels::tests:: --test-threads=1`.
+No temporary logging or prompt change remains in tracked source.
+
+Final C38 inline-assembly review against the toolkit's
+[compiler contract](https://docs.nvidia.com/cuda/archive/12.4.1/inline-ptx-assembly/index.html#incorrect-optimization)
+adds explicit `memory` clobbers for the indirect shared reads. Existing barriers
+already bound staging lifetime, but the compiler should not infer hidden memory
+effects from the instruction text. Before any performance measurement, rebuild
+and compare PTX; if runtime code changes, repeat the affected correctness gates
+on the final source. This is completion of C38's memory-access invariant, not a
+new candidate or a performance-selected retry.
+
+C38 isolation/sanitizer95606 passes standalone-int8 11.78s, hybrid-f16 21.90s,
+hybrid-int8 15.68s, all16 memcheck99.71s and synccheck95.05s with zero errors.
+Clobber build9085 passes: final80 PTX is byte-identical to the fully gated image;
+75 PTX is also unchanged, debug80 matches fast80, and the rebuilt fast executable
+is byte-identical to the immutable c38-bench. Therefore the earlier gates test
+the exact final runtime, not a superseded candidate. Start medium public A/B
+against C37; no stability rerun or threshold change.
+
+### C38 rejected and restored; C39 design
+
+C38 objective38028: medium prompt365.83[CV.0041], TTFT2799.18[.0041], model
+decode54.58[.0020], public51.16[.0025], counts1024/32/31, process14.65s. Against
+C37: prompt-5.107387%, TTFT+5.384465%, model-.455955%, public-.370010%.
+Reject both objective and TTFT control; no rerun (CV passes), no other public
+rows. Stock power-cap increment .993762s, thermal zero. All correctness gates
+passed, but they do not authorize retaining a performance regression.
+
+Diagnostic80546 has zero dropped records: prefill2830.057756ms/gaps58.713988,
+decode595.313469/gaps12.204347. Medium matmul Q4 1625.579513ms versus C37
+1478.941984; Q6 604.290757 versus604.159475. Paired Q4 shapes all worsen:
+K3072/N1024 174.564813→228.420187, K4096/N3072 210.747730→252.299359,
+K9216/N3072 217.588350→255.891559ms; wide642.890140→658.134440. The two
+winning individual shapes save only7.823385ms combined (Q4 K3072/N4096 and
+Q6 K3072/N1024), .241% of fixed medium work; their unchanged load sequence is
+not a new premise or a basis for selectively retrying a favorable public row.
+No measured new address/layout defect to remove: preserve the scalar path.
+Save complete c38.patch and immutable binary/PTX/SASS, then restore the sole
+production shader exactly to C37. Only the report remains dirty.
+
+C39 is a non-counting C34 reuse extension, selected next. Existing attention
+always computes an M16 QK tile but currently gives only eight rows real queries;
+two blocks repeat K/V staging and QK to cover16 queries. Fill the other eight
+rows while retaining history tiles16, F16 Q/K, f32 softmax/PV, per-query math
+order, all four barriers and every fallback. No new precision or regrouping.
+
+Structure before edit: backend/cuda/shaders/attention.cuh (~450 productive
+lines, category K); kernels/attention/prefill.rs (~65 lines orchestration).
+No new file/helper/entry/ABI. Change only real-query count8→16 and checked
+gridceil(rows/16). Tests add full16 and tail17 at base>=512, including future
+NaN poisoning, while preserving all previous cases and both KV schemes.
+Run added cases on C37 first; record every attention output (36 records) before
+the production edit, then require bit identity. Main risk: tail masking,
+more live PV accumulators and fewer blocks; memory ownership is unchanged.
+
+C37 fixed-work T859.285663/3249.153034/11545.488868ms; owner0/149.819539/
+2388.752452ms, p0/.046110336/.206899204. Net s1.4 discounts ideal doubled reuse
+for unchanged PV work, o.002 includes scheduling/resource uncertainty. Predicted
+gains-.199601/1.130066/6.057367%, ceilings0/4.833928/26.087378%, savings
+-1.718571/36.307277/659.409723ms. Long prompt is objective; short/medium and all
+other metrics controls, unchanged >=5%/CV<=5%/regression<=5% and two-hour limit.
+Exact gate, frozen129/130/549 both KV, canonical/CPU/error, int8 and hybrid
+isolation, attention memcheck/synccheck all precede public performance. Keep
+only after both control regimes pass; refresh affected profiles if retained.

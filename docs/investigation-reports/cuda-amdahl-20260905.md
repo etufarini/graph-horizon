@@ -145,6 +145,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | rejected, restored | Exact/all gates pass, prompt-6.778%, TTFT+7.269%; keep eight-query C37 |
 | C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | rejected, restored | All gates pass; long prompt-4.484%; own attention cost worsens; keep C37 |
 | C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
+| C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | ready | Probe identifies QK owner; PTX confirms repeated query load in nested loop; exact-order gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4293,3 +4294,45 @@ local evidence, not hardware bandwidth, stall or achieved-occupancy counters.
 Existing shader only (~465 productive category-K lines temporarily), no new
 production API/file/owner. Remove every probe before final verification or any
 new production candidate. This is instrumentation, not a countable optimization.
+
+### Phase probe outcome and C42 design
+
+Probe7251 completes31 records and zero dropped timeline records. Median cycles
+QK294334, maximum3707, exponential/denominator5045, PV80704; fractions
+76.691420/.965893/1.314521/21.028166%. Summed-cycle fractions76.284494/
+.994812/1.287460/21.433234% include all outliers, no sample removed. Scope is
+first head/layer only; do not extrapolate its exact fraction to every CTA.
+Diagnostic kernel attention192.513458ms vs C37 190.565842 (+1.022%), whole
+decode730.368014 vs717.860252 (+1.742%). Prefill11009.039286 vs10827.628616
+(+1.675%) despite no prefill probe, so variation and instrumentation are not
+separable from this single diagnostic. No public performance claim from it.
+Save phase-probe.patch/binary/log and remove all14 temporary shader lines.
+
+The unchanged C37 compute80 PTX confirms inside the per-history QK dimension
+loop: query `ld.global.u16` and conversion, K load and conversion, fma, then
+the dimension-loop and history-loop branches. Query components are invariant
+across history but remain global loads in the emitted PTX. This identifies C42:
+cache at most eight query f32 components per lane before history, explicitly
+unroll the bounded eight dimension parts inside each QK score. This removes
+repeated query loads/conversions and exposes independent K addresses; it does
+not claim those cached loads were DRAM misses or that QK was bandwidth-bound.
+
+Structure before edit: only backend/cuda/shaders/attention.cuh (~465 productive
+lines, category K), no new file/helper/entry/capability/ownership. Existing
+validation bounds head dimension<=256, giving at most eight32-lane parts.
+Invariant: same increasing dimension order, FMA pairing,32-leaf score tree,
+128-leaf softmax,512/128/PV/fallback dispatch, barriers and cache formats.
+Main risk: extra registers, compiler local-array spill or reassociation.
+Record36 prefill plus254 default-decode outputs on C37's current18-case/both-KV
+test before editing; require all290 candidate records bit-identical. Existing
+forced128 comparisons remain. Inspect emitted query-load placement and spills;
+then frozen129/130/549 both KV, canonical/CPU/error, int8/hybrid isolation and
+attention memcheck/synccheck before public performance. No numeric relaxation.
+
+Choose long model decode. Conservatively bound QK owner to half the existing
+decode-attention kernel (below the77% probe), with local s1.4,o.001; no claim
+that all of that owner is a redundant load. D552.821475/584.887149/717.860252ms,
+owner14.371677/29.891180/95.282921ms. This bounded exact experiment is worthwhile
+even if its conservative prediction is below5%; retain only with >=5% public
+objective gain, CV<=5%, all controls<=5% regression and the same two-hour cap.
+C42 counts as a new loop-invariant reuse premise only after reaching correctness.

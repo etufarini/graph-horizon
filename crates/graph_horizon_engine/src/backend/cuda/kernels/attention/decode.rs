@@ -26,16 +26,6 @@ pub(crate) fn encode(
         KvQuant::F16 => Kernel::AttentionDecodeF16,
         KvQuant::Int8 => Kernel::AttentionDecodeInt8,
     };
-    // Validation bounds the head dimension to 1..=256. Each head owns a
-    // complete block; padded lanes participate in the shared reduction.
-    let threads =
-        u32::try_from(kv.head_dim.next_power_of_two()).map_err(|_| super::super::arithmetic())?;
-    dispatch::launch(
-        encoder,
-        module,
-        kernel,
-        &args,
-        (q_heads, 1, 1),
-        (threads, 1, 1),
-    )
+    // Four warps score a context tile; each thread owns up to two dimensions.
+    dispatch::launch(encoder, module, kernel, &args, (q_heads, 1, 1), (128, 1, 1))
 }

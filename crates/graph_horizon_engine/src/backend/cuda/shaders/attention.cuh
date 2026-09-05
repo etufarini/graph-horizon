@@ -19,65 +19,77 @@ __device__ void cuda_attention_body(
     __half *out, uint32_t dim, uint32_t kv_heads, uint32_t q_heads,
     uint32_t base, uint32_t rows, uint32_t layer, uint32_t context,
     uint64_t k_metadata, uint64_t v_metadata) {
-    // One block owns a query head in both prefill and decode; each active
-    // thread owns one output dimension throughout the causal softmax scan.
+    // Four warps score four context tokens; each thread owns up to two output
+    // dimensions. Validation bounds dim to 256 and dispatch fixes 128 threads.
     const uint32_t id = blockIdx.x;
     const uint32_t row = id / q_heads;
     const uint32_t q_head = id % q_heads;
     const uint32_t kv_head = q_head / (q_heads / kv_heads);
     const uint32_t position = base + row;
     const uint64_t q_base = uint64_t(id) * dim;
-    const bool active = threadIdx.x < dim;
-    float accumulator = 0.0f;
+    const uint32_t lane = threadIdx.x % 32;
+    const uint32_t warp = threadIdx.x / 32;
+    float accumulator[2] = {};
     float maximum = -CUDART_INF_F;
-    __shared__ float partial[256];
+    __shared__ float scores[4];
     __shared__ float previous;
-    __shared__ float weight;
+    __shared__ float weights[4];
     __shared__ float denominator;
     if (threadIdx.x == 0) denominator = 0.0f;
     const float scale = rsqrtf(float(dim));
-    for (uint32_t token = 0; token <= position; ++token) {
+    // Tile indices avoid wrapping the token increment near the u32 boundary.
+    for (uint32_t tile = 0; tile <= position / 4; ++tile) {
+        const uint32_t token = tile * 4 + warp;
         const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
         const uint64_t cache_base = vector * dim;
-        partial[threadIdx.x] = active
-            ? __half2float(query[q_base + threadIdx.x])
-                * cuda_cache_value<INT8>(
-                    k_cache, cache_base + threadIdx.x, k_metadata, vector)
-            : 0.0f;
-        __syncthreads();
-        for (uint32_t stride = blockDim.x / 2; stride >= 32; stride /= 2) {
-            if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
-            __syncthreads();
-        }
-        // Keep the same paired additions; the final subtree fits in one warp.
-        // Padded lanes are zero and the mask also covers blocks smaller than 32.
         float sum = 0.0f;
-        if (threadIdx.x < 32) {
-            sum = partial[threadIdx.x];
-            const unsigned mask = __activemask();
-            const uint32_t first_stride = blockDim.x < 32 ? blockDim.x / 2 : 16;
-            for (uint32_t stride = first_stride; stride > 0; stride /= 2) {
-                const float other = __shfl_down_sync(mask, sum, stride);
-                if (threadIdx.x < stride) sum += other;
+        if (token <= position) {
+            for (uint32_t i = lane; i < dim; i += 32) {
+                sum += __half2float(query[q_base + i])
+                    * cuda_cache_value<INT8>(k_cache, cache_base + i, k_metadata, vector);
             }
         }
+        for (uint32_t stride = 16; stride > 0; stride /= 2) {
+            const float other = __shfl_down_sync(0xffffffff, sum, stride);
+            if (lane < stride) sum += other;
+        }
+        if (lane == 0) scores[warp] = token <= position ? sum * scale : -CUDART_INF_F;
+        __syncthreads();
         if (threadIdx.x == 0) {
-            const float score = sum * scale;
-            const float next_maximum = fmaxf(maximum, score);
+            float next_maximum = maximum;
+            for (uint32_t offset = 0; offset < 4; ++offset) {
+                next_maximum = fmaxf(next_maximum, scores[offset]);
+            }
             previous = expf(maximum - next_maximum);
-            weight = expf(score - next_maximum);
-            denominator = denominator * previous + weight;
+            float next_denominator = denominator * previous;
+            for (uint32_t offset = 0; offset < 4; ++offset) {
+                weights[offset] = expf(scores[offset] - next_maximum);
+                next_denominator += weights[offset];
+            }
+            denominator = next_denominator;
             maximum = next_maximum;
         }
         __syncthreads();
-        if (active) {
-            accumulator = accumulator * previous + weight
-                * cuda_cache_value<INT8>(
-                    v_cache, cache_base + threadIdx.x, v_metadata, vector);
+        for (uint32_t part = 0; part < 2; ++part) {
+            const uint32_t i = threadIdx.x + part * 128;
+            if (i < dim) {
+                float value = accumulator[part] * previous;
+                for (uint32_t offset = 0; offset < 4 && tile * 4 + offset <= position; ++offset) {
+                    const uint64_t v_vector =
+                        (uint64_t(layer) * context + tile * 4 + offset) * kv_heads + kv_head;
+                    value += weights[offset] * cuda_cache_value<INT8>(
+                        v_cache, v_vector * dim + i, v_metadata, v_vector);
+                }
+                accumulator[part] = value;
+            }
         }
+        // All readers finish before the next tile overwrites shared weights.
         __syncthreads();
     }
-    if (active) out[q_base + threadIdx.x] = __float2half_rn(accumulator / denominator);
+    for (uint32_t part = 0; part < 2; ++part) {
+        const uint32_t i = threadIdx.x + part * 128;
+        if (i < dim) out[q_base + i] = __float2half_rn(accumulator[part] / denominator);
+    }
 }
 
 extern "C" __global__ void cuda_attention_decode_f16(

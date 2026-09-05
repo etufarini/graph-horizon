@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `14b669d` (C02), building on `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C02 profiles complete; C11 selected, baseline tail test running.
-- Attempts: 5/10 reached correctness; kept 4, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C11 (this decision commit), building on `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C11 kept; refreshed profiles next.
+- Attempts: 6/10 reached correctness; kept 5, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), this commit (C11).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -27,9 +27,13 @@ completed in session `36470`. No C06 production code remains. The normalization
 test is committed in `031aba2`; C02 canonical gates passed in session `15081`.
 C02's short objective passed in session `61650`; both controls completed in
 session `76898`. All regimes pass against C03; C02 is accepted in this commit.
-Next command refreshes `c02-timeline` for all three regimes before reranking.
+All `c02-timeline` rows completed in session `87311`; current ranking selects
+C11. Its baseline tail test passed and is committed in `3fffeb9`. Canonical
+gates passed in session `51190`, extra int8 parity in `89187`, objective in
+`19830`, and both controls in `98968`. C11 is accepted against C02 in this
+commit. Next refresh `c11-timeline` for all regimes and rerank the pool.
 Baseline and accepted immutable executables, plus all A/B records, remain under
-the same private campaign directory. C11 is planning only, not implemented.
+the same private campaign directory. No other production candidate is applied.
 
 ## Invariants and procedure
 
@@ -103,7 +107,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | ready | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x |
-| C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | deferred until active C02 decision/profile | Bounded numeric rewrite, no global scratch; fewer barriers and exponentials per context token; discovered after C03 |
+| C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
+| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short prompt throughput | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -813,3 +818,81 @@ before production edits: it exercises the second output dimension's tail under
 all four context-tile tail lengths in both KV formats. No tolerance changes.
 Session `29975` tests this baseline on accepted C02. Use tile indices bounded
 by `position/4`, not an overflowing `token += 4` loop, in the candidate.
+
+### C11 kept
+
+The extended baseline attention test passed on C02 before production changes.
+C11 implements four warp-owned scores per tile, a shared four-score softmax
+update and two bounded output accumulators per thread. Invalid context lanes
+write negative infinity and never load K/V; output lanes beyond dim never write.
+The final barrier protects shared weight readers before the next tile. Tile
+index arithmetic preserves the existing u32 position boundary without wrapping.
+Production +51/-57 lines across the predeclared shader and two dispatch files;
+the shader is 123 physical category-K lines. No new file, allocation or ABI.
+
+Initial formatting preflight requested collapsing two launches; applied rustfmt
+before running the substantive gates. `run.py gate c11-checked` passed formatting,
+CUDA workspace check, CPU suites, 11 error tests, all 35 CUDA tests (including
+eight dense attention reference cases), and pinned f16 parity with all 16 top-one
+IDs unchanged. Additional int8 parity is running before the long prompt objective.
+The predeclared numeric tolerance is unchanged; this is not a bit-exact candidate.
+
+Extra pinned int8 parity passed (`c11-int8-parity.log`), all 16 local top-one IDs
+equal to the oracle. The immutable fast executable now runs the objective:
+
+```sh
+python3 target/cuda-amdahl-20260905/run.py bench c11 target/cuda-amdahl-20260905/c11-bench long
+python3 target/cuda-amdahl-20260905/compare.py c02 c11 long prompt_tps long
+# Only if provisionally passing:
+python3 target/cuda-amdahl-20260905/run.py bench c11 target/cuda-amdahl-20260905/c11-bench short medium
+python3 target/cuda-amdahl-20260905/compare.py c02 c11 long prompt_tps short medium long
+```
+
+Continued static discovery adds **C12**, distinct from the rejected historical
+warp-metadata broadcast: the 128-thread dot loop visits each 256-value quant
+block in two successive iterations, reconstructing the same half scale(s) and
+block address twice. Pair those contributions inside one thread, retaining its
+original accumulation order, so inlining can reuse metadata without shuffles.
+First verify the compiled loads actually disappear; source-level pairing alone
+does not establish savings. F16 and packed-width tails keep their validation.
+
+C12 waits for C08's cheaper compile-time-geometry experiment and the refreshed
+profile; fixed 128-thread ownership bounds its pairing invariant. On current
+short p=0.90081, conservatively use s=1.04 and o=0.001: predicted gain 3.481%,
+ideal ceiling 908.116%, about 115.082 ms saved. Metadata may be cache-hot or
+compiler reuse may fail, so confidence is low but its ceiling warrants a bounded
+experiment. Existing `shaders/matmul.cuh` (~160 productive category-K lines), no
+new file, dependency or format. Require exact 26-case matmul snapshots, canonical
+gates and pinned parity before the objective; other regimes remain controls.
+This is planning-only, not a countable attempt or permission to bundle C08/C09.
+
+C11 long objective passed provisionally in session `19830`: prompt 47.90 ->
+58.86 token/s (+22.881%, CV 0.02% -> 0.22%); TTFT 74816.16 -> 60892.86 ms
+(-18.610%); model decode 7.04 -> 12.00 (+70.455%, CV 0.01% -> 0.24%); public
+decode 6.60 -> 11.26 (+70.606%, CV 0.01% -> 0.25%). Counts remain 3584/32/31,
+complete wall 254.98 s. Stock power-cap counter increases 0.694 s; no thermal
+slowdown. No rerun needed. Short and medium controls are now acquiring serially;
+do not retain until both pass against C02 under the predeclared limits.
+
+### C11 complete decision
+
+Both controls completed in session `98968`; all counts match C02. Full records:
+
+| C11 regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Long objective | 58.86 (0.0022) | 60892.86 (0.0022) | 12.00 (0.0024) | 11.26 (0.0025) | 254.98 |
+| Short control | 70.30 (0.0026) | 1820.77 (0.0026) | 21.13 (0.0037) | 20.51 (0.0038) | 14.30 |
+| Medium control | 66.64 (0.0011) | 15367.12 (0.0011) | 17.63 (0.0003) | 16.56 (0.0002) | 69.52 |
+
+Short prompt +1.575%, model decode +5.334%; medium prompt +6.692%, model decode
++29.728%. No control regresses. Long objective +22.881% passes the fixed 5%
+threshold, with both objective CVs below 5%; complete numeric, f16/int8 parity
+and A/B gates pass, within two hours and without rerun. Terminal **keep**.
+
+The new local ownership needs four score slots and up to two output accumulators,
+but removes the former cross-warp shared reduction tree and amortizes softmax
+updates across four context tokens. Net production -6 lines, no storage/API
+expansion. C05 remains a successful earlier campaign decision; C11 supersedes
+its exact-tree implementation with the separately gated numeric tile. C10's
+original shared-tree premise must be reviewed against this accepted code, not
+retried against an obsolete runtime. Next: all three `c11-timeline` profiles.

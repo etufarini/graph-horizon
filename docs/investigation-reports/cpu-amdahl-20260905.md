@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `6545e72343f5daed2fe8160d3c291946771445e4` (CPU25-14); preceding checkpoints `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05), `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-14 kept; all pool entries terminal. Final complete benchmark, attribution and quantitative closure pending.
+- State: twelve attempts and quantitative discovery stop reached; final attribution/gates complete. Full final benchmark running; exactly one complete stability rerun required by short baseline CV5.10%.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected-code / not_verified / closed-untried: 12 / 4 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
 
@@ -2152,3 +2152,57 @@ with `profile.awk`. Then each row runs adjacent initial/final pairs:
 `screen.sh final-bench final-accepted 32 1 3 <row>`, followed by `compare.awk`.
 All exact calibrated prompts/token records and per-process resource statistics
 remain private. Resume this same handle; no comparison is yet classified.
+
+### Final attribution and fresh bottleneck discovery
+
+All three disjoint timelines passed the parser's event/ordering/boundary checks.
+One diagnostic repetition has CV n/a, not zero. First-logits is the phase
+boundary; prefill and decode costs are never counted twice.
+
+| Regime | Unprofiled / profiled TTFT ms | Observed difference | Full profiled request ms | Q4 prefill ms / share | Q6 prefill ms / share | RoPE prefill ms / share | Attention prefill ms / share |
+|---|---|---:|---:|---|---|---|---|
+| short | 3688.95 / 3629.12 | -1.622% | 7594.012 | 2248.458 / 29.61% | 797.392 / 10.50% | 397.492 / 5.23% | 34.229 / .45% |
+| medium | 29790.11 / 30640.09 | +2.853% | 34752.031 | 19530.361 / 56.20% | 4782.665 / 13.76% | 3524.517 / 10.14% | 1391.737 / 4.00% |
+| long | 119494.82 / 118343.14 | -.964% | 122577.957 | 63363.983 / 51.69% | 15693.491 / 12.80% | 12637.859 / 10.31% | 22462.590 / 18.33% |
+
+Negative differences reflect environmental variation, not beneficial timer
+overhead. Short model decode8.91/8.07, medium7.58/7.78 and long7.05/7.56 likewise
+show why these pairs are attribution diagnostics, never retention benchmarks.
+Current short decode Q4 is2731.719 ms of3965.188 ms (68.89%); long decode
+attention1062.117 ms of4235.589 ms (25.08%). No GPU queue/transfer exists here.
+
+Fresh source/disassembly discovery inspected current Q4/Q6 callers and pair
+kernels, attention's paired causal passes, RoPE and current pool/parallel code,
+and rechecked historical wider-vector/repacking results. Q4 remains the largest
+measured bottleneck: medium main3072x9216 batch32 owns10283.323 ms (29.59% of
+the whole request), plus wide9216x3072 owns4304.860 ms (12.39%). In the final
+binary, Q4's actual symbol is0x78de0..0x79570; its hot token loop0x79310..0x793c8
+still has contiguous activation loads, four live FMA chains and no accumulator
+stack spill. The private broad disassembly also contains following Q5/Q6
+functions; their spills must not be attributed to this Q4 loop.
+
+No new bounded mechanism emerged after the Q6 layout trial. The remaining
+hotspots are closed for this campaign on the following explicit boundaries,
+not on a claim that the complete kernel bucket has a sub5% ideal ceiling:
+
+| Remaining hotspot/family | Measured boundary and closure |
+|---|---|
+| Q4 prefill and decode | Packing/interleaving retained; transient float expansionCPU25-03 regressed; wider row blocking and persistent repacking have unchanged historical control/memory failures; native integerCPU25-10 fails numerical tolerance. Current hot-loop inspection finds no new spill or redundant activation copy to remove. New lower-precision/external-library routes cannot bypass numerical/dependency constraints. |
+| Q6 prefill/decode and vocabulary logits | Four-stream layoutCPU25-14 retained; existing two-row dequant reuse and single-token route remain. Historical wider-Q6 control failure is unchanged. No new removable copy or dispatch layer is exposed after packing; a parameter-only tile/row sweep is not a new evidence-backed premise. |
+| RoPE coefficients | About10% of medium/long request is material, but exact per-call reuseCPU25-11 regressed with unchanged traversal; historical pair-major reuse also failed. No observation isolates a new lifetime/allocation cause warranting another cache variant. The separately measured pure-rotation ceiling remains<=3.10%. |
+| Long attention/KV | Paired-position and inherited four-head reuse retained. Further doubling would require16 query accumulators plus a key vector, exceeding the16 AVX2 vector registers before other live state; this is not a free continuation of pair reuse. Existing causal ordering and FP16 layout remain exact. No new measured transfer, oversized allocation or synchronization boundary was found. |
+| Worker scheduling/locality | CPU25-06 spin,08 dynamic chunks (interesting only),09 affinity and historical physical-core policy all terminate without a retained gain. Their overlapping timestamp bounds cannot be added to manufacture a larger opportunity; no new imbalance mechanism was exposed by this layout change. |
+| Weight backing/startup | CPU25-12 synchronous promotion fails the measured first-request control;13 asynchronous advice regresses objective with limited actual backing. Waiting for kernel promotion or changing global scan/affinity policies changes the declared environment and is outside this campaign. |
+| Other prefill operations/public gaps | Combined remainder is1.99% short,4.06% medium,3.41% long of each final request: even complete removal ceilings are2.03%,4.23%,3.54%, below5%. No individual member justifies a filler optimization. |
+
+These are evidence-bounded closures, not a universal optimum or a substitute for
+unavailable hardware counters. New hardware/shape evidence or an explicitly
+authorized dependency/quality-contract change can justify a future campaign.
+Twelve new attempts, a terminal pool and this fresh discovery satisfy the
+quantitative-stop investigation conditions. Finish the already-declared final
+comparison and report; do not start further micro-optimization.
+
+The first final short A/B records prompt25.46->34.82 (+36.764%), but initial
+prompt CV5.10% exceeds5% (final1.84%). Preserve this complete set and, after its
+medium/long rows finish, execute exactly one complete six-record rerun as
+predeclared. No individual row is repeated or substituted now.

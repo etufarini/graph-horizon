@@ -145,7 +145,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | rejected, restored | Exact/all gates pass, prompt-6.778%, TTFT+7.269%; keep eight-query C37 |
 | C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | rejected, restored | All gates pass; long prompt-4.484%; own attention cost worsens; keep C37 |
 | C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
-| C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | ready | Probe identifies QK owner; PTX confirms repeated query load in nested loop; exact-order gate |
+| C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
+| C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | ready | Bounded non-counting C42 extension; all other paths remain C37 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4336,3 +4337,64 @@ owner14.371677/29.891180/95.282921ms. This bounded exact experiment is worthwhil
 even if its conservative prediction is below5%; retain only with >=5% public
 objective gain, CV<=5%, all controls<=5% regression and the same two-hour cap.
 C42 counts as a new loop-invariant reuse premise only after reaching correctness.
+
+C42 conservative phase p .025996958/.051105892/.132731852 predicts .646928/
+1.378924/3.833899%, ideal ceilings2.669084/5.385837/15.304592%, saved
+3.553372/7.955450/26.505831ms. These complete the predeclared Amdahl ranking;
+prediction is not the retention rule. Baseline9894 recorded all290 outputs
+before the sole production edit; candidate exact check is running.
+
+C42 exact68589 passes4.12s; all290 records match baseline9894 byte-for-byte
+(baseline3.31s). Both hooks removed. Frozen54945151 passes both KV; fast55216
+and hybrid check14726 pass. PTX visibly hoists eight predicated query loads and
+conversions before the history loop, which now loads only K components in
+increasing order. Resources: split f16/int8 remain40/48 registers,20992 shared
+bytes; ordinary f16/int8 use40/46 registers,16936 shared bytes; no stack/spills.
+No new shared storage or entry. Continue frozen/canonical gates before A/B.
+
+C42 frozen1309875 and12969308 pass both KV with identical frozen local IDs.
+Canonical prompt restored exactly; full canonical/isolation/attention sanitizers
+run serially. No production probe or output logging remains. Attempt29 reaches
+correctness, but C42 is not accepted before its public objective and controls.
+
+C42 serial66805 passes fmt, CUDA check, CPU9.27s,11error_matrix1.17s, all43
+CUDA tests102.82s, canonical f16 parity13.72s, standalone-int8 11.72s and
+hybrid-f16/int8 22.04/15.67s. Attention memcheck/synccheck pass all4 tests with
+zero errors. Begin long model-decode objective against C37, unchanged controls,
+thresholds and completed-work counts.
+
+### C42 interesting and restored; C43 bounded dimension specialization
+
+C42 objective58612 long: prompt326.87[CV.0024], TTFT10964.76[.0024], model
+decode46.67[.0030], public43.74[.0023], process47.62s, counts3584/32/31.
+Against C37 model+4.570916%, public+4.616121%, prompt-1.092351%, TTFT+1.105034%.
+`interesting`, not kept: threshold remains5%; no rerun (CV passes) and no other
+public rows. Stock power-cap increment .714057s, thermal zero. Save c42.patch,
+binary/PTX and restore the only production shader exactly to C37.
+
+Diagnostic14496 zero dropped: prefill10945.153284ms, decode680.310752ms,
+decode gaps15.560016; attention154.261709 versus C37 190.565842ms. Query reuse
+improves the intended owner, but the end-to-end named metric stays below the
+retention threshold. The C42 PTX history loop contains eight per-component
+dimension branches, including four permanently false for dim128, plus dynamic
+dimension address multiplication. Those branches did not exist as eight
+unrolled tests in C37; inspectable code-generation overhead motivates C43,
+not a repeat of C42's unchanged public tuple.
+
+C43 retains query reuse only when THREADS512, f16 KV and dim128; one uniform
+shape branch selects four unconditionally valid lane components and fixed128
+K addressing. All other dimensions, int8,128-thread and online paths use C37
+unchanged. No new entry, launch geometry, capability requirement or numeric
+precision. Same four FMAs in increasing dimension order, all reductions and
+barriers unchanged. Main risk is the larger dual-path code/register footprint.
+
+Structure: only backend/cuda/shaders/attention.cuh (~480 productive category-K
+lines), no new file/helper/owner/API. Reuse immutable290-record c42-exact-baseline
+from C37; candidate must be bit-identical before performance. Then all frozen
+129/130/549 both KV, canonical/CPU/error, int8 and hybrid isolation, attention
+memcheck/synccheck, and inspect PTX to verify removal of per-component branches.
+Keep the same conservative C42 Amdahl p/s/o,3.833899% long prediction and
+15.304592% owner ceiling; do not raise the estimate just to clear5%. Long model
+decode against accepted C37 remains objective, all other metrics/regimes
+controls, unchanged >=5%/CV<=5%/regression<=5%/two-hour rule. C43 is a
+non-counting bounded re-evaluation; C42 stays interesting/restored regardless.

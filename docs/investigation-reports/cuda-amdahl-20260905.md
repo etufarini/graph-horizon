@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `b948f67` (C14), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C07 interesting/restored and diagnostic complete; C16 selected.
-- Attempts: 9/10 reached correctness; kept 6, code rejected/restored 3 (C06/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C16 kept after all controls; refreshed profiles next.
+- Attempts: 10/10 reached correctness; kept 7, code rejected/restored 3 (C06/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14).
 
@@ -117,6 +117,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | rejected, restored | Correctness passed; prefill -0.045% fails its objective despite decode +26.978% |
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
+| C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1210,3 +1211,45 @@ slice offsets preserve WMMA alignment; no tail lane exits. Reuse unchanged
 39-case packed-prefill range/reference gate, all 37 CUDA tests, CPU workspace,
 CUDA check/error matrix and pinned f16/int8 parity before performance. All
 thresholds and the complete-comparison two-hour limit remain fixed.
+
+Implemented only the predeclared shader: constexpr GROUP, widened staging, and
+two K16 fragment products before one K32 correction. Both matrix load offsets
+remain 32-byte aligned and the same three barriers protect each complete group.
+The change removes repeated work without adding a new path or abstraction.
+Gate `run.py gate c16` is running in session `98184`; production is unaccepted.
+
+Session `98184` completed: formatting, CUDA check, CPU workspace, 11 error
+tests, all 37 CUDA tests and pinned f16 parity passed. Extra int8 parity also
+passed in `25139`, all 16 local top-one IDs equal the fixed oracle in both.
+Built/copied immutable `c16-bench`; command `run.py bench c16
+target/cuda-amdahl-20260905/c16-bench long` acquires the predeclared objective.
+C16 is attempt ten, but the pool is not terminal and the campaign must continue.
+
+Long objective session `18659` completed: prompt 110.38 -> 116.17 (+5.2455%,
+CV 0.02% -> 0.19%), TTFT 32468.30 -> 30850.71 ms (-4.9821%), model decode
+12.01 -> 12.02 (+0.0833%, CV 0.04%), public 11.27 -> 11.28 (+0.0887%, CV
+0.04%). Counts 3584/32/31 unchanged; wall 134.82 s. Provisional keep only:
+`run.py bench c16 target/cuda-amdahl-20260905/c16-bench short medium` runs both
+controls before retention. No stability rerun is permitted or needed.
+
+### C16 kept
+
+Both controls completed in session `64663`. Complete comparison command:
+`compare.py c14 c16 long prompt_tps short medium long`. All correctness gates,
+stability and controls pass; **keep**. Candidate means (CV fraction in brackets):
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 164.69 [.0037] | 777.24 [.0036] | 20.97 [.0010] | 20.35 [.0010] | 10.16 |
+| medium | 150.44 [.0002] | 6806.50 [.0002] | 17.71 [.0006] | 16.63 [.0006] | 35.29 |
+| long | 116.17 [.0019] | 30850.71 [.0019] | 12.02 [.0004] | 11.28 [.0004] | 134.82 |
+
+Prompt gains versus C14: +6.921/+6.123/+5.246%; worst control is short public
+decode -0.683%. Counts unchanged in every regime. Stock power-cap counter
+increments short .693843 s, medium 0, long .913890 s; thermal counters remain
+zero and no device settings changed. These sub-second transients are disclosed
+with the same capture protocol as baseline, not selectively rerun. This bounded
+three-repetition result clears the declared rule; CV is not a confidence interval.
+Production is +23/-17 in one category-K shader, no new files or dependencies.
+All other production candidates are absent. Refresh all three timelines before
+reranking; current retained runtime includes C16 in this commit.

@@ -104,41 +104,47 @@ __device__ __forceinline__ void cuda_matmul_tensor_format(
     const uint32_t token = blockIdx.y * 16;
     const uint32_t output = blockIdx.x * 64;
     const uint32_t warp = threadIdx.x / 32;
+    // Q4/Q5 share coefficients over 32 values; Q6 changes them every 16.
+    constexpr uint32_t GROUP = FORMAT == 3 ? 16 : 32;
     float sums[8] = {};
     wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> af;
     wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bf;
     wmma::fragment<wmma::accumulator, 16, 16, 16, float> cf;
-    // Packed widths are positive multiples of 256, so every K16 tile is full.
-    for (uint32_t group = 0; group < width / 16; ++group) {
-        const uint32_t base = group * 16;
-        for (uint32_t i = threadIdx.x; i < 256; i += 128) {
-            const uint32_t row = token + i / 16;
-            a[i] = row < rows ? input[uint64_t(row) * width + base + i % 16]
+    // Packed widths are positive multiples of 256, so every group is full.
+    for (uint32_t group = 0; group < width / GROUP; ++group) {
+        const uint32_t base = group * GROUP;
+        for (uint32_t i = threadIdx.x; i < 16 * GROUP; i += 128) {
+            const uint32_t row = token + i / GROUP;
+            a[i] = row < rows ? input[uint64_t(row) * width + base + i % GROUP]
                               : __float2half_rn(0.0f);
         }
-        for (uint32_t i = threadIdx.x; i < 1024; i += 128) {
-            const uint32_t column = output + i / 16;
+        for (uint32_t i = threadIdx.x; i < 64 * GROUP; i += 128) {
+            const uint32_t column = output + i / GROUP;
             float factor = 0.0f, bias = 0.0f;
             const float quant = column < outputs
-                ? cuda_weight_parts<FORMAT>(weight, column, base + i % 16, width, factor, bias)
+                ? cuda_weight_parts<FORMAT>(weight, column, base + i % GROUP, width, factor, bias)
                 : 0.0f;
             b[i] = __float2half_rn(quant);
-            if (i % 16 == 0) {
-                factors[i / 16] = factor;
-                biases[i / 16] = bias;
+            if (i % GROUP == 0) {
+                factors[i / GROUP] = factor;
+                biases[i / GROUP] = bias;
             }
         }
         __syncthreads();
         if (threadIdx.x < 16) {
             float sum = 0.0f;
-            for (uint32_t i = 0; i < 16; ++i) sum += __half2float(a[threadIdx.x * 16 + i]);
+            for (uint32_t i = 0; i < GROUP; ++i) {
+                sum += __half2float(a[threadIdx.x * GROUP + i]);
+            }
             row_sums[threadIdx.x] = sum;
         }
         // No tail lane exits: the entire warp uses identical aligned pointers.
-        wmma::load_matrix_sync(af, a, 16);
-        wmma::load_matrix_sync(bf, b + warp * 256, 16);
         wmma::fill_fragment(cf, 0.0f);
-        wmma::mma_sync(cf, af, bf, cf);
+        for (uint32_t slice = 0; slice < GROUP; slice += 16) {
+            wmma::load_matrix_sync(af, a + slice, GROUP);
+            wmma::load_matrix_sync(bf, b + warp * 16 * GROUP + slice, GROUP);
+            wmma::mma_sync(cf, af, bf, cf);
+        }
         wmma::store_matrix_sync(c + warp * 16, cf, 64, wmma::mem_row_major);
         __syncthreads();
         for (uint32_t part = 0; part < 8; ++part) {
@@ -162,7 +168,7 @@ extern "C" __global__ void cuda_matmul_tensor(
     const __half *input, const unsigned char *weight, __half *out,
     uint32_t width, uint32_t outputs, uint32_t rows, uint32_t format) {
     // One staging set per block, aligned for the opaque WMMA fragment API.
-    __shared__ __align__(32) __half a[256], b[1024];
+    __shared__ __align__(32) __half a[512], b[2048];
     __shared__ __align__(32) float c[1024];
     __shared__ float row_sums[16], factors[64], biases[64];
     if (format == 1) {

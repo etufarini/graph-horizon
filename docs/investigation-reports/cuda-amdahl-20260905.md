@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `8ab48ff` (C19), building on `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C17 re-evaluation kept after all controls; profiles next, C15 baseline test passed.
+- Current retained runtime: `65ef6ed` (C17), building on `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C17 profiles complete; C15 selected, strengthened baseline test committed.
 - Attempts: 14 distinct (minimum 10): 9 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 10, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -1652,3 +1652,27 @@ after C17 controls with `cargo test -p graph_horizon_engine --locked
 decode rows now satisfy both the scalar reference and existing prefill bound;
 the tiny-history exact assertion remains unchanged. This separate test-only
 checkpoint precedes any C15 production edit. Refresh C17 profiles first.
+
+Refreshed C17 profiles `82850` completed, zero dropped records. Short
+prefill/decode 510.930/1058.093 ms; long 23336.684/2183.685 ms. Remaining long
+decode attention is 1189.308 ms (54.46% of decode), whereas prefill attention
+9474.054 ms and tensor 12879.070 ms are unchanged within diagnostic variability.
+Ranking: C15 p=.046602 long, s=1.8, o=.0005, predicted 2.063% whole request,
+ideal 4.888%, saved 515.82 ms (phase ideal >119%); then C09 p=.905362 short,
+s=1.02, o=0, predicted 1.807%, ideal 956.656%, saved 27.85 ms.
+
+### C15 implementation boundary
+
+Select C15 against immutable C17, long model decode objective. The thirty-row
+baseline test is committed in `bd87ce9` and passes before production. Structure:
+existing `shaders/attention.cuh` (~210 productive category-K lines); no new host
+interface, buffer or function beyond the predeclared buffered attention body.
+Apply the already-gated C13 numeric body, call it only from decode entries,
+and call the unchanged online body directly from both prefill entries. Name
+the buffered helper explicitly and document why prefill must not reference it.
+All numerical expressions, 4096-score bound, fallback and barriers remain C13's.
+Require both the original tiny-history exact test and strengthened scalar/bounded
+long tests, canonical gates and f16/int8 parity before the objective. Verify
+generated prefill entries do not reference buffered shared storage; the installed
+PTX assembler can provide an independent static resource check. Other regimes
+and TTFT/prompt stay controls; no threshold or tuple changes.

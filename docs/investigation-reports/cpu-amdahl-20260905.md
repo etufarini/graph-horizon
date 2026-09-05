@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-02 kept; preparing post-change attribution and queue rerank.
+- State: CPU25-02 retained attribution complete; CPU25-11 selected after RoPE ablation.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 2 / 0 / 0 / 1.
+- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 2 / 0 / 0 / 2.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -79,10 +79,11 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | refreshed profile; exact causal-mask and output gates needed | deferred |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
-| CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | prefill / pending refreshed regime | unknown | unknown | unknown | not scored | unknown | target conversion/copy/rotation, not rejected coefficient reuse; exact gate required | deferred |
+| CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
+| CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | fresh ablation contradicts historical remainder attribution; exact output gate; small transient vector | ready |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -833,3 +834,163 @@ algorithm or scheduling changes. Risk: timestamp/log-storage overhead; measure
 the same three unprofiled/profiled 32-token, zero-warm-up, one-repetition rows.
 Preserve logs and diagnostic source privately, then remove instrumentation
 before another candidate's correctness or performance gates.
+
+The diagnostic build completed (session `81707`). Private reproducibility files
+are `rope-parts-profile.diff`, `rope-parts-profile.rs`, `cpu25-02-profile-bench`
+and `rope-parts.awk`; the parser validates three non-overlapping nested parts
+inside each RoPE parent. Collection also snapshots the validated YaRN numeric
+parameters once and emits them only after inference. Regular `cpu_span` records
+remain compatible with the existing disjoint operation parser.
+
+The new sequential diagnostic command runs:
+
+```text
+screen.sh cpu25-02-bench retained2-base 32 0 1
+screen.sh cpu25-02-profile-bench retained2-profile 32 0 1
+```
+
+All three regimes run in each command. This is profiling, not a third attempt
+or another CPU25-02 objective rerun. Do not use these single repetitions for
+retention decisions.
+
+Live diagnostic session: `96031`. Resume that same handle and the
+`retained2-{base,profile}-{short,medium,long}.{out,time,start,end}` files. CPU25-02
+is committed; all current source differences are temporary instrumentation.
+
+Instrumentation defect detected by the existing disjoint-span parser on the
+first profiled row: `Timer::part` used struct-update syntax on a type with
+`Drop`. Its temporary logged a spurious ordinary span in addition to the
+intended nested part, so the raw ordinary-span stream fails the non-overlap
+invariant. Production arithmetic is untouched, but this diagnostic version is
+not the deciding attribution. Correct `part` by mutating and returning one
+timer, without a dropped temporary. Let the already-running diagnostic session
+finish; do not modify or replace its binary. Then rebuild and repeat all three
+profiled regimes as `retained2-fixed-profile`, preserving the existing matched
+unprofiled diagnostic rows and reporting elapsed/environmental drift. This is
+an instrumentation repair, not a benchmark stability rerun or a countable
+optimization attempt. Preserve the first version's source/logs for the audit.
+
+Session `96031` completed successfully, as did telemetry `97262`. The corrected
+profiler adds a focused temporary test that drops one uniquely labeled part
+and asserts exactly one matching event with the nested flag set. Only after
+that test and the build pass will the fixed three-row profile run. Private
+artifacts use `rope-parts-fixed-profile.{diff,rs}` and
+`cpu25-02-fixed-profile-bench`; test/build logs use `retained2-fixed-profile-*`.
+
+Live corrected test/build/profile session: `53379`. Resume it, not the completed
+`96031`. No candidate is under correctness or A/B evaluation during this repair.
+
+The one-event nested-timer test passed and the corrected short/medium records
+are available; the corrected long row is still running. Narrower RoPE diagnostic
+predeclaration: add one temporary ignored test in the existing RoPE test module
+(zero productive production lines, no new file). Use the captured real YaRN
+parameters, heads 32/query and 8/key, positions 0/127/1023/3583, head dimension
+128, three rounds of 256 calls. Measure the full uninstrumented kernel,
+coefficient-only checked `Yarn::pair` calls protected from elimination, and the
+same conversion/rotation/write loop with precomputed coefficients. Check final
+FP16 bytes against the full kernel for every round. This is a local causal
+ablation for attribution, not a production coefficient-cache candidate, not a
+countable attempt and not an end-to-end retention benchmark. Compiler effects
+and hot-data conditions limit extrapolation. Run it only after the current
+model profile finishes, with the diagnostic feature disabled; remove it with
+the rest of the temporary instrumentation.
+
+### CPU25-02 final refreshed attribution and RoPE ablation
+
+Corrected profile session `53379` and uninstrumented ablation session `73882`
+completed successfully. Every corrected operation/part parser returned zero.
+All temporary source, feature wiring and the ignored diagnostic test were
+removed using a focused patch, restoring production exactly to `245c15f`.
+Private `rope-cost-split.rs`, `rope-cost-split.log`, and
+`rope-diagnostic-final.diff` preserve the diagnostic. No instrumentation remains
+in production, and no background benchmark or build is active.
+
+| Regime | Unprofiled TTFT ms | Corrected profile TTFT ms | Apparent difference | Unprofiled / profiled model decode tok/s |
+|---|---:|---:|---:|---:|
+| short | 3958.44 | 3200.39 | -19.15% | 7.09 / 11.21 |
+| medium | 31611.74 | 26445.37 | -16.34% | 6.82 / 10.56 |
+| long | 122272.72 | 109646.06 | -10.33% | 5.93 / 8.71 |
+
+These negative apparent overheads expose substantial environmental/code-layout
+confounding, compounded by the necessary profiler repair. They do not establish
+zero instrumentation cost. Use within-run attribution with conservative bounds,
+not cross-run kernel speedup claims. The original faulty profiler records remain
+archived but are superseded by all three corrected records. No deciding A/B
+record used the faulty profiler or these single repetitions.
+
+| Corrected profile quantity, ms | short | medium | long |
+|---|---:|---:|---:|
+| First logits boundary | 3200.089 | 26444.915 | 109645.525 |
+| Last backend operation | 6054.672 | 29475.499 | 113319.443 |
+| Prefill Q4 | 1879.241 | 14658.949 | 53246.152 |
+| Prefill Q6 | 671.242 | 5085.870 | 16651.634 |
+| Prefill RoPE | 453.419 | 3894.892 | 14201.722 |
+| Prefill attention | 41.518 | 1644.928 | 21400.757 |
+| RoPE read/widen part | 2.603 | 23.374 | 96.695 |
+| RoPE mathematical part | 448.237 | 3843.949 | 13990.745 |
+| RoPE narrow/write part | 1.473 | 12.303 | 44.570 |
+
+The RoPE parts are nested inside, never added to, the parent row. Prefill Q4
+still owns .497 of the medium full request; RoPE owns .132. Long attention owns
+.189 of the long full request. Existing .14/.15 conservative fractions for
+CPU25-03/05 remain plausible. Scheduling/locality candidates retain their
+earlier measured bounds but await refreshed evidence after any relevant change.
+
+The isolated RoPE ablation used actual parameters: dimension 128, original
+context 16384, base frequency 1000000, factor 16, beta 32/1, log multiplier 1,
+query temperature .1. All 24 rounds passed final FP16 byte equality after 256
+repeated rotations. Observed per-call ranges across positions/rounds:
+
+| Role / heads | Full kernel us | Checked coefficients only us | Precomputed-coefficient conversion/rotation/write us |
+|---|---:|---:|---:|
+| query / 32 | 80.928–95.003 | 74.229–86.868 | 1.981–2.085 |
+| key / 8 | 20.108–23.877 | 18.251–21.887 | .510–.529 |
+
+Do not add independently timed modes or assume their difference is an exact
+phase duration: black-box overhead and compiler scheduling differ. Nevertheless,
+checked coefficients account for roughly 90% of full-kernel time, while the
+same head-major conversion/rotation/write ablation is only about 2–3%. Even a
+generous remainder allowance of .03 of the full medium request has an ideal
+ceiling of 3.10%, below 5%. CPU25-07 is `closed`, untried and uncounted.
+
+This directly changes the historical premise at `dd83f5a`: its 115 ms public
+difference did not establish that conversion/rotation dominated. CPU25-11 is a
+bounded new variant, not an unchanged pair-major loop retry. Materialize one
+small per-call coefficient vector and keep the original contiguous head-major
+rotation traversal. This separates coefficient reuse from the historical
+strided head traversal and is supported by the exact local ablation. Its local
+s=5 discounts the much larger ideal coefficient reuse ratio and includes an
+explicit overhead allowance for vector creation. It now ranks ahead of
+CPU25-05 (3.05% predicted full-request gain), CPU25-03 (1.87%) and the uncertain
+scheduling/locality/integer entries. CPU25-04 remains closed. No entry is closed
+merely because its conservative prediction is below the retention threshold.
+
+### CPU25-11 predeclaration
+
+Baseline: CPU25-02 at `245c15f`. Objective: medium prompt throughput. Keep the
+same artifact, runtime/build tuple, 32-token work, 1 warm-up, 3 repetitions,
+5% objective threshold/CV limit and 5% control regression limit. TTFT and both
+decode metrics are medium controls; short and long controls follow a provisional
+objective pass. The existing sole complete objective-rerun rule applies.
+
+Intentional variable: compute checked `Yarn::pair` results once per call into a
+temporary vector, then reuse them across heads WITHOUT changing traversal,
+element arithmetic, FP16 conversion, output window, post-scale or role semantics.
+Do not introduce a persistent cache, backend state, new dependency or public API.
+Preserve the zero-head and zero-pair behavior; invalid checked parameters must
+not mutate the buffer. The graph's validated dimensions bound coefficient
+storage to the existing activation geometry.
+
+Necessary tree: `backend/cpu/kernels/elementwise/rope.rs` (~65 productive lines,
+existing K), with attached tests excluded from the estimate. No new file or
+production function. Complexity cost is one local coefficient vector; main
+risks are allocation overhead and accidentally changing error/rounding behavior.
+
+Correctness before performance: exact FP16 parent-buffer comparison against the
+original head-major per-pair calculation, both roles, zero/single/multiple heads,
+partial rotation dimensions, padded buffer views and query temperature bucket
+boundaries; invalid parameters leave bytes unchanged. Then focused RoPE tests,
+release CPU workspace tests, CPU feature check and pinned real-model F16 parity
+with complete output compared to the original baseline record. No tolerance,
+reference or workload is changed. Only after these pass build the candidate
+binary and begin its fresh objective A/B.

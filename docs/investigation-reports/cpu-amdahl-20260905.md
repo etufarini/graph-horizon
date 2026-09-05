@@ -84,7 +84,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | route verified active; model decode -10.243%; restored | rejected |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
-| CPU25-12: process-local large-page backing for immutable CPU weights | pending memory attribution | unknown | unknown | unknown | not scored | unknown | >2 GiB anonymous weight storage, zero observed huge pages; page-walk cost and safe platform mechanism unresolved | deferred |
+| CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | >2 GiB anonymous weights, zero huge pages; bounded Linux collapse trial with startup controls | ready |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -1691,3 +1691,59 @@ exist. The campaign never changed global CPU policies or other processes.
 Eight attempts are complete: three kept, four canonical rejects, one interesting
 evidence-only restoration; two untried closures. Next bound CPU25-12, whose
 small process-local backing mechanism is cheaper than the unresolved VNNI path.
+
+### CPU25-12 declaration before implementation
+
+Target short model decode throughput, baseline `998b189`/`cpu25-05-bench`,
+same authenticated model/context/F16/default-workers/release tuple. All usual
+controls and canonical objective/CV/rerun gates apply. Additional controls:
+complete benchmark process elapsed time, and mean load-plus-first-generation-
+cleanup elapsed time over three fresh processes must not regress by >5%.
+Record initialization separately, but do not hide its cost behind warm-up.
+Only provisional canonical success requires full additional startup/control
+qualification; rejection still preserves process elapsed/RSS from time(1).
+
+Evidence: >2 GiB anonymous weight storage with zero observed huge backing,
+short decode dominated by quantized weight kernels, and local Linux PMD size
+2097152 with existing madvise THP policy. Hardware counters cannot isolate page
+walks. Therefore p remains an honest unresolved range 0–.10, s=2, o=.001
+steady-state plus explicitly measured startup: predicted -.10–5.15%, ideal
+1.00–1.111x, approximately -.003–.126 s on the prior short diagnostic interval.
+The upper bound is an engineering uncertainty, not an attributed 10% cost.
+A cheap, bounded causal backing trial is justified; a zero lower prediction
+does not itself close this material layout mechanism.
+
+Intentional variable: on Linux x86_64, call native `madvise(MADV_COLLAPSE=25)`
+once for the complete 2-MiB-aligned interior of each owned quantized weight
+Vec, before sharing it through CpuBuffer. Original allocator ownership, bytes,
+windowing and drop stay unchanged. Exclude partial edge pages and all scratch,
+KV, F16/F32 buffers. Empty/small ranges do nothing; kernel failure falls back
+to the original backing. No global THP, prctl, policy, affinity, dependency,
+public API or persistent expanded representation. Local headers confirm the
+advice value; the previously cited Linux manual describes its best-effort,
+synchronous behavior and possible reclaim/compaction, which must be charged.
+
+Necessary tree, declared before any production change:
+
+```text
+cpu/mod.rs        (~85 lines; Linux x86_64 module wiring)
+cpu/buffer.rs     (~160 lines; owned quantized-weight setup call)
+cpu/memory.rs     (~45 lines; one bounded native advice boundary, plus tests)
+examples/cpu_load.rs (~55 lines; TEMPORARY load/first-request/cleanup timing)
+```
+
+The temporary example uses the existing public throughput harness with the
+calibrated short prompt, context4096/F16/32 tokens, zero warmup and one first
+request per new Engine. Build/save its A binary before modifying production,
+then save B after correctness; keep it out of final production. Three processes
+per side supply means and CV disclosure for load/generation/cleanup/total.
+
+Invariants: advice pointer/length stays entirely inside initialized owned bytes,
+aligned endpoints exclude allocator neighbors, advice never frees/discards data,
+and advisory failure cannot corrupt or change logical memory. Main risks are
+unsafe range arithmetic, excess synchronous load cost, memory compaction and
+unproven effective promotion. Focused tests exercise empty/short/large buffers,
+unaligned guarded views, exact byte preservation and unchanged Vec ownership.
+CPU workspace/check/Clippy and exact pinned F16 parity precede performance.
+Read actual B AnonHugePages once to verify promotion; a non-activated route
+cannot be credited as a successful large-page optimization.

@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `483ea2a` (C37), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C37 accepted and all profiles refreshed. C38 rejected and restored; C39 passes exact equality, real-model and canonical gates pending. Not complete.
-- Attempts: 27 distinct reached correctness (minimum 10): 15 kept, 11 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38), 1 interesting/restored (C07); plus 9 terminal non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36), and pending C39. Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C37 accepted and all profiles refreshed. C38/C39/C40 rejected and restored; C41 passes focused and frozen gates, canonical/isolation/sanitizers pending. Not complete.
+- Attempts: 28 distinct reached correctness (minimum 10): 15 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 1 interesting/restored (C07); plus 10 terminal non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 3 rejected (C35/C36/C39), and pending C41. Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -144,7 +144,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | rejected, restored | All gates pass; medium prompt-5.107%, TTFT+5.384%; saved patch and diagnostics |
 | C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | rejected, restored | Exact/all gates pass, prompt-6.778%, TTFT+7.269%; keep eight-query C37 |
 | C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | rejected, restored | All gates pass; long prompt-4.484%; own attention cost worsens; keep C37 |
-| C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | ready | C30 non-counting extension; retain512/128 fallbacks; numeric PV-order gate |
+| C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4245,3 +4245,51 @@ predictions are only-.099900/.427516/.372976%; do not present a decode gain as
 the same percentage of total-request speedup. Both other regimes and every
 other public metric remain controls. Keep>=5%, CV<=5%, regressions<=5%, no
 selective rerun and same two-hour comparison limit.
+
+C41 focused4493 passes all6 attention/geometry tests4.61s, including forced512
+and128 numeric fallbacks. Fast34067 passes. New1024 f16/int8 entries use40/48
+registers and25088 shared bytes, no stack/spills; old512 entries remain40/48
+registers and20992 shared bytes. The new path stays within the admitted shared
+budget, but its lower possible block residency remains a performance risk.
+Start frozen549; no C41 public performance or acceptance yet.
+
+C41 frozen54938574,13078192,12935284 pass both KV with identical frozen local
+IDs. Hybrid check82042 passes. Nonblank orchestration lines before test modules
+(including comments and test-only fields) module174, dispatch140, decode48,
+all within estimates. Canonical prompt restored; begin full canonical, serial
+isolation and attention memcheck/synccheck. No public performance yet.
+
+C41 serial11176 passes fmt, CUDA check, CPU9.27s,11error_matrix.68s, all43 CUDA
+tests103.64s, canonical f16 parity13.86s, standalone-int8 11.77s and hybrid
+f16/int8 22.15/15.85s. Attention memcheck8.73s and synccheck3.76s pass all4
+tests, zero errors. Start long model-decode public objective after all gates.
+
+Readback audit on the retained C37 timelines bounds generation copies between
+first embedding and final argmax: each regime has31 copies totaling124 bytes,
+duration .035072/.036352/.034560ms. These copies are already inside the timeline
+gaps and must not be added twice. No full-logit readback on the greedy public
+benchmark path; the full-logit parity path remains deliberately separate.
+
+### C41 rejected; narrow remaining-phase diagnostic
+
+C41 objective75767 long: prompt327.82[CV.0024], TTFT10932.87[.0024], model
+decode44.14[.0028], public41.36[.0026], process47.74s, counts3584/32/31.
+Against C37 objective-1.097916%, prompt-.804890%, TTFT+.810979%, public-1.076298%.
+Reject, no rerun (CV passes), no other public rows. Stock power-cap increment
+.933779s, thermal zero. Diagnostic65013 zero dropped: decode725.551004ms,
+gaps12.012955, new attention196.760924ms versus C37 190.565842. More threads
+and shorter per-lane PV loops did not accelerate the owned kernel. Save c41.patch
+and immutable binary/PTX; restore all five candidate files exactly to C37 plus
+the previously accepted boundary tests. C41 is the fourth rejected non-counting
+re-evaluation;28 distinct attempts are unchanged.
+
+Before closing the remaining decode mechanism family, temporarily instrument
+only C37's512-thread f16 attention, first head/layer, the31 canonical long decode
+positions. Shared clock64 marks at existing barriers separate QK, maximum,
+exponential/denominator, and PV intervals. No new barrier or arithmetic change;
+print31 diagnostic records after the final PV barrier. Compare its whole-kernel
+timeline against C37 to disclose perturbation; cycle fractions are one CTA's
+local evidence, not hardware bandwidth, stall or achieved-occupancy counters.
+Existing shader only (~465 productive category-K lines temporarily), no new
+production API/file/owner. Remove every probe before final verification or any
+new production candidate. This is instrumentation, not a countable optimization.

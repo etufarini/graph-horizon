@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `2d77b2f` (C27), above `99f4330` (C24), S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C29 kept after all controls; refreshing profiles. C25/C26 restored except C29's explicitly bounded accepted variant. C28/C30 deferred. Not complete.
-- Attempts: 22 distinct reached correctness (minimum 10): 13 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits17 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `1a32047` (C29), above `2d77b2f` (C27), `99f4330` (C24), S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C31 accepted in this checkpoint after all gates and controls; refreshed profiles next. C28/C30 deferred. Not complete.
+- Attempts: 23 distinct reached correctness (minimum 10): 14 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits18 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24). Separate correctness support: S01 `6d37587`.
+- Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -134,7 +134,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
 | C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | deferred pending long-history oracle | Preserves score/softmax leaves; no new global scratch/launch; numeric reordering gate required |
-| C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | ready for baseline gate, selected | PV remains f32; preserve four-query block parallelism, int8 and unsupported tails use C24 |
+| C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2930,3 +2930,55 @@ C30 inspection additionally found the existing dispatch guard limits blocks
 to256 threads. Its future512-thread variant therefore requires a narrowly
 validated fixed-kernel exception and rejection tests, not a blanket weakening
 of every kernel's launch guard. No C30 production change is made now.
+
+Support tests committed separately in `92bab5a`. C31 production now implements
+only its narrowed four-query F16 path. Numeric session39264 passes all11
+shape/history cases, both schemes and both poisoned-future checks under the
+unchanged bound. The new entry uses40 registers/13360 shared bytes, zero
+stack/spills; original F16/int8 prefill remain48/80 registers, zero shared.
+Formatting passes; S01 arity checking includes the new fixed11-argument entry.
+Start frozen549 replay before129/130 and canonical gates. No performance yet.
+
+C31 frozen549 session36710 passes f16/int8 with exact frozen local IDs. Replay
+the unchanged130- and129-token fixtures next, then restore canonical source.
+
+C31 frozen130 session23299 and frozen129 session47755 both pass f16/int8,
+including exact frozen local IDs. Canonical source restored. Full gate31012
+passes formatting, CUDA workspace check, CPU workspace tests,11 local error
+tests,37 CUDA tests and canonical f16 parity. Int8 parity and sanitizers follow
+before any performance decision.
+
+C30 capability inspection: Device currently requires only256 block threads.
+Preserve that support boundary; a512-thread candidate needs a cached optional
+module capability and old-path fallback when unavailable, in addition to the
+narrow fixed-kernel dispatch guard. Do not silently raise device requirements.
+
+C31 canonical int8 session27662 passes with unchanged16 local IDs; fast59445
+completed. Focused sanitizer41880 passes memcheck3.61s and synccheck1.63s,
+both0 errors. Long objective5950 completes in66.75s: prompt192.75 ->234.39
+token/s (+21.6031%, CV .0002 ->.0020), TTFT18593.60 ->15290.80ms
+(-17.7631%, CV .0020), model decode27.72 ->27.80 (+.2886%, CV .0000
+rounded), public25.99 ->26.06 (+.2693%, CV .0003). Counts3584/32/31
+unchanged. Stock power-cap counter advances .733826s, thermal counters0;
+observed SM1987/memory7301MHz and temperatures66–67C. No unthrottled or
+statistical-significance claim, no selective rerun. Short/medium controls59974
+are mandatory before acceptance; immutable candidate executable preserved.
+
+### C31 kept after controls
+
+Controls59974 complete, preserving128/32/32 and1024/32/31 counts. Means[CV]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| Short | 302.14[.0019] | 423.64[.0019] | 58.11[.0010] | 56.26[.0005] | 4.92 |
+| Medium | 280.21[.0023] | 3654.43[.0023] | 45.69[.0030] | 42.81[.0029] | 18.29 |
+| Long | 234.39[.0020] | 15290.80[.0020] | 27.80[.0000 rounded] | 26.06[.0003] | 66.75 |
+
+Versus C29, short/medium prompt+.0166/+4.9790%; largest negative control
+medium public-.9257% (model-.9109%), within5%. Short power-cap increment
+.654537s, medium0; thermal counters0 throughout. No rerun used. C31 is kept
+in this commit after bounded numeric, all three frozen fixtures, canonical
+f16/int8, CPU/CUDA/error and sanitizer gates. Added complexity is one fixed
+numeric kernel with narrow shape dispatch; no ownership or public interface
+changes. Record18 accepted optimization commits,14 distinct kept plus four
+non-counting re-evaluations. Refresh all three profiles before reranking.

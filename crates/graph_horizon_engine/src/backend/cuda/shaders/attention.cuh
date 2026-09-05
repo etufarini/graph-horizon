@@ -1,5 +1,6 @@
 // AGENTS deroga K: famiglia coesa della sola operazione causal attention.
 #pragma once
+#include <mma.h>
 
 template <bool INT8>
 __device__ __forceinline__ float cuda_cache_value(
@@ -247,6 +248,101 @@ __device__ void cuda_attention_prefill_warp(
     for (uint32_t part = 0; part < 8; ++part) {
         const uint32_t i = lane + part * 32;
         if (i < dim) out[q_base + i] = __float2half_rn(accumulator[part] / denominator);
+    }
+}
+
+extern "C" __global__ void cuda_attention_prefill_tensor_f16(
+    const __half *query, const unsigned char *k, const unsigned char *v, __half *out,
+    uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
+    uint32_t layer, uint32_t context) {
+    using namespace nvcuda;
+    // Checked dispatch fixes dim=128 and128 threads. Four queries retain block parallelism.
+    const uint32_t first_row = (blockIdx.x / qh) * 4;
+    const uint32_t head = blockIdx.x % qh, kv_head = head / (qh / kvh);
+    const uint32_t last_row = first_row + 3 < rows ? first_row + 3 : rows - 1;
+    const uint32_t last_position = base + last_row;
+    __shared__ __align__(32) __half q_tile[16 * 128], k_tile[16 * 128], v_tile[16 * 128];
+    __shared__ __align__(32) float scores[16 * 16];
+    __shared__ float maximum[4], denominator[4], previous[4];
+    float accumulator[4] = {};
+    const float scale = rsqrtf(float(dim));
+    for (uint32_t i = threadIdx.x; i < 16 * 128; i += 128) {
+        const uint32_t row = i / 128;
+        q_tile[i] = row < 4 && first_row + row < rows
+            ? query[(uint64_t(first_row + row) * qh + head) * 128 + i % 128]
+            : __float2half_rn(0.0f);
+    }
+    if (threadIdx.x < 4) {
+        maximum[threadIdx.x] = -CUDART_INF_F;
+        denominator[threadIdx.x] = 0.0f;
+    }
+    // A padded M16 QK tile uses existing F16 inputs; probabilities and PV stay f32.
+    for (uint32_t tile = 0; tile <= last_position / 16; ++tile) {
+        for (uint32_t i = threadIdx.x; i < 16 * 128; i += 128) {
+            const uint32_t token = tile * 16 + i / 128;
+            const uint64_t vector = (uint64_t(layer) * context + token) * kvh + kv_head;
+            k_tile[i] = token <= last_position
+                ? reinterpret_cast<const __half *>(k)[vector * 128 + i % 128]
+                : __float2half_rn(0.0f);
+            v_tile[i] = token <= last_position
+                ? reinterpret_cast<const __half *>(v)[vector * 128 + i % 128]
+                : __float2half_rn(0.0f);
+        }
+        __syncthreads();
+        if (threadIdx.x < 32) {
+            wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> af;
+            wmma::fragment<wmma::matrix_b, 16, 16, 16, __half, wmma::col_major> bf;
+            wmma::fragment<wmma::accumulator, 16, 16, 16, float> cf;
+            wmma::fill_fragment(cf, 0.0f);
+            for (uint32_t slice = 0; slice < 128; slice += 16) {
+                wmma::load_matrix_sync(af, q_tile + slice, 128);
+                wmma::load_matrix_sync(bf, k_tile + slice, 128);
+                wmma::mma_sync(cf, af, bf, cf);
+            }
+            wmma::store_matrix_sync(scores, cf, 16, wmma::mem_row_major);
+        }
+        __syncthreads();
+        if (threadIdx.x < 4) {
+            const uint32_t q = threadIdx.x;
+            const uint32_t position = base + (first_row + q < rows ? first_row + q : rows - 1);
+            float next_maximum = maximum[q];
+            for (uint32_t offset = 0; offset < 16; ++offset) {
+                const float score = tile * 16 + offset <= position
+                    ? scores[q * 16 + offset] * scale : -CUDART_INF_F;
+                scores[q * 16 + offset] = score;
+                next_maximum = fmaxf(next_maximum, score);
+            }
+            previous[q] = expf(maximum[q] - next_maximum);
+            float next_denominator = denominator[q] * previous[q];
+            for (uint32_t offset = 0; offset < 16; ++offset) {
+                const float weight = expf(scores[q * 16 + offset] - next_maximum);
+                scores[q * 16 + offset] = weight;
+                next_denominator += weight;
+            }
+            maximum[q] = next_maximum;
+            denominator[q] = next_denominator;
+        }
+        __syncthreads();
+        for (uint32_t q = 0; q < 4; ++q) {
+            if (first_row + q < rows) {
+                const uint32_t position = base + first_row + q;
+                float value = accumulator[q] * previous[q];
+                // Skip masked V entirely: zero times a future NaN is not causal.
+                for (uint32_t offset = 0; offset < 16 && tile * 16 + offset <= position; ++offset) {
+                    value += scores[q * 16 + offset]
+                        * __half2float(v_tile[offset * 128 + threadIdx.x]);
+                }
+                accumulator[q] = value;
+            }
+        }
+        // Every PV consumer finishes before shared K/V, scores and coefficients change.
+        __syncthreads();
+    }
+    for (uint32_t q = 0; q < 4; ++q) {
+        if (first_row + q < rows) {
+            out[(uint64_t(first_row + q) * qh + head) * 128 + threadIdx.x] =
+                __float2half_rn(accumulator[q] / denominator[q]);
+        }
     }
 }
 

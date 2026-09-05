@@ -50,7 +50,9 @@ pub(crate) fn launch(
     #[cfg(test)]
     if matches!(
         kernel,
-        Kernel::AttentionPrefillF16 | Kernel::AttentionPrefillInt8
+        Kernel::AttentionPrefillF16
+            | Kernel::AttentionPrefillTensorF16
+            | Kernel::AttentionPrefillInt8
     ) {
         let expected = if matches!(kernel, Kernel::AttentionPrefillInt8) {
             13

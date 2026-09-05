@@ -25,16 +25,24 @@ pub(crate) fn encode(
     let mut args = super::validate(out, query, kv, q_heads, base, rows, layer)?;
     // The prefill entry always owns a rows scalar, including a one-row tail.
     args.insert(8, Arg::U32(rows));
+    // Isolate fixed128 F16 matrix staging from short histories and every fallback.
+    let tensor = kv.scheme == KvQuant::F16 && kv.head_dim == 128 && rows >= 4 && base >= 512;
     let kernel = match kv.scheme {
+        KvQuant::F16 if tensor => Kernel::AttentionPrefillTensorF16,
         KvQuant::F16 => Kernel::AttentionPrefillF16,
         KvQuant::Int8 => Kernel::AttentionPrefillInt8,
     };
     let total = u64::from(rows)
         .checked_mul(u64::from(q_heads))
         .ok_or_else(super::super::arithmetic)?;
-    let groups = u32::try_from(total)
-        .map_err(|_| super::super::arithmetic())?
-        .div_ceil(4);
-    // Four independent query-head warps per block, including a whole-warp tail.
+    let total = u32::try_from(total).map_err(|_| super::super::arithmetic())?;
+    let groups = if tensor {
+        rows.div_ceil(4)
+            .checked_mul(q_heads)
+            .ok_or_else(super::super::arithmetic)?
+    } else {
+        total.div_ceil(4)
+    };
+    // Tensor blocks own four queries of one head; fallback warps own independent heads.
     dispatch::launch(encoder, module, kernel, &args, (groups, 1, 1), (128, 1, 1))
 }

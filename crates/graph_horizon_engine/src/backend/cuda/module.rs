@@ -10,7 +10,7 @@ use std::sync::Arc;
 use color_eyre::eyre::{Result, eyre};
 use cudarc::driver::{CudaContext, result, sys};
 
-const FUNCTION_NAMES: [&str; 19] = [
+const FUNCTION_NAMES: [&str; 20] = [
     "cuda_embedding",
     "cuda_matmul",
     "cuda_matmul_batched",
@@ -27,6 +27,7 @@ const FUNCTION_NAMES: [&str; 19] = [
     "cuda_attention_decode_f16",
     "cuda_attention_decode_int8",
     "cuda_attention_prefill_f16",
+    "cuda_attention_prefill_tensor_f16",
     "cuda_attention_prefill_int8",
     "cuda_argmax",
     "cuda_topk",
@@ -50,6 +51,7 @@ pub(crate) enum Kernel {
     AttentionDecodeF16,
     AttentionDecodeInt8,
     AttentionPrefillF16,
+    AttentionPrefillTensorF16,
     AttentionPrefillInt8,
     Argmax,
     TopK,

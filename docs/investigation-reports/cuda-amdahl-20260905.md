@@ -123,8 +123,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | kept, non-counting re-evaluation | Exact/canonical gates and all controls pass; objective +8.529% |
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
 | C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | kept | Exact/canonical gates and all controls pass; objective +31.205% |
-| C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | ready, selected | Exact matrix gate extended before production; separate entry preserves small-batch resources |
+| C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | rejected, restored | All exact/canonical gates pass; objective +1.613% below 3% |
 | C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | ready after C20 | Distinct from output packing and fixed-bound retries; exact arithmetic/ownership gate required |
+| C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | ready after C21, non-counting bounded re-evaluation | C20 shape attribution separates a large-grid gain from all other regressions; static dispatch gate must be predeclared |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1888,3 +1889,103 @@ Remove the temporary fixture and bit prints before running unchanged canonical
 gates and performance. Do not regenerate a favorable oracle after a failure.
 Objective medium prompt throughput against C09; TTFT/model/public decode and
 short/long regimes are controls. Test-only checkpoint precedes production.
+
+C20 baseline test checkpoint `c58ac6d` passed (session26494); temporary snapshots
+in session12538 captured all26+78 records. The first additional oracle command
+failed before inference because its relative model path was interpreted from
+Cargo's integration-test working directory (E01). This is an invocation error,
+not a numerical failure or candidate attempt. Resolve the same authenticated
+file to its absolute path and run the extra baseline once with corrected paths;
+preserve the failed raw log, unchanged prompt/oracle protocol and all snapshots.
+
+Resolved extra baseline session43001 passed f16 and int8. Both freeze oracle
+IDs `2757,10637,2479,1636,6483,13578,1278,3541,50147,115799,58987,3325,5213,1033,9246,1639`;
+local top one differs only at step13 (1294), already accepted by the unchanged
+top-two baseline criterion. Candidate must retain those exact local IDs too.
+Private `frozen-parity.py c20 c20-resolved` replays these frozen IDs without
+calling the oracle again. Baseline production remains C09; only committed
+test expansion and declared temporary fixtures precede C20 implementation.
+
+C20 exact session36300 passed all104 snapshots with empty diffs. The extra
+replay's preliminary token-count assertion caught a metadata mistake before
+candidate model inference: the canonical parity conversation includes an
+explicit empty System message, so the unchanged short text renders **130** IDs,
+not the benchmark's128. Correct only the private replay count to130, preserving
+the already-frozen prompt bytes, all130 IDs and all16 oracle/local IDs exactly.
+No numeric threshold, reference or workload is changed to accept the candidate;
+this additional row exercises four full32 batches plus a two-token tail.
+
+Extra replay session59471 passed f16/int8 against frozen130-token references,
+with identical local top-one IDs. Removed both temporary tracked fixtures,
+restoring tests/parity exactly to test checkpoint `c58ac6d`. Static `ptxas`
+resource check reports M16 63 registers/9792 shared bytes and M32
+72 registers/14976 shared bytes, zero stack/spill bytes. This verifies resource
+isolation, not achieved occupancy. Canonical gates and fast build precede
+medium objective performance; all three production files match the declaration.
+
+C20 canonical session13158 passed formatting, CUDA workspace check, CPU
+workspace tests, 11 error tests, all37 CUDA tests and f16 parity. Extra canonical
+int8 session61935 also passed; both preserve all16 original local IDs. Fast
+build31408 completed and immutable `c20-bench` is saved. Production +47/-23
+across the three declared files; physical lengths226/129/168 including tests,
+within productive estimates. Attempt17 now reaches its exact and canonical
+gates. Acquire `run.py bench c20 .../c20-bench medium`, then
+`compare.py c09 c20 medium prompt_tps medium`; both controls before retention.
+
+### C20 rejected and restored
+
+Objective session25307 completed: medium prompt228.81 ->232.50 (+1.6127%,
+CV .17% -> .08%), TTFT4475.30 ->4404.34 ms (-1.5856%, CV .08%), model
+decode29.21 ->29.25 (+.1369%, CV .24%), public27.37 ->27.42 (+.1827%, CV .24%).
+Wall22.99 s; counts1024/32/31 unchanged. No rerun warranted. Correctness passes,
+but objective <3%: **reject**, no controls needed for retention. Saved `c20.patch`
+and restored only its three production files exactly to HEAD/C09; the useful
+expanded test remains. Diagnostic immutable-binary medium trace next attributes
+whether lost block parallelism offsets duplicate B removal. C21 stays ready.
+Attempt count17: 11 distinct kept, 5 rejected, 1 interesting/restored, plus
+the kept non-counting C17 re-evaluation (12 accepted runtime commits).
+
+C20 diagnostic session42820 completed with zero dropped records. Tensor time
+3503.161 ->3409.696 ms; its larger resource footprint offsets most B reuse.
+The authenticated inventory/ordered launch mapping gives these paired costs:
+
+| Format / K / N | C09 ms | C20 ms |
+|---|---:|---:|
+| Q4 /3072/4096 | 277.847 | 293.385 |
+| Q4 /3072/1024 | 263.009 | 339.941 |
+| Q6 /3072/1024 | 218.378 | 246.398 |
+| Q4 /4096/3072 | 344.380 | 353.084 |
+| Q4 /3072/9216 | 1259.165 | 947.174 |
+| Q6 /9216/3072 | 768.950 | 837.340 |
+| Q4 /9216/3072 | 371.432 | 392.373 |
+
+Only the large output grid wins. Static resource ceilings permit at most8 M16
+blocks or6 M32 blocks per multiprocessor (register/shared limits, not achieved
+occupancy). Across28 multiprocessors, N9216 has288 M16 blocks versus144 M32:
+it can reduce two resource waves to one, unlike the smaller grids. This supports
+a bounded dispatch re-evaluation C22, not repeating universal M32. Treat it as
+non-counting, preserving C20's rejection. Its causal owner on medium is
+1259.165/5650.010 ms, p=.222861, conservative s=1.2, o=.001, predicted3.749%,
+ideal28.677%, saved204.21 ms; below C21 short's5.782%, but phase ceiling remains
+material. Declare a simple large-grid shape gate before implementing C22, not
+after its A/B; no device-settings changes or broad performance claim.
+
+### C21 predeclared implementation
+
+Select short model decode against restored C09: current p=.612236 whole request,
+phase .919556, s=1.1, o=.001, predicted5.782%, ideal157.889%, saved79.54 ms.
+One physical64-thread packed dot retains the original128 logical leaves. Each
+thread owns two leaves sharing low/high nibble bytes: Q4/Q5 logical i and i+32,
+Q6 i and i+64. Each leaf still accumulates its original i then i+128 products
+in block order; shared slots restore the identical128-leaf reduction tree.
+F16 remains128 physical threads, batched SIMT/tensor paths unchanged.
+
+Existing `shaders/quant.cuh` (~155 productive category-K lines) gains one cohesive
+paired-dequant helper that protects this packed-field relationship;
+`shaders/matmul.cuh` (~240 category-K lines) owns the two logical sums;
+`kernels/matmul.rs` (~130 productive orchestration lines) selects64 only for
+packed single/logit dots. No new files/dependencies/public APIs. Main risks are
+leaf mapping, changed compiler contraction and higher per-thread registers.
+Require all104 frozen C20-baseline snapshots, unchanged canonical gates and
+f16/int8 parity before short objective A/B; TTFT/prompt/public decode and both
+other regimes remain controls under the same thresholds. C22 stays queued.

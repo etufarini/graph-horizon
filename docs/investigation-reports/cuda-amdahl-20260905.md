@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `b948f67` (C14), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C16 kept after all controls; refreshed profiles next.
+- Current retained runtime: `7682cd2` (C16), building on `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C16 profiles complete; C08 selected for exact gate.
 - Attempts: 10/10 reached correctness; kept 7, code rejected/restored 3 (C06/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -1253,3 +1253,42 @@ three-repetition result clears the declared rule; CV is not a confidence interva
 Production is +23/-17 in one category-K shader, no new files or dependencies.
 All other production candidates are absent. Refresh all three timelines before
 reranking; current retained runtime includes C16 in this commit.
+
+All `c16-timeline` rows completed in `14836`, zero dropped records. Short
+prefill/decode 772.125/1517.904 ms, long 30724.563/2661.221 ms. Tensor durations
+short 718.841, long 20235.622 ms; Q4 alone 599.080/16878.633 ms versus C14
+654.987/18450.654. Q6 119.760/3356.989 ms is effectively unchanged. Register
+count remains 48, no local memory; PTX confirms the declared 9792-byte staging.
+This supports the mechanism but not the optimistic local 1.4 speedup estimate.
+Long prefill attention remains 9508.299 ms, decode attention 1196.927 ms.
+
+Recomputed ranking (full-request p, with selected-phase eligibility unchanged):
+
+| ID | p | s | o | Predicted gain | Ideal gain | Saved ms | State |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C08 | .57594 short | 1.04 | .0005 | 2.213% | 135.813% | 49.58 | selected |
+| C12 | .57594 short | 1.04 | .001 | 2.161% | 135.813% | 48.44 | deferred until C08 |
+| C09 | .88984 short | 1.02 | 0 | 1.776% | 807.732% | 39.96 | ready |
+| C15 | .03585 long | 1.8 | .0005 | 1.567% | 3.718% | 515.3 | ready |
+
+Short decode matmul+logits own 86.59%; C15 long decode attention owns 44.98%.
+These are ownership ceilings, not measured removable instruction fractions.
+No new argmax premise follows from C16, which does not materially change decode.
+
+### C08 predeclared implementation
+
+Objective remains short model decode, now against accepted immutable C16. Host
+`kernels/matmul.rs` is the only dispatcher of single/batched matmul and logits,
+and always launches 128 threads; current PTX still reads `%ntid.x` inside these
+loops and emits runtime reduction bounds. Replace those shader loop bounds with
+128 and reduction start 64, plus a local invariant comment; leave all launch
+geometry, scratch size, tree pairing and float operation order unchanged.
+This is not the old block-size experiment. Existing `shaders/matmul.cuh`
+(~210 productive category-K lines), no new file/function. The main risk is a
+future dispatch mismatch, documented at the kernel boundary.
+
+Before performance, require exact equality of all 26 frozen wide-dot bit
+snapshots (`matmul-wide-c05-baseline.log`; rows 1/9 remain on unchanged SIMT),
+then remove temporary printing and run all canonical gates and pinned parity.
+Both other regimes are controls after a provisional keep. PTX must demonstrate
+constant bounds; correctness or exact-gate failure restores the candidate.

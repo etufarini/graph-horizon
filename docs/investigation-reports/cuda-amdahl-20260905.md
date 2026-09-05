@@ -136,8 +136,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | kept | Medium model decode +19.457%, long +61.511%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput | kept | +12.063%, all controls pass; commit10b186c; non-counting C28 re-evaluation |
-| C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | ready | C32 tensor owner68.013% of fixed work; explicit f16/f32 register layout supports a bounded experiment |
+| C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-15.461%; direct loads have concrete shared-bank collisions; keep C32 |
 | C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | deferred behind C33 | C32 long tensor attention24.654% of fixed work; increased V reuse versus register pressure and grid parallelism |
+| C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | ready | Distinct bounded cause-removal variant; conservative non-counting C33 re-evaluation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3524,3 +3525,85 @@ No threshold relaxation or extra lossy conversion. Then objective medium
 prompt>=5%, CV<=5%, all other controls regression<=5%, canonical rerun and
 two-hour comparison rules. If rejected, preserve evidence, restore exactly and
 use the observed failing owner to evaluate a genuinely bounded follow-up.
+
+C33 draft changes only the matmul shader, +47/-35 lines. First kernel gate30419
+passes all16 tests (including107 raw/cache tensor fixtures) in50.91s. This
+reaches the predeclared correctness gate and counts as distinct attempt26;
+real-model/frozen/canonical gates and performance remain pending. Fast68063
+builds without a target change. Static ordinary/paired/wide resources become
+48/56/64 registers and5696/11392/6784 shared bytes, all0 spills, versus C32
+63/64/72 and9792/19584/14976. Lower static footprint is evidence of the intended
+ownership change, not yet throughput or achieved-occupancy evidence.
+
+C33 frozen5497598, frozen13041710 and frozen12967536 all pass f16/int8,
+with exact frozen local token identity. Restore canonical USER_CONTENT before
+the full gate. No oracle or scalar threshold changes; no performance yet.
+
+C33 canonical90505 passes fmt, CUDA workspace check, CPU tests,11error_matrix,
+all43 CUDA tests57.50s and standalone f16 parity13.72s. Hybrid build29216
+passes without warnings. Standalone int8 and25%-mixed hybrid f16/int8 isolation
+follow serially before sanitizers/public objective. C34 will conservatively be
+a non-counting C31 tile-reuse re-evaluation if attempted; it does not inflate
+the distinct-attempt quota.
+
+C33 standalone int8 and25%-mixed hybrid f16/int8 pass58283 with unchanged
+canonical IDs. Serial memcheck/synccheck5881 runs on the canonical debug binary.
+Source-only follow-up noted, not bundled: explicit MMA half-pair loads now make
+the shared-bank mapping inspectable. With32 four-byte banks, GROUP32 has
+16-bank row stride and GROUP16 an8-bank stride; the eight lane groups can
+therefore revisit banks for different rows. A GROUP+8 half row pitch would
+instead step20/12 banks. Verify the official bank model, concrete same-warp
+address mapping, compiler accesses and C33's measured owners before proposing
+a padding experiment. No performance attribution to bank conflicts is claimed
+from source arithmetic alone, and no second production change is present.
+
+C33 memcheck/synccheck5881 pass all16 tests55.50/50.83s with0 errors. Begin
+the unprofiled medium objective only after these gates. For the queued layout
+hypothesis, the [CUDA Programming Guide shared-memory model](https://docs.nvidia.com/cuda/cuda-programming-guide/02-basics/writing-cuda-kernels.html)
+describes32 four-byte banks and broadcast only for the same word. Enumerating
+the32 lane addresses for each MMA pair load gives2/4 distinct words per bank
+for GROUP16/32, but1 for pitches24/40. Current PTX has ld.shared.u32 and the
+tensor-specific compiled SASS has scalar LDS at the corresponding pair loads.
+This establishes a concrete access mechanism, not its timing fraction or
+achieved replay count; a separate padded-layout A/B would test causality.
+
+### C33 rejected and restored; C35 bounded layout follow-up
+
+Public objective92963: prompt263.88[CV.0047], TTFT3880.66[.0048], model
+decode54.61[.0017], public51.15[.0019], wall18.91s; counts1024/32/31.
+Versus C32 prompt-15.461011%, TTFT+18.292248%, model-1.425993%, public
+-1.445087%. Reject both the failed objective and TTFT control. No additional
+public controls or stability rerun: objective CV is below5%. Stock power-cap
+increment .583349s, thermal0; no settings changed. Save c33.patch/binary/PTX/
+SASS and restore the sole shader exactly to C32; worktree then contains only
+this report. Counts26 distinct:15 kept,10 rejected,1 interesting/restored,
+plus5 accepted non-counting re-evaluations;20 optimization commits plus S01.
+
+Diagnostic44803 completes0 drops: prefill3899.845134ms (gap59.088779), decode
+596.774243ms (gap11.940786). Authenticated shape attribution shows all tensor
+shapes slower. C32->C33 Q4 total2026.242139->2516.493857ms, Q6
+634.392543->703.739521; wide Q4 K3072/N9216 alone964.232695->1242.413943.
+Total tensor2660.634682->3220.233378 (+21.0325%). This is consistent with,
+but does not prove, the scalar-load collision mechanism documented above.
+
+C35 changes that concrete failed premise: replay C33's direct-MMA draft with
+shared A/B row pitches GROUP+8 (24 for Q6,40 for Q4/Q5), adjusting only staging
+and fragment addresses. Preserve C33's arithmetic/ownership/two barriers and
+C32 host/cache/dispatch. Extra padding costs16*(TOKENS+64)*STAGES bytes;
+ordinary/paired/wide static allocation estimates6976/13952/8320 bytes, still
+below C32. Only shaders/matmul.cuh (~365 productive lines, existing K) changes;
+temporary bit-record hooks stay in existing kernel tests and are removed.
+No new file/helper/API/dependency. Main risks: incorrect stage/tail addressing,
+staging-store conflicts, extra shared footprint and the compiler load schedule.
+
+Rank C35 medium first: use C32 p.680126791 and conservative net local s1.1,
+o.003, predicted6.2467%, ideal212.623869%, saved~230.50ms. This requires
+about1.3313x improvement over the rejected C33 tensor owner; bank-collision
+removal makes that testable, not guaranteed. C34 long remains deferred at
+4.855659% prediction; neither is closed by its estimate. C35 is conservatively
+non-counting. Before padding, capture C33's exact matrix outputs with temporary
+test-only records; require identical records after padding, unchanged scalar
+and raw/cache bounds, full canonical/frozen f16/int8, hybrid isolation and
+sanitizers. Performance compares only against accepted C32, medium prompt>=5%,
+CV<=5%, all controls regression<=5%, canonical time/rerun rules. C33 remains
+rejected even if C35 later passes; no favorable retargeting.

@@ -5,11 +5,11 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
+- Retained production checkpoint: CPU25-02 commit containing its kept section below; preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-02 single objective rerun provisionally passed; controls pending.
+- State: CPU25-02 kept; preparing post-change attribution and queue rerank.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 1 / 0 / 0 / 1 (one attempt pending A/B).
+- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 2 / 0 / 0 / 1.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -74,7 +74,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | ID / premise | Regime / phase | Conservative p | Local s | Added o | Predicted global gain / ideal ceiling | Saved time | Cost / risk / uncertainty | State |
 |---|---|---:|---:|---:|---|---|---|---|
 | CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | initial prediction; measured medium prompt +20.681%, all gates pass | kept |
-| CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | refreshed profile; small SIMD edit; exact gate; register-pressure risk | ready |
+| CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | measured medium +7.290% after sole rerun; controls pass; environmental caveat below | kept |
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | refreshed profile; exact causal-mask and output gates needed | deferred |
@@ -754,3 +754,65 @@ rounding/scale layout, account for quantization and transient packing overhead,
 and predeclare a risk-specific real-model quality gate. Do not assign the full
 Q4 bucket a ready score before that analysis. Unresolved numerical or authority
 constraints are reasons to defer or explicitly close it, not to weaken tests.
+
+Long A has completed within session `67377`: prompt 32.29 tok/s (CV .34%),
+TTFT 111005.13 ms (CV .34%), model decode 8.64 tok/s (CV 1.04%), public decode
+8.10 deltas/s (CV 1.04%). B is running in the same sequential command. Do not
+duplicate A, infer a final comparison from A alone, or start the next candidate.
+
+CPU25-05 read-only feasibility analysis: the existing F16 GQA path handles four
+heads per key/value load, with one independent eight-lane dot accumulator per
+query. A bounded paired-position variant can handle eight queries (four heads
+at each of two adjacent positions) over their common causal prefix, then use
+the unchanged four-head primitives for the second position's single extra key
+and value. This avoids a zero-weight operation on a masked future value and
+preserves every head's dot reduction, max, exp/denominator and value-mix order.
+Disjoint temporary output units `(query_pair, kv_head)` avoid reducing the
+number of parallel work units to only `n/2`; narrow/reorder those units into the
+existing token-major output. Limit the candidate fast path to even batches,
+GQA group four and vector-aligned dimensions, keeping the existing fallback.
+Before implementation, declare its exact tree/line estimates and compare
+byte-for-byte with the unchanged decode attention per position across layer,
+history, dimension and view offsets. No attention source has been changed yet.
+
+### CPU25-02 — kept
+
+Long A/B session `67377` completed at 2026-09-05T02:25:24+02:00, 26 minutes
+37 seconds after the original comparison start, including the sole permitted
+medium rerun. Telemetry session `15399` also completed. No process was restarted
+merely because observation yielded, and no additional objective rerun was used.
+
+| Long control metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 32.29 | 32.74 | +1.394% | .34% | .09% |
+| TTFT ms | 111005.13 | 109454.25 | -1.397% | .34% | .09% |
+| Model decode tok/s | 8.64 | 8.74 | +1.157% | 1.04% | .62% |
+| Public decode deltas/s | 8.10 | 8.19 | +1.111% | 1.04% | .62% |
+
+Counts match: 3584 prompt, 32 completion and 31 public deltas. As with short,
+the generic comparison script's below-3% objective phrase is inapplicable to
+this control. Both controls pass. The medium rerun passed the declared 5%
+objective threshold and 5% objective-CV screen; the largest control regression
+is .188%. Correctness preceded performance. Final formatting, warning-denied
+CPU Clippy and diff checks passed. Terminal decision under the predeclared
+rules: `kept`.
+
+The retained source change is only the explicit two-token loop plus unchanged
+odd tail in `q4k_simd.rs`, within its ~350 productive-line estimate and existing
+K category. No new function, file, dependency, allocation, public interface,
+weight representation, KV layout or single-token arithmetic is introduced.
+The bounded increase in loop complexity is retained because the prescribed
+gates passed. Source and emitted code preserve each token's accumulation order.
+
+Interpretation remains limited: measured short/medium/long prompt differences
+are +2.883% / +7.290% / +1.394%, not evidence of a uniform 7.29% effect. The
+medium rerun's large unmodified-decode gain and the initial +1.958% prompt result
+show environmental/code-layout uncertainty. Do not credit its +41% decode
+change to token interleaving or call these measurements statistically
+significant. Future accepted checkpoints require fresh paired comparisons;
+do not compound these percentages into a fabricated final speedup.
+
+Current-campaign accepted changes are CPU25-01 and CPU25-02 only. At least eight
+further distinct countable attempts remain. Next: refresh affected attribution
+on this retained checkpoint, narrow CPU25-07's phase premise, rerank every
+non-terminal pool entry, and continue. This is not a final quantitative stop.

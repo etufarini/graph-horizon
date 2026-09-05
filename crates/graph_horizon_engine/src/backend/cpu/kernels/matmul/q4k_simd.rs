@@ -263,8 +263,31 @@ pub(super) unsafe fn row2_dot_q4k_avx2_batched(
                     w0[c] = _mm256_fmsub_ps(dl0, _mm256_cvtepi32_ps(n0), ml0);
                     w1[c] = _mm256_fmsub_ps(dl1, _mm256_cvtepi32_ps(n1), ml1);
                 }
-                // One activation load per chunk, reused by both rows' FMAs.
-                for i in 0..n {
+                // Interleave two tokens to expose four independent FMA chains.
+                // Each token still folds chunks 0..4 in the original order.
+                for i in (0..n / 2 * 2).step_by(2) {
+                    let arow = a.as_ptr().add(in0 * batch + i * 32);
+                    let p0 = acc.as_mut_ptr().add(i * 8);
+                    let p1 = acc.as_mut_ptr().add((n + i) * 8);
+                    let mut a00 = _mm256_loadu_ps(p0);
+                    let mut a10 = _mm256_loadu_ps(p1);
+                    let mut a01 = _mm256_loadu_ps(p0.add(8));
+                    let mut a11 = _mm256_loadu_ps(p1.add(8));
+                    for c in 0..4 {
+                        let av0 = _mm256_loadu_ps(arow.add(c * 8));
+                        let av1 = _mm256_loadu_ps(arow.add(32 + c * 8));
+                        a00 = _mm256_fmadd_ps(av0, w0[c], a00);
+                        a10 = _mm256_fmadd_ps(av0, w1[c], a10);
+                        a01 = _mm256_fmadd_ps(av1, w0[c], a01);
+                        a11 = _mm256_fmadd_ps(av1, w1[c], a11);
+                    }
+                    _mm256_storeu_ps(p0, a00);
+                    _mm256_storeu_ps(p1, a10);
+                    _mm256_storeu_ps(p0.add(8), a01);
+                    _mm256_storeu_ps(p1.add(8), a11);
+                }
+                // The odd token retains the original two-row loop.
+                for i in n / 2 * 2..n {
                     let arow = a.as_ptr().add(in0 * batch + i * 32);
                     let p0 = acc.as_mut_ptr().add(i * 8);
                     let p1 = acc.as_mut_ptr().add((n + i) * 8);

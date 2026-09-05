@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-11 rejected and restored; CPU25-05 selected next.
+- State: CPU25-05 correctness passed; long objective A/B running in session `37266` (baseline finished, candidate running).
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 3 / 2 / 1 / 0 / 2.
+- Current attempts / kept / rejected / not_verified / closed-untried: 4 / 2 / 1 / 0 / 2 (one attempt pending A/B).
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -1108,3 +1108,61 @@ unchanged. Then CPU release workspace tests, CPU check and pinned real-model
 F16 parity with complete log comparison against the baseline. No tolerance or
 reference changes. Only after passing correctness begin a fresh LONG A/B;
 provisional success requires both other regimes before retention.
+
+CPU25-05 initial CPU compile check passed (session `64007`). The declared
+implementation is in the existing attention module/SIMD file plus the new
+bounded `paired.rs` ownership/wiring file. Correctness/build session `13144`
+runs the exact padded-view/cache comparison first, then focused attention,
+CPU release workspace tests, CPU check, pinned F16 parity and baseline log
+comparison, followed by benchmark build. Private logs use `cpu25-05-*`.
+No performance measurement has started; resume that handle before proceeding.
+
+Session `13144` completed successfully. Exact paired/decode parent-buffer and
+cache comparisons passed; all 12 focused attention tests passed. CPU workspace
+passed 170 root, 166 engine, one documentation, four family-agnostic and 12
+semantic tests (seven declared external tests ignored). CPU check passed. Pinned
+F16 parity passed and its complete log matches the original baseline exactly.
+Productive upper counts are 702/77/377 for mod/paired/SIMD, within 715/130/450.
+CPU25-05 is the fourth countable attempt, not yet a performance success.
+
+Warning-denied CPU Clippy also passed (session `61563`). Private reproducibility
+artifacts are `cpu25-05.patch`, `cpu25-05-paired.rs`, `cpu25-05-bench` and
+`cpu25-05-attention.asm`. The eight-query common-key inner loop has eight FMA
+chains without accumulator spills in that loop; cross-phase/softmax stack
+traffic remains and is not claimed free.
+
+Long objective A/B session `37266` started at 2026-09-05T03:01:31+02:00;
+comparison deadline 05:01:31+02:00. Runner PID `327729` sequentially executes:
+
+```text
+screen.sh cpu25-02-bench cpu25-05-a 32 1 3 long
+screen.sh cpu25-05-bench cpu25-05-b 32 1 3 long
+awk -f compare.awk cpu25-05-a-long.out cpu25-05-b-long.out
+```
+
+All paths are in the existing private raw directory. Resume the same handle,
+not a duplicate command. No stability rerun or short/medium control has started.
+Production candidate code remains unaccepted until the prescribed decisions.
+
+CPU25-12 feasibility references, consulted without changing the running process:
+[Linux THP documentation](https://www.kernel.org/doc/html/latest/admin-guide/mm/transhuge.html)
+describes translation benefits and warns that frequent `smaps` reads add
+overhead. The [madvise manual](https://man7.org/linux/man-pages/man2/madvise.2.html)
+documents Linux 6.1's best-effort synchronous `MADV_COLLAPSE`, including possible
+direct reclaim/compaction and no guarantee of permanent backing. A future
+bounded trial should use only hugepage-aligned interiors of owned, fully
+populated weight allocations, keep allocator ownership unchanged, fail safely
+to existing backing, and measure setup cost separately. No sysfs, prctl,
+advice call, affinity or mapping change has been made. The live long baseline
+memory snapshot is saved privately as `cpu25-05-a-long-memory.log`; avoid
+repeated expensive mapping scans during the measured repetitions.
+
+CPU25-05 long A completed with prompt 30.03 token/s (CV 1.18%), TTFT
+119339.53 ms (CV 1.18%), model decode 7.08 token/s (CV 10.63%) and public
+decode 6.64 token/s (CV 10.63%). These are a partial pair, not a decision.
+The objective baseline is stable; unrelated decode variability is disclosed.
+Candidate B is still running in the same session. Inspection of the saved
+assembly also confirms that the common-value loop widens each eight-element
+KV window once for eight FMA chains, without vector stack traffic inside that
+loop. Per-head softmax still calls scalar `expf` and has cross-call stack
+traffic; this is an observation, not an attributed regression or a new candidate.

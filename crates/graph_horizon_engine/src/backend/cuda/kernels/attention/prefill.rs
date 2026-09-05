@@ -4,7 +4,7 @@
 
 use color_eyre::eyre::Result;
 
-use super::super::super::exec::dispatch;
+use super::super::super::exec::dispatch::{self, Arg};
 use super::super::super::module::{Kernel, Module};
 use super::super::super::{CudaBuffer, CudaEncoder};
 use crate::kv_cache::Kv;
@@ -22,7 +22,9 @@ pub(crate) fn encode(
     rows: u32,
     layer: u32,
 ) -> Result<()> {
-    let args = super::validate(out, query, kv, q_heads, base, rows, layer)?;
+    let mut args = super::validate(out, query, kv, q_heads, base, rows, layer)?;
+    // The prefill entry always owns a rows scalar, including a one-row tail.
+    args.insert(8, Arg::U32(rows));
     let kernel = match kv.scheme {
         KvQuant::F16 => Kernel::AttentionPrefillF16,
         KvQuant::Int8 => Kernel::AttentionPrefillInt8,

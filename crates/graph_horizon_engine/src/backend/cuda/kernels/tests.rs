@@ -729,6 +729,15 @@ fn attention_prefill_is_causal_and_one_row_matches_decode() -> Result<()> {
             read_f16(&device, &decode, 2)?,
             read_f16(&device, &prefill.view(8, 4)?, 2)?
         );
+        // A one-row prefill still has the prefill ABI, including its rows scalar.
+        let single = CudaBuffer::allocate(&device, 4, CudaFormat::F16)?;
+        let encoder = CudaEncoder::begin(&device);
+        super::attention::prefill(&encoder, &module, &single, &query, &cache, 1, 2, 1, 0)?;
+        run(&device, encoder)?;
+        assert_eq!(
+            read_f16(&device, &single, 2)?,
+            read_f16(&device, &decode, 2)?
+        );
     }
     Ok(())
 }

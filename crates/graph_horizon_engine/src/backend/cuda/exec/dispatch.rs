@@ -46,6 +46,19 @@ pub(crate) fn launch(
     grid: (u32, u32, u32),
     block: (u32, u32, u32),
 ) -> Result<()> {
+    // Catch prefill ABI regressions in tests before the driver reads scalar pointers.
+    #[cfg(test)]
+    if matches!(
+        kernel,
+        Kernel::AttentionPrefillF16 | Kernel::AttentionPrefillInt8
+    ) {
+        let expected = if matches!(kernel, Kernel::AttentionPrefillInt8) {
+            13
+        } else {
+            11
+        };
+        assert_eq!(args.len(), expected, "CUDA prefill argument count");
+    }
     if !encoder.ready() {
         return Ok(());
     }

@@ -2280,3 +2280,29 @@ lines excluding the new test-only guard), kernels/tests.rs (tests excluded).
 Require the new test, all canonical gates and f16/int8 parity; then refresh the
 public baseline before C24 so the support fix is not bundled into its A/B.
 S01 is a separate correctness-support commit, excluded from optimization counts.
+
+S01 baseline session16080 fails exactly at the new test-only guard: f16 prefill
+has10 arguments, kernel requires11. The guard fires before the unsafe driver
+call; no invalid launch is attempted. Apply the declared explicit rows insertion
+in prefill and remove shape-dependent ABI selection from common validation.
+The same fixed operation distinction covers int8's12 versus13 arguments.
+
+Before S01 retention, add a separate authenticated real-model gate with the
+fixed text `benchmark` repeated123 times plus a final period and the canonical
+empty System message: expected129 prompt IDs, four32-token batches plus one
+row. This directly exercises the repaired public graph tail, unlike the existing
+130-token fixture. Use the unchanged pinned16-step top-two protocol for f16/int8,
+freeze its first oracle result, and never change the prompt/reference after a
+failure. Temporary fixed prompt fixture/private runner only; restore canonical
+source before retention and public baseline. This is correctness verification,
+not a changed performance workload or a new optimization attempt.
+
+S01 canonical session23493 passed formatting/CUDA check/CPU workspace/11 error/
+all37 CUDA tests (including both one-row cases) and f16/int8 canonical parity,
+all16 original local IDs unchanged. Fast build64802 completed before the
+temporary one-row fixture. Extra session71148 passed both authenticated
+129-token real-model rows, directly exercising the one-row graph tail. Restore
+the fixed canonical prompt exactly; the immutable `s01-bench` was built from
+that canonical source, with no print instrumentation. S01 removes implicit
+shape-based ABI selection; test-only arity checking protects the unsafe boundary
+without adding runtime work. Capture the three-row public baseline before C24.

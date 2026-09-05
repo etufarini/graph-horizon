@@ -78,9 +78,6 @@ fn validate<'a>(
         Arg::U32(q_heads),
         Arg::U32(base),
     ];
-    if rows > 1 {
-        args.push(Arg::U32(rows));
-    }
     args.extend([Arg::U32(layer), Arg::U32(context)]);
     if kv.scheme == KvQuant::Int8 {
         args.extend([

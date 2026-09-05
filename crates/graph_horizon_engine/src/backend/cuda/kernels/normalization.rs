@@ -31,7 +31,7 @@ pub(crate) fn encode(
     super::span(input, CudaFormat::F32, input_bytes)?;
     super::span(out, CudaFormat::F16, output_bytes)?;
     super::span(weight, CudaFormat::F16, weight_bytes)?;
-    let (grid, block) = dispatch::one_dim(u64::from(rows))?;
+    // Match the shader's 128-entry scratch: one independent reduction per row.
     dispatch::launch(
         encoder,
         module,
@@ -44,7 +44,7 @@ pub(crate) fn encode(
             Arg::F32(epsilon),
             Arg::U32(rows),
         ],
-        grid,
-        block,
+        (rows, 1, 1),
+        (128, 1, 1),
     )
 }

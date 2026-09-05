@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `2547df3` (C03), building on `f251074` (C05) and `61a540a` (C01).
-- State: running, C03 profiles complete; C02 baseline gate passed, production next.
-- Attempts: 4/10 reached correctness; kept 3, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C02 (this decision commit), building on `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C02 kept after all controls; refreshed profiles next.
+- Attempts: 5/10 reached correctness; kept 4, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), this commit (C02).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -22,10 +22,14 @@ as evidence. Session `56032` completed all refreshed C05 timelines with zero
 dropped records. C06's wide-dot test passed on accepted C05 in session `63196`;
 all canonical C06 gates passed in session `73467`. Its objective rejected it:
 both production files are restored exactly to HEAD. Diagnostic session `80709`
-completed successfully. C03 now compares against **C05**, preserving C01/C05
-and both permanent tests. No C06 production code remains.
-Baseline executable, accepted `c01-bench` and all A/B records remain under the
-same campaign directory. No rejected or interrupted production edit remains.
+completed successfully. C03 was kept against C05, and all refreshed profiles
+completed in session `36470`. No C06 production code remains. The normalization
+test is committed in `031aba2`; C02 canonical gates passed in session `15081`.
+C02's short objective passed in session `61650`; both controls completed in
+session `76898`. All regimes pass against C03; C02 is accepted in this commit.
+Next command refreshes `c02-timeline` for all three regimes before reranking.
+Baseline and accepted immutable executables, plus all A/B records, remain under
+the same private campaign directory. C11 is planning only, not implemented.
 
 ## Invariants and procedure
 
@@ -90,7 +94,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | ID | Premise and measured owner | Regime / objective | State | Cost / risk |
 |---|---|---|---|---|
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | kept | Small: reuse existing parallel attention body; score reduction reorders |
-| C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
+| C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | kept | Numeric gates and all controls passed; objective +16.492% |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | kept | Exact gate and all controls passed; objective +6.613% |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
@@ -99,6 +103,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | ready | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x |
+| C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | deferred until active C02 decision/profile | Bounded numeric rewrite, no global scratch; fewer barriers and exponentials per context token; discovered after C03 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -699,3 +704,78 @@ C02's 20-case baseline test passed on accepted production in
 `c02-baseline-test-corrected.log`. The initial test-only build had two API/type
 mistakes, corrected before any production edit; it is not an attempted numeric
 candidate or a changed tolerance. C02 now uses the predeclared numeric gate.
+
+### C02 kept
+
+Implemented one 128-thread block per row; inactive width lanes contribute zero
+to a 128-entry shared binary sum, then each thread writes its strided f16 output.
+Checked dispatch retains all validation and documents the matching scratch
+geometry. Production diff +17/-7 across the two predeclared files, no new file
+or interface. This replaces serial width work with a locally owned reduction;
+the explicit synchronization is necessary for that ownership invariant.
+
+`run.py gate c02` passed fmt, CUDA workspace check, CPU suites, all 11 error
+tests, 35 CUDA tests (including the 20-case normalization gate), and pinned f16
+parity with all 16 top-one IDs unchanged. The immutable `c02-bench` now runs
+`run.py bench c02 target/cuda-amdahl-20260905/c02-bench short`; compare
+`compare.py c03 c02 short model_decode_tps short`. Correctness was completed
+before performance; numeric reordering is bounded, not bit-exact.
+
+Short objective completed: model decode 17.22 -> 20.06 token/s (+16.492%,
+CV 0.27% -> 0.19%); prompt 65.94 -> 69.21 (+4.959%, CV 0.12% -> 0.28%);
+TTFT 1941.27 -> 1849.45 ms (-4.730%); public decode 16.71 -> 19.47 (+16.517%,
+CV 0.26% -> 0.20%). Counts 128/32/32 unchanged, complete wall 14.72 s.
+Provisional keep only: medium/long controls now run serially against C03.
+
+### Pool replenishment during C02 controls
+
+C03's remaining long attention cost is 27219.966 ms. Static review of that
+measured owner finds another distinct mechanism, **C11**: batch four consecutive
+context tokens per block iteration, assigning each warp an independent score,
+then merge those four scores into one online softmax update. Unlike C10's
+replacement of a single score's reduction tree, this amortizes block barriers
+across context tokens and reduces exponential evaluations from eight per four
+tokens to five. It is not the historical matmul tile experiment. It requires
+neither a second launch nor global scratch or cache-layout changes.
+
+C11 starts deferred until the active C02 decision and profile complete; do not
+bundle it with normalization. On C03's long owner fraction p=0.33109, use a
+discounted local s=1.4 and o=0.004: predicted full-request gain about 9.97%,
+ideal ceiling 49.50%, approximately 7.45 s saved. Phase-specific prefill owner
+p=0.31203 has a 45.35% ideal ceiling. Moderate implementation cost and numeric
+risk, higher uncertainty than C02: more live accumulators and changed softmax
+pairing may offset synchronization savings. Next profile must rerank it.
+
+Bounded structure if selected: existing `shaders/attention.cuh` (~150 productive
+category-K lines), `kernels/attention/{decode,prefill}.rs` (~45 each); no new
+file or interface. Keep one block per query head with 128 threads; each thread
+owns up to two output dimensions (validated head dimension <=256), and four
+warps score four context tokens with causal tail guards. Preserve both KV
+formats. Gate is the existing dense long-history CPU-reference bound, full
+canonical suite, and pinned f16/int8 model parity before any performance.
+This replenishment is planning only and does not increment attempts.
+
+### C02 complete decision
+
+Both control acquisitions passed in session `76898`, with identical token
+counts. The complete C02 records (means, fractional CV):
+
+| C02 regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Short objective | 69.21 (0.0028) | 1849.45 (0.0028) | 20.06 (0.0019) | 19.47 (0.0020) | 14.72 |
+| Medium control | 62.46 (0.0027) | 16394.36 (0.0027) | 13.59 (0.0027) | 12.75 (0.0027) | 75.84 |
+| Long control | 47.90 (0.0002) | 74816.16 (0.0002) | 7.04 (0.0001) | 6.60 (0.0001) | 318.26 |
+
+Against C03, medium model decode +11.668%, prompt +4.431%; long model decode
++5.865%, prompt +3.344%. No throughput or TTFT control regresses. Short objective
++16.492%, both objective CVs below 5%, correctness and numeric gates passed;
+terminal **keep**, within two hours and without rerun. Stock software power-cap
+counter increments are 0.974 s short and 0.614 s medium; zero long. All thermal
+slowdown counters remain unchanged. Ordinary dynamic clocks are recorded in the
+private telemetry, with no machine-setting changes.
+
+Retain only the predeclared +17/-7 production lines in normalization shader and
+dispatch. The permanent test was committed separately before the experiment.
+The shader is 28 productive category-K lines; dispatch remains below 45.
+Next: `run.py trace c02-timeline target/cuda-amdahl-20260905/c02-bench short medium long`
+and refresh all non-terminal entries, including newly discovered C11.

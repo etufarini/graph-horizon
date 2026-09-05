@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `f251074` (C05), building on `61a540a` (C01).
-- State: running, C06 rejected and restored; C03 selected.
-- Attempts: 3/10 reached correctness; kept 2, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C03 (this decision commit), building on `f251074` (C05) and `61a540a` (C01).
+- State: running, C03 kept; refreshed profiles next.
+- Attempts: 4/10 reached correctness; kept 3, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), this commit (C03).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -91,14 +91,14 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 |---|---|---|---|---|
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | kept | Small: reuse existing parallel attention body; score reduction reorders |
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
-| C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
+| C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | kept | Exact gate and all controls passed; objective +6.613% |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
-| C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | ready, implemented; correctness passed, A/B pending | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
+| C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
-| C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | deferred until C06 refresh | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x pending refreshed owner fractions |
+| C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | ready | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -161,7 +161,7 @@ approximately 116.532 s through the final delta, of which 73.7% is TTFT.
 The complete long acquisition passed without timeout, so it is a runnable
 control for every candidate. Timeline attribution must settle priorities.
 
-Exact baseline commands (repository root; model symlink points to authenticated
+Exact baseline commands (repository root; model hard link points to authenticated
 bytes, and the copied executable preserves baseline A across later builds):
 
 ```sh
@@ -169,6 +169,35 @@ cargo build --locked --profile fast --no-default-features --features cuda --exam
 python3 target/cuda-amdahl-20260905/run.py calibrate baseline
 cp target/fast/examples/bench target/cuda-amdahl-20260905/baseline-bench
 python3 target/cuda-amdahl-20260905/run.py bench baseline target/cuda-amdahl-20260905/baseline-bench short medium long
+```
+
+Public benchmark reproduction without the private runner (build each desired
+revision with the command above, authenticate the supplied model against the
+size/SHA table, then replace the model path):
+
+```sh
+python3 - <<'PY'
+import subprocess
+model = '/absolute/path/Ministral-3-3B-Instruct-2512-Q4_K_M.gguf'
+for words in (124, 1020, 3580):
+    prompt = ' '.join(['benchmark'] * words) + '.'
+    subprocess.run(['target/fast/examples/bench', model,
+                    '--context', '4096', '--kv', 'f16', '--prompt', prompt,
+                    '--max-tokens', '32', '--warmup', '1', '--reps', '3'],
+                   check=True)
+PY
+```
+
+Use the pinned reference server's library directory in `LD_LIBRARY_PATH` when
+running parity. Canonical gate commands, independent of the private runner:
+
+```sh
+cargo fmt --all -- --check
+cargo check --workspace --locked --no-default-features --features cuda
+cargo test --workspace --locked --no-default-features --features cpu
+cargo test -p graph_horizon_engine --locked --no-default-features --features cuda error_matrix -- --nocapture --test-threads=1
+cargo test -p graph_horizon_engine --locked --no-default-features --features cuda backend::cuda:: -- --nocapture --test-threads=1
+support/testing/parity-check.sh --models-dir /absolute/path/models --model-id 3b-instruct --backend cuda --kv f16 --reference-server /absolute/path/pinned/llama-server
 ```
 
 The private runner records exact expanded commands, elapsed seconds, exit codes,
@@ -583,3 +612,43 @@ tile, arithmetic order, rounding, all ABIs and bounds. Risk: compiler contractio
 or increased register pressure. Gate: exact equality against the frozen 26-case
 `matmul-wide-c05-baseline.log` snapshots, all canonical gates and f16 parity.
 Objective short prompt throughput; standard thresholds and other-regime controls.
+
+### C03 kept
+
+Implemented format-specialized device bodies with one shared allocation per
+entry. Production +35/-9 lines in the existing matmul shader; no launch, format,
+layout or numeric order changes. The 26 wide-dot bit snapshots exactly match
+accepted C05 (`diff -u` over `rg -o 'cuda-matmul-bits.*'` is empty). Frozen
+baseline log SHA-256 is `b14fe6001c1d366f4762371fa9c06e1232643929c1dd7136c8c045888dfac1c8`;
+candidate is `864e63c4d44f2812574c26aad2d19229369278977ee5ffd3ee6a9d7a12453608`.
+Temporary print statements removed. `run.py gate c03` passed formatting, CUDA
+workspace check, CPU suites, 11 error tests, 34 CUDA tests and pinned f16 parity
+with all 16 top-one IDs unchanged. Session `83493` builds/copies the immutable
+binary and runs the short objective using the same command as C06 with `c03`.
+Compare `compare.py c05 c03 short prompt_tps short`; only a provisional keep
+authorizes the medium/long control measurements within this candidate.
+
+Objective and both controls completed successfully, no rerun. Values are means
+with fractional CV in parentheses; compare to the complete C05 table above.
+
+| C03 regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Short objective | 65.94 (0.0012) | 1941.27 (0.0012) | 17.22 (0.0027) | 16.71 (0.0026) | 16.12 |
+| Medium control | 59.81 (0.0013) | 17120.49 (0.0013) | 12.17 (0.0002) | 11.42 (0.0002) | 79.84 |
+| Long control | 46.35 (0.0002) | 77320.95 (0.0002) | 6.65 (0.0001) | 6.24 (0.0001) | 329.36 |
+
+Short objective +6.613%, objective CV 0.17% -> 0.12%, model decode +5.839%.
+Medium prompt +6.613%, model decode +4.643%; long prompt +5.341%, model decode
++3.101%. All token counts match the reference; no control regresses. Medium's
+stock software power-cap counter increases 0.954 s over 79.84 s; long has no
+increment. Neither has thermal slowdown. This is a classified brief stock
+power-limited medium row, not a changed setting. Comparison within two hours.
+Terminal state **keep** after complete correctness, exact-output and A/B gates.
+
+PTX confirms a single 4096-byte shared allocation for batched matmul and format
+branches before specialized K loops. The +35/-9 productive-line change adds
+only the specialized bodies necessary to move the decision out of hot loops;
+no independent abstraction, resource or API. The measured effect is smaller
+than the 15.65% full-request estimate, so future instruction-removal estimates
+must retain substantial uncertainty rather than claiming proportional gains.
+Next: refreshed `c03-timeline` short/medium/long, then rerank the persistent pool.

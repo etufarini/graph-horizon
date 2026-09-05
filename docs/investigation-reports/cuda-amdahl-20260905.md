@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C03 (this decision commit), building on `f251074` (C05) and `61a540a` (C01).
-- State: running, C03 kept; refreshed profiles next.
+- Current retained runtime: `2547df3` (C03), building on `f251074` (C05) and `61a540a` (C01).
+- State: running, C03 profiles complete; C02 baseline gate passed, production next.
 - Attempts: 4/10 reached correctness; kept 3, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), this commit (C03).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -652,3 +652,50 @@ no independent abstraction, resource or API. The measured effect is smaller
 than the 15.65% full-request estimate, so future instruction-removal estimates
 must retain substantial uncertainty rather than claiming proportional gains.
 Next: refreshed `c03-timeline` short/medium/long, then rerank the persistent pool.
+
+C02 preparatory gate structure: add one focused test to existing
+`kernels/tests.rs` (~55 test lines, excluded from productive limit). Before
+production edits, check RMSNorm widths 1, 3, 129, 3072, 9216, rows 1/3, epsilon
+0/1e-5, mixed signs and magnitudes against the serial stored-weight reference.
+Keep the existing absolute/relative bound; then repeat with the candidate and
+run all canonical gates and pinned parity before A/B. Production structure:
+`shaders/normalization.cuh` (~35 productive category-K lines),
+`kernels/normalization.rs` (~45 orchestration lines). One block owns one row,
+128 threads stride through width and use a shared binary sum; output remains
+f16. Numeric pairing changes, but storage, epsilon, spans and public ABI do not.
+The risk is rounding drift or small-width overhead. Objective remains short
+model decode throughput; prefill, TTFT and other regimes are controls.
+
+### Refresh after C03; C02 selected
+
+All three C03 timelines completed in session `36470`, zero dropped records.
+Short prefill/first sample 1934.663 ms + decode 1855.778 ms: batched matmul
+1761.962 ms, single 1158.231 ms, logits 149.708 ms total. Matmul local reductions
+are only about 6–8%, supporting instruction cost but not the originally assumed
+20%. Calibrate the other matmul instruction-removal estimates by approximately
+0.4 of their proposed incremental local gains (C04 1.25 -> 1.10, C08 1.10 ->
+1.04, C09 1.05 -> 1.02). These remain uncertain bounded experiments, not closed.
+RMSNorm totals 397.981 ms, 10.50% of the short request and 15.79% of decode;
+one active thread for a decode row establishes serial execution/underutilization,
+not a bandwidth ceiling. A block-width reduction directly removes that limiter.
+Argmax totals 108.688 ms and owns 5.67% of short decode, so its phase-specific
+ideal ceiling can still reach 5% despite its smaller whole-request ceiling.
+
+Long totals 82213.420 ms: batched matmul 49419.047 ms, attention 27219.966 ms.
+Short instrumentation TTFT differs -0.24%, medium -0.76%, long +0.09%; long
+decode -0.30% versus the unprofiled rows. These single traces are diagnostic,
+not retention A/B, and remain sufficiently close for attribution.
+
+| Priority / state | p full request | s | o | Predicted gain | Ideal ceiling | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| C02 ready, selected | 0.10500 short | 8 | 0.001 | 9.995% | 11.731% | 344.443 |
+| C04 ready after C03 | 0.46484 short | 1.10 | 0.001 | 4.303% | 86.861% | 156.388 |
+| C10 ready | 0.33109 long | 1.15 | 0.002 | 4.295% | 49.497% | 3386.004 |
+| C08 ready after C03 | 0.80991 short | 1.04 | 0.0005 | 3.162% | 426.056% | 116.178 |
+| C07 deferred until C02 | 0.02867 short | 8 | 0.0002 | 2.553% | 2.952% | 94.344 |
+| C09 ready after C03 | 0.80991 short | 1.02 | 0 | 1.614% | 426.056% | 60.194 |
+
+C02's 20-case baseline test passed on accepted production in
+`c02-baseline-test-corrected.log`. The initial test-only build had two API/type
+mistakes, corrected before any production edit; it is not an attempted numeric
+candidate or a changed tolerance. C02 now uses the predeclared numeric gate.

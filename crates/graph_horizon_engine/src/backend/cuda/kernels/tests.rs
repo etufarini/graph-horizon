@@ -360,6 +360,52 @@ fn dense_operations_cover_wide_dots_and_output_tails() -> Result<()> {
 }
 
 #[test]
+fn normalization_wide_rows_and_dimension_tails_match_reference() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    for width in [1_usize, 3, 129, 3072, 9216] {
+        for rows in [1_usize, 3] {
+            let values = (0..width * rows)
+                .map(|i| {
+                    let value = ((i * 13 % 37) as f32 - 18.0) * 0.03125;
+                    value * if i % 7 == 0 { 100.0 } else { 1.0 }
+                })
+                .collect::<Vec<_>>();
+            let weights = (0..width)
+                .map(|i| ((i % 17) as f32 - 8.0) * 0.125)
+                .collect::<Vec<_>>();
+            let input = upload_f32(&device, &values)?;
+            let weight = upload_f16(&device, &weights)?;
+            let out = CudaBuffer::allocate(&device, (width * rows * 2) as u64, CudaFormat::F16)?;
+            for epsilon in [0.0_f32, 1e-5] {
+                let encoder = CudaEncoder::begin(&device);
+                super::normalization::encode(
+                    &encoder,
+                    &module,
+                    &out,
+                    &input,
+                    &weight,
+                    width as u32,
+                    epsilon,
+                    rows as u32,
+                )?;
+                run(&device, encoder)?;
+                let actual = read_f16(&device, &out, width * rows)?;
+                for row in 0..rows {
+                    let values = &values[row * width..(row + 1) * width];
+                    let sum = values.iter().map(|value| value * value).sum::<f32>();
+                    let inverse = 1.0 / (sum / width as f32 + epsilon).sqrt();
+                    for i in 0..width {
+                        close(actual[row * width + i], values[i] * inverse * weights[i]);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn dense_operations_cover_normalization_rope_and_elementwise() -> Result<()> {
     let device = Device::acquire()?;
     let module = Module::load(&device.context)?;

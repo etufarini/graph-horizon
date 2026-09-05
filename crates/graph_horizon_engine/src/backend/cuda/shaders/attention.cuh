@@ -115,12 +115,29 @@ __device__ void cuda_attention_buffered(
     __shared__ float scores[4096];
     __shared__ float partial[128];
     const float scale = rsqrtf(float(dim));
+    // Fixed128 split-f16 scores need four invariant query components per lane.
+    const bool fixed_query = THREADS == 512 && !INT8 && dim == 128;
+    float query_values[4] = {};
+    if (fixed_query) {
+        #pragma unroll
+        for (uint32_t part = 0; part < 4; ++part) {
+            query_values[part] = __half2float(query[q_base + lane + part * 32]);
+        }
+    }
     for (uint32_t token = warp; token <= position; token += THREADS / 32) {
         const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
         float sum = 0.0f;
-        for (uint32_t i = lane; i < dim; i += 32) {
-            sum += __half2float(query[q_base + i])
-                * cuda_cache_value<INT8>(k_cache, vector * dim + i, k_metadata, vector);
+        if (fixed_query) {
+            #pragma unroll
+            for (uint32_t part = 0; part < 4; ++part) {
+                sum += query_values[part] * __half2float(
+                    reinterpret_cast<const __half *>(k_cache)[vector * 128 + lane + part * 32]);
+            }
+        } else {
+            for (uint32_t i = lane; i < dim; i += 32) {
+                sum += __half2float(query[q_base + i])
+                    * cuda_cache_value<INT8>(k_cache, vector * dim + i, k_metadata, vector);
+            }
         }
         for (uint32_t stride = 16; stride > 0; stride /= 2) {
             const float other = __shfl_down_sync(0xffffffff, sum, stride);

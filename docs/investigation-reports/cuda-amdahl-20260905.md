@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `483ea2a` (C37), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C37 accepted and all profiles refreshed. C38/C39/C40 rejected and restored; C41 passes focused and frozen gates, canonical/isolation/sanitizers pending. Not complete.
-- Attempts: 28 distinct reached correctness (minimum 10): 15 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 1 interesting/restored (C07); plus 10 terminal non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 3 rejected (C35/C36/C39), and pending C41. Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C43 (this acceptance commit), above `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C43 accepted after every gate and all controls; all profiles refreshed. Fresh discovery/closure audit and final handoff remain. Not complete.
+- Attempts: 29 distinct reached correctness (minimum 10): 15 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 12 terminal non-counting re-evaluations: 8 kept (C17/C22/C27/C29/C32/C34/C37/C43), 4 rejected (C35/C36/C39/C41). Total retained optimization commits23 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -146,7 +146,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | rejected, restored | All gates pass; long prompt-4.484%; own attention cost worsens; keep C37 |
 | C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
 | C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
-| C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | ready | Bounded non-counting C42 extension; all other paths remain C37 |
+| C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4398,3 +4398,64 @@ Keep the same conservative C42 Amdahl p/s/o,3.833899% long prediction and
 decode against accepted C37 remains objective, all other metrics/regimes
 controls, unchanged >=5%/CV<=5%/regression<=5%/two-hour rule. C43 is a
 non-counting bounded re-evaluation; C42 stays interesting/restored regardless.
+
+C43 exact74639 passes4.14s with290 records byte-identical to C37's frozen
+baseline; both hooks removed. Frozen5499749 passes both KV. Fast77526 passes;
+split-f16 resources remain40 registers/20992 shared bytes, zero spills.
+Continue frozen/canonical gates; no performance or acceptance yet.
+
+C43 frozen13065787 and1298879 pass both KV; hybrid check57203 passes. PTX
+splits the fixed128 history loop outside its iteration: four unconditional
+K loads/FMA steps, no per-component dimension branch, fixed128 address shift.
+Canonical prompt restored; full canonical/isolation/attention sanitizers run
+serially. No temporary logging remains; no public performance yet.
+
+C43 serial69816 passes fmt, CUDA check, CPU9.22s,11error_matrix1.07s, all43
+CUDA tests104.28s, canonical f16 parity14.07s, standalone-int8 13.10s and
+hybrid-f16/int8 22.01/15.53s. Attention memcheck/synccheck pass all4 tests with
+zero errors. Begin long model-decode objective against C37; no changed
+threshold, selective rerun or acceptance of C42.
+
+C43 objective19681 provisionally passes: long model48.07[CV.0023] versus44.63
+(+7.707820%), public45.05[.0020] (+7.749342%), prompt331.18[.0029]
+(+.211813%), TTFT10821.86[.0029] (-.212634%), counts3584/32/31, wall46.99s.
+No rerun warranted. Run short and medium controls before any acceptance commit.
+
+### C43 accepted; all controls and refreshed attribution
+
+C43 controls64038 pass. Means[CV], prompt t/s, TTFT ms, model/public decode t/s:
+
+| Regime | Prompt | TTFT | Model decode | Public decode | Process wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 414.93[.0055] | 308.49[.0055] | 57.97[.0018] | 56.14[.0014] | 4.53 |
+| medium | 367.80[.0094] | 2784.32[.0093] | 55.02[.0124] | 51.58[.0126] | 14.29 |
+| long | 331.18[.0029] | 10821.86[.0029] | 48.07[.0023] | 45.05[.0020] | 46.99 |
+
+Long objective+7.707820%, public+7.749342%. Worst control is medium TTFT
++4.825011%, within5%; medium prompt-4.596389%, model+.346526%, public+.447907%.
+Short prompt-.093903%, TTFT+.094095%, model+.242089%, public+.250000%.
+Counts128/32/32,1024/32/31,3584/32/31 unchanged. No objective CV failure,
+rerun or selective repetition. A/B completes within~82min of C37 controls.
+Stock power-cap increments short/medium/long .893710/0/.854198s; thermal zero.
+
+The medium control has a narrow margin, explicitly retained rather than
+remeasured away. Existing desktop clients remain; browser GPU allocation grows
+by71MiB in that row, and SM samples include1995/1927/1905MHz with settled
+memory7301MHz. No competing inference or settings change observed, but graphics
+activity and clock variation prevent attributing its full regression to code.
+This is an observational gate pass, not a significance or frequency-controlled
+claim. No prefill production code changed. Preserve every raw measurement.
+
+Keep the single-shader C43 change, no temporary hooks/new entry/ABI/dependency.
+Exact290-output gate, all frozen/canonical/hybrid tests, memcheck7.99s and
+synccheck3.66s passed before performance. C42 remains interesting/restored.
+
+Refreshed profiles72298 all complete with zero dropped records. Prefill/decode
+elapsed ms short313.492997/565.476058, medium2714.683662/578.757986,
+long11019.770786/676.530802; prefill gaps8.247165/61.501352/194.902879,
+decode gaps13.892781/11.946128/12.831005. Tensor prefill owns265.248911/
+2112.073731/7411.392592ms; decode matmul+logits482.006090/485.882061/
+484.739458ms. Decode attention28.980143/41.385692/138.989912ms. Long tensor
+prefill attention2439.713647ms. These profiles refresh cost owners; they do not
+replace the public medium control or authorize a repeat of it. Finish fresh
+discovery and hotspot closure audit before declaring campaign completion.

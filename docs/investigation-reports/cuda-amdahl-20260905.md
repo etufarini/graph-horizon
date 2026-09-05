@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `6a77c87` (C09), building on `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C22 kept after all controls, building on C21 `cd6993b`. Profiles next; C23 queued. Not complete.
-- Attempts: 18 distinct (minimum 10): 12 kept, 5 rejected (C06/C08/C13/C18/C20), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained runtime commits 14, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C23 rejected/restored; diagnostic profile and fresh discovery next. Not complete.
+- Attempts: 19 distinct (minimum 10): 12 kept, 6 rejected (C06/C08/C13/C18/C20/C23), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained runtime commits 14, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -126,7 +126,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | rejected, restored | All exact/canonical gates pass; objective +1.613% below 3% |
 | C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +20.095% |
 | C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | kept, non-counting bounded re-evaluation | Exact/canonical/extra parity and all controls pass; objective +7.240% |
-| C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | ready after C22 | Two barriers instead of three per four context tokens; replicated scalar work/register cost uncertain |
+| C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -14.059%, TTFT +16.358% |
+| C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | ready after S01 correctness prerequisite | Removes all block barriers and C23's duplicated coefficients; preserve logical reduction leaves |
+| C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | deferred after C24 | Exact correction order can remain; larger shared footprint needs isolated entries and resource/gate design |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2148,3 +2150,133 @@ including N8193/M33 tails. Canonical and frozen extra parity passed for both KV
 schemes. Production +47/-23 across the three declared files. C22 is retained
 in this commit, but does not increment distinct attempts; C20 remains rejected.
 Refresh all three affected profiles before selecting C23.
+
+C22 retained in `e7790cd`; profiles session26237 completed with zero dropped
+records. Prefill/decode ms short444.963/797.266, medium4168.487/945.646,
+long21597.927/1399.507. Combined tensor owner397.449/3157.474/11111.011 ms;
+prefill attention10.931/728.146/9511.781 ms. The bounded M32 dispatch reduces
+its intended prefill owner without the universal small-grid penalty.
+
+### C23 selected: warp-private online coefficients
+
+C23 is the remaining ready entry. Refreshed whole-request p values
+.008799/.142379/.413602 (short/medium/long), s=1.1, o=.002, predict
+-.120/1.106/3.691%, ideal .888/16.602/70.533%, saved -1.49/55.97/818.71 ms.
+Select **long prompt throughput** against C22; its phase owner44.04% makes a
+bounded experiment eligible even below the conservative whole-request5% signal.
+No counter-derived barrier fraction is claimed; duplicated scalar work is the
+main uncertainty. Same >=5% objective/CV<=5%, all controls and two-hour cap.
+
+Change only existing `shaders/attention.cuh` (~220 productive category-K lines,
+one attention family); temporary prints stay in existing kernel tests. No new
+file, function, buffer, dependency or public interface. Keep shared scores[4],
+make previous/weights/denominator warp-local, compute them in each lane0 using
+the identical expression/iteration order, then shuffle from lane0. Remove only
+the coefficient-publication block barrier; retain score-ready and final-reader
+barriers. Broadcast the final denominator uniformly before dimension predicates.
+The same online body is also the decode fallback for position>=4096: preserve
+that behavior and inspect compiled decode resources, with all decode controls
+still mandatory. Do not add a duplicate algorithm merely to avoid a speculative
+resource risk; measurements decide whether this smallest change is acceptable.
+
+Freeze40 full output vectors on C22 from the existing long/tail test (10 prefill,
+30 decode across f16/int8, including4094/4095/4096). Require exact candidate
+identity, original scalar bounds and tiny-history equality. The accepted C22
+already passes the frozen130-token model fixture; require C23 to replay it
+unchanged for both KV schemes, then remove temporary fixtures and pass all
+canonical gates before performance. No numeric tolerance is relaxed.
+
+C23 baseline session42627 passed and froze all40 attention vectors in
+`c23-attention-baseline.log`; only temporary bit printing differs from C22.
+Proceed with the declared single-body coefficient ownership change.
+
+C23 exact session22903 passed all40 frozen vectors and both unchanged130-token
+model parity replays with identical local IDs. Removed temporary prints/prompt,
+restoring tests/parity exactly to HEAD. Static `ptxas` reports all four attention
+entries still40 registers with zero stack/spills: prefill shared bytes40 ->16,
+decode16936 ->16912. The fallback resource risk did not require a duplicate body.
+Production is one shader +11/-7; canonical gates and fast build precede A/B.
+
+C23 canonical session31162 passed formatting/check/CPU workspace/11 error/all37
+CUDA tests and both canonical f16/int8 parity rows, original16 local IDs intact.
+Fast build56614 completed. The generated prefill entry has exactly two static
+`bar.sync` sites versus C22's three in the same dynamic tile loop, confirming
+the intended work removal without claiming a measured stall fraction. Acquire
+`run.py bench c23 .../c23-bench long`, then `compare.py c22 c23 long prompt_tps
+long`; no candidate performance preceded gates, both controls before keep.
+
+### C23 rejected and restored
+
+Objective session79729 completed: long prompt165.38 ->142.13 (-14.0585%,
+candidate CV .01%), TTFT21671.24 ->25216.21 ms (+16.3579%, CV .01%), model
+decode22.98 ->22.75 (-1.0009%, CV .04%), public21.54 ->21.32 (-1.0214%,
+CV .04%). Baseline prompt/TTFT CV printed .0000 with TTFT deviation .04 ms,
+not zero uncertainty. Counts3584/32/31 unchanged; wall107.50 s. No rerun.
+Correctness passed, but objective regresses and TTFT control exceeds5%:
+**reject**. Save `c23.patch`, restore its sole production shader exactly to
+C22/HEAD; no temporary tracked fixtures remain. No other controls are needed
+for retention. An immutable-binary diagnostic long trace follows to locate the
+added cost; fewer barriers did not suffice when four warps duplicate coefficients.
+Any next variant must remove that measured/source-backed cause, not repeat C23.
+
+C23 diagnostic session76759 completed, zero dropped records: attention
+9511.781 ->13088.841 ms while combined tensor11111.011 ->11110.219 ms.
+Prefill25178.315/decode1412.197 ms; attention still40 registers and no local
+bytes. This localizes the regression to the changed attention schedule, not
+tensor work or increased register allocation. Stock power-cap increment
+.533972 s, thermal counters0; no setting changes.
+
+Fresh discovery adds C24: one warp per prefill query head avoids both block
+barriers and fourfold replicated coefficient computation. Within that warp,
+four eight-lane subgroups score four context tokens. Each lane accumulates four
+of the original32 logical dot leaves, combines the original16/8 tree levels
+locally, then the4/2/1 levels within its eight-lane subgroup. Thus score and
+four-context online arithmetic order can be preserved exactly, unlike a plain
+eight-lane reduction. Each lane owns up to8 output dimensions. Four independent
+query-head warps share a128-thread launch, with no shared scratch or block
+barriers; warp-uniform tail returns are safe. Keep the existing online body
+only for decode's large-context fallback; prefill gets a cohesive dedicated
+numeric helper. Main risks: register pressure, less-coalesced subgroup loads,
+leaf mapping and partially occupied final blocks. Declare exact40-vector,
+tiny-history and frozen130-token plus canonical gates before implementation.
+
+Current C24 long owner remains C22 attention9511.781/22997.434 ms:
+p=.413602, credible s=1.3, o=.005, predicted about9.96%, ideal70.533%,
+saved about2079.03 ms. This discounts elimination of all barriers for extra
+logical-leaf/output registers and different load grouping; it is not an
+occupancy or bandwidth measurement. C24 ranks above C25, whose prefill reuse
+premise needs a resource-isolated bounded design before it is ready.
+
+C25 source evidence: adjacent Q4/Q5 K32 groups read the same packed quant byte
+for its low/high nibbles in separate iterations. A two-group staging tile can
+share that byte and one ready/consumer barrier pair while preserving the two
+separate WMMA/f32 corrections in their original order. Unlike C21 this targets
+prefill, not logical decode leaves. Estimated shared staging doubles
+9792/14976 ->19584/29952 bytes for M16/M32, so Q6 and ordinary entries must
+remain resource-isolated. No performance or count is attributed yet; inspect
+current Q4 shape ownership and predeclare s/overhead/exact gate before selection.
+
+### S01: pre-existing single-row prefill ABI prerequisite
+
+While inspecting C24's checked launch boundary, source review found that
+`attention::validate` includes the rows scalar only when rows>1, although the
+prefill kernel ABI always requires it. `graph/prefill/encode.rs` can emit a
+one-row tail and calls prefill unchanged; there is no upper-layer decode bypass.
+This is a correctness prerequisite in the exact path to be changed, not a new
+performance candidate or a claimed gain. Resolve it separately before C24.
+
+First add a test-only prefill argument-count assertion at the unsafe dispatch
+boundary (11 f16,13 int8) so the regression is caught before an invalid driver
+call. Extend the existing tiny causal test with a one-row prefill compared to
+decode at the same position for both KV schemes; capture the baseline failure.
+Smallest fix: common validation returns the common decode-shaped prefix/tail;
+prefill explicitly inserts its mandatory rows scalar at ABI index8, irrespective
+of its value. Decode and every rows>1 argument vector remain identical.
+No public interface/dependency or numeric change.
+
+Existing structure: attention/mod.rs (~95 productive validation/ABI lines),
+attention/prefill.rs (~45 dispatch lines), exec/dispatch.rs (~130 productive
+lines excluding the new test-only guard), kernels/tests.rs (tests excluded).
+Require the new test, all canonical gates and f16/int8 parity; then refresh the
+public baseline before C24 so the support fix is not bundled into its A/B.
+S01 is a separate correctness-support commit, excluded from optimization counts.

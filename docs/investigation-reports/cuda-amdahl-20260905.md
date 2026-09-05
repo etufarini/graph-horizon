@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `99f4330` (C24), above S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C27 kept after all controls; refreshed profiles completed. C26/C28 remain deferred, C25 restored. Not complete.
-- Attempts: 21 distinct reached correctness (minimum 10): 13 kept, 7 rejected (C06/C08/C13/C18/C20/C23/C25), 1 interesting/restored (C07); plus 3 non-counting re-evaluations kept (C17/C22/C27). Total retained optimization commits16 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C27 kept in `2d77b2f`, all profiles refreshed. C26 rejected/restored; diagnostic attribution pending. C28 deferred, C25 restored. Not complete.
+- Attempts: 22 distinct reached correctness (minimum 10): 13 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 3 non-counting re-evaluations kept (C17/C22/C27). Total retained optimization commits16 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24). Separate correctness support: S01 `6d37587`.
 
@@ -129,7 +129,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -14.059%, TTFT +16.358% |
 | C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | kept | Exact gates pass; long prompt +13.665%, all controls within 5% |
 | C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/sanitizer gates pass; medium prompt -3.214% |
-| C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | deferred after C27 | Removes the changed WMMA stride implicated by C25; same shared footprint, exact gate required |
+| C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | rejected, restored | All exact/canonical/frozen/sanitizer gates pass; medium prompt +2.580%, below3% |
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 
@@ -2628,3 +2628,109 @@ thermal0. Retain the two-file +42/-22 change with its exact logical-tree
 invariant. Four lane sums replace shared cross-warp ownership without adding
 allocation or an interface. S01 remains a separate correctness support fix.
 Refreshed session83911 completed all three diagnostic rows before next selection.
+
+C27 retained commit `2d77b2f`. All83911 traces have zero dropped records.
+Prefill/decode ms442.048/546.161,4016.676/690.386,18981.851/1139.901.
+Packed decode dot/logits467.530/455.058/453.499 ms, compared with C24
+725.027/720.029/715.604. Tensor prefill396.018/3163.151/11088.638;
+prefill attention9.498/573.898/6923.414. Long decode attention637.803 ms
+now exceeds packed decode; that shift must be considered in final discovery.
+
+C26 refreshed narrowed Q4 owners156.528/1239.620/4347.121 ms yield whole-request
+p .158396/.263353/.216041, s=1.1,o=.005, predicted .949/1.931/1.486%,
+ideal18.821/35.750/27.558%, saved9.29/89.16/294.58 ms. Select this ready,
+bounded medium-first layout experiment. C28 still lacks its exact coefficient
+conversion and cold-load/capacity risk-specific gate; it remains deferred while
+the ready layout diagnostic runs, not closed or silently discarded.
+
+### C26 implementation boundary
+
+Apply the isolated C25 tensor/quant/entry/dispatch patch on accepted C27, never
+replace C27's dot/host changes. Then change only A/B shared addressing to
+stage-major K32 tiles: A offset stage*TOKENS*GROUP, B offset stage*64*GROUP;
+WMMA leading dimension stays GROUP=32, while outer work advances K64.
+Coefficients, C tiles, two separate correction steps and barrier count remain
+C25's. No padding sweep, numeric regrouping or broadening to M32/Q6.
+Same existing files/estimates as corrected C25: matmul.cuh ~280 category-K,
+quant.cuh ~180 category-K, kernels/matmul.rs ~165 orchestration, module.rs ~145
+excluding tests. Additional risk is wrong stage offsets; full107 exact matrices,
+both frozen model fixtures and memcheck/synccheck remain mandatory before the
+medium prompt A/B against C27. Retention/CV/control/two-hour rules unchanged.
+Freeze current107 vectors again because C27 altered the dot implementation,
+even though its earlier exact gate proved equality transitively.
+
+C26 baseline43772 passes15 kernel tests and freezes107 vectors on C27.
+Patch reapplication first refused an outdated C25 context line in logits and
+made no edits. Updated only that context to C27's accepted writer predicate,
+then applied the isolated tensor patch; inspection confirms C27 dot/host changes
+remain intact. No history rewrite or whole-file baseline replacement.
+Candidate85178 passes the same107 vectors exactly and all15 kernel tests;
+temporary prints removed. Static paired resources remain64 registers/19584
+shared bytes, zero spills; M16/M32 remain63/72 and9792/14976; dot40/1024.
+Proceed through the unchanged frozen model fixtures before canonical gates.
+
+C28 read-only numeric design evidence: a finite binary16 coefficient times a
+six-bit unsigned or eight-bit signed scale has at most18 significant bits,
+so its product is exactly representable in binary32. Preserve signed zero,
+Q4/Q5 subtraction/FMA ordering and Q6 signed integer range; never narrow the
+reconstructed weight to half. Non-finite packed metadata must retain raw
+decoding, avoiding assumptions about CPU/GPU NaN payload conversion. Existing
+backend/f16.rs is the shared exact widening authority, but its current cfg
+excludes standalone cuda and would need an in-scope cfg extension. No new
+precision mode is implied. Capacity/fallback, hybrid isolation, malformed
+blocks, exhaustive finite coefficients and cold-load overhead still need the
+explicit C28 implementation/gate design after C26's decision.
+
+C26 frozen130 replay35226 and one-row129 replay33831 pass f16/int8 with exact
+local IDs. Canonical prompt restored; canonical gates and fast build started.
+No C26 performance precedes the remaining canonical and sanitizer gates.
+
+C26 canonical9744 passes every gate plus f16/int8 canonical parity; build49969
+completed. Sanitizer98468 passes memcheck/synccheck with0 errors. Medium
+objective starts only afterward, on the immutable c26-bench against C27.
+
+C28 bounded-design refinement under read-only review: prefer a one-time GPU
+conversion calling the existing quant helper after the raw upload, rather than
+duplicating coefficient/quant arithmetic in Rust. The source allocation must
+stay live until the conversion encoder submits/synchronizes, then be released;
+preflight must cover the expanded destination plus the raw conversion temporary.
+A cheap finite-metadata scan can retain raw decoding for special values.
+This would avoid the proposed standalone f16 cfg extension and CPU arithmetic
+duplication. Its new checked conversion boundary and cold-start cost still need
+tests and explicit estimates before production edits; C28 remains deferred.
+
+### C26 rejected and restored
+
+Objective9024 completed: medium prompt253.92 ->260.47 token/s (+2.5796%,
+CV .0026 ->.0029), TTFT4032.78 ->3931.32 ms (-2.5159%, CV .0029),
+model decode46.04 ->45.24 (-1.7376%, CV .0008), public43.14 ->42.37
+(-1.7849%, CV .0010). Counts1024/32/31 unchanged, wall19.57 s.
+Stable objective below3%: reject, no rerun or extra controls. Power-cap
+increment .554111 s, thermal0. Restore all four candidate production files to
+accepted C27, preserve private c26.patch and immutable evidence. No rejected
+C25/C26 production changes remain. Diagnostic73305 attributes the corrected
+layout before closing unchanged variants or selecting C28; do not infer a
+shared-bank counter result from the public improvement over C25.
+
+C26 diagnostic73305 completed with zero dropped records. Q4 shape ms C27->C26:
+K3072/N4096 276.452->328.802 (still loses); K3072/N1024 258.167->196.399;
+K4096/N3072 340.234->278.278; K9216/N3072 364.767->298.418.
+Unlike C25, three smaller-grid shapes now improve, saving190.072 ms combined;
+the4096-output shape loses52.350 ms. Ordinary wide Q4 946.971->964.582,
+Q6 total976.559->999.420 disclose diagnostic environmental/codegen variance;
+do not subtract it to manufacture a public gain. The fixed public objective
+remains rejected despite the successful exact layout correction.
+
+Fresh bounded C29 directly removes the measured losing grid: use C26 only for
+Q4/Q5 outputs<=3072 (at32 rows, grid<=96 blocks), preserving ordinary M16 for
+larger small grids and C22 M32 for large grids. This is selected from shape
+attribution before C29 performance, not a selective rerun of C26. Count it
+conservatively as a non-counting bounded re-evaluation. Counterfactual savings
+are near the threshold, not proof of a keep; run a complete objective A/B.
+No widening of the chosen cutoff after observing results.
+
+C28 remains deferred for its cross-layer capacity/transaction/cold-start gate;
+C29 is a ready isolated dispatch experiment using already-understood layout
+code. It is worthwhile even if the conservative global prediction is below5%,
+because the ideal owner ceiling exceeds5% and three measured shape wins provide
+new evidence absent in C25. Preserve every prior rejection and its own metric.

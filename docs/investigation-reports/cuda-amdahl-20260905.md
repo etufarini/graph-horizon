@@ -5,21 +5,20 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start and current retained runtime: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- State: running, baseline and correctness complete; timeline acquisition; no production changes.
-- Attempts: 0/10 minimum. No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C01 passed correctness and provisional medium objective; long control active.
+- Attempts: 1/10 reached correctness; C01 awaits performance classification. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: none.
 
-Recovery checkpoint: baseline tool session `6964` completed successfully; all
-three raw records and metadata are present. Correctness runner session `66222`
-completed local tests; separate parity session `89689` passed after correcting
-the private model link (details below). Collect one diagnostic
-32-token, zero-warmup, one-repetition trace for each regime using the copied
-baseline executable, `LD_PRELOAD` set to the absolute private `timeline.so`,
-stdout as a diagnostic benchmark record and stderr as private CSV. Use
-`analysis.py` to summarize it; reject dropped records and measure overhead
-against matching uninstrumented diagnostic rows if the baseline aggregates do
-not bound it. No production candidate has begun.
+Recovery checkpoint: baseline and all three `baseline-timeline` acquisitions
+completed. C01 changes only attention shader/dispatch and has not been accepted.
+Correctness session `65351` passed all local gates and pinned f16 parity. Session
+`84583` completed int8 parity, build/copy and the medium objective. Control
+session `82983` runs short then long; short is complete, long child process
+718767 is active. Inspect that same handle/process and private `c01-*` logs before
+recovery; do not rerun an active command. C01 must pass short and long controls before
+commit; restore its two production files if its gate fails. Baseline executable
+and all A records remain under the same campaign directory.
 
 ## Invariants and procedure
 
@@ -86,10 +85,12 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | ready, selected for implementation | Small: reuse existing parallel attention body; score reduction reorders |
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms | Short prompt throughput, decode control | deferred until C01 | Moderate; eliminate per-element format branching without new formats; exact gate required |
-| C04 | Make four batched accumulators statically indexed and unroll valid-token work; dominant batched matmul retains runtime inner bounds | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
+| C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
 | C05 | Warp-level score reduction for prefill attention; medium owns 2302.472 ms with block barriers at every context token | Long prompt throughput | deferred until long timeline | Moderate numeric risk; covers a different operation from historical matmul shuffle rejection |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
+| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
+| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -113,6 +114,8 @@ Phase-local fractions are recorded separately to evaluate the named objective.
 | C05 long | 0.2477 | 0.3357 prefill | 2 | 0.002 | 13.9% | 32.9% | 14.23 s | Per-context block barriers dominate this serial score schedule; check register pressure |
 | C06 short | 0.6515 | 0.9117 prefill | 1.25 | 0.003 | 14.6% | 187.0% | 0.65 s | High implementation uncertainty; no hardware-counter bandwidth claim |
 | C07 short | 0.0211 | 0.0358 decode | 8 | 0.0002 | 1.86% | 2.16% | 0.09 s | Not viable at this checkpoint; awaits measured bottleneck shift |
+| C08 short | 0.6515 | 0.9117 prefill | 1.1 | 0.0005 | 6.24% | 187.0% | 0.30 s | Attribution upper bound is all matmul; actual savings depend on generated code and synchronization share |
+| C09 short | 0.6515 upper bound | 0.9117 upper bound | 1.05 | 0 | 3.20% | 187.0% upper bound | 0.16 s predicted | Actual removable instruction/dependency share uncertain; cheap diagnostic candidate, not a predicted keep |
 
 C01 is selected by the largest credible whole-request effect,
 not by comparing token rates with milliseconds. Its local objective is model
@@ -170,7 +173,7 @@ correlation IDs and dropped-record checks following the current official
 [CUPTI activity documentation](https://docs.nvidia.com/cupti/main/main.html).
 GPU intervals are unioned; API time is not added to overlapping GPU time.
 
-Local correctness preflight passed; timeline acquisition is running.
+Local correctness preflight and all baseline timelines passed.
 No speedup or largest hotspot is yet claimed.
 RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS, CUDA_VISIBLE_DEVICES, CUDA_LAUNCH_BLOCKING,
 OMP_NUM_THREADS and RAYON_NUM_THREADS were unset. Short and medium pre/post
@@ -232,3 +235,60 @@ changing cache traffic, layout, allocations, or inter-token softmax order.
 No replaying hardware-counter profile was needed to establish this limiter.
 Long's C01 full-request fraction is 0.2463 (phase fraction 0.9394), so medium
 remains the largest conservative whole-request gain at the chosen local s=5.
+
+### C01 in progress
+
+Implemented one block per query head for decode and reused the existing prefill
+attention body. Removed the now-unused serial duplicate; net production change
+is 16 insertions / 47 deletions. Conceptual complexity decreases: both phases
+share the same ownership and math. No ABI, KV layout, allocation, or interface
+change. Correctness: formatting, CUDA workspace check, CPU workspace, 11 selected
+error-matrix tests, all 33 CUDA tests including the declared long-history bound,
+and pinned f16 parity passed before any candidate performance. All 16 local
+top-1 IDs match the fixed oracle. Also run int8 real-model parity before A/B
+because the same body serves both supported cache formats. Candidate is not yet
+accepted and must not be committed as a retained optimization.
+
+While C01 ran, inspected current matmul PTX: format comparisons occur inside
+the K loop, confirming C03's premise. The compiler already scalarizes all four
+accumulators, so C04 is narrowed to the still-present per-step full-tile bounds
+(four compare/branch pairs); it must not claim a register-array improvement.
+Runtime block-width/reduction bounds and repeated two-byte half reconstruction
+support new C08 and C09 respectively. These are queued, not counted attempts.
+Their broad matmul fractions are ownership upper bounds; instruction-cost
+uncertainty lowers ranking and must be resolved by isolated measured experiments.
+
+C01's extra pinned int8 real-model parity passed, again with all 16 top-1 IDs
+equal to the oracle. The candidate fast build completed and is preserved as
+`target/cuda-amdahl-20260905/c01-bench`. Objective and first control results:
+
+| C01 regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Medium objective | 54.81 (0.0004) | 18682.26 (0.0004) | 11.60 (0.0002) | 10.88 (0.0002) | 86.66 |
+| Short control | 61.66 (0.0020) | 2075.90 (0.0020) | 16.31 (0.0018) | 15.82 (0.0016) | 17.13 |
+| Long control | pending | pending | pending | pending | running |
+
+Medium model decode improves 269.43%, public-delta throughput 270.07%; prompt
+throughput improves 0.04% and TTFT falls 0.05%. Short model decode improves
+58.20%, prompt throughput 2.09% and TTFT falls 2.06%. Both rows preserve the
+baseline completion/delta counts and pass the predeclared gates so far. No
+stability rerun applies. Medium has zero thermal-slowdown increment and about
+0.894 s of software power-cap counter increase over 86.66 s at unchanged stock
+settings; classify this as brief power-limited operation, not an unthrottled
+record. The effect and controls must still hold across the complete tuple.
+
+```sh
+python3 target/cuda-amdahl-20260905/run.py gate c01
+# Additional canonical parity command: same f16 command with --kv int8.
+cargo build --locked --profile fast --no-default-features --features cuda --example bench
+cp target/fast/examples/bench target/cuda-amdahl-20260905/c01-bench
+python3 target/cuda-amdahl-20260905/run.py bench c01 target/cuda-amdahl-20260905/c01-bench medium
+python3 target/cuda-amdahl-20260905/compare.py baseline c01 medium model_decode_tps medium
+python3 target/cuda-amdahl-20260905/run.py bench c01 target/cuda-amdahl-20260905/c01-bench short long
+```
+
+After long finishes, compare all three rows, inspect telemetry and elapsed time,
+and either retain C01 in one production+evidence commit or restore only its two
+production files. Then update its pool state, refresh current phase fractions
+with short/medium/long timeline as affected, and rerank. No next production
+candidate may be mixed into C01 before that decision.

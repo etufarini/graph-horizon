@@ -32,7 +32,9 @@ pub(crate) fn encode(
     let total = u64::from(rows)
         .checked_mul(u64::from(q_heads))
         .ok_or_else(super::super::arithmetic)?;
-    let groups = u32::try_from(total).map_err(|_| super::super::arithmetic())?;
-    // Match decode's four-warp context tile and bounded output ownership.
+    let groups = u32::try_from(total)
+        .map_err(|_| super::super::arithmetic())?
+        .div_ceil(4);
+    // Four independent query-head warps per block, including a whole-warp tail.
     dispatch::launch(encoder, module, kernel, &args, (groups, 1, 1), (128, 1, 1))
 }

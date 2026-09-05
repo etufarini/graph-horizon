@@ -169,6 +169,87 @@ __device__ void cuda_attention_buffered(
     }
 }
 
+template <bool INT8>
+__device__ void cuda_attention_prefill_warp(
+    const __half *query, const unsigned char *k_cache, const unsigned char *v_cache,
+    __half *out, uint32_t dim, uint32_t kv_heads, uint32_t q_heads,
+    uint32_t base, uint32_t rows, uint32_t layer, uint32_t context,
+    uint64_t k_metadata, uint64_t v_metadata) {
+    // One independent warp owns a query head; no block barrier may couple different rows.
+    const uint64_t id = uint64_t(blockIdx.x) * 4 + threadIdx.x / 32;
+    if (id >= uint64_t(rows) * q_heads) return;
+    const uint32_t lane = threadIdx.x % 32;
+    const uint32_t position = base + uint32_t(id / q_heads);
+    const uint32_t kv_head = uint32_t(id % q_heads) / (q_heads / kv_heads);
+    const uint64_t q_base = id * dim;
+    const float scale = rsqrtf(float(dim));
+    float accumulator[8] = {};
+    float maximum = -CUDART_INF_F, denominator = 0.0f;
+    for (uint32_t tile = 0; tile <= position / 4; ++tile) {
+        const uint32_t token = tile * 4 + lane / 8;
+        const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
+        float partial[4] = {};
+        if (token <= position) {
+            for (uint32_t i = lane % 8; i < dim; i += 32) {
+                for (uint32_t leaf = 0; leaf < 4; ++leaf) {
+                    const uint32_t d = i + leaf * 8;
+                    if (d < dim) partial[leaf] += __half2float(query[q_base + d])
+                        * cuda_cache_value<INT8>(k_cache, vector * dim + d, k_metadata, vector);
+                }
+            }
+        }
+        // Preserve the original 32-leaf tree: levels16/8 locally, then4/2/1 in eight lanes.
+        float sum = (partial[0] + partial[2]) + (partial[1] + partial[3]);
+        for (uint32_t stride = 4; stride > 0; stride /= 2) {
+            const float other = __shfl_down_sync(0xffffffff, sum, stride, 8);
+            if (lane % 8 < stride) sum += other;
+        }
+        const float score = token <= position ? sum * scale : -CUDART_INF_F;
+        float weights[4];
+        for (uint32_t offset = 0; offset < 4; ++offset) {
+            weights[offset] = __shfl_sync(0xffffffff, score, offset * 8);
+        }
+        float previous = 0.0f;
+        if (lane == 0) {
+            float next_maximum = maximum;
+            for (uint32_t offset = 0; offset < 4; ++offset) {
+                next_maximum = fmaxf(next_maximum, weights[offset]);
+            }
+            previous = expf(maximum - next_maximum);
+            float next_denominator = denominator * previous;
+            // Reuse score slots only after fixing the maximum for all four tokens.
+            for (uint32_t offset = 0; offset < 4; ++offset) {
+                weights[offset] = expf(weights[offset] - next_maximum);
+                next_denominator += weights[offset];
+            }
+            denominator = next_denominator;
+            maximum = next_maximum;
+        }
+        previous = __shfl_sync(0xffffffff, previous, 0);
+        for (uint32_t offset = 0; offset < 4; ++offset) {
+            weights[offset] = __shfl_sync(0xffffffff, weights[offset], 0);
+        }
+        for (uint32_t part = 0; part < 8; ++part) {
+            const uint32_t i = lane + part * 32;
+            if (i < dim) {
+                float value = accumulator[part] * previous;
+                for (uint32_t offset = 0; offset < 4 && tile * 4 + offset <= position; ++offset) {
+                    const uint64_t v_vector =
+                        (uint64_t(layer) * context + tile * 4 + offset) * kv_heads + kv_head;
+                    value += weights[offset] * cuda_cache_value<INT8>(
+                        v_cache, v_vector * dim + i, v_metadata, v_vector);
+                }
+                accumulator[part] = value;
+            }
+        }
+    }
+    denominator = __shfl_sync(0xffffffff, denominator, 0);
+    for (uint32_t part = 0; part < 8; ++part) {
+        const uint32_t i = lane + part * 32;
+        if (i < dim) out[q_base + i] = __float2half_rn(accumulator[part] / denominator);
+    }
+}
+
 extern "C" __global__ void cuda_attention_decode_f16(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
@@ -187,7 +268,7 @@ extern "C" __global__ void cuda_attention_prefill_f16(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
     uint32_t layer, uint32_t context) {
-    cuda_attention_online<false>(
+    cuda_attention_prefill_warp<false>(
         q, k, v, out, dim, kvh, qh, base, rows, layer, context, 0, 0);
 }
 
@@ -195,6 +276,6 @@ extern "C" __global__ void cuda_attention_prefill_int8(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
     uint32_t layer, uint32_t context, uint64_t kmeta, uint64_t vmeta) {
-    cuda_attention_online<true>(
+    cuda_attention_prefill_warp<true>(
         q, k, v, out, dim, kvh, qh, base, rows, layer, context, kmeta, vmeta);
 }

@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C23 rejected/restored; diagnostic profile and fresh discovery next. Not complete.
-- Attempts: 19 distinct (minimum 10): 12 kept, 6 rejected (C06/C08/C13/C18/C20/C23), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained runtime commits 14, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C24 kept above S01 `6d37587` and C22; all correctness and three public rows passed. Refreshing C24 profiles; C25 deferred. Not complete.
+- Attempts: 20 distinct reached correctness (minimum 10): 13 kept, 6 rejected (C06/C08/C13/C18/C20/C23), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained optimization commits15 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation).
 
@@ -127,7 +127,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +20.095% |
 | C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | kept, non-counting bounded re-evaluation | Exact/canonical/extra parity and all controls pass; objective +7.240% |
 | C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -14.059%, TTFT +16.358% |
-| C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | ready after S01 correctness prerequisite | Removes all block barriers and C23's duplicated coefficients; preserve logical reduction leaves |
+| C24 | Give each prefill query head one independent warp, packing four exact score trees into eight-lane subgroups | Long prompt throughput | kept | Exact gates pass; long prompt +13.665%, all controls within 5% |
 | C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | deferred after C24 | Exact correction order can remain; larger shared footprint needs isolated entries and resource/gate design |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -2306,3 +2306,129 @@ the fixed canonical prompt exactly; the immutable `s01-bench` was built from
 that canonical source, with no print instrumentation. S01 removes implicit
 shape-based ABI selection; test-only arity checking protects the unsafe boundary
 without adding runtime work. Capture the three-row public baseline before C24.
+
+S01 committed separately as `6d37587` (correctness support, not an optimization
+attempt/keep). Public baseline session11030 completed, one warm-up and three
+measured repetitions with unchanged token/delta counts. Means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 290.32 [.0016] | 440.89 [.0016] | 40.82 [.0026] | 39.51 [.0023] | 5.89 |
+| medium | 246.10 [.0025] | 4160.96 [.0025] | 33.98 [.0034] | 31.85 [.0032] | 21.26 |
+| long | 165.46 [.0001] | 21660.89 [.0001] | 22.96 [.0004] | 21.52 [.0006] | 93.00 |
+
+These are the next A/B baseline, not a claimed S01 speedup. Source reasoning
+shows identical scalar vectors on the fixed32-row performance batches; the
+corrected one-row path is covered separately by the129-token oracle. Refresh
+the three diagnostic timelines before C24, preserving the same campaign/pool.
+
+S01 stock power-cap increments short .813473 s, medium0, long0; thermal counters
+remain0. Diagnostic session70479 completed, zero dropped records. Prefill/decode
+ms short445.260/798.015, medium4171.709/947.805, long21574.094/1395.962.
+C24 attention owners11.901/727.154/9510.303 ms yield p .009573/.142036/.414030,
+s=1.3, o=.005: predicted -.278/2.857/9.956%, ideal .967/16.555/70.657%, saved
+-3.47/142.21/2079.84 ms. The long prompt objective remains selected before code.
+
+### C24 implementation boundary
+
+Existing `shaders/attention.cuh` (~305 productive category-K lines) gains one
+cohesive warp-owned prefill helper; existing `kernels/attention/prefill.rs`
+(~50 productive orchestration lines) launches ceil(rows*q_heads/4) blocks,
+128 threads each. Keep the fixed ABI and S01 explicit rows argument. Existing
+prefill entry names call the new helper; decode and its online fallback remain
+unchanged and do not reference it. No new file, dependency, public API or cache
+layout. A separate numeric helper is beneficial here to preserve decode's
+different parallelism/resource contract, not a generic scheduling abstraction.
+
+Within each warp, subgroup lane0..7 owns logical leaves i/i+8/i+16/i+24 for one
+of four context tokens. Accumulate each leaf in its old stride32 order, combine
+(leaf0+leaf16)+(leaf8+leaf24), then subgroup4/2/1 shuffles. Only after the
+four raw scores are available may their register slots become weights. Lane0
+computes the unchanged maximum/denominator/weight sequence once per query head;
+all lanes receive coefficients before V updates. Each output dimension keeps
+the original four-token accumulation order. Whole-warp tail returns are legal
+because no shared storage or block barrier exists. Use64-bit query IDs/product
+bounds in the shader, keeping the checked host u32 launch conversion.
+
+Freeze40 current S01 attention vectors before editing, require exact candidate
+identity plus all scalar/tiny/one-row tests. Also replay both predeclared frozen
+model fixtures (130 tokens and129 one-row-tail tokens), f16/int8, with exact
+local IDs and unchanged top-two criterion. Restore fixtures before canonical
+gates and performance. Long prompt keep>=5%, CV<=5%, TTFT/model/public decode
+and both other regimes remain controls; two-hour cap, no changed workload.
+
+C24 baseline session77060 captured all40 vectors successfully on S01; no numeric
+production change preceded it. Current C25 ownership was separately mapped from
+the authenticated tensor sequence, retaining it below C24 in the queue.
+
+C25 current Q4 prefill owners273.238/2187.046/7646.772 ms give whole-request
+p .219773/.427198/.332902. With conservative s=1.1, o=.005, predicted
+1.521/3.502/2.592%, ideal28.168/74.580/49.903%, saved18.62/173.22/580.31 ms.
+This is medium-first and below C24; estimated cost45–60 minutes with high shared
+resource uncertainty. Exact107 matrix vectors and both frozen model fixtures
+will be required. The doubled shared footprint is not treated as free.
+
+C24 exact session70580 passed all40 S01 vectors, empty diff, plus the updated
+tiny/one-row test. Static resource check: prefill f16 uses48 registers, int8 uses
+80, both zero shared/stack/spill bytes; decode remains40 registers/16936 shared
+bytes with zero spills. No claim of achieved occupancy. Temporary vector prints
+removed; run frozen130-token then129-token f16/int8 gates before canonical tests.
+
+C24 frozen130-token session17265 passed both KV schemes with identical local
+IDs. The private replay now additionally accepts only the explicitly named
+`one-row` fixture (129 IDs from S01), leaving the original130-token fixture and
+its strict count unchanged. Run it under a separate label after changing only
+the temporary fixed prompt; never regenerate either frozen oracle.
+
+C24 one-row replay session29837 passed both KV schemes with exact frozen129-token
+local IDs. Restored the canonical prompt. The installed Compute Sanitizer is
+available: before performance, additionally run memcheck and synccheck on the
+focused long/tail test, using `--error-exitcode 99`. Consult installed `--help`
+and [official documentation](https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html).
+These are diagnostic correctness runs, never performance records; no tool
+installation, replay timing comparison or machine-setting change is involved.
+
+C24 canonical session49465 passed all gates and both canonical KV parity rows,
+original16 IDs intact; fast build53539 completed. Generated prefill PTX has zero
+block-barrier sites. Run the two sanitizer tools serially on the exact focused
+test binary `target/debug/deps/graph_horizon_engine-b116abb1c981e6b9`, full test
+name `backend::cuda::kernels::tests::attention_long_history_and_dimension_tails_match_reference`
+with `--exact --nocapture --test-threads=1`; logs `c24-memcheck.log` and
+`c24-synccheck.log`. No performance acquisition until these checks finish.
+
+Sanitizer session94421 completed: memcheck and synccheck each run the selected
+test successfully and report **0 errors** (test wall1.61/.71 s, diagnostic only).
+C24 now passes all predeclared exact, bounded, canonical, frozen-model and
+memory/synchronization gates. Production +87/-4 across the two declared files;
+tests/parity source match S01 exactly. Acquire `run.py bench c24 .../c24-bench
+long`, then `compare.py s01 c24 long prompt_tps long`. Both other regimes remain
+mandatory controls before keep; no candidate performance preceded correctness.
+
+C24 long objective session32050 passes provisionally: prompt165.46 ->188.07
+(+13.6649%, candidate CV rounded .0000), TTFT21660.89 ->19056.70 ms (-12.0225%,
+CV rounded .0000), model decode22.96 ->22.98 (+.0871%, CV .04%), public
+21.52 ->21.54 (+.0929%, CV .06%). Counts3584/32/31 unchanged; wall82.73 s.
+No rerun warranted. Run short and medium controls against S01 before retention;
+rounding of CV is not zero uncertainty.
+
+C24 controls session30395 completed successfully. Means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 289.00 [.0032] | 442.91 [.0032] | 40.29 [.0019] | 39.02 [.0019] | 5.94 |
+| medium | 254.53 [.0003] | 4023.04 [.0003] | 33.76 [.0011] | 31.63 [.0008] | 20.72 |
+| long | 188.07 [.0000 rounded] | 19056.70 [.0000 rounded] | 22.98 [.0004] | 21.54 [.0006] | 82.73 |
+
+Versus S01, medium prompt +3.4254%; short prompt -.4547%, TTFT +.4582%,
+model decode -1.2984%, public -1.2402%. Every control passes the predeclared
+5% regression limit; long TTFT standard deviation .13 ms, not zero uncertainty.
+Stock power-cap increments short .913940 s, medium0, long .277578 s; thermal0.
+No selective rerun. Counts stay128/32/32,1024/32/31,3584/32/31. Keep C24.
+Its separate numeric helper increases source size but protects distinct prefill
+and decode resource contracts; it removes shared ownership and block barriers
+from prefill without changing the fixed score arithmetic.
+
+Diagnostic launch initially used the occupied public label `c24`; exclusive
+log creation rejected it before inference and preserved every public artifact.
+Corrected diagnostic label to `c24-timeline`, session59440, same immutable
+binary and tuple. Refresh all three rows before reranking C25.

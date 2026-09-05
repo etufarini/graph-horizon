@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-06 rejected and restored; preparing CPU25-03 transient Q4 weight reuse.
+- State: CPU25-03 correctness passed; medium prompt objective A/B running in session `66505`.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 5 / 3 / 2 / 0 / 2.
+- Current attempts / kept / rejected / not_verified / closed-untried: 6 / 3 / 2 / 0 / 2 (one attempt pending A/B).
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -1422,3 +1422,27 @@ test with odd/even token tails and guarded input/output/weight windows. Then
 CPU workspace tests/check, warning-denied Clippy, format/diff checks and pinned
 F16 parity with full initial-log identity, all before A/B. On provisional
 medium success run both other controls; otherwise restore, no selective repeat.
+
+CPU25-03 focused Q4 session `12625` passed, including the direct exact-f32
+guarded-window comparison and existing full-path exact FP16 batch/tail tests.
+Realized productive upper counts are 384/412 in q4k/q4k_simd, within declared
+385/425. Full workspace/check/Clippy/parity/build sequence is now running;
+no performance measurement has started. The production candidate remains
+isolated from the rejected pool experiment and all profiler instrumentation.
+
+CPU25-03 full gate session `5940` completed successfully: 170 root/167 engine
+tests plus the unchanged integration groups passed, CPU check and warning-denied
+Clippy passed, and pinned real-model F16 parity's full log is byte-identical to
+the initial baseline. Formatting/diff checks pass. Private artifacts
+`cpu25-03.patch` and `cpu25-03-bench` preserve this isolated sixth attempt.
+
+At 03:40:20+02:00, session `66505`, runner PID `346915`, began fresh A then B:
+
+```text
+screen.sh cpu25-05-bench cpu25-03-a 32 1 3 medium
+screen.sh cpu25-03-bench cpu25-03-b 32 1 3 medium
+awk -f compare.awk cpu25-03-a-medium.out cpu25-03-b-medium.out
+```
+
+Deadline 05:40:20+02:00. Resume the same session. No stability rerun or
+short/long control has started. Telemetry is saved in `cpu25-03-telemetry.log`.

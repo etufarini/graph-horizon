@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `7682cd2` (C16), building on `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C12 kept after all controls; refreshed profiles next.
+- Current retained runtime: `eebe52a` (C12), building on `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C12 profiles complete; C18 selected, exact baseline snapshot running.
 - Attempts: 12 reached correctness (minimum 10); kept 8, code rejected/restored 4 (C06/C08/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -118,7 +118,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
-| C17 | Re-evaluate exact argmax only if C12's retained decode reduction materially raises its removable fraction | Short model decode | deferred until C12 decision/profile | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
+| C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | ready | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | ready, awaiting current C12 comparison | PTX executes discarded coefficient loads/conversions; exact gate required |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -1416,3 +1416,36 @@ and necessary to make one packed-block address own both contributions; no new
 abstraction, interface, dependency, format or resource ownership. Production
 one shader +20/-2. C12 is kept in this commit; refresh affected timelines and
 recompute fractions before selecting C18/C17/C09/C15.
+
+Refreshed `c12-timeline` completed in `29045`, zero dropped records. Short
+prefill/decode 768.673/1157.970 ms; decode matmul 861.412 versus C16 1167.725,
+logits 92.126 versus 146.607. Registers 40 versus 28, no local storage. Despite
+more registers, shared metadata/address reuse produces a material kernel gain;
+do not infer occupancy or bandwidth saturation from timing alone. Long
+prefill/decode 30746.261/2302.753 ms; tensor 20244.451 ms and prefill attention
+9512.112 ms remain unchanged within diagnostic variability.
+
+Current ranking from these profiles:
+
+| ID | Whole-request p | s | o | Predicted gain | Ideal gain | Saved ms | State |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C18 long | .612558 | 1.2 | .001 | 11.246% | 158.103% | 3341.03 | selected |
+| C17 short | .057774 | 8 | .0002 | 5.302% | 6.132% | 97.01 | ready, non-counting re-evaluation |
+| C09 short | .868774 | 1.02 | 0 | 1.733% | 662.042% | 32.82 | ready |
+| C15 long | .035945 | 1.8 | .0005 | 1.572% | 3.729% | 511.45 | ready |
+
+C17 now has a changed premise: decode argmax remains 107.926 ms while decode
+falls from 1517.904 to 1157.970 ms; owner rises from 7.06% to 9.32%, ideal
+phase gain 10.28%. Its original implementation may therefore be re-evaluated,
+but the campaign's distinct-mechanism count will not increase for it.
+
+### C18 exact baseline
+
+Temporary prints snapshot all 39 tensor cases on accepted C12 using
+`cargo test -p graph_horizon_engine --locked --no-default-features --features
+cuda packed_prefill_tiles_match_reference_and_preserve_weight_range --
+--nocapture --test-threads=1`, output `c18-tensor-baseline.log`, session `48860`.
+The unchanged 26 SIMT snapshots remain the original frozen baseline (C12 exact
+gate already matched them). Only test instrumentation is present at this stage.
+After this baseline passes, implement the predeclared owner-lane guard in
+`quant.cuh`; select long prompt against C12 with all predeclared gates/controls.

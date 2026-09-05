@@ -5,7 +5,7 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
+- Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
 - State: CPU25-05 kept after complete correctness, long objective and both controls; refreshing attribution before the next candidate.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
@@ -1223,3 +1223,19 @@ Next refresh unprofiled/profiled short, medium and long rows with one repetition
 and no warm-up, solely for attribution and instrumentation-overhead disclosure.
 Then rerank CPU25-03/06/08 and unresolved locality, VNNI and backing mechanisms;
 none is closed by this attention result. Four attempts are not completion.
+
+CPU25-05 retained commit is `998b189d6f68947e19ef99c757e57406f98f1522`.
+On its verified clean production tree, reapplied the previously declared basic
+backend-boundary profiler (same private `profile.patch`, not the faulty nested
+RoPE timer). Build session `26884` completed successfully and saved
+`cpu25-05-profile-bench`. At 03:23:13+02:00, session `52316` began:
+
+```text
+screen.sh cpu25-05-bench retained3-base 32 0 1
+screen.sh cpu25-05-profile-bench retained3-profile 32 0 1
+```
+
+Each command covers all three regimes serially. These one-repetition rows are
+diagnostics without a CV and do not replace accepted canonical A/B evidence.
+Resume this session; no duplicate benchmark, correctness run or compile should
+overlap it. Temporary profiler files must be restored before the next candidate.

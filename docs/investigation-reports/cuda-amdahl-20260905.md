@@ -3181,3 +3181,25 @@ objective CV and does not authorize selective repeats. Temporary example timer
 removed exactly; preserve its immutable baseline executable and raw logs.
 The public C30 tuple remains the max32 benchmark already recorded, not these
 max2 diagnostic rates. C28 production follows this checkpoint.
+
+Pre-production inspection finds one additional in-scope invariant: public
+`Engine::memory()` currently uses the family's original representation estimate,
+so enabling a cache without updating that immutable summary would underreport
+weights. Preserve its API and32-byte per-tensor accounting convention. Compute
+the CUDA summary from the retained immutable WeightSet spans, counting tied
+embedding once, with checked alignment/sums. This is representation accounting,
+not live allocator telemetry. The family homogeneous summary will accept its
+already-loaded selected backend and use this value only under standalone CUDA;
+every other backend and hybrid accounting stays unchanged. Move the existing
+homogeneous call after backend load, adding only its backend argument.
+
+Additional existing files: cuda/mod.rs (~170 productive orchestration lines)
+owns the backend-local immutable byte summary; family/mistral/memory.rs (~125)
+selects it; family/mistral/mod.rs stays<=200 productive lines excluding its
+test-only imports/modules, with no extra responsibility. Add aligned/tied
+summary coverage and record the selected weight bytes in the temporary startup
+diagnostic for A/B. No public field/signature, placement or external effect.
+Startup baseline mean752.568064ms, sample SD109.381943ms,CV .145344918;
+the high startup dispersion is disclosed separately and does not trigger the
+steady-state objective rerun rule. Engine::new synchronously calls family::load,
+confirmed in api/engine.rs; timer placement measures actual initialization.

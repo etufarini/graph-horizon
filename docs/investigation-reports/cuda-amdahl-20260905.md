@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `483ea2a` (C37), above `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and the earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C37 accepted and all profiles refreshed. C38 passes exact/frozen/canonical gates, isolation and sanitizers pending; no public performance yet. C39 deferred. Not complete.
-- Attempts: 27 distinct reached correctness (minimum 10): 15 kept, 10 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33), 1 interesting/restored (C07), 1 pending (C38); plus 9 non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36). Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C37 accepted and all profiles refreshed. C38 rejected and restored; C39 passes exact equality, real-model and canonical gates pending. Not complete.
+- Attempts: 27 distinct reached correctness (minimum 10): 15 kept, 11 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38), 1 interesting/restored (C07); plus 9 terminal non-counting re-evaluations: 7 kept (C17/C22/C27/C29/C32/C34/C37), 2 rejected (C35/C36), and pending C39. Total retained optimization commits22 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -142,7 +142,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-11.540%; K16 alone does not recover the direct path; non-counting |
 | C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; commit483ea2a; non-counting C33 re-evaluation |
 | C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | rejected, restored | All gates pass; medium prompt-5.107%, TTFT+5.384%; saved patch and diagnostics |
-| C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | ready | C34 bounded reuse extension; s1.4,o.002 predict6.057%; exact output gate |
+| C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | rejected, restored | Exact/all gates pass, prompt-6.778%, TTFT+7.269%; keep eight-query C37 |
+| C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | ready | Remove concrete strided shared accesses; preserve eight queries and all arithmetic; exact gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4099,3 +4100,64 @@ other metrics controls, unchanged >=5%/CV<=5%/regression<=5% and two-hour limit.
 Exact gate, frozen129/130/549 both KV, canonical/CPU/error, int8 and hybrid
 isolation, attention memcheck/synccheck all precede public performance. Keep
 only after both control regimes pass; refresh affected profiles if retained.
+
+C39 boundary46487 passes2.95s on C37; permanent tests committed867d99e.
+Exact baseline92877 passes3.09s and candidate5803 passes4.00s, all36 complete
+output records byte-identical. Temporary logging removed. Start frozen549 and
+fast build; only the two declared production files change, no public performance
+yet. C39 remains non-counting and unaccepted.
+
+C39 frozen54917945,13080791,12946113 pass both KV and unchanged local IDs.
+Fast57535 and hybrid check35857 pass. Tensor-attention resources48 registers,
+13504 shared bytes, zero spills. Canonical prompt restored; start full canonical,
+serial isolation, then attention-only memcheck/synccheck with error-exitcode99.
+No public performance yet; only declared attention shader/dispatch changes.
+
+C39 serial66495 passes fmt, CUDA check, CPU9.27s,11error_matrix1.19s,
+all43 CUDA tests103.09s, canonical f16 parity13.73s, standalone-int8 11.75s,
+hybrid-f16 21.97s and hybrid-int8 15.65s. Attention memcheck8.12s and
+synccheck3.67s pass all4 tests with zero errors. Start long public objective
+against C37 only after all gates; no source hooks remain.
+
+### C39 rejected and restored; C40 score orientation
+
+C39 objective8907 long: prompt308.08[CV.0020], TTFT11633.20[.0020], model
+decode44.12[.0040], public41.33[.0040], process50.49s, counts3584/32/31.
+Against C37 prompt-6.778020%, TTFT+7.268657%, model-1.142729%, public-1.148051%.
+Reject objective and TTFT control; no rerun (CV passes) or other public rows.
+Stock power-cap increment1.056705s, thermal zero. Both production files restored
+exactly to C37, saved c39.patch/binary/PTX/SASS, permanent boundary tests retained.
+
+Diagnostic11953 zero dropped: prefill11670.824249ms/gaps189.087661,
+decode728.831134ms. Tensor attention3079.651049 versus C37 2388.752452ms,
+so the added query reuse worsens its own owner by690.898597ms. Launch count
+2496 is unchanged; each launch's grid halves, not the number of launches. The
+larger per-thread PV state and fewer independent blocks are risks, not measured
+occupancy explanations. This result closes unchanged sixteen-query expansion.
+
+Fresh source inspection identifies a separate score-layout cost already in C37:
+softmax lane q reads/writes scores[q*16+offset], so logical scalar accesses use
+only two of32 shared banks. Eight queries request four distinct words per bank;
+sixteen request eight. Storing the SAME WMMA result column-major and indexing
+scores[offset*16+q] spreads those query lanes across distinct banks. PV still
+broadcasts one score word per query/offset and preserves every accumulation.
+The compiled code also vectorizes some shared accesses; scalar address counting
+is not an achieved conflict/stall counter, and losing per-lane vectorization
+is a concrete risk. C40 tests orientation alone on accepted eight-query C37,
+not C39 plus a second variable. No claim that this explains all of C39's loss.
+
+Structure before edit: only backend/cuda/shaders/attention.cuh (~455 productive
+lines, category K); change WMMA store orientation and every score index together.
+No new file/helper/dispatch/ABI/allocation, four barriers and F16/f32 arithmetic
+unchanged. Shared score logical mapping is the invariant; main risk is an
+incomplete transpose or compiler memory-instruction tradeoff. Reuse immutable
+c39-exact-baseline36 records from C37 plus committed867d99e boundary cases;
+require identical output bits, remove logging, then all frozen129/130/549 both
+KV, canonical/CPU/error, int8/hybrid isolation, attention memcheck/synccheck.
+
+Same C37 owner/T/p and ideal ceilings as C39. Net local s1.25,o.002 predict
+short/medium/long -.199601/.727460/4.099419%, savings-1.718571/23.465602/
+454.659513ms. Long wins; prediction below5% does not close a bounded mechanism
+with26.087378% ideal owner ceiling and material layout uncertainty. Public
+retention still >=5%, objective CV<=5%, every control regression<=5%, same
+two-hour comparison limit. Count C40 only after correctness, no new attempt yet.

@@ -5,7 +5,7 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `fe83feb` (C43), above `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
+- Current retained runtime: `9c18395` (C44), above `fe83feb` (C43), `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
 - State: running, C44 accepted after all gates and controls; all three profiles refreshed. Fresh discovery/closure audit and final handoff remain. Not complete.
 - Attempts: 30 distinct reached correctness (minimum 10): 16 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 12 terminal non-counting re-evaluations: 8 kept (C17/C22/C27/C29/C32/C34/C37/C43), 4 rejected (C35/C36/C39/C41). Total retained optimization commits24 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
@@ -148,6 +148,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
 | C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
 | C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | kept | Objective+24.856%, every control within5%, exact frozen IDs and whole-model sanitizers pass; hybrid remains32/4 |
+| C45 | Extend C44 graph batching64→128 after measured underfilled-grid improvement | Medium prompt throughput | ready | Non-counting C44 extension; unchanged kernel tiles, additional6.5MiB checked scratch |
+| C46 | Override existing batched-RoPE trait operation with CUDA row-batched launches | Short prompt throughput | deferred | Fresh RoPE owner5.334% of prefill, ideal5.635%; rerank after C45, preserve host-computed YaRN bucket scale |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4577,3 +4579,49 @@ projections, Q41366.587998ms and Q6353.589326ms; helper required no change
 because it derives batch count and checks the unchanged X-grid geometry.
 Kernel launch count is halved for batched graph operations, not for per-row RoPE.
 Continue fresh discovery using these profiles; C44 is retained optimization24.
+
+### Fresh discovery: C45 selected, C46 deferred
+
+C44 accepted9c18395, clean worktree. No new hardware product name occurs in the
+changed documentation. Larger batching reduced medium tensor cost2112.073731→
+1720.177324ms, with Q6 small-grid work now75.381604ms and large278.207722ms.
+The smallest N1024 M16 grids still contain only64 blocks (X16,Y4) per64-row
+batch. C45 supplies128 blocks by raising standalone capacity64→128, keeping
+all shader tiles fixed; it is a non-counting extension of the successful C44
+premise, not a new distinct attempt. Medium is objective against C44 public
+459.22t/s; short/long and every other metric remain controls.
+
+Pre-edit tree unchanged: cuda/mod.rs (~135 productive orchestration lines), one
+constant only; existing budget tests dynamically use it. No new file, helper,
+dependency or public API. Scratch adds64*106496=6815744 bytes (6.5MiB) relative
+to C44, checked by the same preflight. Hybrid32/4, context4096, weights, KV,
+placement and math stay fixed. Cancellation granularity increases to128 rows.
+Frozen129/130 now128+1/2;549 now4*128+37. Require all three frozen fixtures in
+both KV with unchanged local IDs, canonical CPU/error/CUDA/parity and int8/
+mixed-hybrid gates, exact-fit/overflow tests, both final PTX byte-identical to
+C44/C43, and whole-model frozen549 memcheck/synccheck both KV. No gates or
+thresholds relaxed after C44. Cost~30min observed whole-model sanitizer cycle;
+the baseline12:46–12:48UTC leaves ample time within the two-hour comparison.
+
+C45 conservative Amdahl uses tensor owner and prefill+decode denominator,
+s1.1 and o.004 (increased scratch/scheduling uncertainty):
+
+| Regime | T ms | Owner ms | p | Predicted gain % | Ideal ceiling % | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| short | 823.812062 | 218.478354 | .265204121 | 2.052216 | 36.092217 | 16.566420 |
+| medium | 2831.560764 | 1720.177324 | .607501469 | 5.399335 | 154.778024 | 145.053514 |
+| long | 10139.864529 | 6018.810163 | .593578952 | 5.258917 | 146.050249 | 506.605102 |
+
+C46 is a separate newly material mechanism, deferred until C45 reranking.
+CUDA inherits contract::rope_yarn_batched's per-row loop despite an existing
+override point; profiles count6656/53248/186368 RoPE launches. Their prefill
+costs13.622259/109.490877/382.320096ms have fractions.053343486/.048758347/
+.040427294, ideal prompt ceilings5.634936/5.125758/4.213052%. With bounded
+launch amortization s8,o.001, predicted4.786166/4.347487/3.559751%; this is
+not closed merely for predicting below5%. No host gaps counted as removable.
+Potential implementation extends only the internal CUDA dispatch and existing
+trait override; row/head pair math stays independent. Host post_scale depends
+on integer original-context buckets, so split batches at bucket boundaries and
+retain the existing CPU-computed scale rather than changing its math to GPU
+logarithms. Preserve decode's one-row path and explicit range/alias checks;
+final structure/gates are required before selecting it. No C46 code yet.

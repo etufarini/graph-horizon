@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-12 rejected on startup control and restored; CPU25-10 remains the only non-terminal pool entry.
+- State: CPU25-10 extra output baseline captured; implementing the declared native integer candidate. CPU25-13 remains deferred.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected-code / not_verified / closed-untried: 9 / 3 / 6 / 0 / 2. Rejected-code includes five canonical rejects and one canonical interesting result.
 
@@ -1939,3 +1939,10 @@ calibrated 1024-token benchmark history. Capture that baseline first; any
 difference rejects the candidate without changing the gate. This bounded extra
 check is not a universal model-quality claim. Then workspace/check/Clippy,
 minimum-Rust CPU check, format/diff and the prescribed performance controls.
+
+Quality baseline session `23597` completed successfully on unchanged `998b189`
+production, producing four records in `cpu25-10-a-quality.log`; saved executable
+`cpu25-10-a-quality`. Normal compiler remains rustc1.96.1. Isolated1.88 VNNI
+feasibility probe passed without target-feature flags or a production dependency
+change. Proceed with the declared candidate; its stricter quality baseline is
+now immutable. No candidate performance has been measured.

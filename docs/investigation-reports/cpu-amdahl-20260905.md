@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-02 retained attribution complete; CPU25-11 selected after RoPE ablation.
+- State: CPU25-11 rejected and restored; CPU25-05 selected next.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 2 / 0 / 0 / 2.
+- Current attempts / kept / rejected / not_verified / closed-untried: 3 / 2 / 1 / 0 / 2.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -77,13 +77,14 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | measured medium +7.290% after sole rerun; controls pass; environmental caveat below | kept |
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
-| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | refreshed profile; exact causal-mask and output gates needed | deferred |
+| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | exact common-prefix design now bounded; correctness gate declared below | ready |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
-| CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | fresh ablation contradicts historical remainder attribution; exact output gate; small transient vector | ready |
+| CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
+| CPU25-12: process-local large-page backing for immutable CPU weights | pending memory attribution | unknown | unknown | unknown | not scored | unknown | >2 GiB anonymous weight storage, zero observed huge pages; page-walk cost and safe platform mechanism unresolved | deferred |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -994,3 +995,72 @@ release CPU workspace tests, CPU feature check and pinned real-model F16 parity
 with complete output compared to the original baseline record. No tolerance,
 reference or workload is changed. Only after these pass build the candidate
 binary and begin its fresh objective A/B.
+
+CPU25-11 is implemented only in the declared RoPE file. Correctness/build
+session `67383` runs focused tests, the CPU release workspace suite, feature
+check, pinned F16 parity, byte comparison with the baseline parity log, and
+candidate benchmark build in that order. Logs and the final source diff use
+`cpu25-11-*` in the private raw directory. No performance measurement has
+started. Resume this handle and inspect its gates before beginning A/B.
+
+Correctness/build session `67383` completed successfully: nine focused RoPE
+tests, 170 root tests, 167 engine tests, one documentation, four family-agnostic
+and 12 semantic tests; seven declared external tests ignored. CPU check passed.
+Pinned F16 parity passed and its complete log is byte-identical to the original
+baseline. The source diff and benchmark binary were preserved privately.
+
+CPU25-11 is now the third countable attempt. Objective session `35560` started
+at 2026-09-05T02:46:06+02:00; comparison deadline 04:46:06+02:00. It runs:
+
+```text
+screen.sh cpu25-02-bench cpu25-11-a 32 1 3 medium
+screen.sh cpu25-11-bench cpu25-11-b 32 1 3 medium
+awk -f compare.awk cpu25-11-a-medium.out cpu25-11-b-medium.out
+```
+
+Paths are rooted in the existing private raw directory. Runner PID `320154`
+owns this sequential command. Poll the same live session. No short/long control
+or stability rerun has started, and CPU25-11 is not yet accepted.
+
+### CPU25-11 — rejected and restored
+
+Objective session `35560` completed at 2026-09-05T02:50:51+02:00 (4 minutes
+45 seconds after comparison start). Telemetry `63644` also completed.
+
+| Medium objective/control metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 35.16 | 32.84 | -6.598% | 3.22% | 1.15% |
+| TTFT ms | 29140.91 | 31185.90 | +7.018% | 3.24% | 1.16% |
+| Model decode tok/s | 6.94 | 6.64 | -4.323% | 7.63% | 2.34% |
+| Public decode deltas/s | 6.51 | 6.23 | -4.301% | 7.62% | 2.34% |
+
+Work counts match. Both objective CVs pass, so no rerun is permitted or used.
+The objective regresses and the TTFT control exceeds its maximum regression.
+Terminal result: `rejected`; short/long controls are unnecessary and were not
+run. The complete RoPE source and added tests were restored to `245c15f` with
+a focused patch; only report changes remain. Private patch, binary, assembly,
+correctness and measurement logs retain the negative result reproducibly.
+
+The component ablation does not override the public outcome. Emitted code
+confirms coefficient construction moved before the contiguous rotation loop,
+but this is insufficient to explain the end-to-end regression. Allocation,
+linked code layout and environmental effects are possibilities, not established
+causes. Do not start stack-cache, loop-order or coefficient-lifetime variants
+without evidence isolating the failing cost; the current coefficient-vector
+premise is closed by its measured result. CPU25-07 remains closed on its separate
+small rotation-only ceiling. This rejection increases no production complexity.
+
+Queue rerank: CPU25-05 is now bounded and first (3.05% predicted gain with a
+17.6% ideal ceiling), followed by CPU25-03. CPU25-06/08 retain timestamp-based
+uncertainty; CPU25-09 needs a bounded locality mechanism; CPU25-10 needs native
+packing/range/quality analysis. A read-only memory snapshot during B found
+2201388 KiB RSS, 2197996 KiB anonymous memory, zero anonymous huge pages, zero
+swap, normal scheduling and nice 0. System THP policy was `madvise`, unchanged.
+Source copies retained weight tensors into anonymous `Vec<u8>` storage. This
+supports deferred CPU25-12, distinct from arithmetic/layout/threading changes:
+investigate whether process-local large-page advice can remove a material
+translation cost while preserving exact bytes and allocator ownership. No
+system THP policy, process mapping or affinity was changed. Page counts alone
+do not justify a time fraction or guarantee a gain. Any trial must stay within
+owned mapped pages, verify backing actually changes, preserve safe fallback,
+avoid new dependencies, and account for load-time and memory overhead.

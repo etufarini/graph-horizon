@@ -82,9 +82,10 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | prompt +3.668%: canonical interesting, below keep threshold; restored | rejected (evidence only) |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | route verified active; model decode -10.243%; restored | rejected |
-| CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
+| CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | .40 | 1.5 | .040 | 10.29% / 1.67x | 2.72 s | native ISA/MSRV probe passed; bounded four-row layout and stricter output-quality gate | ready |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | decode +5.161% on sole rerun, but first-request control +5.820%; restored | rejected |
+| CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode, pending activation evidence | 0–.10 | 2.0 | unknown | not scored; ideal at most 1.11x | unknown | removes CPU25-12's measured synchronous setup cost; delayed backing and interference unresolved | deferred |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -1863,3 +1864,78 @@ without a distinct measured premise. A background/lazy promotion worker would
 introduce ownership and interference that this bounded trial did not validate.
 Nine attempts are complete. CPU25-10 still requires a bounded native integer
 design and risk-specific quality gate; the campaign is not yet complete.
+
+Related-premise correction: CPU25-12's startup failure does support one bounded
+variant for later evaluation. Kernel `MADV_HUGEPAGE` advice can remove synchronous
+collapse from initialization without introducing an application background
+worker. Its delayed activation and interference remain unresolved, so add
+CPU25-13 as deferred rather than silently closing every lazy-promotion variant.
+It is a different placement of work, not a page-size sweep. CPU25-10 now has
+the larger credible effect and is selected first.
+
+### CPU25-10 feasibility and declaration before implementation
+
+The private native instruction probe passes exact signed/unsigned integer dot
+results on both the normal compiler and isolated Rust1.88.0. The latter was
+installed only under the private raw directory's `msrv-rustup`; the ordinary
+toolchain remains unchanged. The direct intrinsic's 1.89 floor is avoided by
+explicit guarded assembly, whose register clobbers and memory bounds follow
+the [Rust assembly reference](https://doc.rust-lang.org/reference/inline-assembly.html).
+This probe is feasibility, not a campaign attempt or performance result.
+
+Target medium prompt throughput, parent `998b189`/`cpu25-05-bench`, same tuple
+and canonical objective/CV/control/rerun rules. Q4 owns .494 of the refreshed
+medium request. Conservative p=.40, s=1.5, o=.040 (activation quantization,
+transient packing, conversions and cleanup included) predict +10.29%, ideal
+1.67x, about 2.72 s saved. Instruction/working-set reasoning, not unavailable
+hardware counters, supports the uncertain local estimate: native four-byte
+integer dots and four-row reuse replace float MAC/dequant work, while packed
+activations shrink fourfold. Per-call packing is not free and may erase the gain.
+
+Intentional variable: a Q4-only prefill path for n>=8 and output counts divisible
+by four, guarded by runtime AVX2/AVX-512F/VNNI availability. Quantize activations
+in 256-value blocks, with signed maximum, nearest-even rounding and 32-value
+sums. This mirrors the pinned reference's Q8_K scale/rounding arithmetic; the
+temporary layout is internal, not a new file format. Four Q4 output rows are
+unpacked/interleaved only in per-worker scratch, with exact six-bit scales/mins.
+VNNI accumulates scale-weighted integer dots per 256-value block; min corrections
+and original FP16 block factors reconstruct f32 output. No persistent weight
+repack; single-token decode, smaller batches, output tails and nonmatching ISAs
+retain the existing implementation. Nonfinite activations trigger the original
+float path before any output write, not silent saturation/sanitization.
+
+Integer bound: even permitting -128 in direct instruction tests, each lane's
+absolute sum is at most 64*15*128*63=7741440; each output block sum at most
+30965760, well inside i32. Min correction is likewise bounded. Assembly reads
+exact typed 256-byte activation, 1024-byte interleaved-weight and eight-four-scale
+windows, writes all sixteen i32 lanes, declares every vector/general-register
+clobber, makes no calls and never accesses outside those arrays. Rust1.88
+compatibility must remain; no target-cpu/native or global compiler flag change.
+
+Necessary tree and productive estimates, excluding tests:
+
+```text
+cpu/kernels/matmul/mod.rs             (+2 module wiring lines, existing K)
+cpu/kernels/matmul/q4k.rs             (~365 lines, existing K; one eligibility route)
+cpu/kernels/matmul/integer/mod.rs     (~155 lines; per-call/per-worker ownership and writeback)
+cpu/kernels/matmul/integer/activation.rs (~100 lines; bounded temporary Q8 preparation)
+cpu/kernels/matmul/integer/block.rs   (~150 lines; one Q4 block pack/dot numeric kernel, K)
+examples/cpu_quality.rs              (~70 lines; TEMPORARY extra public-output oracle)
+```
+
+The integer domain warrants a folder because ownership, activation preparation
+and the numeric block kernel are distinct responsibilities. No external library
+or public API. This complexity is retained only for a fully qualified gain.
+
+Risk-specific gates before performance: exact packed nibble/scale/min mapping
+and integer dots against independent scalar calculations, zero/tie/outlier and
+nonfinite activation cases, and new full-path synthetic comparison within the
+unchanged quantized per-output tolerance `8e-2 * max(abs(reference),1e-3)`.
+Existing tests/oracles stay unchanged. Because activation quantization is not
+bit-exact, require pinned real-model top-two parity AND byte-identical public
+text/prompt/completion counts against a pre-edit baseline on four fixed greedy
+64-token requests: Italian arithmetic, JSON arithmetic, Python code, and the
+calibrated 1024-token benchmark history. Capture that baseline first; any
+difference rejects the candidate without changing the gate. This bounded extra
+check is not a universal model-quality claim. Then workspace/check/Clippy,
+minimum-Rust CPU check, format/diff and the prescribed performance controls.

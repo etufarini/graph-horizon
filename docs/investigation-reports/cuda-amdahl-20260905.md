@@ -137,8 +137,9 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput | kept | +12.063%, all controls pass; commit10b186c; non-counting C28 re-evaluation |
 | C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-15.461%; direct loads have concrete shared-bank collisions; keep C32 |
-| C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | deferred behind C33 | C32 long tensor attention24.654% of fixed work; increased V reuse versus register pressure and grid parallelism |
-| C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | ready | Distinct bounded cause-removal variant; conservative non-counting C33 re-evaluation |
+| C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | ready | C32 long tensor attention24.654% of fixed work; increased V reuse versus register pressure and grid parallelism |
+| C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
+| C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | deferred behind C34 | Compiled C32 uses HMMA.16816 but C33 forces HMMA.1688; needs separate target-compatible PTX with unchanged75 fallback |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3597,7 +3598,7 @@ No new file/helper/API/dependency. Main risks: incorrect stage/tail addressing,
 staging-store conflicts, extra shared footprint and the compiler load schedule.
 
 Rank C35 medium first: use C32 p.680126791 and conservative net local s1.1,
-o.003, predicted6.2467%, ideal212.623869%, saved~230.50ms. This requires
+o.003, predicted6.250698%, ideal212.623869%, saved230.139974ms. This requires
 about1.3313x improvement over the rejected C33 tensor owner; bank-collision
 removal makes that testable, not guaranteed. C34 long remains deferred at
 4.855659% prediction; neither is closed by its estimate. C35 is conservatively
@@ -3607,3 +3608,89 @@ and raw/cache bounds, full canonical/frozen f16/int8, hybrid isolation and
 sanitizers. Performance compares only against accepted C32, medium prompt>=5%,
 CV<=5%, all controls regression<=5%, canonical time/rerun rules. C33 remains
 rejected even if C35 later passes; no favorable retargeting.
+
+C35 short/long ranking with the same net s1.1,o.003 gives3.017357/5.710762%
+and27.364286/800.434535ms savings; medium remains first. Exact-layout baseline
+98526 replays the saved C33 shader solely for the declared test, passing the
+unchanged matrix reference in47.89s. Then add only physical PITCH=GROUP+8 to
+A/B stores, stage bases and MMA half-pair reads; logical groups, input addresses,
+row sums, factor/bias order and output mapping stay unchanged. Test records
+are temporary and must be removed before canonical/public gates. Fast64141
+compiles: ordinary/paired/wide56/60/66 registers,6976/13952/8320 shared bytes,
+0 spills. Exact candidate90764 is still running; no C35 performance yet.
+
+C35 exact90764 passes in48.82s. Readback finds162 matrix records in each
+baseline/candidate log; compare all records including any first record sharing
+the test-harness line prefix (rg -o, not an anchored filter): byte-identical.
+Both raw/cache variants and all scalar/range assertions pass. Remove both
+temporary record statements and verify tests.rs equals HEAD exactly before
+the next gates. C35 remains a non-counting pending candidate.
+
+C35 frozen54925822, frozen13076539 and frozen12998002 pass both KV schemes,
+all frozen local IDs identical. Restore canonical prompt before full gates.
+
+C35 canonical95985 passes fmt, CUDA check, CPU tests,11error_matrix, all43
+CUDA tests57.82s and f16 parity13.77s; hybrid check82871 passes. Command98696
+correctly runs standalone int8 (saved pass record), but its unintended trailing
+loop merely assigns a shell variable instead of invoking either hybrid check.
+Readback confirms exit0; no extra executable was invoked by that assignment.
+Do not count the empty loop as a gate or repeat the successful int8 row: run the missing
+two25%-mixed hybrid checks separately with the exact declared arguments.
+
+C35 corrected hybrid pair17227 passes f16/int8 with unchanged canonical IDs.
+The loop typo did not change source, public inputs or any reference. Start
+serial memcheck/synccheck41998 on the canonical C35 debug binary; no public
+candidate record exists yet and production acceptance remains C32.
+
+C35 memcheck/synccheck41998 pass all16 kernel tests55.28/50.88s, both0 errors.
+Begin the unchanged unprofiled medium objective against C32 after all declared
+gates. No temporary source hooks or altered parity prompt remain.
+
+### C35 rejected and restored; C34 next, C36 queued
+
+C35 objective50332: medium prompt276.35[CV.0001], TTFT3705.50[.0001],
+model53.42[.0017], public50.06[.0017], wall18.22s, counts1024/32/31.
+Against C32 prompt-11.466009%, TTFT+12.952932%, model-3.574007%, public
+-3.545279%. Reject the failed objective/TTFT control; no other public rows or
+stability rerun. Power-cap increment .533389s, thermal0. Preserve c35.patch/
+binary/PTX and restore the shader exactly to C32; only the report remains dirty.
+Distinct counts stay26 (15 kept,10 rejected,1 interesting); six non-counting
+re-evaluations now comprise5 kept and1 rejected.20 optimization commits and
+separate S01 remain accepted.
+
+C35 diagnostic31599,0 drops: prefill3688.363704ms/gap55.944137,
+decode587.973295/gap10.693553. Q4 prefill2324.681513ms, Q6684.167833ms,
+versus C33's2516.493857/703.739521 and C32's2026.242139/634.392543.
+Padding helps the losing owner but does not recover the accepted baseline.
+Do not infer that bank collisions explain the entire regression.
+
+Fresh compiled-code evidence exposes another concrete difference: C32's WMMA
+lowers to HMMA.16816.F32 on the recorded capability, whereas C33's explicit
+K8 instruction lowers to HMMA.1688.F32. C36 would test K16 direct MMA on
+capability>=80 while preserving the accepted75-compatible WMMA fallback.
+The official ISA section already consulted requires80 for f16 m16n8k16;
+silently raising device admission or emitting it into the75 PTX is forbidden.
+A bounded design could embed separate75/80 PTX and select exactly one at load,
+with explicit capability/fallback tests. No C36 source exists yet. Tentative
+C32-medium p.680126791,s1.1,o.003 gives6.250698%, ideal212.623869%,
+230.139974ms, but instruction-path effect and loader/test cost are uncertain.
+This is a conservative non-counting C33 re-evaluation if attempted.
+
+C34 is selected first: its previously declared long prediction4.855659% is
+close within C36 uncertainty, with much smaller experiment/validation scope.
+Source bounds it to eight real rows of the existing padded M16 attention tile,
+retaining F16 input/f32 probabilities/PV, dim128, rows>=4 and base>=512. Host
+grid becomes ceil(rows/8)*heads; the sole kernel uses up to8 accumulators and
+8 softmax coefficient slots, leaving padded/partial rows masked. No new entry,
+function, file, dependency, public API or cache layout. Existing
+shaders/attention.cuh (~420 productive lines, K) and kernels/attention/prefill.rs
+(~60 orchestration lines) suffice. Existing tests gain8/9-query boundary cases
+and a future-NaN causal check at base512 before the production edit.
+
+Gate C34 as exact reuse: capture all selected baseline attention outputs with
+temporary records, require candidate bit identity, unchanged scalar references,
+all canonical/frozen129/130/549 f16/int8 and sanitizer gates. Hybrid mixed uses
+at most4 rows, so check its unchanged eligibility and run25%-mixed parity.
+Objective long prompt>=5%, CV<=5%, every control regression<=5%, unchanged
+C32 public baseline and canonical time/rerun rules. C34 is non-counting; C36
+remains deferred, not closed or silently dropped.

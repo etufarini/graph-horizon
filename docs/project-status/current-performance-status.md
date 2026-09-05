@@ -98,7 +98,7 @@ The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
 
 The four CPU rows added by [campaign20260905](../investigation-reports/cpu-amdahl-20260905.md)
-are local retained work on `perf/cpu-amdahl-20260905`, through `6545e72`, not
+were retained on `perf/cpu-amdahl-20260905`, through `6545e72`, and are not
 part of the historical main-integration table above. Their separate adjacent
 A/B gains must not be multiplied. The report owns exact tuples, CVs, controls,
 the complete initial/final comparison and environmental-drift limitations.

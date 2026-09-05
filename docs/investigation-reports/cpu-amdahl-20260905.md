@@ -22,7 +22,8 @@ a limitation; no statistical-significance or hardware-wide claim is made.
 No gain percentages are compounded. Rejected code, profiling sources, worker
 affinity, memory advice and temporary examples are absent from the accepted
 branch. Raw binaries, patches and logs remain recoverable outside the repository.
-This is local branch work, not a push, merge or expanded CPU qualification.
+The campaign concluded as local branch work. Subsequent publication for review
+does not imply a merge or expanded CPU qualification.
 
 ## Recovery state
 
@@ -146,11 +147,10 @@ because it requires the nine-character prefix. Setting `core.abbrev=9` only in
 that isolated checkout and rebuilding its version metadata resolves the
 representation mismatch without changing the reference code or oracle gate.
 
-Private recovery directory:
-`/home/emanuele/Documenti/hack/cpu-amdahl-20260905.QFkZOu`.
+Private recovery directory: `<recovery-directory>` (outside the repository).
 It contains the isolated `oracle` checkout, build logs, `baseline-bench`, and
 `screen.sh`. The model is the authenticated catalog filename in
-`/home/emanuele/.local/share/Trash/files/models`; it is read in place, never
+`<catalog-directory>`; it is read in place, never
 restored, moved or changed. The runner derives each deterministic prompt with
 124/1020/3580 space-separated `benchmark` words and a final period, and checks
 the engine tokenizer's exact count before each row. It records stdout, elapsed
@@ -2326,7 +2326,8 @@ its investigation-index entry and the current-performance summary. Changed
 Markdown was checked for newly introduced commercial hardware product names;
 none were found. Exact device identity stays in private raw evidence. All
 protected AI instructions, skills and historical planning material remain.
-The branch is local: no push, PR, merge or destructive history rewrite occurred.
+At campaign completion, no push, PR, merge or destructive history rewrite had
+occurred. Publication for review was authorized separately afterward.
 
 ## Campaign accounting
 

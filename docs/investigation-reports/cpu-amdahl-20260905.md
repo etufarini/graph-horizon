@@ -5,7 +5,7 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
+- Retained production checkpoint: `6545e72343f5daed2fe8160d3c291946771445e4` (CPU25-14); preceding checkpoints `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05), `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
 - State: CPU25-14 kept; all pool entries terminal. Final complete benchmark, attribution and quantitative closure pending.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
@@ -2125,3 +2125,30 @@ expansion. Saved executable SHA256
 `e07ea430d9b809d02cfc38a4f4f084f0786e47a4e5c711bbdca759f91b88df79`.
 The only post-build edit removes a duplicated test comment, not executable code.
 Commit includes this evidence and unchanged exact gate; final attribution follows.
+
+### Final execution checkpoint
+
+Accepted production commit `6545e72343f5daed2fe8160d3c291946771445e4`.
+Final CPU workspace170/167, integrations1/4/12, feature check, warning-denied
+Clippy, format/diff and exact pinned parity/full initial-log identity passed.
+Built the temporary profiler from the previously validated patch, saved
+`final-profile-bench`, then restored all four feature/backend files and removed
+its sole new source. `git status` contains only this report update.
+
+Final uninstrumented binary SHA256
+`2b89bd3acaec33e3e2ae005338d25a5b75c7e41e0020e7166b13d564a785d46d`;
+initial binary SHA256
+`f15102da91cae7e9482313e8863322e809c9f97126f52a386b2ff8b88c50b246`.
+The final executable is rebuilt from the accepted commit, not the experimental
+feature build. Compiler remains1.96.1, no RUSTFLAGS or dependency changes.
+
+Session58448, runner405853, started05:54:40+02:00, conservatively sharing a
+07:54:40+02:00 deadline for diagnostics and complete final A/B. Telemetry uses
+the same read-only script. For each short/medium/long row, run
+`screen.sh final-bench final-diagnostic 32 0 1 <row>`, then
+`screen.sh final-profile-bench final-profile 32 0 1 <row>` and validate spans
+with `profile.awk`. Then each row runs adjacent initial/final pairs:
+`screen.sh baseline-bench final-initial 32 1 3 <row>` and
+`screen.sh final-bench final-accepted 32 1 3 <row>`, followed by `compare.awk`.
+All exact calibrated prompts/token records and per-process resource statistics
+remain private. Resume this same handle; no comparison is yet classified.

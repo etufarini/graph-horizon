@@ -5,8 +5,8 @@
 #include <stdint.h>
 
 __device__ __forceinline__ float cuda_half_at(const unsigned char *w, uint64_t b) {
-    const uint16_t bits = uint16_t(w[b]) | (uint16_t(w[b + 1]) << 8);
-    return __half2float(*reinterpret_cast<const __half *>(&bits));
+    // Packed strides/metadata offsets are even; checked views preserve allocation alignment.
+    return __half2float(*reinterpret_cast<const __half *>(w + b));
 }
 
 __device__ __forceinline__ void cuda_scale_min(

@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `56afc25` (C15), building on `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C15 profiles complete; C09 selected, then fresh discovery is required.
-- Attempts: 15 distinct (minimum 10): 10 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 11, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C09 kept after all controls; profiles and fresh discovery next, not yet complete.
+- Attempts: 16 distinct (minimum 10): 11 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 12, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15).
 
@@ -112,7 +112,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | restored, interesting objective | Exact gates passed; +4.595% below keep threshold |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | rejected, restored | Exact gates passed, objective +1.097% below 3% |
-| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short model decode (retargeted before first attempt after C19) | ready | Small; prove two-byte alignment for every packed format and exact output |
+| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short model decode (retargeted before first attempt after C19) | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +9.439% |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
 | C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | kept | Exact/canonical gates and controls pass; objective +31.712% |
@@ -1771,3 +1771,54 @@ objective performance. The frozen tensor snapshot remains valid transitively:
 C19 matched it exactly, and C17/C15 do not affect independent matmul inputs.
 Remove temporary prints before canonical gates. Both other regimes plus
 prompt/TTFT/public decode remain controls under the same thresholds.
+
+C09 exact gate `68152` passed: all 65 bit snapshots match, both diffs empty.
+Restored the test file exactly to HEAD, preserving the committed C15 coverage.
+Production is only the predeclared half-load replacement (+2/-2). Fast build
+`76499` completed; saved `c09.ptx` and `c09-bench`. Generated metadata accesses
+now use `ld.global.u16` at the original aligned offsets, without byte assembly;
+the following half-to-float conversions are unchanged. Canonical gates run next.
+
+C09 canonical `2780` completed: formatting, CUDA check, CPU workspace, 11 error
+tests, all 37 CUDA tests and pinned f16 parity passed, all 16 top-one IDs
+unchanged. Extra int8 parity precedes short model-decode A/B. This is countable
+attempt 16; only the half-load helper differs from accepted C15.
+
+Extra int8 parity `76226` passed, all 16 local IDs unchanged. Acquire
+`run.py bench c09 target/cuda-amdahl-20260905/c09-bench short`, then
+`compare.py c15 c09 short model_decode_tps short`. Both other regimes only
+after provisional keep; all correctness gates precede performance.
+
+C09 short objective `90212` passed provisionally: model decode 30.83 -> 33.74
+(+9.4389%, CV .10% -> .22%), public 29.85 -> 32.68 (+9.4807%, CV .18%),
+prompt 252.26 -> 264.69 (+4.9275%, CV .19%), TTFT 507.42 -> 483.59 ms
+(-4.6963%, CV .19%). Counts 128/32/32 unchanged; wall 6.70 s. The target was
+retargeted from instruction-work evidence before production/performance, not
+selected after seeing this near-5% prompt result. Run `run.py bench c09
+.../c09-bench medium long` before keep; same controls and thresholds, no rerun.
+
+### C09 kept
+
+Both controls `43368` completed. `compare.py c15 c09 short model_decode_tps
+short medium long` passes every gate: **keep**. Means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 264.69 [.0019] | 483.59 [.0019] | 33.74 [.0022] | 32.68 [.0018] | 6.70 |
+| medium | 228.81 [.0017] | 4475.30 [.0017] | 29.21 [.0021] | 27.37 [.0023] | 23.22 |
+| long | 157.63 [.0001] | 22737.39 [.0001] | 20.84 [.0004] | 19.53 [.0003] | 97.89 |
+
+Model decode gains +9.439/+9.401/+6.762%; prompt +4.927/+5.084/+3.500%.
+No control regression and counts unchanged throughout. No rerun. Stock
+power-cap increments short .873784 s, medium .573858 s, long 0; thermal counters
+zero, no setting changes. Production +2/-2 in one helper, alignment invariant
+documented; conceptual complexity decreases by removing byte reconstruction.
+C09 is retained in this commit. The current pool is terminal, but that alone
+does not complete the campaign: refresh profiles and perform the required fresh
+discovery across all three regimes and every material remaining mechanism.
+
+Read-only device attributes, enum IDs verified in installed cuda.h, are recorded
+privately in `device-attributes.log`: 28 multiprocessors, 1536 resident threads,
+102400 shared bytes and 65536 registers per multiprocessor. These are static
+resource ceilings, not achieved occupancy. The query used only cuInit and
+cuDeviceGetAttribute; it created no inference context or configuration change.

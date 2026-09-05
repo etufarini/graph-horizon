@@ -676,6 +676,92 @@ fn dense_operations_cover_normalization_rope_and_elementwise() -> Result<()> {
     Ok(())
 }
 
+#[test]
+fn batched_rope_matches_row_dispatch_across_scale_boundary() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    let values = [
+        1.0, 0.0, 0.5, -0.5, -1.0, 0.25, 0.75, 0.125, 0.375, -0.625, -0.875, 1.25,
+    ];
+    let q_batch = upload_f16(&device, &values)?;
+    let k_batch = upload_f16(&device, &values)?;
+    let q_rows = upload_f16(&device, &values)?;
+    let k_rows = upload_f16(&device, &values)?;
+    let yarn = Yarn {
+        rope_dim: 4,
+        original_context: 128,
+        freq_base: 10_000.0,
+        factor: 2.0,
+        beta_fast: 32.0,
+        beta_slow: 1.0,
+        log_multiplier: 0.1,
+        q_temperature_scale: 1.0,
+    };
+
+    let batched = CudaEncoder::begin(&device);
+    super::rope::encode_batched(
+        &batched, &module, &q_batch, &k_batch, 1, 1, 4, 127, 3, &yarn,
+    )?;
+    run(&device, batched)?;
+
+    let row_dispatch = CudaEncoder::begin(&device);
+    for row in 0..3u32 {
+        let q = q_rows.view(u64::from(row) * 8, 8)?;
+        let k = k_rows.view(u64::from(row) * 8, 8)?;
+        super::rope::encode(
+            &row_dispatch,
+            &module,
+            &q,
+            1,
+            4,
+            127 + row,
+            &yarn,
+            RopeRole::Query,
+        )?;
+        super::rope::encode(
+            &row_dispatch,
+            &module,
+            &k,
+            1,
+            4,
+            127 + row,
+            &yarn,
+            RopeRole::Key,
+        )?;
+    }
+    run(&device, row_dispatch)?;
+
+    assert_eq!(
+        q_batch.read(&device, values.len() * 2)?,
+        q_rows.read(&device, values.len() * 2)?
+    );
+    assert_eq!(
+        k_batch.read(&device, values.len() * 2)?,
+        k_rows.read(&device, values.len() * 2)?
+    );
+    let encoder = CudaEncoder::begin(&device);
+    assert!(
+        super::rope::encode_batched(&encoder, &module, &q_batch, &k_batch, 1, 1, 4, 0, 0, &yarn)
+            .is_err()
+    );
+    assert!(
+        super::rope::encode_batched(
+            &encoder,
+            &module,
+            &q_batch,
+            &k_batch,
+            1,
+            1,
+            4,
+            u32::MAX,
+            2,
+            &yarn
+        )
+        .is_err()
+    );
+    Ok(())
+}
+
 fn kv(device: &Device, scheme: KvQuant, context: usize, dim: usize) -> Result<Kv<CudaBuffer>> {
     let bytes = crate::kv_cache::layout::buffer_bytes(scheme, KvRole::Key, 1, context, 1, dim);
     Ok(Kv {

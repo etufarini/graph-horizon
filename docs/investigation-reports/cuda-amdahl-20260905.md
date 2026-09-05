@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C45 (this commit), above `9c18395` (C44), `fe83feb` (C43), `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C45 accepted after all gates and controls on the refreshed environment tuple. Profile refresh, C46 and final closure audit remain. Not complete.
-- Attempts: 30 distinct reached correctness (minimum 10): 16 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 13 terminal non-counting re-evaluations: 9 kept (C17/C22/C27/C29/C32/C34/C37/C43/C45), 4 rejected (C35/C36/C39/C41). Total retained optimization commits25 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C46 (this commit), above `fcdcc9e` (C45), `9c18395` (C44), `fe83feb` (C43), `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C46 accepted after all gates and controls on the refreshed environment tuple. Fresh largest-hotspot discovery and final closure audit remain. Not complete.
+- Attempts: 31 distinct reached correctness (minimum 10): 17 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 13 terminal non-counting re-evaluations: 9 kept (C17/C22/C27/C29/C32/C34/C37/C43/C45), 4 rejected (C35/C36/C39/C41). Total retained optimization commits26 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 re-evaluation), `99f4330` (C24), `2d77b2f` (C27 re-evaluation), `1a32047` (C29 re-evaluation), `4d9e718` (C31), `c15f222` (C30), `10b186c` (C32 re-evaluation), `ef84e39` (C34 re-evaluation), `483ea2a` (C37 re-evaluation), `fe83feb` (C43 re-evaluation). Re-evaluations are non-counting. Separate correctness support: S01 `6d37587`.
 
@@ -149,7 +149,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
 | C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | kept | Objective+24.856%, every control within5%, exact frozen IDs and whole-model sanitizers pass; hybrid remains32/4 |
 | C45 | Extend C44 graph batching64→128 after measured underfilled-grid improvement | Medium prompt throughput | kept | Medium prompt+8.063%; all controls pass; exact frozen IDs and whole-model sanitizers pass |
-| C46 | Override existing batched-RoPE trait operation with CUDA row-batched launches | Short prompt throughput | deferred | Fresh RoPE owner5.334% of prefill, ideal5.635%; rerank after C45, preserve host-computed YaRN bucket scale |
+| C46 | Override existing batched-RoPE trait operation with CUDA row-batched launches | Short prompt throughput | kept | Short prompt+7.260%; exact row/frozen gates and all controls pass; bucket scale preserved |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4707,3 +4707,84 @@ and expected saved fixed-work time 145.054 ms. The retained change reduces
 layer traversals without increasing conceptual structure: one existing checked
 capacity changes, and its documented memory/cancellation tradeoffs remain
 explicit. Refresh attribution before selecting C46.
+
+### C46 selected: row-batched CUDA RoPE
+
+C45 is retained as `fcdcc9e`. Low-overhead Nsight Systems runs completed for
+short/medium/long with one unprofiled-style repetition, but this installation
+lacks the importer binary and cannot turn the preserved `.qdstrm` streams into
+kernel statistics. The profiled public TTFT differs from the C45 unprofiled mean
+by -1.11/-0.65/-1.15%; use the captures only as bounded overhead evidence.
+Do not fabricate kernel attribution or substitute a replaying profiler.
+
+C44's last valid CUPTI attribution measured RoPE at 13.622/109.491/382.320 ms
+and 6,656/53,248/186,368 launches for short/medium/long. C45 changes graph batch
+capacity but not prompt rows, layer count or the default per-row RoPE loop, so
+those launch counts remain source-provable. Relative to C45's short profiled
+238.94 ms TTFT, the inherited owner gives prompt-phase `p=0.05701`; with local
+`s=8` and added `o=0.001`, predicted prompt gain is 5.14%, ideal ceiling 6.05%
+and expected saved time 11.92 ms. Treat the owner duration as an uncertain
+cross-checkpoint estimate; the public A/B remains the decision authority.
+
+C46 overrides the existing internal `rope_yarn_batched` hook for CUDA. It
+splits rows only at `original_context` buckets so the CPU-computed query
+post-scale remains exactly constant per launch, dispatches all rows for Q and K
+once per segment, and preserves the one-row decode entry. Every thread still
+owns one independent pair with the same formulas and f16 writes. Checked
+position, row, byte-span and grid arithmetic precede dispatch.
+
+Declared structure before production edit:
+
+```text
+crates/graph_horizon_engine/src/backend/cuda/
+  backend.rs (single category-I `impl Backend`; one thin delegator)
+  kernels/rope.rs (~150 productive orchestration lines)
+  shaders/rope.cuh (~40 productive category-K lines: YaRN only)
+  kernels/tests.rs (focused boundary test; excluded from productive count)
+```
+
+No file, kernel symbol, allocation, public API or dependency is added. Main
+risks are row address arithmetic, a bucket-crossing scale error and altered
+floating code generation. Before performance require a focused three-row
+127→129 Q/K test, all 43 CUDA tests, CPU/error gates, canonical and frozen
+129/130/549 parity for both KV schemes, byte comparison of frozen local IDs,
+and memcheck/synccheck on the frozen549 row. Exact output bits are required for
+the focused and frozen gates; tolerances/oracles do not change. Short prompt
+throughput is the objective; medium/long, TTFT and both decode metrics are
+controls. Keep >=5%, CV <=5%, no control regression >5%, two-hour comparison.
+
+### C46 kept: row-batched CUDA RoPE
+
+The focused 127→129 test passes exact Q/K equality between one batched dispatch
+and three one-row dispatches, including the query-scale bucket transition and
+checked empty/overflow failures. Formatting, CUDA workspace check, CPU workspace
+suites, 11 error-matrix tests and all 44 CUDA tests pass. Canonical standalone
+and mixed-hybrid real-model parity pass for f16/int8. Frozen 129/130/549-token
+local IDs are identical to C45 for both KV schemes. Temporary prompt injection
+was removed before the fast build.
+
+Whole-model frozen549 Compute Sanitizer passes memcheck f16/int8 in 490.05/
+573.59 s and synccheck f16/int8 in 35.15/35.29 s; all four report zero errors.
+No profiler or sanitizer duration is used as performance evidence.
+
+Unprofiled public A/B against retained C45, means with fractional CV:
+
+| Regime | C45 prompt t/s [CV] | C46 prompt t/s [CV] | Prompt change | TTFT change | Model decode change | Public decode change |
+|---|---:|---:|---:|---:|---:|---:|
+| short objective | 529.75 [.0070] | 568.21 [.0064] | +7.260% | -6.771% | +0.299% | +0.272% |
+| medium | 491.20 [.0008] | 519.42 [.0014] | +5.745% | -5.432% | -0.869% | -0.850% |
+| long | 410.26 [.0014] | 430.58 [.0006] | +4.953% | -4.720% | -0.234% | -0.159% |
+
+C46 absolute TTFT is 225.27/1971.45/8323.62 ms, model decode is
+57.08/54.76/46.90 t/s and public decode is 55.23/51.31/43.99 t/s for short/
+medium/long. Counts remain 128/32/32, 1024/32/31 and 3584/32/31. Objective CV
+passes, every control regression is below 1%, no rerun is used and the A/B
+finishes within two hours. Terminal state: **keep**, distinct attempt 31.
+
+The measured +7.260% exceeds the uncertain +5.14% prediction; the ideal prompt
+ceiling was 6.05% only because the inherited C44 kernel duration was not a
+fresh C45 attribution and did not include all removable launch overhead. The
+public A/B is authoritative. The retained code adds one thin category-I
+delegator, checked row/bucket dispatch and one cohesive category-K kernel shape;
+it removes thousands of launches without changing numeric ownership. Fresh
+discovery now targets the largest remaining measured tensor-matmul owner.

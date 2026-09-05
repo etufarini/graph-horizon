@@ -204,6 +204,32 @@ impl Backend for CudaBackend {
         )
     }
 
+    fn rope_yarn_batched(
+        &self,
+        encoder: &CudaEncoder,
+        q: &CudaBuffer,
+        k: &CudaBuffer,
+        q_heads: u32,
+        kv_heads: u32,
+        head_dim: u32,
+        base: u32,
+        rows: u32,
+        yarn: &crate::backend::rope::Yarn,
+    ) -> Result<()> {
+        kernels::rope::encode_batched(
+            encoder,
+            &self.module,
+            q,
+            k,
+            q_heads,
+            kv_heads,
+            head_dim,
+            base,
+            rows,
+            yarn,
+        )
+    }
+
     fn silu_mul(
         &self,
         encoder: &CudaEncoder,

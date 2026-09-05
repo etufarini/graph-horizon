@@ -37,12 +37,12 @@ pub(crate) fn encode(
         .ok_or_else(super::super::arithmetic)?;
     let total = u32::try_from(total).map_err(|_| super::super::arithmetic())?;
     let groups = if tensor {
-        rows.div_ceil(4)
+        rows.div_ceil(8)
             .checked_mul(q_heads)
             .ok_or_else(super::super::arithmetic)?
     } else {
         total.div_ceil(4)
     };
-    // Tensor blocks own four queries of one head; fallback warps own independent heads.
+    // Tensor blocks own eight queries of one head; fallback warps own independent heads.
     dispatch::launch(encoder, module, kernel, &args, (groups, 1, 1), (128, 1, 1))
 }

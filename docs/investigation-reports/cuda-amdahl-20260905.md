@@ -137,7 +137,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput | kept | +12.063%, all controls pass; commit10b186c; non-counting C28 re-evaluation |
 | C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-15.461%; direct loads have concrete shared-bank collisions; keep C32 |
-| C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | ready | C32 long tensor attention24.654% of fixed work; increased V reuse versus register pressure and grid parallelism |
+| C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | kept | Long prompt+7.706%; worst control-2.816%; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C31 re-evaluation |
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
 | C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | deferred behind C34 | Compiled C32 uses HMMA.16816 but C33 forces HMMA.1688; needs separate target-compatible PTX with unchanged75 fallback |
 
@@ -3700,3 +3700,60 @@ C34 boundary baseline4697 passes in2.66s on restored C32. Permanently add
 future-NaN check for the9-query case starting at512. Original cases, scalar
 references, fallback checks and bounds remain; this is support coverage, not
 a production optimization. Capture temporary exact records next.
+
+C34 baseline23446 records32 attention outputs (16 cases, both KV schemes).
+Candidate11546 passes unchanged scalar/causal/fallback tests in3.70s and all32
+records match byte-for-byte. A guarded extraction initially refused a wrong
+source line boundary before any edit; selecting the named kernel boundaries
+resolved it. Only eight-query ownership/array bounds and host ceil(rows/8)
+change. Remove the temporary record line and verify tests.rs matches support
+checkpoint c92005e exactly. Fast30216 compiles: tensor attention40 registers,
+13408 shared bytes (+48),0 spills; admission/ABI unchanged. C34 remains pending.
+
+C34 frozen54991285, frozen13055277 and frozen12998287 all pass both KV schemes
+with exact frozen local IDs. Restore canonical prompt before full gates.
+
+C34 canonical49646 passes fmt, CUDA check, CPU tests,11error_matrix, all43 CUDA
+tests58.21s and f16 parity13.89s; hybrid check97333 passes without warnings.
+To avoid repeating long hand-written isolation commands, extend the existing
+private runner with one serial isolation action: the same standalone-int8 and
+25%-mixed f16/int8 commands, exclusive logs, status metadata and required pass
+record checks. No production/test/reference behavior changes. Run C34 isolation
+through that action before the attention-specific sanitizers and public long row.
+
+C34 isolation50279 passes standalone int8 and25%-mixed f16/int8, all unchanged
+canonical IDs. Attention-specific memcheck/synccheck84992 pass all4 selected
+tests7.46/3.34s with0 errors. Begin the unprofiled long objective only after
+these gates; the immutable C32 baseline remains within the two-hour window.
+
+### C34 kept — eight-query attention reuse
+
+Objective97455 and controls46420, unprofiled immutable fast CUDA/all-GPU,
+context4096 f16, warmup1/reps3/max32, same authenticated artifact and prompts:
+
+| Regime | Prompt t/s [CV] | TTFT ms [CV] | Model decode t/s [CV] | Public delta t/s [CV] | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 332.97 [.0018] | 384.42 [.0018] | 57.14 [.0018] | 55.31 [.0020] | 4.87 |
+| medium | 311.78 [.0004] | 3284.32 [.0004] | 53.84 [.0019] | 50.46 [.0021] | 16.43 |
+| long objective | 275.78 [.0009] | 12995.90 [.0009] | 44.08 [.0014] | 41.33 [.0013] | 55.82 |
+
+Counts128/32/32,1024/32/31,3584/32/31 unchanged. Versus C32 long prompt
++7.705526%, TTFT-7.155033%; long model/public-2.196583/-2.154356%.
+Worst control medium model-2.815884%; short public-2.434292%, short TTFT
++2.233924%, medium prompt-.115333%. Every control is within5%, objective
+CV<=5%, no rerun, comparison finishes within~51 minutes of C32 baseline.
+Stock power-cap increments short/medium/long .954061/0/.235741s; thermal0.
+No clock/power/fan/driver or placement change. Natural environment variation
+remains a caveat; CV is not an inferential confidence interval.
+
+Keep C34 with only two production files (+12/-12 lines), no added resource
+owner or interface: more real rows reuse the existing padded tensor tile and
+the host geometry explicitly matches it. All earlier exact/causal/canonical/
+frozen/hybrid/sanitizer gates pass.26 distinct attempts remain15 kept,
+10 rejected,1 interesting;7 non-counting re-evaluations comprise6 kept and
+1 rejected.21 optimization commits plus separate S01 are accepted. C36 remains
+deferred pending refreshed profiles88716, running serially for all three rows.
+
+C34 profiles88716 finish with0 dropped events in every row; these are diagnostic
+timelines, not replacements for the unprofiled acceptance records. Commit this
+accepted checkpoint before designing the capability-specific C36 experiment.

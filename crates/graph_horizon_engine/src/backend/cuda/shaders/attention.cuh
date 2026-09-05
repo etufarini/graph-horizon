@@ -287,23 +287,23 @@ extern "C" __global__ void cuda_attention_prefill_tensor_f16(
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
     uint32_t layer, uint32_t context) {
     using namespace nvcuda;
-    // Checked dispatch fixes dim=128 and128 threads. Four queries retain block parallelism.
-    const uint32_t first_row = (blockIdx.x / qh) * 4;
+    // Checked dispatch fixes dim=128 and128 threads. Eight queries share the padded M16 QK tile.
+    const uint32_t first_row = (blockIdx.x / qh) * 8;
     const uint32_t head = blockIdx.x % qh, kv_head = head / (qh / kvh);
-    const uint32_t last_row = first_row + 3 < rows ? first_row + 3 : rows - 1;
+    const uint32_t last_row = first_row + 7 < rows ? first_row + 7 : rows - 1;
     const uint32_t last_position = base + last_row;
     __shared__ __align__(32) __half q_tile[16 * 128], k_tile[16 * 128], v_tile[16 * 128];
     __shared__ __align__(32) float scores[16 * 16];
-    __shared__ float maximum[4], denominator[4], previous[4];
-    float accumulator[4] = {};
+    __shared__ float maximum[8], denominator[8], previous[8];
+    float accumulator[8] = {};
     const float scale = rsqrtf(float(dim));
     for (uint32_t i = threadIdx.x; i < 16 * 128; i += 128) {
         const uint32_t row = i / 128;
-        q_tile[i] = row < 4 && first_row + row < rows
+        q_tile[i] = row < 8 && first_row + row < rows
             ? query[(uint64_t(first_row + row) * qh + head) * 128 + i % 128]
             : __float2half_rn(0.0f);
     }
-    if (threadIdx.x < 4) {
+    if (threadIdx.x < 8) {
         maximum[threadIdx.x] = -CUDART_INF_F;
         denominator[threadIdx.x] = 0.0f;
     }
@@ -333,7 +333,7 @@ extern "C" __global__ void cuda_attention_prefill_tensor_f16(
             wmma::store_matrix_sync(scores, cf, 16, wmma::mem_row_major);
         }
         __syncthreads();
-        if (threadIdx.x < 4) {
+        if (threadIdx.x < 8) {
             const uint32_t q = threadIdx.x;
             const uint32_t position = base + (first_row + q < rows ? first_row + q : rows - 1);
             float next_maximum = maximum[q];
@@ -354,7 +354,7 @@ extern "C" __global__ void cuda_attention_prefill_tensor_f16(
             denominator[q] = next_denominator;
         }
         __syncthreads();
-        for (uint32_t q = 0; q < 4; ++q) {
+        for (uint32_t q = 0; q < 8; ++q) {
             if (first_row + q < rows) {
                 const uint32_t position = base + first_row + q;
                 float value = accumulator[q] * previous[q];
@@ -369,7 +369,7 @@ extern "C" __global__ void cuda_attention_prefill_tensor_f16(
         // Every PV consumer finishes before shared K/V, scores and coefficients change.
         __syncthreads();
     }
-    for (uint32_t q = 0; q < 4; ++q) {
+    for (uint32_t q = 0; q < 8; ++q) {
         if (first_row + q < rows) {
             out[(uint64_t(first_row + q) * qh + head) * 128 + threadIdx.x] =
                 __float2half_rn(accumulator[q] / denominator[q]);

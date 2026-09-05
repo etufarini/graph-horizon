@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `b01470c` (C11), building on `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C11 profiles complete; C14 selected for baseline gate and implementation.
-- Attempts: 6/10 reached correctness; kept 5, rejected 1, not_verified 0, closed-untried 1 (C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C14 (this decision commit), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C14 kept after all controls; refreshed profiles next.
+- Attempts: 7/10 reached correctness; kept 6, rejected 1, not_verified 0, closed-untried 1 (C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11).
 
@@ -113,7 +113,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
 | C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short prompt throughput | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
 | C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | ready | Numeric risk, shared-memory occupancy cost; preserve C11 fallback beyond bounded score capacity |
-| C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | ready, selected | Larger but bounded numeric kernel; no dequantized-FP16 weight narrowing, dependency or global scratch |
+| C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -988,3 +988,65 @@ alternating +/-1 input, expected zero, so weights exceed half range but valid
 output does not. Run the new gate on C11 first, then canonical CPU/CUDA checks,
 all local tests and pinned model parity on C14 before performance. Objective
 short prompt throughput, C11 as baseline, TTFT/decode and medium/long controls.
+
+### C14 kept
+
+Baseline gate passed in `c14-baseline-test.log` before production edits and was
+committed as `b13f6ad`: 36 dense shape/format cases plus three large-scale
+cancellations. Existing tests remain unchanged. Implemented the predeclared
+factorized packed WMMA path, selected only for rows >=16 and non-F16 weights.
+The trusted function inventory gains one fixed entry; its existing failpoint
+test automatically covers the additional resolution boundary. Zero-padded tails
+never exit around barriers. The scratch matrices have explicit 32-byte alignment;
+all fragment access uses the supported load/store operations. Product accumulators
+and group factors/biases remain float; no reconstructed weight is rounded to half.
+
+Production +134/-3 across the four predeclared files. Added one per-format
+dequantization-parts function to expose the narrow K16 invariant and one cohesive
+matmul variant; no global allocation, dependency, device setting or public API.
+`run.py gate c14` passed fmt, CUDA workspace check, CPU suites, 11 error tests,
+all 36 CUDA tests, and pinned f16 parity with all 16 top-one IDs unchanged.
+Correctness completed before the immutable `c14-bench` short objective:
+
+```sh
+python3 target/cuda-amdahl-20260905/run.py bench c14 target/cuda-amdahl-20260905/c14-bench short
+python3 target/cuda-amdahl-20260905/compare.py c11 c14 short prompt_tps short
+# Only after provisional keep:
+python3 target/cuda-amdahl-20260905/run.py bench c14 target/cuda-amdahl-20260905/c14-bench medium long
+python3 target/cuda-amdahl-20260905/compare.py c11 c14 short prompt_tps short medium long
+```
+
+Short objective provisionally passes: prompt 70.30 -> 154.03 token/s
+(+119.104%, CV 0.26% -> 0.09%), TTFT 1820.77 -> 831.01 ms (-54.359%). Model
+decode 21.13 -> 21.11 (-0.095%, CV 0.37% -> 0.07%), public decode 20.51 ->
+20.49 (-0.098%, CV 0.38% -> 0.07%). Counts 128/32/32 unchanged, wall 10.31 s.
+PTX contains the expected aligned WMMA loads, float-accumulating matrix products,
+and shared stores. No stability rerun needed; medium/long controls now run.
+
+Verified parity reachability: `family/mistral/parity.rs` passes the complete
+16-token prompt to `session.prefill`; CUDA reserves 32 prefill rows and graph
+prefill forwards each chunk's actual length to batched matmul. Thus pinned
+parity exercises the rows>=16 C14 route, not just the unchanged decode kernel.
+
+C14 controls completed in session `48208`; all counts match C11. Full records
+(means and fractional CV) and final decision:
+
+| C14 regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Short objective | 154.03 (0.0009) | 831.01 (0.0009) | 21.11 (0.0007) | 20.49 (0.0007) | 10.31 |
+| Medium control | 141.76 (0.0010) | 7223.61 (0.0010) | 17.80 (0.0035) | 16.71 (0.0034) | 37.03 |
+| Long control | 110.38 (0.0002) | 32468.30 (0.0002) | 12.01 (0.0004) | 11.27 (0.0005) | 141.28 |
+
+Medium prompt +112.725%, model decode +0.964%; long prompt +87.530%, model
+decode +0.083%. Worst control is short public decode -0.098%, well inside the
+5% bound. Short objective +119.104%, both objective CVs <5%, all correctness
+gates pass; **keep**, no rerun, complete comparison within two hours. Stock
+power-cap increments: 0.772 s short, 0.618 s medium, zero long; no thermal
+slowdown. No system settings changed.
+
+Keep the isolated +134/-3 production lines; the separate baseline test remains
+committed. Complexity increases for an explicit factorized matrix path and
+its shared-memory ownership, justified by the measured reduction in the
+dominant prefill cost. It remains one matmul family with no global lifetime
+or format/API expansion. Next acquire `c14-timeline` short/medium/long and rerank;
+do not reuse obsolete broad matmul fractions for the SIMT-only candidates.

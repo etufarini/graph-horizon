@@ -96,10 +96,19 @@ pub(crate) fn encode_batched(
         );
     }
     let token_groups = rows.checked_add(3).ok_or_else(super::arithmetic)? / 4;
+    // Packed K16 groups have constant scale/bias; smaller batches keep SIMT.
+    let (kernel, grid) = if format != 0 && rows >= 16 {
+        (
+            Kernel::MatmulTensor,
+            (output_width.div_ceil(64), rows.div_ceil(16), 1),
+        )
+    } else {
+        (Kernel::MatmulBatched, (output_width, token_groups, 1))
+    };
     dispatch::launch(
         encoder,
         module,
-        Kernel::MatmulBatched,
+        kernel,
         &[
             Arg::Buffer(input, input_bytes),
             Arg::Buffer(weight, weight_bytes),
@@ -109,7 +118,7 @@ pub(crate) fn encode_batched(
             Arg::U32(rows),
             Arg::U32(format),
         ],
-        (output_width, token_groups, 1),
+        grid,
         (128, 1, 1),
     )
 }

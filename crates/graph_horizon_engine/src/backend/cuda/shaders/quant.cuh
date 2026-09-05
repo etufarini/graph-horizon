@@ -64,3 +64,40 @@ __device__ __forceinline__ float cuda_weight_value(
     if (format == 2) return cuda_q4_value(w, block_index * 176, q, true);
     return cuda_q6_value(w, block_index * 210, q);
 }
+
+template<uint32_t FORMAT>
+__device__ __forceinline__ float cuda_weight_parts(
+    const unsigned char *w, uint32_t row, uint32_t i, uint32_t width,
+    float &factor, float &bias) {
+    // Every aligned K16 group has constant factor/bias. The returned integer
+    // fits half exactly; reconstructed weights need not fit half's range.
+    const uint64_t index = uint64_t(row) * (width / 256) + i / 256;
+    const uint32_t qindex = i % 256;
+    if (FORMAT == 1 || FORMAT == 2) {
+        const uint64_t block = index * (FORMAT == 1 ? 144 : 176);
+        const uint32_t group = qindex / 64;
+        const uint32_t lane = qindex % 64;
+        uint32_t scale, minimum;
+        cuda_scale_min(w, block + 4, group * 2 + lane / 32, scale, minimum);
+        const uint64_t qoff = block + (FORMAT == 1 ? 16 : 48) + group * 32 + lane % 32;
+        uint32_t q = lane < 32 ? (w[qoff] & 15) : (w[qoff] >> 4);
+        if (FORMAT == 2) {
+            q += ((w[block + 16 + lane % 32] >> (group * 2 + lane / 32)) & 1) * 16;
+        }
+        factor = cuda_half_at(w, block) * float(scale);
+        bias = -cuda_half_at(w, block + 2) * float(minimum);
+        return float(q);
+    }
+    const uint64_t block = index * 210;
+    const uint32_t segment = qindex / 128;
+    const uint32_t category = (qindex % 128) / 32;
+    const uint32_t lane = qindex % 32;
+    const uint64_t qoff = block + segment * 64 + (category & 1) * 32 + lane;
+    const uint32_t low = category < 2 ? (w[qoff] & 15) : (w[qoff] >> 4);
+    const uint32_t high = (w[block + 128 + segment * 32 + lane] >> (category * 2)) & 3;
+    const int scale = int(reinterpret_cast<const int8_t *>(w)[
+        block + 192 + segment * 8 + lane / 16 + category * 2]);
+    factor = cuda_half_at(w, block + 208) * float(scale);
+    bias = 0.0f;
+    return float(low | (high << 4)) - 32.0f;
+}

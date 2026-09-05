@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C02 (this decision commit), building on `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C02 kept after all controls; refreshed profiles next.
+- Current retained runtime: `14b669d` (C02), building on `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C02 profiles complete; C11 selected, baseline tail test running.
 - Attempts: 5/10 reached correctness; kept 4, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), this commit (C02).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -776,6 +776,40 @@ private telemetry, with no machine-setting changes.
 
 Retain only the predeclared +17/-7 production lines in normalization shader and
 dispatch. The permanent test was committed separately before the experiment.
-The shader is 28 productive category-K lines; dispatch remains below 45.
+The shader is 26 physical category-K lines; dispatch remains below 45 productive lines.
 Next: `run.py trace c02-timeline target/cuda-amdahl-20260905/c02-bench short medium long`
 and refresh all non-terminal entries, including newly discovered C11.
+
+### Refresh after C02; C11 selected
+
+Session `87311` completed all timelines, zero dropped records. Short total
+3420.348 ms: 1833.833 ms prefill/first sample and 1586.515 ms decode; RMSNorm
+2.385 + 19.713 = 22.098 ms versus 397.981 ms at C03, local speedup 18.0x.
+Its remaining short phase ceiling is 1.26% decode and 0.13% prefill: no further
+normalization-only candidate can meet the 5% threshold on these rows. Long
+RMSNorm is 66.770 + 20.960 ms, likewise immaterial. Instrumented long TTFT differs
+-0.034% and model decode -0.43% from unprofiled C02; traces remain diagnostic.
+
+Long total 79350.087 ms: batched matmul 49573.221 ms; attention 24218.398 ms
+prefill + 3074.500 ms decode. Host/transfer gaps remain below 0.5%; no launch-gap
+or allocation-only premise reaches the retention ceiling. The following ranks
+use current full-request owners, calibrated estimates and unchanged thresholds:
+
+| Priority / state | p | s | o | Predicted gain | Ideal ceiling | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| C11 ready, selected | 0.34396 long | 1.4 | 0.004 | 10.409% | 52.429% | 7480.571 |
+| C04 ready | 0.51615 short | 1.1 | 0.001 | 4.813% | 106.677% | 157.073 |
+| C10 ready, reconsider after C11 | 0.34396 long | 1.15 | 0.002 | 4.478% | 52.429% | 3401.243 |
+| C08 ready | 0.90081 short | 1.04 | 0.0005 | 3.535% | 908.116% | 116.792 |
+| C07 ready after C02 | 0.03187 short | 8 | 0.0002 | 2.847% | 3.292% | 94.692 |
+| C09 ready | 0.90081 short | 1.02 | 0 | 1.798% | 908.116% | 60.413 |
+
+C07's declared decode phase owns 6.65%, ideal ceiling 7.13%, so it remains
+eligible despite its smaller whole-request ceiling. C11 has the largest
+credible end-to-end gain and is selected under its predeclared structure/gate.
+Add `(head_dim, context)=(129,33)` to the existing attention reference test
+before production edits: it exercises the second output dimension's tail under
+128-thread ownership. Three adjacent causal queries plus the other cases cover
+all four context-tile tail lengths in both KV formats. No tolerance changes.
+Session `29975` tests this baseline on accepted C02. Use tile indices bounded
+by `position/4`, not an overflowing `token += 4` loop, in the candidate.

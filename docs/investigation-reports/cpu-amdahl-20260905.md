@@ -6,8 +6,11 @@ CPU-only campaign using `.skills/gpu-amdahl-optimizer` with the user's explicit
 backend override. Twelve new implementations reached correctness gates: four
 kept, seven rejected and one interesting result whose code was restored; zero
 not_verified candidates. Two additional premises closed without implementation.
-Final cumulative measurement is still running; the tables below distinguish
-per-candidate acceptance evidence from that separate initial/final comparison.
+The complete final A/B rerun is stable and passes every control: prompt
+throughput improves 36.66% short, 44.46% medium and 23.56% long; TTFT decreases
+26.74%, 30.76% and 19.06%. Medium model decode is 3.79% slower (within 5%),
+while short/long decode is effectively unchanged. Environmental drift remains
+a limitation; no statistical-significance or hardware-wide claim is made.
 
 | Retained optimization | Commit | Objective before -> after | Objective CV A / B | Important control boundary |
 |---|---|---|---|---|
@@ -28,9 +31,13 @@ This is local branch work, not a push, merge or expanded CPU qualification.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `6545e72343f5daed2fe8160d3c291946771445e4` (CPU25-14); preceding checkpoints `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05), `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: twelve attempts and quantitative discovery stop reached; final attribution/gates complete. Sole full final rerun33770 running: short/medium pass, long pair pending; no further rerun allowed.
+- State: completed quantitative stop. Twelve attempts, terminal pool, fresh discovery, final attribution/gates and the sole complete final A/B rerun all concluded; no pending experiment or measurement.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected-code / not_verified / closed-untried: 12 / 4 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
+
+The detailed sections preserve chronological recovery checkpoints, including
+their then-active process states. This recovery state and the definitive final
+comparison supersede those historical pending statements.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -2265,6 +2272,61 @@ TTFT35040.62->24262.52 (-30.759%, CV.64%/.17%), model11.34->10.91
 (-3.792%, CV1.51%/.75%), public10.63->10.23 (-3.763%, CV1.51%/.76%).
 All counts match, prompt objectives stable and all current controls within5%.
 Long A/B remains active on the same handle33770; no inference from partial rows.
+
+## Definitive complete initial/final comparison
+
+Sole rerun33770 completed all six records successfully. Initial6238489 and
+final6545e72 use the same authenticated3B artifact, CPU placement, compiler,
+release profile, context4096, F16 KV, greedy sampling, exact calibrated prompts,
+32 requested tokens, warmup1 and measured repetitions3. Counts match:
+short128/32/32, medium1024/32/31, long3584/32/31. No row is taken from the first
+set, and no second rerun was performed. All objective CVs<=5%, prompt gains>=5%,
+TTFT improves and no model/public decode control regresses beyond5%.
+
+| Regime | Metric | Immutable initial | Accepted final | Change | CV initial / final |
+|---|---|---:|---:|---:|---|
+| short | prompt token/s | 30.58 | 41.79 | 36.658% | 1.29% / 4.70% |
+| short | TTFT ms | 4186.61 | 3067.25 | -26.737% | 1.28% / 4.83% |
+| short | model decode token/s | 12.39 | 12.48 | 0.726% | 0.36% / 0.54% |
+| short | public decode token/s | 12.00 | 12.09 | 0.750% | 0.35% / 0.52% |
+| medium | prompt token/s | 29.22 | 42.21 | 44.456% | 0.64% / 0.17% |
+| medium | TTFT ms | 35040.62 | 24262.52 | -30.759% | 0.64% / 0.17% |
+| medium | model decode token/s | 11.34 | 10.91 | -3.792% | 1.51% / 0.75% |
+| medium | public decode token/s | 10.63 | 10.23 | -3.763% | 1.51% / 0.76% |
+| long | prompt token/s | 28.90 | 35.71 | 23.564% | 0.20% / 0.26% |
+| long | TTFT ms | 124004.40 | 100371.28 | -19.058% | 0.20% / 0.26% |
+| long | model decode token/s | 9.15 | 9.13 | -0.219% | 1.05% / 0.26% |
+| long | public decode token/s | 8.58 | 8.56 | -0.233% | 1.04% / 0.26% |
+
+The medium decode decrease is a disclosed control trade-off, not rounded away.
+The final long decode means differ by only.02 token/s. The first set's large
+unchanged-decode gain and this campaign's changing clocks/background load show
+why these are recorded-environment results, not statistical significance or a
+promise on other systems. No throughput percentages are compounded.
+
+### Final audit and evidence boundaries
+
+All measurement processes and telemetry monitors have exited. Final audit at
+2026-09-05T06:44:10+02:00 reconfirmed the model's complete SHA256 against the
+catalog, unchanged from preflight. Format and diff checks passed; no production
+source changed after the successful final workspace/check/Clippy/parity gates.
+No unresolved correctness or measurement prerequisite remains on the declared
+CPU/F16/3B/context4096 tuple. Seven explicitly ignored external tests and other
+models/backends remain outside this measured qualification; they are not passes.
+
+Final six-record time(1) peak RSS ranges4267716–4268068 KiB initially and
+4267820–4268176 KiB finally, approximately4.07 GiB on both sides. All six report
+zero process swaps. This is peak loading/process residency, not steady-state
+weight memory or a claim that activation packing has no transient allocation.
+CPU25-12's rejected first-request totals have sample CV1.72%/1.68%, so its
+5.820% startup regression was not waived as unstable.
+
+The final tracked changes contain only accepted CPU code/tests, this report,
+its investigation-index entry and the current-performance summary. Changed
+Markdown was checked for newly introduced commercial hardware product names;
+none were found. Exact device identity stays in private raw evidence. All
+protected AI instructions, skills and historical planning material remain.
+The branch is local: no push, PR, merge or destructive history rewrite occurred.
 
 ## Campaign accounting
 

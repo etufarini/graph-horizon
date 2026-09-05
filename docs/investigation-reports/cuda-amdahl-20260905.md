@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C11 (this decision commit), building on `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C11 kept; refreshed profiles next.
-- Attempts: 6/10 reached correctness; kept 5, rejected 1, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `b01470c` (C11), building on `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C11 profiles complete; C14 selected for baseline gate and implementation.
+- Attempts: 6/10 reached correctness; kept 5, rejected 1, not_verified 0, closed-untried 1 (C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), this commit (C11).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -31,7 +31,10 @@ All `c02-timeline` rows completed in session `87311`; current ranking selects
 C11. Its baseline tail test passed and is committed in `3fffeb9`. Canonical
 gates passed in session `51190`, extra int8 parity in `89187`, objective in
 `19830`, and both controls in `98968`. C11 is accepted against C02 in this
-commit. Next refresh `c11-timeline` for all regimes and rerank the pool.
+commit. All `c11-timeline` rows completed in session `38969`; new discovery
+adds C13/C14 below and C14 has the largest credible bounded effect. No C13/C14
+production code is implemented yet. C10 is closed-untried because C11 removed
+its entire shared-tree owner. Continue the same pool; the minimum is not met.
 Baseline and accepted immutable executables, plus all A/B records, remain under
 the same private campaign directory. No other production candidate is applied.
 
@@ -100,15 +103,17 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | kept | Small: reuse existing parallel attention body; score reduction reorders |
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | kept | Numeric gates and all controls passed; objective +16.492% |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | kept | Exact gate and all controls passed; objective +6.613% |
-| C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
+| C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | ready | Small; same four-token tile and accumulation order, exact gate |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
-| C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
-| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
-| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
-| C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | ready | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x |
+| C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | ready | Small; phase-specific ceiling now exceeds 5% |
+| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | ready | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
+| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
+| C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
 | C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short prompt throughput | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
+| C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | ready | Numeric risk, shared-memory occupancy cost; preserve C11 fallback beyond bounded score capacity |
+| C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | ready, selected | Larger but bounded numeric kernel; no dequantized-FP16 weight narrowing, dependency or global scratch |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -896,3 +901,90 @@ expansion. C05 remains a successful earlier campaign decision; C11 supersedes
 its exact-tree implementation with the separately gated numeric tile. C10's
 original shared-tree premise must be reviewed against this accepted code, not
 retried against an obsolete runtime. Next: all three `c11-timeline` profiles.
+
+### Refresh after C11; new structural candidates
+
+Session `38969` completed all three traces, zero dropped records. Short totals
+3340.989 ms (1818.174 prefill/first sample + 1522.814 decode), with 1762.887 ms
+batched matmul, 1171.311 ms single matmul and 153.090 ms logits. Short attention
+is only 11.013 + 49.771 ms; argmax still owns 106.132 ms of decode (6.97%,
+phase ideal ceiling 7.49%). Long totals 63640.769 ms, with 50224.132 ms batched
+matmul and attention 9717.201 + 1198.329 ms. Attention's local long speedups
+versus C02 are 2.492x prefill and 2.566x decode. Instrumented TTFT is within
+0.13% of unprofiled short/long; diagnostic decode within 0.6%. C11 controls had
+0.779 s stock power capping short, zero medium, and zero thermal slowdown.
+
+C10's cross-warp shared-score tree no longer exists, so its current removable
+owner and ideal gain are zero: **closed-untried**, not an attempt. C11's remaining
+context scan and scalar softmax updates support C13; scalar matmul and repeated
+dequantization/FMA work support C14. The model-family tensor contract requires
+Q4_K/Q6_K matrices, so the batched-matmul owner is within C14's packed scope.
+
+| Priority / state | p full request | s | o | Predicted gain | Ideal ceiling | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| C14 ready, selected | 0.52765 short | 1.5 | 0.02 | 18.467% | 111.709% | 520.809 |
+| C13 ready | 0.17152 long | 2 | 0.004 | 8.904% | 20.703% | 5203.202 |
+| C04 ready | 0.52765 short | 1.1 | 0.001 | 4.928% | 111.709% | 156.922 |
+| C08 ready | 0.92406 short | 1.04 | 0.0005 | 3.631% | 1216.906% | 117.071 |
+| C12 deferred until C08 | 0.92406 short | 1.04 | 0.001 | 3.578% | 1216.906% | 115.401 |
+| C07 ready | 0.03279 short | 8 | 0.0002 | 2.933% | 3.390% | 95.193 |
+| C09 ready | 0.92406 short | 1.02 | 0 | 1.845% | 1216.906% | 60.535 |
+
+C13 design, not implemented: existing `shaders/attention.cuh` (~230 productive
+category-K lines, cohesive attention variants), no host ABI changes. For
+positions <4096, score four contexts per warp group into a 4096-float shared
+array, reduce a stable maximum, compute exponentials and denominator in parallel,
+then accumulate V with no per-context barriers. Reuse shared reduction storage
+only after all readers finish. Keep C11's online fallback at position >=4096;
+its extra shared allocation/occupancy cost must be measured, not assumed free.
+Gate adds `(dim,context)=(3,4097)` to the existing CPU-reference test so adjacent
+queries cross 4095/4096, plus canonical gates and f16/int8 parity. No larger
+performance tuple is requested; the extra context is validation-only. Risk is
+changed summation order and shared-memory occupancy; s=2 is uncertain, supported
+by C11's measured synchronization/softmax removal but discounted for storage.
+
+C14 design, selected before implementation: the installed CUDA headers and
+existing capability floor (compute >=7.5, warp32, shared >=48 KiB) support the
+standard warp matrix API without a new dependency or architecture route. Follow
+the current [CUDA warp matrix contract](https://docs.nvidia.com/cuda/cuda-programming-guide/05-appendices/cpp-language-extensions.html#warp-matrix-functions):
+all lanes participate uniformly, shared matrix pointers are 32-byte aligned,
+half leading dimensions are multiples of eight, and float dimensions multiples
+of four. Store fragments to shared memory before indexed access; never assume
+their internal element mapping. Do not use saturate-to-finite mode.
+
+Use only packed formats and rows >=16; F16 and smaller batches retain the
+accepted path. A 128-thread block owns 16 input rows and 64 output rows; each
+warp computes a 16x16x16 product. Quantized integers fit half exactly (Q4/Q5
+nonnegative small integers; Q6 signed -32..31), while the input is already half.
+Within each aligned K16 group, packed scale/minimum are constant. Compute
+`factor * dot(input, quant) + bias * sum(input)` in float, then accumulate those
+group contributions in float. This avoids narrowing reconstructed quantized
+weights to half, which could overflow valid large scales. F32 factorization
+and reduction order still change and require the declared numeric gate.
+
+One shared staging set per entry: A 16x16 half, B 64x16 half in column-major
+form, C 16x64 float, row sums and per-output float factors/biases; <8 KiB total.
+Zero-pad output/token tails, keep every lane through barriers, and retain eight
+float output accumulators per thread. New checked launch grid is ceiling(N/64)
+by ceiling(M/16), with the same fixed ABI and 128 threads. Reuse the trusted
+module's static symbol inventory; no runtime strings or global allocations.
+
+Predeclared C14 structure (no new files): `shaders/matmul.cuh` (~260 productive
+category-K lines), `shaders/quant.cuh` (~125 category-K lines),
+`kernels/matmul.rs` (~130 orchestration lines), `module.rs` (~150 orchestration
+lines), `kernels/tests.rs` (~110 added test lines, excluded from the limit).
+The K exemption is the rule for these single-operation format families; do not
+fragment them solely for line count. Main risks: numeric factorization drift,
+register pressure, shared staging/barriers, and fragment alignment/tail bugs.
+The conservative local s=1.5 and o=0.02 include substantial staging uncertainty;
+this is an instruction-work/reuse hypothesis, not a hardware-counter claim.
+
+C14 gate before production: add packed Q4/Q5/Q6 reference cases at rows 16/17,
+outputs 17/65, widths 256/768/3072. Repeat a five-block `patterned_weight` fixture
+instead of exceeding that helper's signed-byte scale range. Compare every output
+to stored-value scalar reference at the unchanged 0.02+2% bound; keep all old
+tests unchanged. Include high-scale cancellation: d=65504, uniform quant=2,
+alternating +/-1 input, expected zero, so weights exceed half range but valid
+output does not. Run the new gate on C11 first, then canonical CPU/CUDA checks,
+all local tests and pinned model parity on C14 before performance. Objective
+short prompt throughput, C11 as baseline, TTFT/decode and medium/long controls.

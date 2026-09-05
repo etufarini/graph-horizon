@@ -22,7 +22,7 @@ and execution:
 | Vulkan-hybrid `AllGpu` | Accounted 32-row fallback; 512 with the eligible, capacity-fitting Matrix2 Q4/Q64 capability set | Vulkan |
 | Metal standalone | 64 rows | Metal |
 | Metal-hybrid `AllGpu` (`all-metal`) | 32 rows | Metal |
-| CUDA standalone | 64 rows | CUDA |
+| CUDA standalone | 128 rows | CUDA |
 | CUDA-hybrid `AllGpu` (`all-gpu`) | 32 rows | CUDA |
 | Vulkan, Metal, or CUDA `Mixed` | 4 rows | CPU prefix, one crossing, accelerator suffix |
 
@@ -50,7 +50,7 @@ back to raw weights if the extra storage does not fit, without changing context
 or placement. `Engine::memory()` includes any retained companion; CUDA hybrid
 does not create it.
 
-Standalone CUDA uses the same 64-row capacity for prefill allocation and checked
+Standalone CUDA uses the same 128-row capacity for prefill allocation and checked
 scratch admission. CUDA hybrid keeps its independent 32-row all-GPU and 4-row
 mixed capacities. Cancellation is checked between graph batches.
 

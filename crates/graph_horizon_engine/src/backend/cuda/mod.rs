@@ -21,7 +21,7 @@ pub(crate) use loader::load;
 pub(crate) use mem::buffer::{CudaBuffer, CudaFormat};
 
 // Standalone graph batches and their memory preflight must use the same capacity.
-pub(crate) const PREFILL_ROWS: usize = 64;
+pub(crate) const PREFILL_ROWS: usize = 128;
 
 pub(crate) struct CudaBackend {
     pub(crate) device: Device,

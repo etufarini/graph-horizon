@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `9c18395` (C44), above `fe83feb` (C43), `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C44 accepted after all gates and controls; all three profiles refreshed. Fresh discovery/closure audit and final handoff remain. Not complete.
-- Attempts: 30 distinct reached correctness (minimum 10): 16 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 12 terminal non-counting re-evaluations: 8 kept (C17/C22/C27/C29/C32/C34/C37/C43), 4 rejected (C35/C36/C39/C41). Total retained optimization commits24 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C45 (this commit), above `9c18395` (C44), `fe83feb` (C43), `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C45 accepted after all gates and controls on the refreshed environment tuple. Profile refresh, C46 and final closure audit remain. Not complete.
+- Attempts: 30 distinct reached correctness (minimum 10): 16 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 13 terminal non-counting re-evaluations: 9 kept (C17/C22/C27/C29/C32/C34/C37/C43/C45), 4 rejected (C35/C36/C39/C41). Total retained optimization commits25 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 re-evaluation), `99f4330` (C24), `2d77b2f` (C27 re-evaluation), `1a32047` (C29 re-evaluation), `4d9e718` (C31), `c15f222` (C30), `10b186c` (C32 re-evaluation), `ef84e39` (C34 re-evaluation), `483ea2a` (C37 re-evaluation), `fe83feb` (C43 re-evaluation). Re-evaluations are non-counting. Separate correctness support: S01 `6d37587`.
 
@@ -148,7 +148,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
 | C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
 | C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | kept | Objective+24.856%, every control within5%, exact frozen IDs and whole-model sanitizers pass; hybrid remains32/4 |
-| C45 | Extend C44 graph batching64→128 after measured underfilled-grid improvement | Medium prompt throughput | ready | Non-counting C44 extension; unchanged kernel tiles, additional6.5MiB checked scratch |
+| C45 | Extend C44 graph batching64→128 after measured underfilled-grid improvement | Medium prompt throughput | kept | Medium prompt+8.063%; all controls pass; exact frozen IDs and whole-model sanitizers pass |
 | C46 | Override existing batched-RoPE trait operation with CUDA row-batched launches | Short prompt throughput | deferred | Fresh RoPE owner5.334% of prefill, ideal5.635%; rerank after C45, preserve host-computed YaRN bucket scale |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -4625,3 +4625,85 @@ on integer original-context buckets, so split batches at bucket boundaries and
 retain the existing CPU-computed scale rather than changing its math to GPU
 logarithms. Preserve decode's one-row path and explicit range/alias checks;
 final structure/gates are required before selecting it. No C46 code yet.
+
+Campaign resumption on 2026-09-05 found the ignored private evidence directory
+absent after an external environment refresh. The immutable Git history and
+this report remain intact, but the driver changed from 580.173.02 to 595.84 and
+Rust/Cargo from 1.97.1 to 1.95.0. Historical measurements remain historical
+evidence and are not compared across that discontinuity. The authenticated
+artifact, CUDA Toolkit 12.4.131, backend, placement, context, KV, prompts,
+sampling and workload matrix remain unchanged. The current physical device is
+recorded only in the private raw evidence, consistent with the repository's
+hardware-neutral documentation policy.
+
+Rebuilt accepted C44 at `44c9a65` (runtime still `9c18395`) and captured a new
+unprofiled A baseline in `target/cuda-amdahl-20260905/c44-driver595.json` before
+the C45 production edit. Means with fractional CV:
+
+| Regime | Prompt t/s [CV] | TTFT ms [CV] | Model decode t/s [CV] | Public decode t/s [CV] |
+|---|---:|---:|---:|---:|
+| short | 498.32 [.0040] | 256.86 [.0040] | 56.11 [.0044] | 54.32 [.0049] |
+| medium | 454.55 [.0003] | 2252.77 [.0003] | 54.30 [.0010] | 50.88 [.0006] |
+| long | 379.82 [.0003] | 9436.13 [.0003] | 46.85 [.0015] | 43.90 [.0012] |
+
+Counts remain 128/32/32, 1024/32/31 and 3584/32/31. The fresh A is the only
+authority for C45 performance classification; no cross-driver speedup will be
+claimed. Artifact size and SHA-256 match `support/models.tsv`, environment
+override variables remain unset, and no competing inference process was
+present. Private runner and raw telemetry are campaign evidence, not tracked
+production support.
+
+### C45 kept on the refreshed tuple
+
+C45 changes only standalone `PREFILL_ROWS` from 64 to 128. `MemoryPlan`, runtime
+allocation and graph chunking still consume that one constant; hybrid remains
+32/all-GPU and 4/mixed. Scratch rises from 6,922,240 to 13,737,984 bytes, an
+additional 6,815,744 bytes covered by the existing exact-fit, one-byte failure
+and overflow gates. Cancellation remains between graph batches, so the maximum
+uninterrupted prefill chunk increases to 128 rows. No kernel, format, numeric
+operation, KV layout, placement policy, public API or dependency changes.
+
+Before public performance, formatting, CUDA workspace check, the CPU workspace
+(170 root and 164 engine tests plus integration suites), 11 error-matrix tests
+and all 43 CUDA tests passed. Canonical authenticated standalone f16/int8 and
+mixed-hybrid f16/int8 parity passed. The frozen 129/130/549-token fixtures pass
+both KV schemes and every C45 local-ID vector is byte-for-byte identical to its
+C44 replay. Both generated PTX images are byte-identical; candidate hashes are
+`a19b1c6f8d51db0862099a94855dd49e2afe1c46fbee2fedba9b2a598bb0797e`
+and `74c15f17a0e08b71f73f9952211cf29e25c113dfce747de3060e248dbbaab34d`.
+Whole-model frozen549 Compute Sanitizer passes memcheck f16/int8 in 490.05/
+574.11 s and synccheck f16/int8 in 35.91/35.97 s, each with zero errors.
+
+The recovered oracle binary reports the pinned revision but its newly generated
+frozen130 continuation diverges from the historical oracle after step 13. C45
+therefore did not replace that reference: frozen130 and frozen549 use the
+historical immutable vectors recorded earlier, and C44/C45 are compared against
+the same vectors. The missing frozen129 private vector was reconstructed from
+the independent oracle before either local replay. C44 and C45 return the same
+local IDs for all six rows. Treat the oracle-binary drift as an external
+reproducibility caveat, not evidence against candidate correctness.
+
+Fresh unprofiled A/B means with fractional CV:
+
+| Regime | C44 prompt t/s [CV] | C45 prompt t/s [CV] | Prompt change | TTFT change | Model decode change | Public decode change |
+|---|---:|---:|---:|---:|---:|---:|
+| short | 498.32 [.0040] | 529.75 [.0070] | +6.307% | -5.929% | +1.426% | +1.399% |
+| medium objective | 454.55 [.0003] | 491.20 [.0008] | +8.063% | -7.461% | +1.731% | +1.710% |
+| long | 379.82 [.0003] | 410.26 [.0014] | +8.014% | -7.420% | +0.342% | +0.364% |
+
+C45 absolute means are TTFT 241.63/2084.69/8735.98 ms, model decode
+56.91/55.24/47.01 t/s and public decode 55.08/51.75/44.06 t/s for short/
+medium/long. Counts remain 128/32/32, 1024/32/31 and 3584/32/31. Every
+objective/control CV is below 1%, every control is within 5%, no rerun is used,
+and the fresh comparison completes within two hours. Device telemetry shows the
+same driver and ordinary stock P-state transition for every row; no thermal or
+machine setting was changed. Terminal state: **keep**, non-counting bounded C44
+extension. Candidate executable SHA-256 is
+`a48a4ef22b693db66da773048508758a8f0b27679f9f053f7bbe47e0c473bdf6`.
+
+The predicted medium gain was 5.399%; measured prompt gain is 8.063%. Added
+normalized overhead was conservatively 0.004, the ideal owner ceiling 154.778%,
+and expected saved fixed-work time 145.054 ms. The retained change reduces
+layer traversals without increasing conceptual structure: one existing checked
+capacity changes, and its documented memory/cancellation tradeoffs remain
+explicit. Refresh attribution before selecting C46.

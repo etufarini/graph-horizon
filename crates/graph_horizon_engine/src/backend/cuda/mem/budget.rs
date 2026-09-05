@@ -274,6 +274,10 @@ mod tests {
         let cached = MemoryPlan::new(&source, shape(), 16, KvQuant::F16, true)?;
         assert_eq!((raw.weights, raw.staging), (452, 210));
         assert_eq!((cached.weights, cached.staging), (772, 210));
+        let runtime =
+            RuntimeBytes::new(shape(), 16, KvQuant::F16, super::super::super::PREFILL_ROWS)?;
+        assert_eq!(raw.scratch, runtime.scratch);
+        assert_eq!(cached.scratch, runtime.scratch);
         let required = sum([
             cached.weights,
             cached.fixed,

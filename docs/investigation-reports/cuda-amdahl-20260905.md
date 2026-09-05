@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C43 (this acceptance commit), above `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
-- State: running, C43 accepted after every gate and all controls; all profiles refreshed. Fresh discovery/closure audit and final handoff remain. Not complete.
-- Attempts: 29 distinct reached correctness (minimum 10): 15 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 12 terminal non-counting re-evaluations: 8 kept (C17/C22/C27/C29/C32/C34/C37/C43), 4 rejected (C35/C36/C39/C41). Total retained optimization commits23 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `fe83feb` (C43), above `483ea2a` (C37), `ef84e39` (C34), `10b186c` (C32), `c15f222` (C30), `4d9e718` (C31) and earlier accepted commits below; S01 remains a separate correctness fix.
+- State: running, C44 accepted after all gates and controls; all three profiles refreshed. Fresh discovery/closure audit and final handoff remain. Not complete.
+- Attempts: 30 distinct reached correctness (minimum 10): 16 kept, 12 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28/C33/C38/C40), 2 interesting/restored (C07/C42); plus 12 terminal non-counting re-evaluations: 8 kept (C17/C22/C27/C29/C32/C34/C37/C43), 4 rejected (C35/C36/C39/C41). Total retained optimization commits24 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
+- Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 re-evaluation), `99f4330` (C24), `2d77b2f` (C27 re-evaluation), `1a32047` (C29 re-evaluation), `4d9e718` (C31), `c15f222` (C30), `10b186c` (C32 re-evaluation), `ef84e39` (C34 re-evaluation), `483ea2a` (C37 re-evaluation), `fe83feb` (C43 re-evaluation). Re-evaluations are non-counting. Separate correctness support: S01 `6d37587`.
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -147,7 +147,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
 | C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
 | C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
-| C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | ready | One existing capacity constant feeds checked budget and allocation; hybrid remains32/4 |
+| C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | kept | Objective+24.856%, every control within5%, exact frozen IDs and whole-model sanitizers pass; hybrid remains32/4 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4500,3 +4500,80 @@ context4096, KVf16, all-GPU placement and public prompts; internal batch capacit
 is the sole intentional variable. Use current tensor-precall owner conservatively
 with net s1.1,o.002 for scheduling and larger scratch, not infinite reuse.
 C44 is one new orchestration premise only after it reaches correctness.
+
+C44 pre-edit Amdahl record (s1.1, o.002; elapsed prefill+decode denominator,
+conservative relative to the prompt-only objective):
+
+| Regime | T ms | Owner ms | p | Predicted gain % | Ideal ceiling % | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| short | 878.969055 | 265.248911 | .301772752 | 2.609765 | 43.219848 | 22.355599 |
+| medium | 3293.441648 | 2112.073731 | .641296843 | 5.965847 | 178.782046 | 185.419820 |
+| long | 11696.301588 | 7411.392592 | .633652658 | 5.887873 | 172.964994 | 650.370360 |
+
+C44 implementation is one constant plus its invariant comment and four lines
+in the existing budget test. First fmt check found only rustfmt wrapping;
+formatted before executing the gates, no failed correctness/performance retry.
+Session84848 passes CUDA check, CPU8.17s,11error_matrix.76s, all43CUDA102.43s
+(command102.54s), canonicalf16parity13.78s, standaloneint811.76s and mixed
+hybridf16/int818.67/15.78s. Frozen549 session62717 passes both KV with exact
+frozen local IDs; the same built real-model fixture is now under serial
+memcheck/synccheck. No candidate performance observed yet.
+
+Cancellation remains checked before each graph batch, not within one. Raising
+capacity also raises the maximum work between those existing checks; preserve
+the cancellation/lifecycle tests and disclose this granularity tradeoff.
+
+C44 frozen549 and both whole-model sanitizers finish in62717: memcheck
+f16/int8502.50/583.80s, synccheck44.84/44.92s; all four zero errors and exact
+frozen local IDs. These are instrumented correctness times, not performance.
+Frozen13064389 and12961815 pass both KV, including exact frozen local IDs.
+Temporary test-only memory printing confirms weights2649470976 bytes unchanged,
+KV436207616 f16 /224919552 int8. Budget scratch is106496*65=6922240 bytes,
+versus3514368 before; additional3407872 bytes covered by the existing exact-fit
+and one-byte-failure checks. Both debug PTX images compare byte-identical to C43.
+Canonical prompt and memory printing are restored before the fast build/public
+objective51124. C44 has now reached every predeclared correctness gate: distinct
+attempt30, performance classification pending; retained count remains23.
+
+### C44 accepted: larger graph batches with unchanged kernels
+
+Public objective51124 and controls84400 pass against C43. Fast build7.15s;
+both final PTX images byte-identical to C43. No temporary prompt or memory hook
+remains. `compare.py c43 c44 medium prompt_tps short medium long` applies the
+unchanged thresholds. An earlier invocation used the invalid key `prompt` and
+failed in analysis only; no benchmark was repeated.
+
+| Regime | Prompt t/s[CV] | TTFT ms[CV] | Model decode t/s[CV] | Public decode t/s[CV] | Process wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 505.45[.0047] | 253.24[.0047] | 57.21[.0021] | 55.39[.0021] | 4.43 |
+| medium | 459.22[.0006] | 2229.85[.0006] | 55.40[.0026] | 51.94[.0024] | 12.37 |
+| long | 380.42[.0032] | 9421.30[.0032] | 47.24[.0045] | 44.26[.0046] | 41.28 |
+
+Objective+24.855900%; short/long prompt+21.815728/+14.868048%. TTFT decreases
+17.909819/19.914019/12.941953%. Worst control is long public decode-1.753607%
+(model-1.726649%); short public-1.335946% and medium public+.697945%.
+Counts128/32/32,1024/32/31,3584/32/31 unchanged. All CV pass, no rerun; entire
+comparison completes within~45min of the C43 baseline. Stock power-cap
+increments short/medium/long .222493/.305325/0s; thermal zero. Desktop clients
+remain present, settled memory7301MHz, active SM samples1897–2017MHz and
+temperatures50–68C; no competing inference or settings change observed. Clock
+variation is not separated from the small decode controls; no significance or
+frequency-controlled claim. Preserve all raw observations.
+
+Keep only the capacity constant/comment, existing budget-test assertions and
+documentation of standalone64 versus hybrid32/4. This adds no abstraction and
+keeps scratch/runtime capacity in one source of truth. Additional scratch3.25MiB
+and coarser cancellation checks are explicit tradeoffs; context, weights, KV,
+shader math, admission fallback policy and public interfaces are unchanged.
+
+Refreshed profiles18112 complete with zero dropped records. Prefill/decode
+elapsed ms short255.368744/568.443318, medium2245.582236/585.978528,
+long9456.979705/682.884824. Prefill gaps5.142258/43.739257/167.554505;
+decode gaps13.016948/13.251153/10.801747. Tensor prefill218.478354/
+1720.177324/6018.810163ms. Decode matmul+logits485.673297/489.391749/
+492.027224ms, attention29.915961/42.207181/140.065033ms. Long tensor prefill
+attention2503.520996ms. Matrix inventory confirms medium16 batches of182
+projections, Q41366.587998ms and Q6353.589326ms; helper required no change
+because it derives batch count and checks the unchanged X-grid geometry.
+Kernel launch count is halved for batched graph operations, not for per-row RoPE.
+Continue fresh discovery using these profiles; C44 is retained optimization24.

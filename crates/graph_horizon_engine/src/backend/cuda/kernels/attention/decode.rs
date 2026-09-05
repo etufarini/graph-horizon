@@ -26,6 +26,16 @@ pub(crate) fn encode(
         KvQuant::F16 => Kernel::AttentionDecodeF16,
         KvQuant::Int8 => Kernel::AttentionDecodeInt8,
     };
-    let (grid, block) = dispatch::one_dim(u64::from(q_heads))?;
-    dispatch::launch(encoder, module, kernel, &args, grid, block)
+    // Validation bounds the head dimension to 1..=256. Each head owns a
+    // complete block; padded lanes participate in the shared reduction.
+    let threads =
+        u32::try_from(kv.head_dim.next_power_of_two()).map_err(|_| super::super::arithmetic())?;
+    dispatch::launch(
+        encoder,
+        module,
+        kernel,
+        &args,
+        (q_heads, 1, 1),
+        (threads, 1, 1),
+    )
 }

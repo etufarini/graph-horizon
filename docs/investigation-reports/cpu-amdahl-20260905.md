@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-05 correctness passed; long objective A/B running in session `37266` (baseline finished, candidate running).
+- State: CPU25-05 kept after complete correctness, long objective and both controls; refreshing attribution before the next candidate.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 4 / 2 / 1 / 0 / 2 (one attempt pending A/B).
+- Current attempts / kept / rejected / not_verified / closed-untried: 4 / 3 / 1 / 0 / 2.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -77,7 +77,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | measured medium +7.290% after sole rerun; controls pass; environmental caveat below | kept |
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
-| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | exact common-prefix design now bounded; correctness gate declared below | ready |
+| CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
@@ -1166,3 +1166,60 @@ assembly also confirms that the common-value loop widens each eight-element
 KV window once for eight FMA chains, without vector stack traffic inside that
 loop. Per-head softmax still calls scalar `expf` and has cross-call stack
 traffic; this is an observation, not an attributed regression or a new candidate.
+
+### CPU25-05 objective result and controls in progress
+
+Session `37266` completed successfully. Long objective results:
+
+| Metric | A, CPU25-02 | B, CPU25-05 | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 30.03 | 35.08 | +16.817% | 1.18% / 0.30% |
+| TTFT ms | 119339.53 | 102177.99 | -14.380% | 1.18% / 0.30% |
+| Model decode token/s | 7.08 | 9.50 | +34.181% | 10.63% / 0.83% |
+| Public decode token/s | 6.64 | 8.91 | +34.187% | 10.63% / 0.83% |
+
+Objective CV passes; no stability rerun is warranted. Unchanged decode's large
+gain and baseline variability are environmental/code-layout confounds, not
+claimed causal benefits of paired prefill attention. The observed prompt gain
+is provisional pending both controls; this CV screen is not statistical proof.
+At 03:17:19+02:00, control session `79212`, runner PID `330928`, began A then B
+for short, followed by A then B for medium, using the exact existing screen
+commands and binaries with `32 1 3` and the corresponding row selector.
+Its deadline remains 05:01:31+02:00, inherited from the complete comparison.
+The private `compare.awk` final objective label is not applied to control rows:
+evaluate their reported per-metric deltas against the 5% regression limit.
+
+Short control completed: prompt 41.82 -> 42.85 token/s (+2.463%, CV
+4.94%/0.66%), TTFT 3066.03 -> 2987.32 ms (-2.567%, CV 5.08%/0.66%),
+model decode 11.85 -> 11.81 (-0.338%, CV 1.50%/1.27%), public decode
+11.48 -> 11.44 (-0.348%, CV 1.51%/1.27%). Counts agree at 128 prompt,
+32 completion and 32 decoded tokens. This control passes; it need not deliver
+an objective gain. Its TTFT CV is disclosed, not a new objective or a reason
+to selectively rerun this control. Medium A/B remains live in `79212`.
+
+### CPU25-05 final decision: keep
+
+Session `79212` completed successfully. Medium control:
+
+| Metric | A, CPU25-02 | B, CPU25-05 | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 40.25 | 39.38 | -2.161% | 0.13% / 0.09% |
+| TTFT ms | 25439.55 | 26003.61 | +2.217% | 0.13% / 0.09% |
+| Model decode token/s | 10.80 | 10.93 | +1.204% | 0.98% / 0.79% |
+| Public decode token/s | 10.12 | 10.25 | +1.285% | 0.98% / 0.80% |
+
+Counts agree at 1024/32/31; long counts also agree at 3584/32/31. All
+controls pass their no-regression-above-5% rule. The complete comparison ran
+from 03:01:31 until approximately 03:22+02:00, well inside two hours, with
+no stability rerun. Keep CPU25-05: long objective +16.817%, stable objective,
+all correctness gates, and both controls passed. The medium slowdown is an
+explicit trade-off, not hidden by the selected long objective. Large unchanged
+decode movement on long remains a confound; do not attribute that gain to this
+prefill-only fast path or compound the campaign's percentage gains.
+
+Commit the bounded paired-output owner, eight-query SIMD kernel, exact tests,
+and this evidence as one accepted optimization. No instrumentation is present.
+Next refresh unprofiled/profiled short, medium and long rows with one repetition
+and no warm-up, solely for attribution and instrumentation-overhead disclosure.
+Then rerank CPU25-03/06/08 and unresolved locality, VNNI and backing mechanisms;
+none is closed by this attention result. Four attempts are not completion.

@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-03 correctness passed; medium prompt objective A/B running in session `66505`.
+- State: CPU25-03 rejected and restored; CPU25-08 dynamic output chunks selected next.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 6 / 3 / 2 / 0 / 2 (one attempt pending A/B).
+- Current attempts / kept / rejected / not_verified / closed-untried: 6 / 3 / 3 / 0 / 2.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -75,12 +75,12 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 |---|---|---:|---:|---:|---|---|---|---|
 | CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | initial prediction; measured medium prompt +20.681%, all gates pass | kept |
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | measured medium +7.290% after sole rerun; controls pass; environmental caveat below | kept |
-| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .08 | 1.30 | .003 | 1.57% / 1.09x | .45 s | bounded to batches crossing the adaptive tile; exact arithmetic and scratch cost gates | ready |
+| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .08 | 1.30 | .003 | 1.57% / 1.09x | .45 s | exact but medium prompt -6.093%, TTFT +6.513%; restored | rejected |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
-| CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
+| CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | completion spread exists; bounded four-way subdivision; extra allocations | ready |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
@@ -1446,3 +1446,58 @@ awk -f compare.awk cpu25-03-a-medium.out cpu25-03-b-medium.out
 
 Deadline 05:40:20+02:00. Resume the same session. No stability rerun or
 short/long control has started. Telemetry is saved in `cpu25-03-telemetry.log`.
+
+### CPU25-03 final decision: reject and restore
+
+Session `66505` completed successfully within approximately five minutes.
+
+| Metric | A, CPU25-05 | B, transient rows | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 35.45 | 33.29 | -6.093% | 1.67% / 2.72% |
+| TTFT ms | 28893.58 | 30775.50 | +6.513% | 1.67% / 2.68% |
+| Model decode token/s | 7.60 | 7.80 | +2.632% | 5.25% / 9.36% |
+| Public decode token/s | 7.13 | 7.31 | +2.525% | 5.21% / 9.36% |
+
+Counts agree at 1024/32/31. Stable prompt objective fails and TTFT exceeds
+the control regression limit. Reject, no stability rerun and no other controls.
+The new inner loop's four accumulators remain in registers (private
+`cpu25-03-decoded.asm`), but this mechanism does not improve public performance.
+Do not claim scratch traffic is the proven cause without causal attribution;
+the result closes this exact transient-float implementation. Restore both Q4
+files to `998b189`, including tests, preserving private patch/binary/evidence.
+CPU25-10 remains distinct: integer VNNI with transient compact row interleaving
+is not decoded-f32 scratch. CPU25-08/09 remain independent scheduler premises.
+
+### CPU25-08 declaration before implementation
+
+Target medium prompt throughput, baseline `998b189`/`cpu25-05-bench`, same
+tuple and canonical correctness/stability/control gates. This is now the next
+bounded scored mechanism; unknown locality/VNNI/backing are still deferred.
+Earlier measured finish spreads and refreshed worker bounds support possible
+load imbalance, not the sum of all worker durations as removable time. Keep
+p=.04–.08, s=1.5, o=.005: predicted .84–2.21%, ideal 4.17–8.70%, saved
+.24–.63 s on the refreshed medium request. The upper ceiling warrants a cheap
+trial; the lower prediction alone does not close the candidate.
+
+Intentional variable: divide the existing independent-output chunks into four
+bounded subchunks and let workers claim them dynamically from one atomic
+index. A saturating claim boundary prevents index wrap; every claimed chunk
+is unique, so reconstructed mutable slices stay disjoint. The caller and all
+worker slots drain through the unchanged serialized pool. Numeric reduction
+order inside an output is untouched; no work is split across a reduction.
+Unlike CPU25-06, this changes work assignment, not worker waiting or affinity.
+
+Necessary tree: only existing `cpu/parallel.rs` (~125 productive lines excluding
+tests, below 200). No new production helper, file, dependency or public API.
+Risks: unsafe slice uniqueness, repeated/missing units, extra atomic operations,
+more frequent per-closure scratch allocation, locality loss and decode regression.
+The per-call claim counter lives until joined dispatch returns. Inspect all
+callers: their unit is an independent output row/head/vector; none requires a
+particular worker identity or global chunk execution order.
+
+Focused gates: retain existing zero/small/strided output tests and add concurrent
+callers over guarded non-Copy outputs, checking each element is visited exactly
+once with the correct absolute offset. CPU release workspace includes the
+unchanged exact Q4 and paired-attention tests. CPU check, warning-denied Clippy,
+format/diff checks and pinned F16 parity with complete initial-log identity all
+precede performance. Only provisional objective success triggers both controls.

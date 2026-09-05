@@ -75,7 +75,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 |---|---|---:|---:|---:|---|---|---|---|
 | CPU25-01: pack Q4 activation sub-blocks contiguously | medium / prefill | .55 | 1.15 | .010 | 6.58% / 2.22x | 2.02 s | initial prediction; measured medium prompt +20.681%, all gates pass | kept |
 | CPU25-02: interleave two token FMA chains in Q4 | medium / prefill | .42 | 1.12 | .002 | 4.49% / 1.72x | 1.59 s | measured medium +7.290% after sole rerun; controls pass; environmental caveat below | kept |
-| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
+| CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .08 | 1.30 | .003 | 1.57% / 1.09x | .45 s | bounded to batches crossing the adaptive tile; exact arithmetic and scratch cost gates | ready |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
@@ -1382,3 +1382,43 @@ premise; CPU25-08 targets load balance rather than sleeping; neither is closed.
 Rerank: bounded CPU25-03 transient decoded rows next (largest remaining scored
 conservative gain), then CPU25-08; unknown VNNI/locality/backing need additional
 feasibility evidence. There are five attempts, three kept and two rejected.
+
+### CPU25-03 declaration before implementation
+
+Source inspection narrows the intended reuse opportunity: at the canonical
+32-token batch, only input width 9216 crosses the adaptive 21-token tile;
+the 3072/4096 input paths do not. Its medium Q4 shape owns 2703.093 ms,
+9.26% of the refreshed 29176.471-ms complete request. Replace the initial
+.14 estimate with conservative p=.08, s=1.30, o=.003: predicted 1.57% gain,
+ideal 8.70%, approximately .45 s saved. The actual removable portion is
+uncertain; the sufficient ceiling and bounded experiment justify testing.
+This remains ahead of CPU25-08's conservative .84% estimate.
+
+Target medium prompt throughput; unchanged tuple and canonical gates. Intentional
+variable: when n exceeds the existing adaptive tile and AVX2/FMA is available,
+decode a pair of Q4 rows into per-worker temporary f32 scratch once, then consume
+all tokens against those rows. Preserve every fused dequant and ordered FMA
+exactly; hold one accumulator per output/token in registers, interleaving two
+tokens. This trades repeated quant decode, activation packing and accumulator
+load/store traffic for decoded-weight reads. The measured 32-KiB L1 cannot hold
+the 72-KiB two-row scratch at width 9216; L2/scratch traffic may erase any gain.
+Only this crossing-tile shape changes; single-token, scalar, smaller-batch and
+odd-output-row paths remain the existing implementation.
+
+Necessary tree, all within existing matmul files:
+
+```text
+cpu/kernels/matmul/q4k.rs       (~385 productive lines; existing one-operation K kernel)
+cpu/kernels/matmul/q4k_simd.rs  (~425 productive lines; existing one-operation K SIMD)
+```
+
+No new file, dependency, persistent representation or public API. Temporary
+scratch is exactly two input rows per active worker; no cache or cross-call
+ownership. Main risks are wrong nibble/scale mapping, reassociated reduction,
+tail/view writes, packing removal affecting fallback, and excess L2 traffic.
+Existing exact batched-vs-original FP16 tests cover widths 256/512/3072/9216,
+batches 2/5/21/32/33/65 and odd output tails. Add a direct exact-f32 two-row
+test with odd/even token tails and guarded input/output/weight windows. Then
+CPU workspace tests/check, warning-denied Clippy, format/diff checks and pinned
+F16 parity with full initial-log identity, all before A/B. On provisional
+medium success run both other controls; otherwise restore, no selective repeat.

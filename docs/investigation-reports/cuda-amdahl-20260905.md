@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C30 accepted in this checkpoint above `4d9e718` (C31), `1a32047` (C29) and the earlier accepted commits listed below; S01 remains a separate correctness fix.
-- State: running, C30 accepted after all gates and controls; refreshed profiles next. C28 deferred. Not complete.
-- Attempts: 24 distinct reached correctness (minimum 10): 15 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits19 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `c15f222` (C30), above `4d9e718` (C31), `1a32047` (C29) and the earlier accepted commits listed below; S01 remains a separate correctness fix.
+- State: running, C30 accepted and all profiles refreshed. C28 rejected and fully restored. C32 deferred for a Q6-prefill-only cache design. Not complete.
+- Attempts: 25 distinct reached correctness (minimum 10): 15 kept, 9 rejected (C06/C08/C13/C18/C20/C23/C25/C26/C28), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits19 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -131,10 +131,11 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C25 | Stage two adjacent Q4/Q5 coefficient groups together, reusing packed low/high bytes and synchronization | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/sanitizer gates pass; medium prompt -3.214% |
 | C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | rejected, restored | All exact/canonical/frozen/sanitizer gates pass; medium prompt +2.580%, below3% |
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
-| C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
+| C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | rejected, restored | All exact/canonical/frozen/hybrid/sanitizer gates pass; objective -11.700%, public control -11.776% |
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
 | C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | kept | Medium model decode +19.457%, long +61.511%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
+| C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Short prompt throughput | deferred pending dual-representation gate | C28 diagnosis isolates40.498ms Q6 prefill saving; conservative non-counting re-evaluation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3203,3 +3204,119 @@ Startup baseline mean752.568064ms, sample SD109.381943ms,CV .145344918;
 the high startup dispersion is disclosed separately and does not trigger the
 steady-state objective rerun rule. Engine::new synchronously calls family::load,
 confirmed in api/engine.rs; timer placement measures actual initialization.
+
+C28 production draft now includes the declared private formats,320-byte GPU
+conversion, retained raw fallbacks, checked capacity choice, aligned views and
+immutable CUDA memory summary. weights.rs moved with its tests to
+weights/mod.rs; new cache.rs owns the single-tensor conversion transaction.
+First compile43541 found only an incorrect relative Rust import after the
+file move (the module namespace does not gain a level); corrected to the
+original `super::buffer`. Preserve failed compile log. No GPU candidate
+performance or relaxed gate. Initial raw-path tests and dedicated cache gates
+are next; no cache performance has been observed.
+
+C28 resolved check/raw session59261 passes all38 existing CUDA tests.
+Dedicated coefficient gate49180 passes in .67s: bit-identical f32 embedding
+outputs over all63,488 finite half metadata patterns for each of Q4/Q5/Q6,
+including signed zeros and extrema. This is the25th distinct attempt reaching
+its predeclared correctness gate; matrix/cache capacity/transaction/summary,
+frozen/canonical/hybrid/sanitizer gates remain pending. No performance yet.
+
+C28 cache gates79833 pass all42 CUDA tests in56.46s. Every107 matrix fixture
+now runs both raw and cached layouts and asserts identical output bits, including
+single projections/f32 logits, paired/ordinary/wide tensor tiles and high-range
+cancellation. Original scalar references remain unchanged. Capacity exact-fit,
+one-byte raw fallback, overflow, malformed blocks, special metadata, aligned
+views and every selected cached-upload failpoint pass. Added immutable-summary
+test checks two aligned raw spans, cached tied embedding counted once, and a
+dedicated raw tail. Coefficient assertion diagnostics now report only the first
+mismatching byte instead of dumping64 MiB vectors; the exact gate is unchanged.
+
+C28 summary/hybrid-check42449 passes. Frozen549 session7396 passes both KV
+schemes with exact frozen local IDs;129/130 and canonical gates follow. Static
+resources remain unchanged for dot/logits40 registers/1024 shared, tensor
+M16 63/9792, M32 72/14976 and paired64/19584, all0 spills. New conversion
+entry uses20 registers and0 shared,0 spills. This is not achieved occupancy.
+
+C28 frozen130 session2561 passes both KV schemes with exact frozen local IDs;
+frozen129 session39982 running. Canonical source will be restored afterward.
+Current accepted optimization commits additionally include C31 `4d9e718` and
+C30 `c15f222`; C28 is not accepted and has no performance result.
+
+C28 frozen129 session39982 passes both schemes; canonical source restored.
+Canonical gate93584 passes fmt/CUDA workspace/CPU workspace/11 error tests,
+all43 CUDA tests and f16 parity. Family boundary productive count198 after
+excluding its test-only imports/model and test module; all modified orchestration
+files remain below200 productive lines. Remaining serial parity session41015
+covers standalone int8 and both25%-mixed hybrid rows before sanitizers.
+
+C28 parity41015 passes standalone int8 and both25%-mixed hybrid rows, all16
+canonical local IDs unchanged. Fast62513 completes; uninstrumented candidate
+executable/PTX saved. Sanitizer23262 memcheck passes all16 kernel tests in58.05s
+with0 errors; synccheck still running. Reintroduce the frozen startup timer
+only for a separate executable, plus a post-timer immutable weight-byte record;
+the public candidate binary is already preserved without instrumentation.
+
+C28 synccheck23262 also passes all16 kernel tests in53.15s,0 errors.
+Startup build65923 and serial diagnostic36795 complete after correctness:
+initialization1032.296543,880.173383,875.195984ms (median880.173383), walls
+1.69/1.53/1.58s. Each immutable API summary reports4,286,380,032 weight bytes,
+matching the admitted cache inventory. Median startup overhead178.331568ms
+versus C30; retain all first observations and report variability, not a cold
+speedup. Both temporary example hooks removed exactly; canonical prompt also
+restored. Start short model-decode objective with the previously saved
+uninstrumented c28-bench; both other regimes required for provisional keep.
+
+### C28 rejected and restored
+
+Objective69774 completes in5.24s: short model decode58.29 ->51.47 token/s
+(-11.7001%, CV .0000 rounded ->.0033), public56.47 ->49.82(-11.7762%,
+CV .0032). Prompt304.04 ->329.22(+8.2818%,CV .0054), TTFT420.99 ->388.80ms
+(-7.6463%,CV .0054). Counts128/32/32 unchanged. Reject the declared decode
+objective and public control; do not retarget to the favorable prompt result.
+No rerun or other public controls are needed after rejection. Power-cap
+increment .668421s, thermal counters0. Startup candidate mean929.221970ms,
+sample SD89.299884ms,CV .096101779; mean overhead176.653906ms and median
+178.331568ms, with +2,148,089,856 retained weight bytes. No startup benefit.
+
+Save complete candidate including new files in private c28.patch, c28-bench,
+c28.ptx and startup binaries/logs. Restore all candidate production/tests to
+accepted C30 and move weights/mod.rs back to weights.rs; remove only the new
+cache.rs. These rejected files are recoverable from c28.patch. git status now
+contains only this investigation record; C31/C30 and their permanent tests are
+preserved. Count25 distinct:15 kept,9 rejected,1 interesting/restored, plus
+four non-counting retained re-evaluations;19 optimization commits remain.
+
+Diagnostic93105 completes with0 drops. The original summary's first-kernel
+boundary incorrectly includes the new load-time conversion; retain that raw
+summary but invalidate its835.503404ms prefill duration. Correct the private
+analyzer to start at the first forward embedding, which is also the previous
+baseline boundary. Separate corrected forward summary is preserved; conversion
+kernels own61.933839ms before generation, not removable prefill time.
+
+Authenticated shape attribution (same728 prefill/5642 decode projection calls,
+checked grid and first-sampling boundary) isolates the failure. C30 ->C28:
+prefill Q4 253.527743 ->265.776374ms (worse), Q6 122.708559 ->82.210950ms
+(save40.497609ms). Decode Q4 371.514836 ->429.050395ms (worse), Q6
+53.689473 ->61.546003ms (worse). Only Q6 K3072/N1024 decode saves1.146446ms;
+its entire original8.373046ms owner is1.518% of551.517230ms decode, ideal
+gain1.542%, below5%. Do not retry that unchanged subset as an objective.
+Extra traffic is consistent with the losses, not proof
+of bandwidth saturation. Both Q6 prefill shapes improve: K3072/N1024
+26.994901 ->18.532899ms; K9216/N3072 95.713658 ->63.678051ms.
+
+Fresh bounded variant C32: retain original weights for decode/embedding/logits
+and add a lossless cache only for Q6 projection prefill. This directly removes
+both observed losing mechanisms (Q4 cache and decode expansion), but requires
+explicit dual-representation ownership/capacity and gates before implementation.
+Assign deferred pending its bounded design; conservatively count it as a
+non-counting C28 re-evaluation if attempted. Do not infer acceptance from C28's
+favorable non-objective. No C32 production exists yet.
+
+Corrected C28 forward prefill397.593704ms, gap6.803227ms; decode622.107581ms.
+C32 authenticated inventory adds511,180,800 bytes for Q6 projection caches
+while retaining original2,138,290,176 bytes:2,649,470,976 total. Original
+330,301,440-byte staging already conservatively covers conversion destinations
+when raw and cached representations are both included in retained weights.
+This is a finite size estimate, not allocation/performance evidence. C32 still
+needs narrow dual-owner/view/lifecycle/dispatch design before becoming ready.

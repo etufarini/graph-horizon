@@ -1064,3 +1064,47 @@ system THP policy, process mapping or affinity was changed. Page counts alone
 do not justify a time fraction or guarantee a gain. Any trial must stay within
 owned mapped pages, verify backing actually changes, preserve safe fallback,
 avoid new dependencies, and account for load-time and memory overhead.
+
+### CPU25-05 predeclaration
+
+Clean production baseline remains `245c15f`. Objective: LONG prompt throughput,
+because long prefill attention owns .189 of its profiled full request. Use the
+conservative p=.15, s=1.30, o=.005 prediction already ranked in the pool. This
+bounded experiment is eligible despite a 3.05% conservative prediction because
+its ideal ceiling is 17.6% and the shared-read fraction is uncertain. Medium and
+short are controls, with TTFT and both decode metrics controlled in every row.
+Keep the original artifact, CPU policy, release build, context/F16 KV, 32/1/3
+work and repetition tuple, 5% objective/CV/control limits and sole rerun rule.
+
+Intentional variable: eight-query F16 attention over two adjacent positions,
+four GQA heads each. Share K/V widening on the common prefix; process the second
+position's one extra key/value with the unchanged four-head primitives. Preserve
+each dot reduction, causal max/softmax and value accumulation order exactly.
+Use disjoint `(query_pair, kv_head)` output units, then narrow/reorder them into
+the existing token-major view. No retained KV-layout or payload change.
+
+Necessary structure and productive estimates, excluding attached tests:
+
+```text
+backend/cpu/kernels/attention/
+  mod.rs       (~715 lines; existing K attention family; narrow eligibility route)
+  paired.rs    (~130 lines; owns temporary output/scores and paired-unit wiring)
+  simd.rs      (~450 lines; existing K; one dense paired-position attention kernel)
+```
+
+The new ownership/wiring file stays below 200 lines; SIMD owns no resources and
+uses caller-provided scratch. It joins the existing attention folder, not a new
+prefix sibling. Keep the fast path limited to x86 AVX2/FMA/F16C, even batches
+greater than one, group four, and positive vector-aligned key/value dimensions.
+All other cases use the original path. Main risks: output reordering, a future
+key entering the earlier query, register pressure, and extra scratch/narrowing
+overhead. Added complexity is justified only if end-to-end gates pass.
+
+Correctness before performance: compare full parent-buffer bytes with unchanged
+per-position decode attention over zero/nonzero histories, multiple layers,
+different key/value dimensions, multiple KV heads, even/odd batches and padded
+views; preserve cache bytes. Existing attention/INT8/fallback tests remain
+unchanged. Then CPU release workspace tests, CPU check and pinned real-model
+F16 parity with complete log comparison against the baseline. No tolerance or
+reference changes. Only after passing correctness begin a fresh LONG A/B;
+provisional success requires both other regimes before retention.

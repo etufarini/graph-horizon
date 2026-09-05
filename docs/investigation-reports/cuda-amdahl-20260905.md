@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `65ef6ed` (C17), building on `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C15 kept after all controls; profiles next, C09 remains ready.
+- Current retained runtime: `56afc25` (C15), building on `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C15 profiles complete; C09 selected, then fresh discovery is required.
 - Attempts: 15 distinct (minimum 10): 10 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 11, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -1743,3 +1743,31 @@ only because phase-specific resource ownership demonstrably matters; explicit
 entry wiring preserves online prefill. No host interface, global allocation,
 cache layout or format changes. Production +82/-5 in one category-K shader.
 C15 is retained in this commit; refresh all affected profiles before C09.
+
+C15 profiles `7490` completed with zero dropped records. Short prefill/decode
+511.251/1043.708 ms; decode attention 27.592 versus C17 50.037 ms. Long
+23491.784/1640.801 ms; decode attention 637.308 versus 1189.308 ms. Tensor and
+prefill attention remain 12976.517/9534.437 ms, consistent with unchanged
+prefill resource ownership. Decode attention keeps 40 registers and no local
+bytes. C09's current conservative decode-matmul owner is 964.373 ms /1554.959
+ms: p=.620192, phase p=.923988, s=1.02, o=0, predicted 1.231%, ideal ownership
+ceiling 163.291%, saved 18.91 ms. Actual removable instruction share remains
+uncertain; this is a cheap bounded eligible experiment, not a predicted keep.
+
+### C09 predeclared implementation
+
+Select short model decode against immutable C15. In existing `shaders/quant.cuh`
+(~105 productive category-K lines), replace only `cuda_half_at`'s two-byte
+reconstruction with one aligned `__half` load and the identical conversion.
+Document the alignment invariant: device allocation alignment, even checked
+views, even packed block strides and all six audited call-site offsets. Existing
+F16 direct loads and all arithmetic/dequant expressions remain unchanged.
+No new file/function/format or public interface. Main risk is alignment, covered
+by the typed-view boundary and call-site proof, not a new per-load branch.
+
+Require all 26 original SIMT and 39 accepted tensor bit snapshots, canonical
+gates (including packed embedding reference coverage) and f16/int8 parity before
+objective performance. The frozen tensor snapshot remains valid transitively:
+C19 matched it exactly, and C17/C15 do not affect independent matmul inputs.
+Remove temporary prints before canonical gates. Both other regimes plus
+prompt/TTFT/public decode remain controls under the same thresholds.

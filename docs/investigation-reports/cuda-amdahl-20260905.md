@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `8ab48ff` (C19), building on `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C19 profiles complete; C17 non-counting re-evaluation selected.
-- Attempts: 14 reached correctness (minimum 10); kept 9, code rejected/restored 5 (C06/C08/C13/C18 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C17 re-evaluation kept after all controls; profiles next, C15 baseline test passed.
+- Attempts: 14 distinct (minimum 10): 9 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 10, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19).
 
@@ -120,7 +120,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
-| C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | ready | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
+| C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | kept, non-counting re-evaluation | Exact/canonical gates and all controls pass; objective +8.529% |
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
 | C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | kept | Exact/canonical gates and all controls pass; objective +31.205% |
 
@@ -1599,3 +1599,56 @@ test is the exact gate; all canonical gates and pinned f16 parity precede short
 model-decode objective against immutable C19, then both other controls before
 keep. All thresholds unchanged. Preserve C07's original interesting result;
 C17 is one re-evaluation comparison, not attempt 15 or a duplicate new premise.
+
+Applied exactly C07's production patch: `cmp c07.patch c17.patch` succeeds.
+Canonical `55425` passed formatting, CUDA check, CPU workspace, 11 error tests,
+all 37 CUDA tests including the 21-case total-order gate, and pinned f16 parity
+with all 16 top-one IDs unchanged. Fast build `64074` completed; copied immutable
+`c17-bench`. Acquire `run.py bench c17 .../c17-bench short`, then
+`compare.py c19 c17 short model_decode_tps short`; both other controls follow
+only provisional keep. Distinct attempt count remains 14.
+
+C17 short objective `19504` passes provisionally: model decode 27.67 -> 30.03
+(+8.5291%, CV .28% -> .29%), public 26.88 -> 29.08 (+8.1845%, CV .29%), prompt
+250.15 -> 250.25 (+.0400%, CV .41%), TTFT 511.69 -> 511.50 ms (-.0371%, CV
+.41%). Counts 128/32/32 unchanged; wall 7.28 s. The changed accepted runtime
+now supports a gain above the same fixed threshold; original C07 evidence is
+not rewritten. Run `run.py bench c17 .../c17-bench medium long` before keep.
+
+Read-only C15 gate audit: the long-history test already checks the last decode
+row against prefill using the bounded numeric gate, but for context 4097 that
+last row is the online fallback (position 4096). Before C15 production, extend
+the existing test to decode all three rows, including buffered positions
+4094/4095 and fallback 4096, and compare each against both prefill and its scalar
+reference. Keep the existing tiny-history exact equality test unchanged. This
+strengthens the selected phase-specific gate; it does not relax any tolerance.
+Existing test file only (~25 additional test lines), no new helper or test file.
+
+### C17 kept (non-counting re-evaluation)
+
+Controls `88848` completed. `compare.py c19 c17 short model_decode_tps short
+medium long` passes correctness, stability and every control: **keep**. Means
+[CV fraction] on the same accepted runtime plus the exact C07 patch:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 250.25 [.0041] | 511.50 [.0041] | 30.03 [.0029] | 29.08 [.0029] | 7.28 |
+| medium | 218.67 [.0003] | 4682.92 [.0003] | 23.98 [.0004] | 22.47 [.0005] | 25.07 |
+| long | 152.51 [.0015] | 23500.22 [.0015] | 14.56 [.0003] | 13.65 [.0001] | 103.55 |
+
+Decode gains +8.529/+8.507/+4.748%; worst control long TTFT +.1306% (prompt
+-.1310%). Counts unchanged in every regime. No rerun. Stock power-cap increments
+short .554069 s, medium .794137 s, long 0; thermal counters zero. All tuple and
+machine-setting constraints unchanged. The 14 distinct attempts remain 9 kept,
+4 rejected and 1 originally interesting; C17 adds a separately reported retained
+re-evaluation, not a fifteenth distinct attempt. This preserves original C07
+history while retaining its now-qualified implementation. C17 is kept in this
+commit, production +25/-8 across the two predeclared files.
+
+C15's strengthened baseline test was compiled with `--no-run`, then executed
+after C17 controls with `cargo test -p graph_horizon_engine --locked
+--no-default-features --features cuda attention_long_history_and_dimension_tails_match_reference
+-- --nocapture --test-threads=1` (`c15-baseline-test.log`): pass. All thirty
+decode rows now satisfy both the scalar reference and existing prefill bound;
+the tiny-history exact assertion remains unchanged. This separate test-only
+checkpoint precedes any C15 production edit. Refresh C17 profiles first.

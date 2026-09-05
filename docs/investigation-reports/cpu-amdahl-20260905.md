@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-12 correctness passed; short model-decode A/B running in session `88917`.
+- State: CPU25-12 rejected on startup control and restored; CPU25-10 remains the only non-terminal pool entry.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 9 / 3 / 5 / 0 / 2 (one attempt pending A/B). Rejected-code includes four canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 9 / 3 / 6 / 0 / 2. Rejected-code includes five canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -84,7 +84,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | route verified active; model decode -10.243%; restored | rejected |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
-| CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | >2 GiB anonymous weights, zero huge pages; bounded Linux collapse trial with startup controls | ready |
+| CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | decode +5.161% on sole rerun, but first-request control +5.820%; restored | rejected |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -1787,3 +1787,79 @@ read-only observer verifies B's executable and waits for its CPU worker threads
 (after loading), then reads smaps_rollup once into `cpu25-12-b-short-backing.log`
 and worker masks separately. No repeated mapping scans or policy changes.
 Resume the same A/B handle; telemetry file is `cpu25-12-telemetry.log`.
+
+Initial session `88917` completed: short prompt 33.57 -> 33.70 (+.387%, CV
+2.18%/2.76%), TTFT 3814.44 -> 3800.60 (-.363%, CV 2.16%/2.81%), model
+decode 7.83 -> 7.99 (+2.043%, CV .91%/5.19%), public 7.59 -> 7.74
+(+1.976%, CV .92%/5.19%). Counts match 128/32/32. B's objective CV exceeds
+5%, requiring the single complete A/B rerun, not a favorable-row selection.
+Initial B time(1) reports peak RSS 4267780 KiB and zero swaps; this memory
+cost must be disclosed and current backing verified. The observer/telemetry
+launch occurred after the short pair had already ended, so no initial backing
+snapshot exists and the empty telemetry is not evidence. The complete rerun
+launches both observers in the same orchestration call as inference to avoid
+that timing miss. No code, arguments, counts or gate changed.
+
+Complete rerun session `4377`, runner PID `376860`, began at
+04:22:58+02:00, with labels `cpu25-12-rerun-a/b`, the same baseline/candidate
+binaries and `32 1 3 short` arguments. One-shot backing observer is `38095`,
+telemetry `43885`; deadline remains 06:20:08+02:00. Resume these handles.
+No further stability repeat is allowed after this pair. The candidate remains
+unaccepted and no additional-regime or B startup control has run.
+
+### CPU25-12 sole rerun: provisional objective pass
+
+Session `4377` and both observers completed successfully.
+
+| Metric | A, CPU25-05 | B, collapse | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 33.23 | 33.53 | +.903% | 2.20% / 3.30% |
+| TTFT ms | 3853.75 | 3820.53 | -.862% | 2.23% / 3.35% |
+| Model decode token/s, objective | 7.75 | 8.15 | +5.161% | .36% / 3.74% |
+| Public decode token/s | 7.51 | 7.90 | +5.193% | .36% / 3.74% |
+
+Counts agree 128/32/32; objective/CV and same-row controls pass provisionally.
+Whole-process elapsed 33.08 -> 32.40 s (-2.06%) passes its additional control.
+Peak RSS 4268004 -> 4267752 KiB is essentially unchanged. Initial-pair A/B
+also peaked at 4268140/4267780 KiB respectively:
+the high peak is present in A, not evidence of added collapse memory. B's
+post-load snapshot reports RSS 2153068 KiB, anonymous 2149780 KiB,
+AnonHugePages 1673216 KiB and swap0. This verifies substantial actual promotion
+while resident steady-state memory is much below the measured startup peak.
+
+Next acquire the additional first-request control as a fresh complete A/B:
+three A probe processes then three B processes, identical calibrated inputs.
+The earlier pre-edit startup row remains baseline screening evidence; neither
+B startup nor its result has been observed yet. Given documented environmental
+drift, use this adjacent pair for the control decision, not a selectively chosen
+historical A. This is the first full startup A/B, not another objective rerun.
+If it passes, run both medium and long canonical controls before retention.
+All remaining work shares the original 06:20:08+02:00 comparison deadline.
+
+### CPU25-12 final decision: reject on startup control, restore
+
+Fresh startup A/B session `66108` (runner377815, telemetry35555), started
+04:28:33+02:00, completed successfully. Both sides use three fresh processes
+and all six fixed-work count checks pass at 128/32/32. Per-process raw ms:
+
+| Side | Load | First generation | Cleanup | Total |
+|---|---|---|---|---|
+| A | 1102.209,1096.502,1099.895 | 7568.841,7524.132,7805.619 | 181.144,185.756,186.108 | 8852.194,8806.392,9091.623 |
+| B | 1506.316,1510.663,1528.011 | 8026.387,7703.251,7856.463 | 57.944,59.107,58.942 | 9590.648,9273.021,9443.417 |
+
+Mean total increases 8916.736 -> 9435.695 ms (+5.820%), exceeding the
+predeclared 5% startup/first-request control limit. This overrides the
+provisional steady decode gain. Mean load increases approximately 1100 ->
+1515 ms; faster cleanup does not compensate, and first generation is also
+slower. No medium/long control or additional objective rerun is warranted after
+this terminal control failure. The original comparison stayed inside two hours.
+
+Restore buffer/module wiring to `998b189`, remove only the new `memory.rs`
+candidate, and retain its private source/binaries and the already saved/removed
+temporary startup probe. No memory advice, affinity restriction, new dependency
+or diagnostic source remains in production. The tested eager collapse policy
+is rejected; do not tune page sizes or move its cost off the critical path
+without a distinct measured premise. A background/lazy promotion worker would
+introduce ownership and interference that this bounded trial did not validate.
+Nine attempts are complete. CPU25-10 still requires a bounded native integer
+design and risk-specific quality gate; the campaign is not yet complete.

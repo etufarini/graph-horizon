@@ -28,7 +28,7 @@ This is local branch work, not a push, merge or expanded CPU qualification.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `6545e72343f5daed2fe8160d3c291946771445e4` (CPU25-14); preceding checkpoints `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05), `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: twelve attempts and quantitative discovery stop reached; final attribution/gates complete. Full final benchmark running; exactly one complete stability rerun required by short baseline CV5.10%.
+- State: twelve attempts and quantitative discovery stop reached; final attribution/gates complete. Sole full final rerun33770 running: short/medium pass, long pair pending; no further rerun allowed.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected-code / not_verified / closed-untried: 12 / 4 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
 
@@ -2256,6 +2256,15 @@ Keep every record. Sole full rerun session33770, runner410476, began06:22:06+02:
 labels `final-rerun-initial/accepted`, same binaries, tuple and short/medium/long
 order; deadline remains07:54:40+02:00. No code or environment change and no
 further stability rerun after this set.
+
+Sole rerun short completed: prompt30.58->41.79 (+36.658%, CV1.29%/4.70%),
+TTFT4186.61->3067.25 (-26.737%, CV1.28%/4.83%), model12.39->12.48
+(+.726%, CV.36%/.54%), public12.00->12.09 (+.750%, CV.35%/.52%).
+Medium completed: prompt29.22->42.21 (+44.456%, CV.64%/.17%),
+TTFT35040.62->24262.52 (-30.759%, CV.64%/.17%), model11.34->10.91
+(-3.792%, CV1.51%/.75%), public10.63->10.23 (-3.763%, CV1.51%/.76%).
+All counts match, prompt objectives stable and all current controls within5%.
+Long A/B remains active on the same handle33770; no inference from partial rows.
 
 ## Campaign accounting
 

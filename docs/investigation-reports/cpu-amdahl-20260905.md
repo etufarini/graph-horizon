@@ -1,5 +1,26 @@
 # CPU Amdahl campaign 20260905
 
+## Retained result at a glance
+
+CPU-only campaign using `.skills/gpu-amdahl-optimizer` with the user's explicit
+backend override. Twelve new implementations reached correctness gates: four
+kept, seven rejected and one interesting result whose code was restored; zero
+not_verified candidates. Two additional premises closed without implementation.
+Final cumulative measurement is still running; the tables below distinguish
+per-candidate acceptance evidence from that separate initial/final comparison.
+
+| Retained optimization | Commit | Objective before -> after | Objective CV A / B | Important control boundary |
+|---|---|---|---|---|
+| Q4 contiguous activation blocks | `13b2ab4` | medium32.88->39.68 token/s, +20.681% | .13% / 1.07% | all regimes pass; exact arithmetic and original tails |
+| Q4 two-token FMA interleaving | `245c15f` | medium34.84->37.38 token/s, +7.290% | 3.94% / .10% | sole complete objective rerun; unchanged decode gain not credited |
+| Paired-position attention K/V reuse | `998b189` | long30.03->35.08 token/s, +16.817% | 1.18% / .30% | medium prompt -2.161%, within5% |
+| Q6 contiguous four-stream activation records | `6545e72` | medium33.63->37.36 token/s, +11.091% | 3.11% / 1.86% | short model decode -4.586%, within5% |
+
+No gain percentages are compounded. Rejected code, profiling sources, worker
+affinity, memory advice and temporary examples are absent from the accepted
+branch. Raw binaries, patches and logs remain recoverable outside the repository.
+This is local branch work, not a push, merge or expanded CPU qualification.
+
 ## Recovery state
 
 - Campaign ID: `cpu-amdahl-20260905`.
@@ -2206,3 +2227,59 @@ The first final short A/B records prompt25.46->34.82 (+36.764%), but initial
 prompt CV5.10% exceeds5% (final1.84%). Preserve this complete set and, after its
 medium/long rows finish, execute exactly one complete six-record rerun as
 predeclared. No individual row is repeated or substituted now.
+
+## Complete initial/final comparison: first set
+
+Session58448 completed all six public records; actual counts are128/32/32,
+1024/32/31 and3584/32/31 on both sides. A=immutable6238489, B=accepted6545e72.
+These are measured cumulative changes, not multiplied per-candidate gains.
+
+| Regime | Metric | A | B | Change | CV A / B |
+|---|---|---:|---:|---:|---|
+| short | prompt token/s | 25.46 | 34.82 | 36.764% | 5.10% / 1.84% |
+| short | TTFT ms | 5035.40 | 3676.85 | -26.980% | 4.96% / 1.85% |
+| short | model decode token/s | 7.61 | 7.66 | 0.657% | 4.33% / 1.95% |
+| short | public decode token/s | 7.37 | 7.42 | 0.678% | 4.33% / 1.92% |
+| medium | prompt token/s | 24.74 | 42.06 | 70.008% | 0.60% / 2.72% |
+| medium | TTFT ms | 41387.67 | 24358.45 | -41.146% | 0.60% / 2.74% |
+| medium | model decode token/s | 8.17 | 11.34 | 38.800% | 8.70% / 1.34% |
+| medium | public decode token/s | 7.65 | 10.63 | 38.954% | 8.71% / 1.33% |
+| long | prompt token/s | 31.05 | 35.61 | 14.686% | 0.12% / 0.17% |
+| long | TTFT ms | 115440.01 | 100654.11 | -12.808% | 0.12% / 0.17% |
+| long | model decode token/s | 9.23 | 9.38 | 1.625% | 0.04% / 0.26% |
+| long | public decode token/s | 8.65 | 8.79 | 1.618% | 0.05% / 0.26% |
+
+The complete set is not stability-qualified because short A prompt CV=5.10%.
+Medium's unchanged-decode increase also exposes substantial between-run drift;
+do not interpret its70% prompt difference as an isolated causal code effect.
+Keep every record. Sole full rerun session33770, runner410476, began06:22:06+02:00,
+labels `final-rerun-initial/accepted`, same binaries, tuple and short/medium/long
+order; deadline remains07:54:40+02:00. No code or environment change and no
+further stability rerun after this set.
+
+## Campaign accounting
+
+Current-campaign attempts12 = kept4 (CPU25-01,02,05,14) + canonical rejects7
+(03,06,09,10,11,12,13) + canonical interesting1 (08, evidence only, code
+restored). Candidate not_verified0. Closed-untried2 (04,07), not attempts.
+The pool's `rejected (evidence only)` disposition for08 expresses restored code,
+not a relabeling of its canonical3.668% interesting result. The final descriptive
+matrix's verification status is separate from candidate counts.
+
+Current-campaign retained commits: `13b2ab4`, `245c15f`, `998b189`, `6545e72`.
+Six existing production files differ from the immutable start, alongside
+one new paired-attention ownership file; no persistent weight repack, scheduler,
+affinity, memory policy, assembly-integer path, profiler or extra example remains.
+Final CPU gates pass354 tests across groups170/167/1/4/12; seven declared
+external tests remain ignored. No new dependency, public API, global compiler
+flag, machine setting, push, PR or merge was introduced.
+
+## Inherited work, not counted as current retention
+
+All of the following precede the immutable baseline; ancestry was checked:
+`9dc3b01` dynamic32-row prefill, `bd62f5b` Q4 single-token latency route,
+`d23801d` Q6 single-token latency route, `80eadd2` four-query GQA KV reuse,
+`c76c8b9` cache-sized token tiling and `82634e4` minimum-Rust CPUID compatibility.
+Their historical measurements are not current-campaign A/B results. The separate
+completed continuation branch consulted for negative evidence was not merged
+or counted as new work here.

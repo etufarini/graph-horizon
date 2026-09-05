@@ -5,7 +5,7 @@
 - Campaign ID: `cpu-amdahl-20260905`.
 - Branch: `perf/cpu-amdahl-20260905`.
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Retained production checkpoint: CPU25-02 commit containing its kept section below; preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
+- Retained production checkpoint: `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02); preceding checkpoint `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
 - State: CPU25-02 kept; preparing post-change attribution and queue rerank.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
@@ -816,3 +816,20 @@ Current-campaign accepted changes are CPU25-01 and CPU25-02 only. At least eight
 further distinct countable attempts remain. Next: refresh affected attribution
 on this retained checkpoint, narrow CPU25-07's phase premise, rerank every
 non-terminal pool entry, and continue. This is not a final quantitative stop.
+
+### CPU25-02 retained-checkpoint profiling declaration
+
+The worktree is clean at production `245c15f`. Reapply temporary operation
+spans and add separately labeled nested RoPE parts: FP16 read/widen, mathematical
+loop, FP16 narrow/write. Unlike the previous worker study, no pool edit is
+needed: this refresh concerns the changed Q4 path and RoPE's unresolved internal
+attribution. Nested parts are never summed with enclosing backend intervals.
+
+Temporary tree: root/engine `Cargo.toml` (+1 diagnostic feature line each),
+`backend/cpu/mod.rs` (~85 productive lines), `backend/cpu/backend.rs` (~260,
+existing I), `backend/cpu/profile.rs` (~100, diagnostic collection), and
+`backend/cpu/kernels/elementwise/rope.rs` (~65, existing K). No production
+algorithm or scheduling changes. Risk: timestamp/log-storage overhead; measure
+the same three unprofiled/profiled 32-token, zero-warm-up, one-repetition rows.
+Preserve logs and diagnostic source privately, then remove instrumentation
+before another candidate's correctness or performance gates.

@@ -67,16 +67,20 @@ fn load_inner(
         bail!("cuda: model allocation failed");
     }
     let percent = budget::validate_percentage(weights_percent)?;
-    let plan = budget::MemoryPlan::new(source, shape, context, scheme)?;
+    let plan = budget::MemoryPlan::new(source, shape, context, scheme, false)?;
     let device = Device::acquire()?;
     let reserve = budget::reserve_bytes(device.total_bytes, reserve_mib)?;
     budget::preflight(device.free_bytes, reserve, percent, &plan)?;
+    // Cache admission can fall back to raw weights, never to a smaller context or placement.
+    let expanded = budget::MemoryPlan::new(source, shape, context, scheme, true)?;
+    let cached = budget::preflight(device.free_bytes, reserve, percent, &expanded).is_ok();
     load_selected_inner(
         device,
         metadata,
         source,
         file,
         &WeightSelection::full(metadata.block_count),
+        cached,
         failpoints,
     )
 }
@@ -95,6 +99,7 @@ pub(crate) fn load_selected(
         source,
         file,
         selection,
+        false,
         Failpoints::default(),
     )
 }
@@ -105,6 +110,7 @@ fn load_selected_inner(
     source: &dyn WeightSource,
     file: &GgufFile,
     selection: &WeightSelection,
+    cached: bool,
     failpoints: Failpoints,
 ) -> Result<CudaBackend> {
     if source.groups().layers.len() != metadata.block_count {
@@ -115,8 +121,15 @@ fn load_selected_inner(
     } else {
         super::module::Module::load(&device.context)?
     };
-    let weights = if failpoints.weight.is_some() {
-        weights::load_inner(&device, file, source, selection, failpoints.weight)?
+    let weights = if failpoints.weight.is_some() || cached {
+        weights::load_inner(
+            &device,
+            file,
+            source,
+            selection,
+            cached.then_some(&module),
+            failpoints.weight,
+        )?
     } else {
         weights::load_selected(&device, file, source, selection)?
     };
@@ -246,6 +259,37 @@ mod tests {
                 .to_string(),
             "invalid CUDA weight percentage"
         );
+    }
+
+    #[cfg(feature = "cuda")]
+    #[test]
+    fn immutable_weight_summary_tracks_cached_spans_and_tied_output() -> Result<()> {
+        with_file(|file| {
+            let mut backend = injected(file, Failpoints::default())?;
+            assert_eq!(backend.weight_bytes()?, 64, "two aligned8-byte spans");
+            backend.buffers.weights.token_embd = Some(weights::cache::upload(
+                &backend.device,
+                Some(&backend.module),
+                &[0; 210],
+                super::super::CudaFormat::Q6K,
+            )?);
+            assert_eq!(
+                backend.weight_bytes()?,
+                576,
+                "raw plus cache, tied output counted once"
+            );
+            backend.buffers.weights.output = Some(super::super::CudaBuffer::allocate(
+                &backend.device,
+                210,
+                super::super::CudaFormat::Q6K,
+            )?);
+            assert_eq!(
+                backend.weight_bytes()?,
+                800,
+                "dedicated raw tail aligned separately"
+            );
+            Ok(())
+        })
     }
 
     #[test]

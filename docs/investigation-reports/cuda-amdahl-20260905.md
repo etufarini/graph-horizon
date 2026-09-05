@@ -3373,3 +3373,114 @@ since capture); repeat the same three startup observations and report memory/
 startup tradeoff. Public objective medium prompt>=5%, CV<=5%, every control
 regression<=5%, canonical rerun and two-hour comparison limit. Preserve C28's
 rejection and count C32 conservatively as a non-counting re-evaluation.
+
+C32 draft reapplies C28 only as a reversible source starting point, then removes
+Q4/Q5 caches and narrows selection/ownership as declared. buffer.rs split into
+buffer/{mod.rs,transfer.rs}; weights.rs split into weights/{mod.rs,cache.rs}.
+Both original test suites remain. Cached Q6 is now a companion of the raw
+allocation; globals stay raw, only two-dimensional layer projections (excluding
+norm slots0/5 explicitly) can attach it, and only rows>=16 select it. Initial
+compile48445 passes. Preserve original source-representation validation in the
+public memory summary and require the dual representation never to undercount
+it; this also avoids making shared weight accounting unused in standalone CUDA.
+Cache gates8093 pass, including exhaustive finite Q6 reconstruction and new
+alias/ownership checks. Full matrix/canonical/frozen gates follow. C32 is a
+pending non-counting re-evaluation; no performance or acceptance yet.
+
+C32 full gate84828 passes all43 CUDA tests in57.56s, including107 raw/companion
+matrix fixtures, finite Q6 reconstruction, raw decode/logit identity, alias
+lifetime/attachment checks, norm/global exclusion, capacity and aligned dual
+summary. Test helper GGUF Q6 tensors now carry a two-dimensional shape to
+exercise eligible layer matrices; payloads/references/thresholds are unchanged.
+Begin frozen549 before129/130 and canonical gates. No C32 performance yet.
+
+C32 frozen549 (14334), frozen130 (completed process recovered from both
+immutable logs after context rollover), and frozen129 (31705) pass for both
+KV formats with all16 local IDs identical to their respective frozen baseline.
+The canonical prompt is restored before gate57809; thresholds and references
+are unchanged. Candidate remains pending.
+
+Fresh source discovery, queued behind C32: tensor prefill still stores opaque
+WMMA accumulators to shared C, then synchronizes and reloads them for the
+per-group correction. Explicit lane-owned MMA accumulators could remove that
+round trip; publishing row sums with A/B could reduce three block barriers to
+two without changing coefficient-group order. This is not yet implemented or
+accepted. The documented f16 A/B and f32 accumulator ownership in
+[PTX ISA8.4, m16n8k8 fragments](https://docs.nvidia.com/cuda/archive/12.4.1/parallel-thread-execution/index.html)
+provides a bounded mechanism to inspect after C32's decision. Register pressure,
+shared-load layout, target admission and changed MMA arithmetic grouping need
+explicit verification. Do not declare fresh discovery exhausted while this
+material tensor-prefill owner has an untested source-supported mechanism.
+
+C32 canonical57809 passes fmt, CUDA workspace check, CPU workspace tests,
+11error_matrix, all43 CUDA tests (57.79s) and standalone f16 parity.
+Standalone int8 and25%-mixed hybrid f16/int8 pass7251 with identical canonical
+IDs. Hybrid check19008 exposed only an unused standalone accounting method;
+gate that method under cfg(cuda or test), preserving test coverage, then the
+resolved hybrid check passes without warnings. Fast/public binary29975 and
+separate temporary startup-timer binary63946 build cleanly; the example source
+is restored exactly before public measurements. Static resources retain the
+C30 ordinary/paired/wide tensor counts63/64/72 registers and9792/19584/14976
+shared bytes, raw dot40/1024, with no spills; conversion uses16 registers and
+no shared storage. These are compiler resource counts, not achieved occupancy.
+Serial memcheck/synccheck19500 is running before the public objective.
+
+### C32 accepted — Q6 prefill companion, raw decode retained
+
+Memcheck/synccheck19500 pass all16 kernel tests in55.43/51.12s, both0 errors.
+Remove the test-only leftover one-format loop and unreachable Q4/Q5 metadata
+branches without changing values or bounds; the exhaustive finite-coefficient
+test passes again1105 in1.36s. Production code is unchanged by that cleanup.
+
+Unprofiled objective1105 and controls13519, same authenticated fast CUDA tuple,
+all-GPU context4096 f16, warmup1/reps3/max32:
+
+| Regime | Prompt t/s [CV] | TTFT ms [CV] | Model decode t/s [CV] | Public delta t/s [CV] | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 340.41 [.0044] | 376.02 [.0044] | 58.54 [.0028] | 56.69 [.0031] | 4.73 |
+| medium objective | 312.14 [.0028] | 3280.57 [.0028] | 55.40 [.0036] | 51.90 [.0042] | 16.34 |
+| long | 256.05 [.0023] | 13997.42 [.0023] | 45.07 [.0028] | 42.24 [.0031] | 59.65 |
+
+Counts remain128/32/32,1024/32/31,3584/32/31. Against immutable C30, medium
+prompt+12.062899%, TTFT-10.764598%, model+1.502382%, public+1.545686%.
+Short prompt+11.962242%, long+9.320297%; every control improves, all objective
+CVs<=5%. No stability rerun used. Comparison completes about76 minutes after
+the C30 baseline, within the two-hour limit. Power-cap counter increments
+short/medium/long .673863/0/0s, thermal counters0. Stock conditions unchanged;
+medium starts cooler after test/idle intervals (48C) and rises to58C, with
+observed core clocks around1995–2002MHz and a final1920MHz sample, versus the
+earlier baseline's usual1980–1987MHz. Record this natural clock/temperature
+variation rather than claim frequency-controlled or statistical isolation.
+
+Fresh-process startup1105:709.151465,705.400658,721.369990ms; mean711.974038,
+sample SD8.350454, CV.011728593, median709.151465ms. C30's preserved baseline
+median701.841815ms gives+7.309650ms; its mean752.568064ms was skewed by the
+first878.103766ms observation, which remains included. Do not claim faster
+startup from the lower candidate mean. No OS cache flush: these are fresh
+processes, not guaranteed disk-cold loads. The observed median extra cost is
+less than one request's TTFT saving even on short (44.97ms), but startup noise
+precludes a precise universal amortization claim. Public immutable weights are
+exactly2,649,470,976 bytes in all three observations, +511,180,800 versus C30.
+
+Keep C32 as a non-counting C28 re-evaluation; C28 remains rejected. The added
+ownership/budget complexity protects a necessary invariant: cached prefill
+must neither replace raw decode storage nor undercount physical retained
+weights. Two small domain splits preserve original tests and keep orchestration
+below200 productive lines; no dependency, public API or placement change.
+Counts remain25 distinct attempts:15 kept,9 rejected,1 interesting/restored,
+plus5 accepted non-counting re-evaluations (20 optimization commits total),
+separate S01 correctness and2 closed/untried entries. New profiles35420 run
+serially for all three regimes before selecting the next candidate.
+
+C32 profiles35420 complete all three regimes with0 dropped events. Forward
+boundaries exclude weight conversion. Short/medium/long prefill-first-sample
+378.520838/3321.522521/14100.331428ms, decode555.739340/590.446123/716.350495ms;
+prefill gaps5.939729/49.354619/181.362665ms, decode gaps11.146637/13.385617/
+11.819491ms. Tensor-prefill totals331.837728/2660.634682/9293.730390ms;
+decode matmul+logits476.540697/478.346683/475.708982ms. Authenticated182-call
+projection order, grid and batch checks attribute Q6 prefill82.187524/634.392543/
+2240.290969ms (C30:122.708559/994.119299/3454.486942), Q4
+249.650204/2026.242139/7053.439421ms. Thus the selected Q6 owner improves
+without claiming general bandwidth saturation or attributing load conversion
+to generation. Tensor prefill remains material in every regime; long tensor
+attention alone3652.907027ms is a second material owner. Fresh discovery follows.

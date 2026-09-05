@@ -76,6 +76,8 @@ pub(crate) fn encode_batched(
     output_width: u32,
     rows: u32,
 ) -> Result<()> {
+    // A companion changes only tensor prefill; raw weights remain authoritative elsewhere.
+    let weight = if rows >= 16 { weight.prefill() } else { weight };
     let input_items = u64::from(input_width)
         .checked_mul(u64::from(rows))
         .ok_or_else(super::arithmetic)?;

@@ -71,6 +71,7 @@ impl MemoryPlan {
         shape: RuntimeShape,
         context: usize,
         scheme: KvQuant,
+        cached: bool,
     ) -> Result<Self> {
         let runtime = RuntimeBytes::new(shape, context, scheme, super::super::PREFILL_ROWS)
             .map_err(|_| arithmetic())?;
@@ -85,6 +86,27 @@ impl MemoryPlan {
             };
             weights = weights.checked_add(retained).ok_or_else(arithmetic)?;
             staging = staging.max(retained);
+        }
+        if cached {
+            // Only layer matrices own companions. Raw originals remain counted above.
+            for (slot, tensor) in source
+                .groups()
+                .layers
+                .into_iter()
+                .flat_map(|group| group.into_iter().enumerate())
+            {
+                if !matches!(slot, 0 | 5)
+                    && tensor.ggml_type == GgmlType::Q6_K
+                    && tensor.dims.len() == 2
+                {
+                    let extra = tensor
+                        .element_count()
+                        .filter(|count| count.is_multiple_of(256))
+                        .and_then(|count| (count / 256).checked_mul(320))
+                        .ok_or_else(arithmetic)?;
+                    weights = weights.checked_add(extra).ok_or_else(arithmetic)?;
+                }
+            }
         }
         Ok(Self {
             weights,
@@ -226,6 +248,51 @@ mod tests {
     }
 
     #[test]
+    fn cache_capacity_covers_conversion_and_preserves_raw_fallback() -> Result<()> {
+        struct LayerSource {
+            globals: Source,
+            projection: TensorInfo,
+        }
+        impl WeightSource for LayerSource {
+            fn groups(&self) -> WeightGroups<'_> {
+                WeightGroups::new(
+                    &self.globals.embedding,
+                    &self.globals.norm,
+                    None,
+                    vec![vec![&self.globals.norm, &self.projection]],
+                )
+            }
+        }
+        let source = LayerSource {
+            globals: Source {
+                embedding: tensor("embedding", &[256, 1], GgmlType::Q6_K),
+                norm: tensor("norm", &[8], GgmlType::F32),
+            },
+            projection: tensor("projection", &[256, 1], GgmlType::Q6_K),
+        };
+        let raw = MemoryPlan::new(&source, shape(), 16, KvQuant::F16, false)?;
+        let cached = MemoryPlan::new(&source, shape(), 16, KvQuant::F16, true)?;
+        assert_eq!((raw.weights, raw.staging), (452, 210));
+        assert_eq!((cached.weights, cached.staging), (772, 210));
+        let required = sum([
+            cached.weights,
+            cached.fixed,
+            cached.staging,
+            cached.kv,
+            cached.scratch,
+        ])?;
+        preflight(required + 10, 10, 100, &cached)?;
+        assert!(preflight(required + 9, 10, 100, &cached).is_err());
+        preflight(required + 9, 10, 100, &raw)?;
+        let overflow = Source {
+            embedding: tensor("embedding", &[256, u64::MAX], GgmlType::Q4_K),
+            norm: tensor("norm", &[8], GgmlType::F32),
+        };
+        assert!(MemoryPlan::new(&overflow, shape(), 16, KvQuant::F16, true).is_err());
+        Ok(())
+    }
+
+    #[test]
     fn reserve_precedence_and_percentage_boundaries_are_checked() {
         assert_eq!(reserve_bytes(20 * MIB, None).unwrap(), 256 * MIB);
         assert_eq!(reserve_bytes(20 * MIB, Some(1)).unwrap(), MIB);
@@ -290,7 +357,7 @@ mod tests {
         };
         let context = 16;
         for scheme in [KvQuant::F16, KvQuant::Int8] {
-            let actual = MemoryPlan::new(&source, shape(), context, scheme)
+            let actual = MemoryPlan::new(&source, shape(), context, scheme, false)
                 .expect("valid CUDA memory plan")
                 .kv;
             let expected = layout_bytes(scheme, KvRole::Key, context, 8)

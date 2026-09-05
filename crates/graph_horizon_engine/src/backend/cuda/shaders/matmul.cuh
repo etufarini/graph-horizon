@@ -15,13 +15,13 @@ __device__ __forceinline__ float cuda_dot_format(
     } else {
         // One warp owns four original leaves per lane, without regrouping K sums.
         const uint32_t lane = threadIdx.x % 32;
-        constexpr uint32_t PAIR = FORMAT == 3 ? 64 : 32;
-        constexpr uint32_t SECOND = FORMAT == 3 ? 32 : 64;
+        constexpr uint32_t PAIR = FORMAT == 3 || FORMAT == 4 ? 64 : 32;
+        constexpr uint32_t SECOND = FORMAT == 3 || FORMAT == 4 ? 32 : 64;
         const uint32_t blocks = width / 256;
         float second_sum = 0.0f, paired_sum = 0.0f, second_paired_sum = 0.0f;
         for (uint32_t group = 0; group < blocks; ++group) {
             const uint64_t block = (uint64_t(row) * blocks + group)
-                * (FORMAT == 1 ? 144 : FORMAT == 2 ? 176 : 210);
+                * (FORMAT == 4 ? 320 : FORMAT == 1 ? 144 : FORMAT == 2 ? 176 : 210);
             #pragma unroll
             for (uint32_t half = 0; half < 256; half += 128) {
                 const uint32_t i = group * 256 + half + lane;
@@ -35,7 +35,7 @@ __device__ __forceinline__ float cuda_dot_format(
             }
         }
         // Restore levels64 then32 before reducing the remaining32 logical lanes.
-        sum = FORMAT == 3 ? (sum + paired_sum) + (second_sum + second_paired_sum)
+        sum = FORMAT == 3 || FORMAT == 4 ? (sum + paired_sum) + (second_sum + second_paired_sum)
                           : (sum + second_sum) + (paired_sum + second_paired_sum);
         for (uint32_t stride = 16; stride > 0; stride /= 2) {
             const float other = __shfl_down_sync(0xffffffff, sum, stride);
@@ -60,6 +60,7 @@ __device__ __forceinline__ float cuda_dot(
     if (format == 0) return cuda_dot_format<0>(input, weight, row, width, partial);
     if (format == 1) return cuda_dot_format<1>(input, weight, row, width, partial);
     if (format == 2) return cuda_dot_format<2>(input, weight, row, width, partial);
+    if (format == 4) return cuda_dot_format<4>(input, weight, row, width, partial);
     return cuda_dot_format<3>(input, weight, row, width, partial);
 }
 
@@ -117,6 +118,8 @@ extern "C" __global__ void cuda_matmul_batched(
         cuda_matmul_batched_format<1>(input, weight, out, input_width, output_width, rows, partial);
     } else if (format == 2) {
         cuda_matmul_batched_format<2>(input, weight, out, input_width, output_width, rows, partial);
+    } else if (format == 4) {
+        cuda_matmul_batched_format<4>(input, weight, out, input_width, output_width, rows, partial);
     } else {
         cuda_matmul_batched_format<3>(input, weight, out, input_width, output_width, rows, partial);
     }
@@ -141,7 +144,7 @@ __device__ __forceinline__ void cuda_matmul_tensor_format(
     const uint32_t output = blockIdx.x * 64;
     const uint32_t warp = threadIdx.x / 32;
     // Q4/Q5 share coefficients over 32 values; Q6 changes them every 16.
-    constexpr uint32_t GROUP = FORMAT == 3 ? 16 : 32;
+    constexpr uint32_t GROUP = FORMAT == 3 || FORMAT == 4 ? 16 : 32;
     constexpr uint32_t STRIDE = GROUP * STAGES;
     float sums[TOKENS / 2] = {};
     wmma::fragment<wmma::matrix_a, 16, 16, 16, __half, wmma::row_major> af;
@@ -254,6 +257,9 @@ __device__ __forceinline__ void cuda_matmul_tensor_tile(
             a, b, c, row_sums, factors, biases);
     } else if (format == 2) {
         cuda_matmul_tensor_format<2, TOKENS, STAGES>(input, weight, out, width, outputs, rows,
+            a, b, c, row_sums, factors, biases);
+    } else if (format == 4 && STAGES == 1) {
+        cuda_matmul_tensor_format<4, TOKENS, STAGES>(input, weight, out, width, outputs, rows,
             a, b, c, row_sums, factors, biases);
     } else if (STAGES == 1) {
         cuda_matmul_tensor_format<3, TOKENS, STAGES>(input, weight, out, width, outputs, rows,

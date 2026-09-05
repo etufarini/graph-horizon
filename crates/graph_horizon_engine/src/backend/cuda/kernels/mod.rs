@@ -33,6 +33,7 @@ fn format_code(format: CudaFormat) -> Result<u32> {
         CudaFormat::Q4K => Ok(1),
         CudaFormat::Q5K => Ok(2),
         CudaFormat::Q6K => Ok(3),
+        CudaFormat::Q6KCached => Ok(4),
         _ => Err(arithmetic()),
     }
 }
@@ -43,6 +44,9 @@ fn weight_bytes(format: CudaFormat, width: u32, rows: u32) -> Result<usize> {
         CudaFormat::Q4K if width.is_multiple_of(256) => u64::from(width / 256).checked_mul(144),
         CudaFormat::Q5K if width.is_multiple_of(256) => u64::from(width / 256).checked_mul(176),
         CudaFormat::Q6K if width.is_multiple_of(256) => u64::from(width / 256).checked_mul(210),
+        CudaFormat::Q6KCached if width.is_multiple_of(256) => {
+            u64::from(width / 256).checked_mul(320)
+        }
         _ => None,
     }
     .ok_or_else(arithmetic)?;

@@ -58,14 +58,24 @@ use super::MistralConfig;
     feature = "cuda-hybrid"
 )))]
 pub(super) fn homogeneous(
-    tensors: &dyn WeightSource,
+    _tensors: &dyn WeightSource,
     config: &MistralConfig,
     context: usize,
     scheme: KvQuant,
+    _backend: &crate::backend::selection::SelectedBackend,
 ) -> Result<ModelMemory> {
-    let weights = WeightBytes::from_source(tensors)?
+    let weights = WeightBytes::from_source(_tensors)?
         .total()
         .ok_or_else(overflow)?;
+    #[cfg(feature = "cuda")]
+    let weights = {
+        let retained = _backend.weight_bytes()?;
+        // Companions add storage; the original aligned representation cannot disappear.
+        if retained < weights {
+            return Err(overflow());
+        }
+        retained
+    };
     let key = layout::buffer_bytes(
         scheme,
         KvRole::Key,

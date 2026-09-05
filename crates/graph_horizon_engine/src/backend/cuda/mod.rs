@@ -29,6 +29,40 @@ pub(crate) struct CudaBackend {
     pub(crate) reduce: CudaBuffer,
 }
 
+#[cfg(feature = "cuda")]
+impl CudaBackend {
+    pub(crate) fn weight_bytes(&self) -> color_eyre::eyre::Result<u64> {
+        let weights = &self.buffers.weights;
+        // Immutable representation spans, aligned like the public plan; tied output is absent.
+        [
+            weights.token_embd.as_ref(),
+            weights.output_norm.as_ref(),
+            weights.output.as_ref(),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(weights.layers.iter().flat_map(|layer| {
+            [
+                &layer.attn_norm,
+                &layer.attn_q,
+                &layer.attn_k,
+                &layer.attn_v,
+                &layer.attn_output,
+                &layer.ffn_norm,
+                &layer.ffn_gate,
+                &layer.ffn_up,
+                &layer.ffn_down,
+            ]
+        }))
+        .try_fold(0u64, |sum, buffer| {
+            buffer
+                .retained_bytes()
+                .and_then(|bytes| sum.checked_add(bytes))
+                .ok_or_else(|| color_eyre::eyre::eyre!("model memory accounting overflow"))
+        })
+    }
+}
+
 #[cfg(all(test, feature = "cuda-hybrid"))]
 impl CudaBackend {
     pub(crate) fn bare() -> color_eyre::eyre::Result<Self> {

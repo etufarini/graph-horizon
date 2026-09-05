@@ -10,7 +10,8 @@ use std::sync::Arc;
 use color_eyre::eyre::{Result, eyre};
 use cudarc::driver::{CudaContext, result, sys};
 
-const FUNCTION_NAMES: [&str; 22] = [
+const FUNCTION_NAMES: [&str; 23] = [
+    "cuda_weight_cache",
     "cuda_embedding",
     "cuda_matmul",
     "cuda_matmul_batched",
@@ -37,6 +38,7 @@ const FUNCTION_NAMES: [&str; 22] = [
 
 #[derive(Clone, Copy)]
 pub(crate) enum Kernel {
+    WeightCache,
     Embedding,
     Matmul,
     MatmulBatched,

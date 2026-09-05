@@ -4,10 +4,12 @@
  * preserve format and never expose CUDA addresses outside the backend tree.
  */
 
+mod transfer;
+
 use std::sync::Arc;
 
 use color_eyre::eyre::{Result, eyre};
-use cudarc::driver::{CudaSlice, CudaStream, DevicePtr, SyncOnDrop, result, sys};
+use cudarc::driver::{CudaSlice, CudaStream, DevicePtr, SyncOnDrop, sys};
 
 use super::super::Device;
 
@@ -23,6 +25,7 @@ pub(crate) enum CudaFormat {
     Q4K,
     Q5K,
     Q6K,
+    Q6KCached,
     Raw,
 }
 
@@ -32,6 +35,7 @@ pub(crate) struct CudaBuffer {
     offset: usize,
     len: usize,
     format: CudaFormat,
+    prefill_cache: Option<Arc<CudaBuffer>>,
 }
 
 impl CudaBuffer {
@@ -42,14 +46,6 @@ impl CudaBuffer {
             .alloc_zeros::<u8>(len)
             .map_err(|_| eyre!("cuda: model allocation failed"))?;
         Ok(Self::from_allocation(allocation, len, format))
-    }
-
-    pub(crate) fn upload(device: &Device, bytes: &[u8], format: CudaFormat) -> Result<Self> {
-        let allocation = device
-            .stream
-            .clone_htod(bytes)
-            .map_err(|_| eyre!("cuda: weight upload failed"))?;
-        Ok(Self::from_allocation(allocation, bytes.len(), format))
     }
 
     fn from_allocation(allocation: CudaSlice<u8>, len: usize, format: CudaFormat) -> Self {
@@ -63,6 +59,7 @@ impl CudaBuffer {
             offset: 0,
             len,
             format,
+            prefill_cache: None,
         }
     }
 
@@ -70,7 +67,13 @@ impl CudaBuffer {
         let offset = usize::try_from(offset).map_err(|_| arithmetic())?;
         let len = usize::try_from(len).map_err(|_| arithmetic())?;
         let end = offset.checked_add(len).ok_or_else(arithmetic)?;
-        if offset % 2 != 0 || end > self.len {
+        let alignment = if matches!(self.format, CudaFormat::Q6KCached) {
+            4
+        } else {
+            2
+        };
+        // Cached f32 coefficients require stronger alignment than raw half metadata.
+        if offset % alignment != 0 || end > self.len {
             return Err(arithmetic());
         }
         Ok(Self {
@@ -78,62 +81,12 @@ impl CudaBuffer {
             offset: self.offset.checked_add(offset).ok_or_else(arithmetic)?,
             len,
             format: self.format,
+            prefill_cache: if offset == 0 && len == self.len {
+                self.prefill_cache.clone()
+            } else {
+                None
+            },
         })
-    }
-
-    pub(crate) fn read(&self, device: &Device, bytes: usize) -> Result<Vec<u8>> {
-        if bytes > self.len {
-            return Err(eyre!("cuda: readback failed"));
-        }
-        device
-            .context
-            .bind_to_thread()
-            .map_err(|_| eyre!("cuda: readback failed"))?;
-        let (base, guard) = self.allocation.device_ptr(&device.stream);
-        let source = base
-            .checked_add(u64::try_from(self.offset).map_err(|_| arithmetic())?)
-            .ok_or_else(arithmetic)?;
-        let mut output = vec![0; bytes];
-        // SAFETY: Arc keeps the u8 allocation live, the checked view bounds the
-        // source range, the current context owns the sole stream, and output
-        // remains fixed until the immediate synchronization completes.
-        unsafe { result::memcpy_dtoh_async(&mut output, source, device.stream.cu_stream()) }
-            .map_err(|_| eyre!("cuda: readback failed"))?;
-        device
-            .stream
-            .synchronize()
-            .map_err(|_| eyre!("cuda: readback failed"))?;
-        drop(guard);
-        Ok(output)
-    }
-
-    #[cfg(any(feature = "cuda-hybrid", test))]
-    pub(crate) fn write(&self, device: &Device, bytes: &[u8]) -> Result<()> {
-        if bytes.len() > self.len {
-            return Err(eyre!("cuda: residual upload failed"));
-        }
-        device
-            .context
-            .bind_to_thread()
-            .map_err(|_| eyre!("cuda: residual upload failed"))?;
-        // The synchronous Driver copy is not enqueued on the backend stream;
-        // complete prior work so a queued kernel or initialization cannot
-        // overwrite the residual after this method returns.
-        device
-            .stream
-            .synchronize()
-            .map_err(|_| eyre!("cuda: residual upload failed"))?;
-        let (base, guard) = self.allocation.device_ptr(&device.stream);
-        let target = base
-            .checked_add(u64::try_from(self.offset).map_err(|_| arithmetic())?)
-            .ok_or_else(arithmetic)?;
-        // SAFETY: the bound context owns the live allocation, the composed
-        // view bounds the complete destination span, `bytes` remains fixed,
-        // and the synchronous Driver call completes before either can drop.
-        unsafe { result::memcpy_htod_sync(target, bytes) }
-            .map_err(|_| eyre!("cuda: residual upload failed"))?;
-        drop(guard);
-        Ok(())
     }
 
     pub(crate) fn device_ptr<'a>(
@@ -148,6 +101,40 @@ impl CudaBuffer {
         let offset = u64::try_from(self.offset).map_err(|_| arithmetic())?;
         let pointer = base.checked_add(offset).ok_or_else(arithmetic)?;
         Ok((pointer, guard))
+    }
+
+    pub(super) fn with_prefill(mut self, cache: CudaBuffer) -> Result<Self> {
+        // The loader creates both on one Device. Reject nesting and nonmatching representations.
+        let expected = (self.len / 210).checked_mul(320);
+        if self.format != CudaFormat::Q6K
+            || cache.format != CudaFormat::Q6KCached
+            || self.len == 0
+            || self.len % 210 != 0
+            || expected != Some(cache.len)
+            || self.offset != 0
+            || cache.offset != 0
+            || self.prefill_cache.is_some()
+            || cache.prefill_cache.is_some()
+        {
+            return Err(arithmetic());
+        }
+        self.prefill_cache = Some(Arc::new(cache));
+        Ok(self)
+    }
+
+    pub(crate) fn prefill(&self) -> &Self {
+        self.prefill_cache.as_deref().unwrap_or(self)
+    }
+
+    #[cfg(any(feature = "cuda", test))]
+    pub(crate) fn retained_bytes(&self) -> Option<u64> {
+        // The public plan counts aligned immutable representations, not live allocator pages.
+        let raw = u64::try_from(self.len).ok()?.checked_add(31)? / 32 * 32;
+        let cached = match &self.prefill_cache {
+            Some(cache) => u64::try_from(cache.len).ok()?.checked_add(31)? / 32 * 32,
+            None => 0,
+        };
+        raw.checked_add(cached)
     }
 
     pub(crate) fn len(&self) -> usize {

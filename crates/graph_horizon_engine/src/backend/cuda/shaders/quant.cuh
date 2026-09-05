@@ -60,6 +60,11 @@ __device__ __forceinline__ float cuda_weight_value(
     const uint64_t blocks = width / 256;
     const uint64_t block_index = uint64_t(row) * blocks + i / 256;
     const uint32_t q = i % 256;
+    if (format == 4) {
+        const unsigned char *block = w + block_index * 320;
+        return reinterpret_cast<const float *>(block)[q / 16]
+            * float(reinterpret_cast<const int8_t *>(block + 64)[q]);
+    }
     if (format == 1) return cuda_q4_value(w, block_index * 144, q, false);
     if (format == 2) return cuda_q4_value(w, block_index * 176, q, true);
     return cuda_q6_value(w, block_index * 210, q);
@@ -69,7 +74,10 @@ template<uint32_t FORMAT>
 __device__ __forceinline__ void cuda_weight_pair(
     const unsigned char *w, uint64_t block, uint32_t i, float &first, float &paired) {
     // i owns the low nibble; its paired logical leaf owns the same byte's high nibble.
-    if (FORMAT == 1 || FORMAT == 2) {
+    if (FORMAT == 4) {
+        first = cuda_weight_value(w + block, FORMAT, 0, i, 256);
+        paired = cuda_weight_value(w + block, FORMAT, 0, i + 64, 256);
+    } else if (FORMAT == 1 || FORMAT == 2) {
         const uint32_t group = i / 64, lane = i % 32;
         const uint32_t packed = w[block + (FORMAT == 1 ? 16 : 48) + group * 32 + lane];
         uint32_t low = packed & 15, high = packed >> 4;
@@ -126,6 +134,12 @@ __device__ __forceinline__ float cuda_weight_parts(
     // fits half exactly; reconstructed weights need not fit half's range.
     const uint64_t index = uint64_t(row) * (width / 256) + i / 256;
     const uint32_t qindex = i % 256;
+    if (FORMAT == 4) {
+        const unsigned char *block = w + index * 320;
+        factor = reinterpret_cast<const float *>(block)[qindex / 16];
+        bias = 0.0f;
+        return float(reinterpret_cast<const int8_t *>(block + 64)[qindex]);
+    }
     if (FORMAT == 1 || FORMAT == 2) {
         const uint64_t block = index * (FORMAT == 1 ? 144 : 176);
         const uint32_t group = qindex / 64;
@@ -153,4 +167,16 @@ __device__ __forceinline__ float cuda_weight_parts(
     factor = cuda_half_at(w, block + 208) * float(scale);
     bias = 0.0f;
     return float(low | (high << 4)) - 32.0f;
+}
+
+extern "C" __global__ void cuda_weight_cache(
+    const unsigned char *raw, unsigned char *cache) {
+    // One complete Q6 block per256 threads; finite metadata was checked before upload.
+    const uint32_t i = threadIdx.x;
+    const unsigned char *source = raw + uint64_t(blockIdx.x) * 210;
+    unsigned char *block = cache + uint64_t(blockIdx.x) * 320;
+    float factor, bias;
+    const float quant = cuda_weight_parts<3>(source, 0, i, 256, factor, bias);
+    reinterpret_cast<int8_t *>(block + 64)[i] = int8_t(quant);
+    if (i % 16 == 0) reinterpret_cast<float *>(block)[i / 16] = factor;
 }

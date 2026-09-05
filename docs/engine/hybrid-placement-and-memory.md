@@ -43,6 +43,13 @@ CPU/accelerator breakdown. `Engine::memory()` reports retained model weights
 and full-context KV capacity; neither value is process RSS or live allocator
 telemetry.
 
+Standalone CUDA may retain an additional lossless representation of Q6 layer
+projection weights for prefill batches of at least 16 rows; decode keeps the
+original packed weights. Admission accounts for both representations and falls
+back to raw weights if the extra storage does not fit, without changing context
+or placement. `Engine::memory()` includes any retained companion; CUDA hybrid
+does not create it.
+
 Vulkan and CUDA use separate RAM and VRAM. On Linux, the automatic RAM budget
 is `floor(MemAvailable × 90 / 100)` from one strict `/proc/meminfo`
 `MemAvailable` field, and malformed or overflowing input admits zero host

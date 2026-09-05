@@ -6,22 +6,23 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `61a540a` (C01).
-- State: running, C01 kept and profile refreshed; C05 selected, exact baseline captured.
-- Attempts: 1/10, kept 1, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C01 kept; C05 implemented and correctness passed; objective next.
+- Attempts: 2/10 reached correctness; kept 1, C05 performance pending, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
 are terminal. C01 is accepted. Session `3733` completed all three refreshed
-timelines with no dropped records. C05 is selected next. Session `67864`
-completed its exact-output baseline capture on accepted C01. The only pending
-test edit is temporary output instrumentation in the long-history test;
-no C05 production edit has begun. Compare all six `cuda-attention-bits` lines
-(match anywhere, since the test harness prefixes the first) from the immutable
-`c05-exact-baseline.log` against C05 after implementation. Do not overwrite
-that baseline or regenerate it to accept drift. Then run the canonical gate,
-int8 parity and the long prompt-throughput objective, followed by both controls.
+timelines with no dropped records. C05 is implemented but not accepted. Session
+`67864` captured its exact baseline on C01; session `1863` passed exact equality
+and every canonical gate. The current next command runs extra int8 parity,
+fast build/copy and the long prompt-throughput objective. Preserve the immutable
+`c05-exact-baseline.log`. Compare performance against **C01**, not the original
+campaign baseline. If the objective passes, measure short and medium controls
+before retaining. If rejected, restore only C05's attention shader diff and
+temporary output statements; preserve C01 and the permanent long-history test.
+The active command handle is session `57416`; inspect/poll it before retrying.
 Baseline executable, accepted `c01-bench` and all A/B records remain under the
 same campaign directory. No rejected or interrupted production edit remains.
 
@@ -91,7 +92,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
-| C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | ready, selected next | Preserve reduction tree in a warp for its final five stages; exact baseline captured before editing; distinct from historical matmul shuffle rejection |
+| C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | ready, implemented; correctness passed, objective pending | Preserve reduction tree in a warp for its final five stages; exact baseline captured before editing; distinct from historical matmul shuffle rejection |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
@@ -368,3 +369,43 @@ No expected values are updated after candidate implementation. This supports
 an exact reduction-order claim and does not count as an optimization attempt.
 Planned C05 structure is the existing category-K `shaders/attention.cuh`
 (~110 productive lines), no new production file; dispatch geometry stays fixed.
+
+### C05 in progress
+
+The shader retains shared-memory tree stages at strides >=32, then uses warp
+shuffles for the same paired additions below 32. An active mask and a reduced
+starting stride preserve blocks smaller than a warp and padded dimensions.
+Only lane zero consumes the final score; the existing shared-softmax barrier
+still publishes its state to the block. No dispatch, format, buffer, softmax
+order or allocation changes. Production diff is confined to the attention
+category-K shader (+14/-2 lines); temporary bit output is test-only.
+
+Exact test command on accepted C01 and on C05:
+
+```sh
+cargo test -p graph_horizon_engine --locked --no-default-features --features cuda attention_long_history_and_dimension_tails_match_reference -- --nocapture --test-threads=1
+diff <(rg -o 'cuda-attention-bits.*' target/cuda-amdahl-20260905/c05-exact-baseline.log) <(rg -o 'cuda-attention-bits.*' target/cuda-amdahl-20260905/c05-exact-candidate.log)
+python3 target/cuda-amdahl-20260905/run.py gate c05
+```
+
+All six captured cases match bit-for-bit; `c05-exact.diff` is empty and the
+reference test passes. Immutable baseline log SHA-256:
+`439fd42565146815b575423f43a475daf03ea753a36788faf0ea4f6fd2852246`.
+Formatting, CUDA check, CPU workspace, 11 error-matrix and all 33 CUDA tests
+passed. Pinned f16 real-model parity also passed. Additional int8 real-model
+parity must print `pass:` before building and running the candidate objective.
+Session `57416` performs that sequence and preserves `c05-bench`.
+
+```sh
+python3 target/cuda-amdahl-20260905/run.py bench c05 target/cuda-amdahl-20260905/c05-bench long
+# After the running objective completes:
+python3 target/cuda-amdahl-20260905/compare.py c01 c05 long prompt_tps long
+# Only after a provisional passing objective:
+python3 target/cuda-amdahl-20260905/run.py bench c05 target/cuda-amdahl-20260905/c05-bench short medium
+python3 target/cuda-amdahl-20260905/compare.py c01 c05 long prompt_tps short medium long
+```
+
+Retain only after all controls pass. Remove temporary bit-output instrumentation
+before retaining C05 (the permanent long-history test remains), then update the
+pool and rerank. A rejected candidate still counts as attempt two after this
+correctness gate; a performance failure is not an excuse to stop the campaign.

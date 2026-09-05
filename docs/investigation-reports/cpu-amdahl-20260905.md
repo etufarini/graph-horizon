@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-09 rejected and restored; bounding CPU25-12 process-local large-page backing.
+- State: CPU25-12 correctness passed; short model-decode A/B running in session `88917`.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 8 / 3 / 5 / 0 / 2. Rejected-code includes four canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 9 / 3 / 5 / 0 / 2 (one attempt pending A/B). Rejected-code includes four canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -1763,3 +1763,27 @@ implementation, refine buffer's estimate to 170 to allow platform-local mutable
 ownership without an unused-mut suppression on other targets; no responsibility
 or scope expansion. Production still matches `998b189`; only the declared
 temporary example and report differ. Proceed with the isolated candidate.
+
+CPU25-12 correctness/build session `39637` completed successfully. Memory tests
+preserve every byte, guarded slice and Vec pointer/capacity. Workspace passed
+170 root/167 engine plus unchanged integration groups; CPU check, warning-denied
+Clippy, exact pinned F16 parity/full initial-log identity, build and format/diff
+checks passed. Realized productive counts are memory21/buffer160, within 45/170.
+Private artifacts are `cpu25-12.patch`, new `cpu25-12-memory.rs`, candidate
+`cpu25-12-bench`, both startup binaries `cpu25-12-{a,b}-load`, and temporary
+probe source `cpu25-12-load.rs`. The temporary example was removed after saving
+both binaries; no timing instrumentation remains in the repository candidate.
+
+At 04:20:08+02:00, session `88917`, runner PID `376313`, began:
+
+```text
+screen.sh cpu25-05-bench cpu25-12-a 32 1 3 short
+screen.sh cpu25-12-bench cpu25-12-b 32 1 3 short
+awk -v objective=model_decode_tps -f compare.awk cpu25-12-a-short.out cpu25-12-b-short.out
+```
+
+Deadline 06:20:08+02:00; no stability rerun or further controls yet. A one-shot
+read-only observer verifies B's executable and waits for its CPU worker threads
+(after loading), then reads smaps_rollup once into `cpu25-12-b-short-backing.log`
+and worker masks separately. No repeated mapping scans or policy changes.
+Resume the same A/B handle; telemetry file is `cpu25-12-telemetry.log`.

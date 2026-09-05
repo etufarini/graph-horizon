@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `56afc25` (C15), building on `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C09 retained in `6a77c87`; fresh discovery adds C20/C21 below. C20 baseline gates next, not yet complete.
-- Attempts: 16 distinct (minimum 10): 11 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 12, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `6a77c87` (C09), building on `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C21 kept after all controls; profiles and re-ranking next. C22 queued; not complete.
+- Attempts: 18 distinct (minimum 10): 12 kept, 5 rejected (C06/C08/C13/C18/C20), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 13, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -124,7 +124,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
 | C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | kept | Exact/canonical gates and all controls pass; objective +31.205% |
 | C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | rejected, restored | All exact/canonical gates pass; objective +1.613% below 3% |
-| C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | ready after C20 | Distinct from output packing and fixed-bound retries; exact arithmetic/ownership gate required |
+| C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +20.095% |
 | C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | ready after C21, non-counting bounded re-evaluation | C20 shape attribution separates a large-grid gain from all other regressions; static dispatch gate must be predeclared |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -1989,3 +1989,52 @@ leaf mapping, changed compiler contraction and higher per-thread registers.
 Require all104 frozen C20-baseline snapshots, unchanged canonical gates and
 f16/int8 parity before short objective A/B; TTFT/prompt/public decode and both
 other regimes remain controls under the same thresholds. C22 stays queued.
+
+C21 exact session80002 passed all104 frozen snapshots, both diffs empty.
+Temporary test prints removed, restoring the expanded tests exactly to HEAD.
+Static `ptxas` reports packed single/logit entries40 registers,1024 shared bytes,
+zero stack/spills; paired ownership did not increase their register allocation.
+The Q4/Q5 helper explicitly loads one packed byte for both nibbles and one Q5
+high-bit byte for both leaves; Q6 shares its low/high bytes across two leaves.
+Canonical gates and immutable fast build run before any C21 performance.
+
+C21 canonical session83966 passed fmt/check/CPU workspace/11 error/all37 CUDA
+tests/f16 parity; int8 session84833 also passed with all16 canonical local IDs
+unchanged. Fast build88017 completed. PTX shows independent two-FMA leaf chains,
+two shared stores at the original logical offsets, and the same64..1 reduction
+levels; extraction consumes the loaded byte for both nibbles. Production
++50/-10 in the three declared files. Acquire `run.py bench c21 .../c21-bench
+short`, then `compare.py c09 c21 short model_decode_tps short`. Both controls
+must pass before keep; no candidate performance preceded correctness.
+
+C21 objective session88291 is provisional keep: short model decode33.74 ->40.52
+(+20.0948%, CV .22% -> .15%), public32.68 ->39.23 (+20.0428%, CV .11%),
+prompt264.69 ->265.78 (+.4118%, CV .16%), TTFT483.59 ->481.61 ms (-.4094%,
+CV .16%). Counts128/32/32 unchanged; wall6.06 s. Run both remaining regimes
+with the same immutable binary before retaining; no rerun needed.
+
+### C21 kept
+
+Both controls completed in session71465. Full `compare.py c09 c21 short
+model_decode_tps short medium long` passes every declared gate: **keep**.
+Candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 265.78 [.0016] | 481.61 [.0016] | 40.52 [.0015] | 39.23 [.0011] | 6.06 |
+| medium | 229.57 [.0003] | 4460.57 [.0003] | 34.13 [.0006] | 31.98 [.0006] | 22.54 |
+| long | 157.81 [.0019] | 22710.32 [.0019] | 22.98 [.0004] | 21.54 [.0002] | 97.16 |
+
+Model decode gains +20.095/+16.844/+10.269%; prompt +.412/+.332/+.114%.
+No control regression, unchanged128/32/32,1024/32/31,3584/32/31 counts. No rerun.
+Exact104 snapshots and canonical gates passed before performance. The additional
+paired helper is a narrow format invariant, not a generic abstraction: logical
+leaf order is explicit despite two leaves per physical thread. Production
++50/-10 across the declared three files, no public/format/KV ownership changes.
+C21 is retained in this commit; refresh all three affected profiles and rerank.
+
+Environment readback: C20 medium stock power-cap counter increment .993741 s;
+C21 short .833801 s, medium .654170 s, long0. Thermal counters remain0 in all
+paired records; sampled clocks remain about1980 MHz with stock desktop clients.
+No machine setting changed. These bounded stock-cap intervals are disclosed,
+not suppressed or used to select a favorable rerun.

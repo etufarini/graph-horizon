@@ -66,6 +66,40 @@ __device__ __forceinline__ float cuda_weight_value(
 }
 
 template<uint32_t FORMAT>
+__device__ __forceinline__ void cuda_weight_pair(
+    const unsigned char *w, uint64_t block, uint32_t i, float &first, float &paired) {
+    // i owns the low nibble; its paired logical leaf owns the same byte's high nibble.
+    if (FORMAT == 1 || FORMAT == 2) {
+        const uint32_t group = i / 64, lane = i % 32;
+        const uint32_t packed = w[block + (FORMAT == 1 ? 16 : 48) + group * 32 + lane];
+        uint32_t low = packed & 15, high = packed >> 4;
+        if (FORMAT == 2) {
+            const uint32_t bits = w[block + 16 + lane];
+            low += ((bits >> (group * 2)) & 1) * 16;
+            high += ((bits >> (group * 2 + 1)) & 1) * 16;
+        }
+        uint32_t scale, minimum, paired_scale, paired_minimum;
+        cuda_scale_min(w, block + 4, group * 2, scale, minimum);
+        cuda_scale_min(w, block + 4, group * 2 + 1, paired_scale, paired_minimum);
+        const float d = cuda_half_at(w, block), dmin = cuda_half_at(w, block + 2);
+        first = d * float(scale) * float(low) - dmin * float(minimum);
+        paired = d * float(paired_scale) * float(high) - dmin * float(paired_minimum);
+    } else {
+        const uint32_t segment = i / 128, category = (i % 128) / 32, lane = i % 32;
+        const uint32_t low = w[block + segment * 64 + category * 32 + lane];
+        const uint32_t high = w[block + 128 + segment * 32 + lane];
+        const uint64_t offset = block + 192 + segment * 8 + lane / 16 + category * 2;
+        const int scale = int(reinterpret_cast<const int8_t *>(w)[offset]);
+        const int paired_scale = int(reinterpret_cast<const int8_t *>(w)[offset + 4]);
+        const float d = cuda_half_at(w, block + 208);
+        first = d * float(scale)
+            * (float((low & 15) | (((high >> (category * 2)) & 3) << 4)) - 32.0f);
+        paired = d * float(paired_scale)
+            * (float((low >> 4) | (((high >> (category * 2 + 4)) & 3) << 4)) - 32.0f);
+    }
+}
+
+template<uint32_t FORMAT>
 __device__ __forceinline__ float cuda_weight_parts(
     const unsigned char *w, uint32_t row, uint32_t i, uint32_t width,
     float &factor, float &bias) {

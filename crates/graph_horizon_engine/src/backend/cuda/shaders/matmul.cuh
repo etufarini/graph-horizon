@@ -11,26 +11,32 @@ __device__ __forceinline__ float cuda_dot_format(
         for (uint32_t i = threadIdx.x; i < width; i += blockDim.x) {
             sum += __half2float(input[i]) * cuda_weight_value(weight, FORMAT, row, i, width);
         }
+        partial[threadIdx.x] = sum;
     } else {
-        // The dispatcher uses 128 threads; packed widths contain full 256-value blocks.
-        // Pair each thread's consecutive contributions without changing their sum order.
-        const uint32_t lane = threadIdx.x;
+        // 64 physical threads own all 128 original leaves, paired by shared quant bytes.
+        const uint32_t lane = FORMAT == 3 ? threadIdx.x
+            : (threadIdx.x / 32) * 64 + threadIdx.x % 32;
+        constexpr uint32_t DISTANCE = FORMAT == 3 ? 64 : 32;
         const uint32_t blocks = width / 256;
+        float paired_sum = 0.0f;
         for (uint32_t group = 0; group < blocks; ++group) {
             const uint64_t block = (uint64_t(row) * blocks + group)
                 * (FORMAT == 1 ? 144 : FORMAT == 2 ? 176 : 210);
             const uint32_t i = group * 256 + lane;
-            const float first = FORMAT == 3 ? cuda_q6_value(weight, block, lane)
-                : cuda_q4_value(weight, block, lane, FORMAT == 2);
-            const float second = FORMAT == 3 ? cuda_q6_value(weight, block, lane + 128)
-                : cuda_q4_value(weight, block, lane + 128, FORMAT == 2);
+            float first, first_pair, second, second_pair;
+            cuda_weight_pair<FORMAT>(weight, block, lane, first, first_pair);
+            cuda_weight_pair<FORMAT>(weight, block, lane + 128, second, second_pair);
             sum += __half2float(input[i]) * first;
             sum += __half2float(input[i + 128]) * second;
+            paired_sum += __half2float(input[i + DISTANCE]) * first_pair;
+            paired_sum += __half2float(input[i + DISTANCE + 128]) * second_pair;
         }
+        partial[lane] = sum;
+        partial[lane + DISTANCE] = paired_sum;
     }
-    partial[threadIdx.x] = sum;
     __syncthreads();
-    for (uint32_t stride = blockDim.x / 2; stride > 0; stride /= 2) {
+    // Restore the same logical tree for packed 64-thread and F16 128-thread blocks.
+    for (uint32_t stride = 64; stride > 0; stride /= 2) {
         if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
         __syncthreads();
     }

@@ -53,7 +53,7 @@ pub(crate) fn encode(
             Arg::U32(format),
         ],
         (output_width, 1, 1),
-        (128, 1, 1),
+        (if format == 0 { 128 } else { 64 }, 1, 1),
     )
 }
 

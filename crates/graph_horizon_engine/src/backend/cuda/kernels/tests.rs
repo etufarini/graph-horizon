@@ -1016,6 +1016,39 @@ fn attention_rejects_empty_overflow_gqa_and_context_before_submission() -> Resul
 }
 
 #[test]
+fn argmax_wide_lanes_and_total_order_ties_are_exact() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    let output = CudaBuffer::allocate(&device, 4, CudaFormat::Raw)?;
+    for length in [1_usize, 3, 255, 256, 257, 131072, 131075] {
+        for mode in 0..3 {
+            let mut values = (0..length)
+                .map(|i| f32::from_bits((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)))
+                .collect::<Vec<_>>();
+            if mode == 1 {
+                values[length / 3] = f32::from_bits(0x7fff_ffff);
+                values[length - 1] = f32::from_bits(0x7fff_ffff);
+            } else if mode == 2 {
+                values.fill(f32::from_bits(0xffff_ffff));
+            }
+            let expected = (1..length).fold(0, |best, i| {
+                if values[i].total_cmp(&values[best]).is_gt() {
+                    i
+                } else {
+                    best
+                }
+            });
+            let logits = upload_f32(&device, &values)?;
+            assert_eq!(
+                super::argmax::read(&device, &module, &logits, &output, length)?,
+                expected as u32
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn reduction_order_matches_rust_total_cmp() -> Result<()> {
     let device = Device::acquire()?;
     let module = Module::load(&device.context)?;

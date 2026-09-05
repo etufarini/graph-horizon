@@ -6,10 +6,10 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `b948f67` (C14), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C14 profiles complete; C13 baseline boundary test passed, production next.
-- Attempts: 7/10 reached correctness; kept 6, rejected 1, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C13 rejected and restored; C07 selected, C15 added from phase evidence.
+- Attempts: 8/10 reached correctness; kept 6, rejected 2, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -32,9 +32,11 @@ C11. Its baseline tail test passed and is committed in `3fffeb9`. Canonical
 gates passed in session `51190`, extra int8 parity in `89187`, objective in
 `19830`, and both controls in `98968`. C11 is accepted against C02 in this
 commit. All `c11-timeline` rows completed in session `38969`; new discovery
-adds C13/C14 below and C14 has the largest credible bounded effect. No C13/C14
-production code is implemented yet. C10 is closed-untried because C11 removed
-its entire shared-tree owner. Continue the same pool; the minimum is not met.
+added C13/C14. C14 is accepted in `b948f67` after gates and all controls; its
+profiles completed in `53915`. C13's boundary test passed and is committed in
+`36c9912`; production now modifies only attention.cuh and is not yet accepted.
+Canonical gates passed in `34634`; extra int8 parity precedes long objective.
+C04/C10 are closed-untried with zero current target owner. Continue this pool.
 Baseline and accepted immutable executables, plus all A/B records, remain under
 the same private campaign directory. No other production candidate is applied.
 
@@ -107,13 +109,14 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | ready | Small; phase-specific ceiling now exceeds 5% |
-| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | ready | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
+| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | ready | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
-| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short prompt throughput | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
-| C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | ready | Numeric risk, shared-memory occupancy cost; preserve C11 fallback beyond bounded score capacity |
+| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
+| C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | rejected, restored | Correctness passed; prefill -0.045% fails its objective despite decode +26.978% |
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
+| C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1082,3 +1085,63 @@ of decode, so their phase-specific ceilings exceed 5%. C13 has the largest
 remaining predicted effect. Added the predeclared `(3,4097)` boundary case to
 the permanent attention test; all ten format/shape cases passed on accepted
 C14 in `c13-baseline-test.log`, before its production changes.
+
+### C13 rejected
+
+Implemented the bounded buffered-score path with the unchanged online function
+as fallback. Each warp writes disjoint scores; block barriers separate score,
+maximum, exponential/sum and value phases. An explicit barrier after reading
+the maximum protects the reuse of partial[0]. Both paths retain 128-thread
+ownership and the existing validated cache bounds. Only the attention shader
+changes (+77/-1); no new ABI, allocation, dependency or machine setting. Shared
+storage is finite and below the already-required per-block capability; its
+occupancy cost, including on fallback kernels, remains a measurement risk.
+
+`run.py gate c13` passed formatting, CUDA workspace check, CPU suites, 11 error
+tests, all 36 CUDA tests (ten dense attention boundary/format cases), and pinned
+f16 parity with all 16 top-one IDs unchanged. Extra pinned int8 parity runs next,
+then the long prompt objective against immutable C14. Correctness gates and
+tolerances are unchanged; the shared softmax is a numeric, not exact-bit, candidate.
+
+Extra int8 parity passed (`c13-int8-parity.log`), all 16 top-one IDs unchanged.
+Build/copy immutable `c13-bench`, then acquire `run.py bench c13
+target/cuda-amdahl-20260905/c13-bench long`. Compare with
+`compare.py c14 c13 long prompt_tps long`; only a provisional keep proceeds to
+short/medium controls. No C13 performance was observed before both parity gates.
+
+C13 objective completed: prompt 110.38 -> 110.33 token/s (-0.045%, CV 0.02% ->
+0.03%); TTFT 32468.30 -> 32485.24 ms (+0.052%). Model decode 12.01 -> 15.25
+(+26.978%, candidate CV rounded to 0.0000), public decode 11.27 -> 14.32
+(+27.063%, CV 0.02%). Counts 3584/32/31 unchanged, wall 139.11 s. **Rejected**:
+the fixed prefill objective is below 3%; do not redefine it after observing
+decode. No rerun or other controls needed. Saved `c13.patch` privately and
+restored attention.cuh exactly to accepted HEAD with apply_patch.
+
+Rejected-binary diagnostic session `35856` completed, zero dropped records:
+prefill attention 9612.613 ms versus C14's 9512.614 ms, decode attention 637.976
+versus 1194.614 ms. Tensor matmul remains 21811.752 versus 21804.171 ms. The
+effect is phase-specific; the larger shared storage can constrain prefill
+occupancy, but these timings alone do not prove that limiter. They do support
+**C15**, a bounded variant: invoke the online body directly from prefill entries,
+and the buffered body only from decode entries. Direct entry wiring must prevent
+the buffered allocation from remaining reachable in prefill code.
+
+C15 objective is declared now, before implementation: long model decode; prompt,
+TTFT and short/medium controls unchanged. Full-request p=0.03416, conservative
+local s=1.8, o=0.0005, predicted gain ~1.49%, ideal ceiling 3.54%, ~513 ms saved;
+decode-phase p=0.44748 has an 80.99% ideal ceiling, making it eligible. Small
+shader-only variant (~210 productive category-K lines), no new host interface
+or global storage. Reuse C13's ten-case reference gate and pinned f16/int8 parity.
+It is ready but ranks below C07/C08/C12/C09 by current whole-request estimates.
+
+After C13 restoration, current fractions remain the C14 table. Select **C07**,
+largest remaining ready prediction (4.321% whole request; decode ceiling 7.68%).
+Before production, extend exact argmax coverage to lengths 1/3/255/256/257/
+131072/131075, mixed raw float bit patterns, tied maxima across lanes, and all
+negative-NaN minimum keys. Expected IDs use Rust total_cmp with first-index ties.
+Structure: existing `shaders/argmax.cuh` (~45 productive category-K lines),
+`kernels/argmax.rs` (~45 orchestration lines), one new existing-file test (~35
+test lines). One 256-thread block scans strided inputs and reduces key/index
+pairs; use a u64 scan index to avoid wrapping at the u32 length boundary.
+Keep the exact total order and lowest-index tie invariant. Objective short model
+decode, C14 reference, all canonical gates and standard controls/thresholds.

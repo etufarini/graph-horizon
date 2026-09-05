@@ -143,7 +143,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; commit483ea2a; non-counting C33 re-evaluation |
 | C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | rejected, restored | All gates pass; medium prompt-5.107%, TTFT+5.384%; saved patch and diagnostics |
 | C39 | Fill all sixteen real queries in the existing padded M16 attention tile | Long prompt throughput | rejected, restored | Exact/all gates pass, prompt-6.778%, TTFT+7.269%; keep eight-query C37 |
-| C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | ready | Remove concrete strided shared accesses; preserve eight queries and all arithmetic; exact gate |
+| C40 | Store tensor-attention scores column-major so query lanes access adjacent words | Long prompt throughput | rejected, restored | All gates pass; long prompt-4.484%; own attention cost worsens; keep C37 |
+| C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | ready | C30 non-counting extension; retain512/128 fallbacks; numeric PV-order gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4161,3 +4162,86 @@ short/medium/long -.199601/.727460/4.099419%, savings-1.718571/23.465602/
 with26.087378% ideal owner ceiling and material layout uncertainty. Public
 retention still >=5%, objective CV<=5%, every control regression<=5%, same
 two-hour comparison limit. Count C40 only after correctness, no new attempt yet.
+
+C40 exact99919 passes3.96s, all36 records identical to frozen C37/C39-baseline
+outputs. Remove logging before frozen/model gates; attempt28 now reaches
+correctness, still unclassified. Fast build and frozen549 are running. The
+candidate changes only score orientation; query count remains eight.
+
+C40 frozen54963291,13064596,12995860 pass both KV and unchanged IDs. Fast60393
+and hybrid check88756 pass. Resources remain40 registers/13408 shared bytes,
+zero spills. Canonical prompt restored; full canonical/isolation/attention
+sanitizers now run serially before long public objective.
+
+C40 serial32310 passes fmt, CUDA workspace check, CPU9.31s,11error_matrix1.11s,
+all43 CUDA tests103.48s, canonical f16 parity13.72s, standalone-int8 11.77s,
+hybrid-f16 21.94s and hybrid-int8 15.66s. Attention memcheck8.19s and
+synccheck3.67s pass all4 tests with zero errors. Begin long public objective
+against C37 after all declared gates; thresholds and inputs unchanged.
+
+### C40 rejected; restored checkpoint and fresh decode discovery
+
+C40 long95455: prompt315.66[CV.0027], TTFT11354.13[.0027], model44.30[.0040],
+public41.53[.0035], counts3584/32/31, process49.32s. Against C37: prompt
+-4.484386%, TTFT+4.695378%, model-.739413%, public-.669696%. Reject; no rerun
+(CV passes) or other public rows. Stock power-cap increment .867782s, thermal
+zero. Diagnostic19757 zero dropped: prefill11353.147661ms/gaps182.302047,
+decode721.928197; tensor attention2820.630187 versus2388.752452ms. The concrete
+score-orientation change worsens its own owner, so do not combine it with the
+already rejected16-query expansion. Saved c40.patch/binary/PTX, restored the
+sole production file exactly to C37; strengthened tests867d99e remain.
+
+Restored-checkpoint verification80817 uses the private label `final`, but is
+NOT campaign completion: freshly discovered C41 remains. Fast build passes and
+the executable is byte-identical to c37-bench. Fmt, CUDA check, CPU8.13s,
+11error_matrix.70s, all43 CUDA tests, canonical f16 parity17.12s, standalone
+int8 11.80s and mixed f16/int8 21.86/15.60s all pass.
+
+Fresh audit of encoder/readback and both shader families: host/GPU gaps have
+whole-request ideal ceilings2.158/2.062/1.574%; individual non-matrix/non-attention
+kernel ceilings all below3.530% of fixed work. Do not close decode attention
+using whole-request fractions: long decode alone owns190.565842/717.860252ms,
+26.546370%, and remains material to the named model-decode metric. C30 currently
+uses512 threads/four128-thread PV partitions; a bounded eight-partition entry
+can halve each lane's serial PV history and increase score warps while keeping
+the same128 logical softmax leaves. This is C41, not a new distinct mechanism.
+
+### C41 design before implementation
+
+Objective long model-decode t/s, C37 baseline44.63[CV.0028]. Same context, KV,
+positions512..4095 and workload; optional device max-threads>=1024 alone admits
+the new entry. Preserve existing512 and128 entries and fallback criteria;
+failed capability query still selects128. New exact1024 launch guard does not
+relax any other kernel's256-thread boundary. No dependencies/public API changes.
+
+Structure: backend/cuda/module.rs (~185 productive orchestration lines, two fixed
+entry names and one optional capability flag); exec/dispatch.rs (~145 productive
+orchestration lines, exact launch guard); kernels/attention/decode.rs (~65 lines,
+three-way checked selection); shaders/attention.cuh (~480 productive category K
+lines, same operation's1024 variant). Extend existing tests inline, no new file
+or helper. All remain below orchestration200 and their estimates.
+
+Invariants: unchanged KV layout/ownership, causal bounds,128-leaf score/softmax
+trees and all block barriers. Only new1024 PV path changes four sequential
+contiguous partials to eight, combined in increasing partition order in f32.
+Existing512 specialization must retain its four-part order. Main risks: numeric
+drift, lower block residency/resource admission and incomplete capability guards.
+Keep new shared score+partial storage below the admitted per-block budget;
+inspect ptxas registers/shared/spills before performance. Tests exercise numeric
+reference and forced512/128 fallbacks for both KV, exact geometry rejection,
+all25 function-resolution failpoints and both embedded PTX images.
+
+Predeclared correctness: existing .02+.02abs per-value CUDA bounds and16-step
+teacher-forced top-two parity, unchanged frozen129/130/549 local IDs for both
+KV, full canonical/CPU/error, int8 and hybrid isolation, attention memcheck and
+synccheck. No precision reduction or relaxed oracle. No performance before gates.
+
+Phase decomposition uses fixed31 decode tokens: D552.821475/584.887149/
+717.860252ms, removable owner0/59.782359/190.565842ms, p0/.102211784/.265463705.
+Net s1.4,o.001 predicts-.099900/2.902188/8.090203%, phase ideal ceilings
+0/11.384844/36.140311%, saved-.552821/16.495787/53.729523ms. Long has the
+largest credible effect on this named phase and is objective. Whole-request
+predictions are only-.099900/.427516/.372976%; do not present a decode gain as
+the same percentage of total-request speedup. Both other regimes and every
+other public metric remain controls. Keep>=5%, CV<=5%, regressions<=5%, no
+selective rerun and same two-hour comparison limit.

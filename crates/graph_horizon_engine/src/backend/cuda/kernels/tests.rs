@@ -373,7 +373,11 @@ fn packed_prefill_tiles_match_reference_and_preserve_weight_range() -> Result<()
         let pattern = patterned_weight(format, 5);
         for width in [256_usize, 768, 3072] {
             for rows in [16_usize, 17, 32, 33] {
-                for outputs in [17_usize, 65] {
+                for outputs in [17_usize, 65, 8193] {
+                    // One large output grid covers the wide dispatch and both tile tails.
+                    if outputs == 8193 && (width != 256 || rows != 33) {
+                        continue;
+                    }
                     let raw = (0..outputs * width / 256)
                         .flat_map(|block| {
                             let start = (block % 5) * block_bytes;

@@ -6,7 +6,7 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `6a77c87` (C09), building on `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C21 kept after all controls; profiles and re-ranking next. C22 queued; not complete.
+- State: running, C21 retained in `cd6993b`; profiles refreshed. C22 baseline107 snapshots and extra parity pass, implementation next; C23 queued. Not complete.
 - Attempts: 18 distinct (minimum 10): 12 kept, 5 rejected (C06/C08/C13/C18/C20), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 13, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09).
@@ -126,6 +126,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | rejected, restored | All exact/canonical gates pass; objective +1.613% below 3% |
 | C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +20.095% |
 | C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | ready after C21, non-counting bounded re-evaluation | C20 shape attribution separates a large-grid gain from all other regressions; static dispatch gate must be predeclared |
+| C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | ready after C22 | Two barriers instead of three per four context tokens; replicated scalar work/register cost uncertain |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2038,3 +2039,62 @@ C21 short .833801 s, medium .654170 s, long0. Thermal counters remain0 in all
 paired records; sampled clocks remain about1980 MHz with stock desktop clients.
 No machine setting changed. These bounded stock-cap intervals are disclosed,
 not suppressed or used to select a favorable rerun.
+
+C21 profiles session66552 completed, zero dropped records. Prefill/decode ms:
+short483.230/800.940, medium4510.395/953.096, long22656.215/1394.574. Decode
+dot+logits now723.242/717.549/712.121 ms, versus890.903/882.919/851.911 after
+C09. Remaining prefill tensor435.661/3490.989/12178.945 ms and attention
+11.218/733.644/9494.469 ms are unaffected owners within diagnostic variability.
+
+Fresh source review adds C23: online attention currently publishes four softmax
+weights and a rescaling factor from thread0 through shared memory, requiring
+three block barriers per four-context tile. Each warp can compute the identical
+scalar coefficients in lane0 and broadcast them locally, leaving only score-ready
+and score-consumed barriers. Preserve the same four-score maximum, exponential,
+denominator and V arithmetic order; no cache/layout/precision change or4096-score
+allocation. Risk: four lane-zero computations instead of one and more registers
+may outweigh one removed barrier. This is not C13 global score buffering or
+C05's score-reduction tree. Exact long/tail/tiny-history outputs and canonical
+f16/int8 gates are required before its performance. C23 remains a new distinct
+ready premise, not yet implemented or counted.
+
+Current C23 whole-request fractions short/medium/long .008735/.134281/.394767;
+with s=1.10, o=.002, predicted -.120/1.031/3.508%, ideal .881/15.511/65.226%,
+saved -1.55/55.77/815.03 ms. Local s discounts duplicate scalar work; actual
+barrier share is uncertain, no hardware stall-counter claim. Its long phase
+ceiling is material despite conservative prediction below5%.
+
+### C22 predeclared bounded dispatch and tests
+
+Select medium prompt throughput: its observed C20 shape effect has lower
+uncertainty than C23, with a slightly higher predicted whole-request gain
+(about3.9%). Both benefit multiple regimes; medium is also the representative
+tie-break. This is a non-counting C20 re-evaluation, never a new attempt quota.
+Reuse precisely C20's gated M32 kernel only for packed rows>=32 and
+**output_width>=8192** (at least128 full output tiles); keep M16/SIMT elsewhere.
+This fixed shape threshold precedes all C22 performance. It bounds the
+large-grid evidence in this validation environment, not a universal speed claim.
+The old universal M32 result remains rejected; no retry of its smaller grids.
+
+Structure remains C20's declared tree: matmul.cuh (~255 category-K productive
+lines with retained C21), kernels/matmul.rs (~135 productive), module.rs (~150
+excluding tests); no new files/API/dependency. Separate entries still protect
+small-batch resources. The dispatch condition is the only change to C20's body.
+Extend the tensor test with N8193 at K256/M33 for all three packed formats,
+covering the threshold path plus both tails, while retaining all104 prior cases.
+Freeze the resulting107 full-output snapshots on accepted C21 before production.
+Replay the additional frozen130-token oracle on C21 and C22, f16/int8, then
+restore all temporary fixtures and run unchanged canonical gates before A/B.
+Objective medium prompt, all prior controls and thresholds unchanged.
+
+Exact refreshed matrix attribution (`c21-matrix-{short,medium,long}.log`) gives
+C22 owners155.151/1254.776/4395.647 ms. Fractions .120818/.229666/.182765,
+s=1.2/o=.001, predicted1.951/3.872/3.036%, ideal13.742/29.814/22.364%,
+saved24.57/203.67/708.56 ms. These replace the preliminary scaled estimates;
+ranking and objective remain unchanged before C22 production/performance.
+
+C22 baseline session72466 passed all107 matrix snapshots and the frozen extra
+130-token f16/int8 top-two plus local-ID identity gates on C21. Thus C21 also
+preserves the already-frozen longer model fixture. Remove temporary prints and
+prompt fixture, retaining only the three useful large-grid test cases before
+the C22 production edit. This test-only checkpoint does not count as an attempt.

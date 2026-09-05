@@ -866,7 +866,7 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
     const HEADS: usize = 2;
     let device = Device::acquire()?;
     let module = Module::load(&device.context)?;
-    for (dim, context) in [(3, 17), (128, 3584), (129, 33), (256, 129)] {
+    for (dim, context) in [(3, 17), (3, 4097), (128, 3584), (129, 33), (256, 129)] {
         let base = context - ROWS;
         let keys = (0..context * dim)
             .map(|i| ((i * 13 + 7) % 37) as f32 / 16.0 - 1.0)

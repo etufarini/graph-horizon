@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C14 (this decision commit), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C14 kept after all controls; refreshed profiles next.
-- Attempts: 7/10 reached correctness; kept 6, rejected 1, not_verified 0, closed-untried 1 (C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `b948f67` (C14), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C14 profiles complete; C13 baseline boundary test passed, production next.
+- Attempts: 7/10 reached correctness; kept 6, rejected 1, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11).
 
@@ -103,7 +103,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C01 | Spread decode attention across head dimensions and blocks; medium decode attention owns 8352.759 ms and launches only one block | Medium model decode | kept | Small: reuse existing parallel attention body; score reduction reorders |
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | kept | Numeric gates and all controls passed; objective +16.492% |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | kept | Exact gate and all controls passed; objective +6.613% |
-| C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | ready | Small; same four-token tile and accumulation order, exact gate |
+| C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | closed-untried | C14 routes every declared prefill batch away from this legacy kernel; target owner p=0 |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | ready | Small; phase-specific ceiling now exceeds 5% |
@@ -1050,3 +1050,35 @@ its shared-memory ownership, justified by the measured reduction in the
 dominant prefill cost. It remains one matmul family with no global lifetime
 or format/API expansion. Next acquire `c14-timeline` short/medium/long and rerank;
 do not reuse obsolete broad matmul fractions for the SIMT-only candidates.
+
+### Refresh after C14; C13 selected
+
+All traces in session `53915` completed with zero dropped records. Short total
+2345.908 ms: prefill/first sample 829.179 ms, decode 1516.730 ms. Tensor matmul
+775.150 ms versus C11's legacy batched 1762.887 ms, local speedup 2.274x;
+long 21804.171 versus 50224.132 ms, 2.303x. Tensor entry uses 128 threads,
+48 registers and zero local-memory spill in the activity records. Long total
+34974.345 ms; attention owns 9512.614 + 1194.614 ms. Trace long TTFT is 0.5%
+below the unprofiled mean; traces remain diagnostic, not extra A/B attempts.
+
+No legacy batched matmul occurs in any declared public row: **C04 closed-untried**,
+owner p=0, ideal gain zero on its target. Its smaller-batch implementation is
+preserved, but testing a different short prompt just to manufacture an effect
+would change the campaign tuple. C08/C12 also lose their prefill owner; before
+implementation, retarget their still-material single-matmul/logits mechanism to
+short **model decode**, keeping the same exact-output gates and thresholds.
+C09 affects both legacy and tensor half metadata. Current ranking:
+
+| Priority / state | p full request | s | o | Predicted gain | Ideal ceiling | Saved ms |
+|---|---:|---:|---:|---:|---:|---:|
+| C13 ready, selected | 0.30615 long | 2 | 0.004 | 17.5% | 44.1% | 5213.7 |
+| C07 ready | 0.04757 short | 8 | 0.0002 | 4.32% | 5.00% | 97.177 |
+| C08 ready, decode objective | 0.56095 short | 1.04 | 0.0005 | 2.15% | 127.8% | 49.44 |
+| C12 deferred until C08, decode objective | 0.56095 short | 1.04 | 0.001 | 2.10% | 127.8% | 48.27 |
+| C09 ready | 0.89137 short | 1.02 | 0 | 1.78% | 820.5% | 41.00 |
+
+Estimates are rounded; C07's decode-phase owner is 7.13%, and C08/C12 own 86.46%
+of decode, so their phase-specific ceilings exceed 5%. C13 has the largest
+remaining predicted effect. Added the predeclared `(3,4097)` boundary case to
+the permanent attention test; all ten format/shape cases passed on accepted
+C14 in `c13-baseline-test.log`, before its production changes.

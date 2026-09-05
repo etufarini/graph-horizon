@@ -139,7 +139,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-15.461%; direct loads have concrete shared-bank collisions; keep C32 |
 | C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | kept | Long prompt+7.706%; worst control-2.816%; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C31 re-evaluation |
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
-| C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | deferred behind C34 | Compiled C32 uses HMMA.16816 but C33 forces HMMA.1688; needs separate target-compatible PTX with unchanged75 fallback |
+| C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | ready | Refreshed C34 tensor owner69.289%; select one compatible75/80 PTX, preserving admitted devices and existing WMMA fallback |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3757,3 +3757,50 @@ deferred pending refreshed profiles88716, running serially for all three rows.
 C34 profiles88716 finish with0 dropped events in every row; these are diagnostic
 timelines, not replacements for the unprofiled acceptance records. Commit this
 accepted checkpoint before designing the capability-specific C36 experiment.
+
+### C36 selected design after C34 profile refresh
+
+Accepted runtime ef84e39, clean worktree. C34 short/medium/long forward
+prefill386.347339/3287.218359/13010.030499ms and decode576.126378/595.220314/
+728.148347ms give T962.473717/3882.438673/13738.178846ms. Tensor-prefill
+339.955552/2690.096438/9416.460361ms, p.353210219/.692888327/.685422753.
+With net local s1.1,o.003, C36 predicts2.998282/6.381830/6.305077%, ideal
+54.609740/225.614455/217.886945%, saved28.017629/232.906906/814.827314ms.
+Medium remains the objective; all regimes benefit under the uncertain premise,
+and medium is the representative tie-breaker versus similar long effect.
+Prefill gaps5.730611/57.118298/197.170814ms; decode gaps14.213100/15.312537/
+11.942359ms. Long tensor attention falls to2426.426949ms from C32's3652.907027;
+all prefill attention is10.579315/305.420303/2574.842350ms. Decode dot+logits
+487.701621/479.631542/484.211085ms remains unchanged in responsibility.
+
+C36 uses C35's padded direct-accumulator candidate only in a separately compiled
+compute80 PTX image, replacing K8 instructions with documented f16/f32 K16.
+Compile and embed the existing compute75 image too; keep its original accepted
+WMMA implementation, admission and all function names. Module load binds the
+context, queries capability once and selects exactly one image; unavailable
+optional capability keeps75. No second module or dispatch-time branch. Keep a
+private allow-optimization parameter on load_inner for forced-fallback tests;
+all production callers permit the checked capability. No public flag/API.
+
+Only existing files: build/cuda.rs~105 productive lines (two fixed trusted
+targets/output names), backend/cuda/module.rs~185 (single module ownership and
+selection), loader.rs~155 (private call adjustment), shaders/matmul.cuh~505
+(K: one operation's capability/format variants). Tests stay in existing kernel
+and module test blocks. No new file/helper/dependency; no minimum-capability or
+machine-setting change. Shader wrapper conditionally allocates C only for the
+75 fallback; the80 branch retains padded A/B, two barriers and lane-owned
+correction. Both versions preserve coefficient-group order and half inputs;
+K16 instruction grouping is numeric-gated, not assumed portable bit identity.
+
+The matching official ISA8.4 m16n8k16 floating fragment section was read fully:
+A uses four half-pair registers, B two, f32 C/D four, with the documented lane
+layout. Target notes require80; no such instruction may enter the75 image.
+Verify75 PTX against C34 (disclose any compiler-only differences), exercise
+both selected/forced-fallback matrix routes with unchanged scalar/raw-cache
+tests and both function-resolution failure paths. All selected CPU/CUDA/error,
+canonical/frozen129/130/549 f16/int8, hybrid isolation and sanitizers precede
+performance. Compile-resource and image-selection risk join numeric/address/
+barrier risks; compiling the80 image may also change other code generation,
+so all-regime controls remain mandatory. Objective medium prompt>=5%, CV<=5%,
+all controls regression<=5%, unchanged public tuple and canonical time/rerun
+rules. Count conservatively as another non-counting C33 re-evaluation.

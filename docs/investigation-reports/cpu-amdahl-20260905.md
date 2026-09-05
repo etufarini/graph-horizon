@@ -7,7 +7,7 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-05 kept after complete correctness, long objective and both controls; refreshing attribution before the next candidate.
+- State: CPU25-05 attribution refreshed and instrumentation removed; CPU25-06 selected for bounded worker handoff experiment.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
 - Current attempts / kept / rejected / not_verified / closed-untried: 4 / 3 / 1 / 0 / 2.
 
@@ -78,7 +78,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
-| CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
+| CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | refreshed bounds; 20-us cap; borrowed-job and idle-power risk | ready |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
@@ -1239,3 +1239,90 @@ Each command covers all three regimes serially. These one-repetition rows are
 diagnostics without a CV and do not replace accepted canonical A/B evidence.
 Resume this session; no duplicate benchmark, correctness run or compile should
 overlap it. Temporary profiler files must be restored before the next candidate.
+
+### Post-CPU25-05 refreshed attribution
+
+Session `52316` completed with all six diagnostic children successful. Parsed
+disjoint timelines are saved as `retained3-{short,medium,long}-spans.txt`.
+Unprofiled/profiled TTFT ms: short 3317.16/3174.45 (-4.30%), medium
+26169.58/26288.66 (+0.46%), long 102376.82/102578.02 (+0.20%). Model decode
+token/s: 12.31/11.94, 11.52/11.08, 9.63/9.49 respectively. The short apparent
+negative overhead remains a drift caveat, not a profiler benefit. No CV exists
+for one repetition, and these observations are not retention evidence.
+
+| Disjoint measured ms | Short | Medium | Long |
+|---|---:|---:|---:|
+| First logits | 3174.136 | 26288.261 | 102577.454 |
+| Whole timeline end | 5854.613 | 29176.471 | 105949.707 |
+| Prefill Q4 | 1884.404 | 14413.836 | 51105.628 |
+| Prefill Q6 | 659.110 | 5607.275 | 17267.597 |
+| Prefill RoPE | 456.456 | 3895.808 | 14188.229 |
+| Prefill attention | 34.273 | 1265.836 | 16141.260 |
+| Decode Q4 | 1723.303 | 1733.124 | 1704.725 |
+
+Medium prefill Q4 still owns .494 of the complete request; long attention now
+owns .152, versus .189 in the previous corrected profile. Do not subtract
+separate-run operation times as a causal proof. Conservative CPU25-03 p=.14
+remains plausible within the larger Q4 interval, but dequant/scratch attribution
+is uncertain. CPU25-06's earlier uncovered/imbalance bounds should be refreshed
+because decode's absolute interval is now shorter (2680.477 ms on short).
+
+Before selecting it, reuse the already inspected worker-slot timestamp
+instrumentation for one short-only diagnostic. Necessary temporary files remain
+the declared basic profiler tree plus `pool.rs` (~170 productive lines) and
+`profile.rs` (~130, replacing its basic diagnostic contents); no permanent
+structure or kernel change. Timestamp slots are cache-line separated, workers
+do not allocate/log under a shared event mutex, and joined dispatch snapshots
+are nested inside the existing backend ranges. Its overhead must be disclosed
+against the just-completed basic-profile short row. This is attribution, not
+a countable candidate or an A/B stability rerun.
+
+Worker diagnostic session `29043` completed successfully. Its short TTFT
+3013.29 ms is 5.08% below the preceding basic-profile row; model decode 12.50
+is 4.69% higher. This again exposes drift/instrumentation perturbation rather
+than negative overhead. The disjoint parser and worker nesting parser pass.
+Its decode interval is 2561.449 ms. Q4 dispatch owns 1625.103 ms, with
+188.402 ms uncovered bound, 262.658 ms imbalance bound, 286.192 ms summed
+latest-start lag, and 31.256 ms join tail. These bounds overlap and must not
+be added. Smaller decode dispatches also have gaps, but not every scheduler
+delay is removable by spinning. Preserve the raw artifact as
+`retained3-short-workers.txt`, source as `retained3-workers.diff/.rs`, and
+binary as `cpu25-05-workers-bench`. All temporary profiling sources/features
+were restored to `998b189`; only this report remained modified afterward.
+
+### CPU25-06 declaration before implementation
+
+Target: short **model decode throughput**, not prompt throughput. Public decode,
+TTFT and prompt throughput are controls, along with every metric in medium and
+long. Same authenticated tuple and canonical 5% gain / objective CV<=5% /
+no-control-regression>5% gates. Baseline binary is `cpu25-05-bench` at
+`998b189`. One complete short A/B rerun only if objective CV is unstable.
+
+Intentional variable: workers briefly observe a generation hint after finishing
+a dispatch before entering the existing condition-variable wait. Use a maximum
+20 microseconds measured by `Instant`; after that, workers block as before.
+The hint never grants access to a borrowed job. The mutex-protected generation,
+job and remaining count stay authoritative, preserving lost-wakeup protection,
+dispatch serialization, exactly-once active slots, and caller wait-before-drop.
+No worker-count, affinity, kernel arithmetic or machine-policy change.
+
+Necessary tree: existing `cpu/pool.rs` (~185 productive lines excluding tests,
+below 200), with focused tests in that file. No new production file/function,
+dependency or public API. Main risks are busy-wait contention/idle cost, a missed
+generation, and premature return while a borrowed closure is still in use.
+The explicit wall-clock cap bounds idle spinning; normal idle remains blocked.
+Test rapid/changing active-slot counts, multiple concurrent callers and borrowed
+outputs, blocking gaps, and caller/worker panic draining before return.
+
+Refreshed conservative p=.06 (upper .11), credible s=2, o=.005 predicts
+2.56–5.26% decode gain, ideal ceiling 6.38–12.36%, about 64–128 ms saved
+per observed short decode interval. These are engineering bounds, not a claim
+that all uncovered time is causally removable. This cheap bounded experiment
+ranks ahead of CPU25-03's 1.87% and CPU25-08's conservative .84% estimates;
+the sufficient upper ceiling permits a trial below the predicted keep threshold.
+Unknown locality/VNNI/backing premises remain deferred, not closed.
+
+Before performance: focused pool tests, unchanged exact Q4/attention tests via
+the CPU release workspace suite, CPU feature check, warning-denied Clippy,
+format/diff checks and pinned real-model F16 parity with full-log identity to
+the initial baseline. Reject correctness failures without measuring performance.

@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `99f4330` (C24), above S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C27 kept in `2d77b2f`, all profiles refreshed. C26 rejected/restored; diagnostic attribution pending. C28 deferred, C25 restored. Not complete.
-- Attempts: 22 distinct reached correctness (minimum 10): 13 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 3 non-counting re-evaluations kept (C17/C22/C27). Total retained optimization commits16 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: `2d77b2f` (C27), above `99f4330` (C24), S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C29 kept after all controls; refreshing profiles. C25/C26 restored except C29's explicitly bounded accepted variant. C28/C30 deferred. Not complete.
+- Attempts: 22 distinct reached correctness (minimum 10): 13 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits17 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24). Separate correctness support: S01 `6d37587`.
 
@@ -132,6 +132,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C26 | Keep C25 byte/barrier reuse but store each stage with the original K32 shared row pitch | Medium prompt throughput | rejected, restored | All exact/canonical/frozen/sanitizer gates pass; medium prompt +2.580%, below3% |
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
+| C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
+| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | deferred pending long-history oracle and C29 | Preserves score/softmax leaves; no new global scratch/launch; numeric reordering gate required |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2734,3 +2736,86 @@ C29 is a ready isolated dispatch experiment using already-understood layout
 code. It is worthwhile even if the conservative global prediction is below5%,
 because the ideal owner ceiling exceeds5% and three measured shape wins provide
 new evidence absent in C25. Preserve every prior rejection and its own metric.
+
+C29 current narrowed owners122.387/963.168/3374.643 ms give whole-request
+p .123847/.204622/.167711, s=1.2,o=.002: predicted1.900/3.317/2.664%,
+ideal14.135/25.726/20.151%, saved18.42/151.11/522.20 ms. Medium prompt
+objective selected; short/long and all other metrics remain controls. Existing
+four files and productive estimates match C26; only change its dispatch cutoff
+8192-exclusive to3072-inclusive. Preserve C27. Reuse frozen107 current C27
+vectors in c26-exact-baseline.log, require exact candidate identity, both frozen
+129/130 f16/int8 fixtures, canonical gates and focused sanitizers. Keep>=5%,
+CV<=5%, controls<=5%, one stability rerun only if CV fails, two-hour comparison.
+No candidate performance before correctness; a low stable gain is not a retry.
+
+C29 exact37308 passes all15 kernel tests and107 frozen C27 vectors with an
+empty diff. Temporary prints removed; both frozen real-model fixtures follow.
+The shader is exactly C26's validated stage-major implementation; only the
+predeclared host output-grid cutoff differs. Counts remain22 distinct attempts.
+
+C29 frozen130 session34014 passes both schemes. One-row129 replay follows;
+canonical source will be restored before canonical gates and fast build.
+
+Read-only discovery on C27's newly dominant long-decode attention identifies a
+smaller alternative to global KV/cache restructuring: the buffered kernel uses
+only32 query-head blocks, four warps each, and each V dimension serially scans
+the full history. A512-thread block could distribute the existing K score work
+across16 warps and the V history across four128-lane groups. Keep score trees
+and softmax's128 logical leaves unchanged; only merge four f32 V partial sums.
+Separate long-history entries would isolate additional ~4 KiB shared partials
+from the short path, without new global scratch, memory-plan changes or launches.
+This is not yet an implemented candidate. Before selection it needs a numeric
+reordering gate, a frozen real-model prompt whose decode actually crosses512
+positions (existing129/130 fixtures do not), and reranking after C29. Do not
+claim achieved occupancy or bandwidth saturation from this parallelism bound.
+
+Assign this distinct mechanism C30, deferred until its long-history fixture and
+C29 decision. Current medium/long owners186.541/637.803 ms are27.02%/55.95%
+of model decode; use a conservative local s=1.5,o=.002. Whole-request fractions
+are .039630/.031697, yielding about1.13%/.87% predicted fixed-request gain.
+Although whole-request ceilings are only4.13%/3.27%, the declared model-decode
+target ceilings are37.02%/127.43%; keep those phase and whole-request denominators
+explicit rather than incorrectly closing a material decode target by prefill
+amortization. Short eligibility is zero below512 positions. It ranks below
+C29's ready whole-request prediction; no candidate performance or count yet.
+
+C29 one-row65123 passes both schemes. Restored canonical source, starting
+canonical gates and fast build. No temporary test/parity hook remains in source.
+
+C29 canonical77865 passes fmt/CUDA check/CPU workspace/11 error/all37 CUDA
+tests and both canonical parity rows; fast42367 completed. Sanitizer37634
+passes both focused tools with0 errors. Start the medium objective against C27
+only after these gates; both other regimes are mandatory if provisional keep.
+
+C29 medium objective91636 provisionally passes: prompt253.92 ->266.92
+token/s (+5.1197%, CV .0026 ->.0032), TTFT4032.78 ->3836.37 ms
+(-4.8703%, CV .0032), model decode46.04 ->46.11 (+.1520%, CV .0038),
+public43.14 ->43.21 (+.1623%, CV .0036), wall19.11 s. Counts1024/32/31
+unchanged. The margin above5% is small; the predeclared CV screen passes, but
+this is not a statistical-significance claim. No rerun permitted or warranted.
+Run short and long controls before retention, preserving the same executable.
+
+### C29 kept after controls
+
+Controls60354 completed successfully, unchanged token/delta counts. Means [CV]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 302.09 [.0017] | 423.72 [.0017] | 57.87 [.0018] | 56.00 [.0017] | 4.93 |
+| medium | 266.92 [.0032] | 3836.37 [.0032] | 46.11 [.0038] | 43.21 [.0036] | 19.11 |
+| long | 192.75 [.0002] | 18593.60 [.0002] | 27.72 [.0005] | 25.99 [.0006] | 79.89 |
+
+Short/long prompt +4.5041/+2.2872%; TTFT -4.3111/-2.2374%. Negative controls
+are short model -1.7987%, public -1.8233%; long model -1.7021%, public -1.6648%.
+Every control remains within5%, so retain C29 under the predeclared threshold,
+without asserting unchanged decode or statistical significance. Exact identity
+and bounded model gates pass before every public row. The fixed entry and
+compile-time stage count add complexity to protect separate shared-memory
+contracts; the measured medium result justifies this narrow path, not universal
+pairing. C25 and C26 retain their rejected history. Refresh all three profiles.
+
+C29 stock power-cap increments short .913920 s, medium1.053986 s, long0;
+thermal counters remain0. Preserve raw telemetry and these nonzero counters;
+do not claim unthrottled hardware or selectively rerun a favorable row. The
+same stock configuration/desktop-client conditions remain the recorded tuple.
+Refreshed diagnostic session9593 runs all three rows, separate from public A/B.

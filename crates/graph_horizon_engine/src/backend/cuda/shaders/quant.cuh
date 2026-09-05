@@ -100,6 +100,25 @@ __device__ __forceinline__ void cuda_weight_pair(
 }
 
 template<uint32_t FORMAT>
+__device__ __forceinline__ void cuda_quant_pair(
+    const unsigned char *w, uint32_t row, uint32_t i, uint32_t width,
+    float &first, float &paired) {
+    // Q4/Q5 only: i is in the low K32 half of a full aligned K64 group.
+    const uint64_t block = (uint64_t(row) * (width / 256) + i / 256)
+        * (FORMAT == 1 ? 144 : 176);
+    const uint32_t group = (i % 256) / 64, lane = i % 32;
+    const uint32_t packed = w[block + (FORMAT == 1 ? 16 : 48) + group * 32 + lane];
+    uint32_t low = packed & 15, high = packed >> 4;
+    if (FORMAT == 2) {
+        const uint32_t bits = w[block + 16 + lane];
+        low += ((bits >> (group * 2)) & 1) * 16;
+        high += ((bits >> (group * 2 + 1)) & 1) * 16;
+    }
+    first = float(low);
+    paired = float(high);
+}
+
+template<uint32_t FORMAT>
 __device__ __forceinline__ float cuda_weight_parts(
     const unsigned char *w, uint32_t row, uint32_t i, uint32_t width,
     float &factor, float &bias) {

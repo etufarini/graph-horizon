@@ -110,6 +110,12 @@ pub(crate) fn encode_batched(
             Kernel::MatmulTensorWide,
             (output_width.div_ceil(64), rows.div_ceil(32), 1),
         )
+    } else if (format == 1 || format == 2) && rows >= 16 && output_width <= 3072 {
+        // Small Q4/Q5 grids can reuse paired groups without M32's shared cost.
+        (
+            Kernel::MatmulTensorPaired,
+            (output_width.div_ceil(64), rows.div_ceil(16), 1),
+        )
     } else if format != 0 && rows >= 16 {
         (
             Kernel::MatmulTensor,

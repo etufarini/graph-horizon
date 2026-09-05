@@ -135,7 +135,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
 | C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | kept | Medium model decode +19.457%, long +61.511%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
-| C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Short prompt throughput | deferred pending dual-representation gate | C28 diagnosis isolates40.498ms Q6 prefill saving; conservative non-counting re-evaluation |
+| C32 | Cache only Q6 projection prefill while retaining raw decode/embedding/logits weights | Medium prompt throughput, selected before implementation | ready after dual-representation design | C28 isolates Q6 prefill saving; medium has highest refreshed whole-request effect; non-counting re-evaluation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3320,3 +3320,56 @@ while retaining original2,138,290,176 bytes:2,649,470,976 total. Original
 when raw and cached representations are both included in retained weights.
 This is a finite size estimate, not allocation/performance evidence. C32 still
 needs narrow dual-owner/view/lifecycle/dispatch design before becoming ready.
+
+### C32 selected design and predeclared gate
+
+Fresh C30 attribution, before C32 implementation or performance, gives Q6
+prefill owners122.708559/994.119299/3454.486942ms; p=.125919307/.234570239/
+.217106607. Use s1.3 (below the observed C28 short local~1.49),o=.003:
+predicted2.6756/5.3887/4.9430%, ideal14.4059/30.6456/27.7313%, saved25.39/
+216.70/749.45ms. Medium has the largest credible whole-request effect, so it
+replaces the provisional short label as C32's objective before any candidate
+code/performance. This is not retargeting C28's failed objective; C28 stays
+rejected. All three prompt/TTFT/decode metrics remain mandatory controls.
+
+Keep every original raw weight. Only selected layer matrices of Q6 type and
+two dimensions may own an additional320-byte-per-block cache; embedding,
+tail/logits and norms never do. Standalone chooses this option only if original
+weights plus511,180,800 additional bytes and full-context/reserve/scratch/
+staging fit. Hybrid never creates it. Conversion consumes the already-retained
+raw GPU allocation, so there is no redundant upload or raw temporary beyond
+the original representation. Non-finite metadata retains raw alone.
+
+CudaBuffer privately owns an optional Arc<CudaBuffer> prefill companion. A
+checked one-time attachment accepts only raw Q6 plus a matching-size cached Q6
+buffer with no companion of its own; cycles/nesting and mismatched formats
+are impossible through that boundary. Full aliases retain the companion;
+partial raw views discard the optimization and remain valid raw views. The
+cached allocation itself requires f32 alignment. Matmul encode_batched chooses
+the companion only for rows>=16; all single/logit/embedding/SIMT paths use raw.
+Immutable public weight accounting includes both aligned representations,
+counting tied global output once. No public API, dependency or placement change.
+
+Structure (productive estimates, tests excluded): existing loader.rs~155,
+module.rs~165, cuda/mod.rs~175, mem/budget.rs~180, kernels/mod.rs~70,
+kernels/matmul.rs~150, family/mistral/memory.rs~125 and mod.rs198. Split
+mem/weights.rs as declared for C28 into weights/{mod.rs~155,cache.rs~100}.
+Dual representation would take buffer.rs beyond200, so split before editing:
+mem/buffer/{mod.rs~175,transfer.rs~100}; mod owns formats/allocations/views and
+companion invariants, transfer owns CPU/device upload/read/write. Existing
+buffer tests stay with their responsibilities; no test/history is discarded.
+Shaders quant.cuh~210 and matmul.cuh~320 remain category K, with only one
+cached Q6 variant instead of C28's three cached formats.
+
+Gate before performance: exact raw/cache Q6 coefficient/107 matrix cases and
+unchanged scalar references; raw single/logit identity with attached companion;
+non-finite metadata, malformed blocks, full/partial alias lifetime, alignment,
+attachment format/size/nesting rejection, both-representation byte accounting,
+exact-fit/raw fallback/overflow, conversion and selected-upload release.
+All canonical CPU/CUDA/error and three frozen f16/int8 fixtures, standalone
+f16/int8, hybrid check plus25%-mixed f16/int8 isolation, memcheck/synccheck.
+Reuse immutable C30 public and fresh-process startup baselines (runtime unchanged
+since capture); repeat the same three startup observations and report memory/
+startup tradeoff. Public objective medium prompt>=5%, CV<=5%, every control
+regression<=5%, canonical rerun and two-hour comparison limit. Preserve C28's
+rejection and count C32 conservatively as a non-counting re-evaluation.

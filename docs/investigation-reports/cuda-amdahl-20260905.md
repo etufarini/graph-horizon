@@ -6,7 +6,7 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `1a32047` (C29), above `2d77b2f` (C27), `99f4330` (C24), S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C31 accepted in this checkpoint after all gates and controls; refreshed profiles next. C28/C30 deferred. Not complete.
+- State: running, C31 `4d9e718` accepted and all profiles refreshed. C30 selected after strengthened baseline; C28 deferred. Not complete.
 - Attempts: 23 distinct reached correctness (minimum 10): 14 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits18 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
@@ -133,7 +133,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
-| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | deferred pending long-history oracle | Preserves score/softmax leaves; no new global scratch/launch; numeric reordering gate required |
+| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | ready, selected | Frozen549 oracle available; strengthened scalar baseline passes; preserve capability fallback |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -2982,3 +2982,51 @@ f16/int8, CPU/CUDA/error and sanitizer gates. Added complexity is one fixed
 numeric kernel with narrow shape dispatch; no ownership or public interface
 changes. Record18 accepted optimization commits,14 distinct kept plus four
 non-counting re-evaluations. Refresh all three profiles before reranking.
+
+C31 committed as `4d9e718`; serial three-regime profile42594 running.
+C30 now has its required frozen549-token oracle. Before production, add
+(dim,context,rows)=(3,514,3),(129,1025,3),(256,4097,3) to the existing scalar
+attention test, preserving all previous cases. These cover511/512 selection,
+dimension tails, and4094/4095/4096 buffered/fallback boundaries in both schemes.
+Run this strengthened baseline on C31, then commit support separately.
+
+C30 structure, no new file: shaders/attention.cuh (~470 productive category-K
+lines), kernels/attention/decode.rs (~45 orchestration), module.rs (~160),
+exec/dispatch.rs (~145), kernels/tests.rs (tests excluded). Template the one
+buffered attention operation by128/512 threads. Existing entries remain128;
+new two fixed entries require512x1x1 and positions512..4095. Only128 logical
+softmax leaves write the existing128-element shared reduction; all512 threads
+participate in barriers. Four contiguous V history segments produce f32
+partials merged in fixed order; no probability narrowing, no global allocation
+or extra launch. Optional module capability is queried once; query failure or
+<512 threads keeps the original path. Device admission requirements unchanged.
+Dispatch rejects the new entries at every geometry except512x1x1 and rejects
+>256 for all old entries. Add rejection tests before any unsafe launch, and
+exercise forced capability fallback in numeric tests. Main risk: altered PV
+summation and barrier/resource correctness. Gate remains scalar .02+.02*abs,
+three frozen fixtures and canonical16-step f16/int8, CPU/CUDA/error suites,
+memcheck/synccheck, followed by the predeclared medium model-decode objective
+and short/long plus all non-target controls. Rerank with refreshed C31 profiles
+before implementation; no C30 performance or attempt yet.
+
+C31 profile42594 completes all three traces with0 dropped records. Prefill/
+decode ms: short424.780266/553.847067; medium3680.644040/698.771460;
+long15226.937087/1145.791485. Tensor-prefill totals378.184299/3019.297872/
+10473.090268ms; attention-prefill totals9.572596/374.651622/3772.236116ms.
+The new tensor-attention owner is228.423715/3628.092264ms medium/long versus
+C29 eligible432.485632/6893.834752ms. This supports the public improvement,
+not an independent unprofiled speed claim. Decode attention27.873064/
+186.856116/639.175215ms, dot+logits474.817745/461.811309/458.069004ms.
+Prefill gaps6.648871/52.549473/169.452288ms and decode gaps10.316113/
+11.058561/9.920031ms remain small. Combined matrix work is largest remaining
+prefill owner; long decode attention is larger than dot+logits.
+
+C30 refreshed whole-request p0/.042666907/.039039016, s1.5,o.002:
+predicted-.1996/1.2374/1.1136%, ideal0/4.4569/4.0625%, saved-1.96/
+53.53/180.31ms. Decode-phase p0/.267406622/.557846016 gives predicted
+-.1996/9.5453/22.5413%, ideal0/36.5014/126.1656%. Medium remains the
+declared objective (highest whole-request effect); long is a mandatory control.
+Short is ineligible; its uniform overhead estimate is conservative. C28's
+cross-layer cache gate remains deferred, not falsified. C30 is the highest
+ready bounded candidate. Baseline76918 passes all14 scalar cases in2.40s;
+commit these extra support cases before production. No threshold/oracle change.

@@ -902,6 +902,9 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
         (256, 129, 4),
         (128, 33, 32),
         (128, 529, 4),
+        (3, 514, 3),
+        (129, 1025, 3),
+        (256, 4097, 3),
     ] {
         let base = context - rows;
         let keys = (0..context * dim)

@@ -372,7 +372,7 @@ fn packed_prefill_tiles_match_reference_and_preserve_weight_range() -> Result<()
         };
         let pattern = patterned_weight(format, 5);
         for width in [256_usize, 768, 3072] {
-            for rows in [16_usize, 17] {
+            for rows in [16_usize, 17, 32, 33] {
                 for outputs in [17_usize, 65] {
                     let raw = (0..outputs * width / 256)
                         .flat_map(|block| {
@@ -434,17 +434,28 @@ fn packed_prefill_tiles_match_reference_and_preserve_weight_range() -> Result<()
             block[scale..scale + 2].copy_from_slice(&f32_to_f16(65504.0).to_le_bytes());
             block[quants].fill(0x22);
         }
-        let values = (0..16 * 256)
-            .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
-            .collect::<Vec<_>>();
-        let input = upload_f16(&device, &values)?;
-        let weight = CudaBuffer::upload(&device, &raw, format)?;
-        let out = CudaBuffer::allocate(&device, 16 * 17 * 2, CudaFormat::F16)?;
-        let encoder = CudaEncoder::begin(&device);
-        super::matmul::encode_batched(&encoder, &module, &out, &input, &weight, 256, 17, 16)?;
-        run(&device, encoder)?;
-        for value in read_f16(&device, &out, 16 * 17)? {
-            close(value, 0.0);
+        for rows in [16_usize, 32] {
+            let values = (0..rows * 256)
+                .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+                .collect::<Vec<_>>();
+            let input = upload_f16(&device, &values)?;
+            let weight = CudaBuffer::upload(&device, &raw, format)?;
+            let out = CudaBuffer::allocate(&device, (rows * 17 * 2) as u64, CudaFormat::F16)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::matmul::encode_batched(
+                &encoder,
+                &module,
+                &out,
+                &input,
+                &weight,
+                256,
+                17,
+                rows as u32,
+            )?;
+            run(&device, encoder)?;
+            for value in read_f16(&device, &out, rows * 17)? {
+                close(value, 0.0);
+            }
         }
     }
     Ok(())

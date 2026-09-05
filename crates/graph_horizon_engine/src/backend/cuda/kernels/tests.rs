@@ -912,6 +912,7 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
             )?;
             run(&device, encoder)?;
             let actual = read_f16(&device, &output, ROWS * HEADS * dim)?;
+            let mut expected_values = Vec::with_capacity(actual.len());
             let stored_keys = keys
                 .chunks_exact(dim)
                 .map(|v| stored_kv_vector(scheme, v))
@@ -945,28 +946,34 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                             .sum::<f32>()
                             / denominator;
                         close(actual[offset + d], expected);
+                        expected_values.push(expected);
                     }
                 }
             }
             let decode = CudaBuffer::allocate(&device, row_bytes, CudaFormat::F16)?;
-            let query = query_input.view(row_bytes * (ROWS - 1) as u64, row_bytes)?;
-            let encoder = CudaEncoder::begin(&device);
-            super::attention::decode(
-                &encoder,
-                &module,
-                &decode,
-                &query,
-                &cache,
-                HEADS as u32,
-                (context - 1) as u32,
-                0,
-            )?;
-            run(&device, encoder)?;
-            for (decoded, prefilled) in read_f16(&device, &decode, HEADS * dim)?
-                .into_iter()
-                .zip(&actual[(ROWS - 1) * HEADS * dim..])
-            {
-                close(decoded, *prefilled);
+            // Exercise both sides of the buffered/online boundary, not only the last row.
+            for row in 0..ROWS {
+                let query = query_input.view(row_bytes * row as u64, row_bytes)?;
+                let encoder = CudaEncoder::begin(&device);
+                super::attention::decode(
+                    &encoder,
+                    &module,
+                    &decode,
+                    &query,
+                    &cache,
+                    HEADS as u32,
+                    (base + row) as u32,
+                    0,
+                )?;
+                run(&device, encoder)?;
+                for (i, decoded) in read_f16(&device, &decode, HEADS * dim)?
+                    .into_iter()
+                    .enumerate()
+                {
+                    let offset = row * HEADS * dim + i;
+                    close(decoded, actual[offset]);
+                    close(decoded, expected_values[offset]);
+                }
             }
         }
     }

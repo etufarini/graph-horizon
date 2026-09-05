@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `b948f67` (C14), building on `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C13 rejected and restored; C07 selected, C15 added from phase evidence.
-- Attempts: 8/10 reached correctness; kept 6, rejected 2, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C07 interesting/restored and diagnostic complete; C16 selected.
+- Attempts: 9/10 reached correctness; kept 6, code rejected/restored 3 (C06/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14).
 
@@ -108,7 +108,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | closed-untried | C14 routes every declared prefill batch away from this legacy kernel; target owner p=0 |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
-| C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | ready | Small; phase-specific ceiling now exceeds 5% |
+| C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | restored, interesting objective | Exact gates passed; +4.595% below keep threshold |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | ready | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
@@ -1145,3 +1145,68 @@ test lines). One 256-thread block scans strided inputs and reduces key/index
 pairs; use a u64 scan index to avoid wrapping at the u32 length boundary.
 Keep the exact total order and lowest-index tie invariant. Objective short model
 decode, C14 reference, all canonical gates and standard controls/thresholds.
+
+### C07 interesting, restored
+
+The 21-case exact baseline test passed in `c07-baseline-test.log` and was
+committed before production as `c8abb5f`. Implemented a 256-thread strided scan
+and shared reduction of `(total_key, index)` pairs. A minimum-key negative NaN
+still beats an inactive lane by its valid lower index; uint64 scan arithmetic
+cannot wrap at the u32 length boundary. Dispatch changes only the block width.
+Production +25/-8 in the two predeclared files, no new resource or interface.
+
+`run.py gate c07` passed formatting, CUDA workspace check, CPU suites, 11 error
+tests, all 37 CUDA tests and pinned f16 parity (all 16 top-one IDs unchanged).
+The exact integer-order gate passed before `c07-bench` was built for the short
+model-decode objective against C14. Other metrics and regimes remain controls.
+
+Short result: model decode 21.11 -> 22.08 (+4.595%, CV 0.07% -> 0.18%), public
+decode 20.49 -> 21.39 (+4.392%, CV 0.07% -> 0.19%). Prompt 154.03 -> 152.84
+(-0.773%, CV 0.09% -> 0.05%); TTFT 831.01 -> 837.48 ms (+0.779%). Counts
+128/32/32 unchanged, wall 10.11 s. **Interesting objective, not kept**: stable
+gain is between 3% and 5%. Restored both production files exactly to HEAD,
+retaining `c07.patch` privately. No selective rerun, no keep/control campaign.
+Pool accounting includes C07 among restored-code outcomes and explicitly
+distinguishes its interesting classification from the two below-3% rejections.
+An immutable-binary short diagnostic runs next to bound residual sampling cost
+before considering any variant. Do not lower the threshold to retain this code.
+
+Diagnostic `c07-timeline-short` completed (status 0, zero dropped records):
+decode argmax 108.200 -> 1.499 ms, decode matmul 1165.133 -> 1183.689 ms,
+total decode 1516.730 -> 1429.319 ms. Attribution is diagnostic, not a replacement
+for the unprofiled 4.595% result. Remaining argmax is only 0.105% of candidate
+decode; even eliminating it cannot bridge the retention gap. No bounded
+argmax-only variant is supported. C07 is terminal interesting/restored.
+
+### C16 predeclared: format-granular WMMA correction
+
+Fresh attribution using temporary `matrix.py` parses the authenticated GGUF
+tensor index with bounded counts/strings, verifies the 26-layer graph launch
+order, launch dimensions, dtype and dropped-record count, then partitions the
+already captured C14 tensor durations. Q4_K owns 654.987/775.150 ms short and
+18450.654/21804.171 ms long; Q6_K owns the rest. This is measured launch
+attribution, not an estimate from weight bytes. All widths remain multiples of
+256 and no public workload or format changes.
+
+Q4/Q5 coefficients are constant over K32, whereas C14 corrects each K16 result.
+C16 accumulates two WMMA products before one float correction and shared-store
+cycle for Q4/Q5, retaining K16 for Q6's coefficient granularity. It halves
+Q4/Q5 correction/barrier cycles without reconstructing large weights in half.
+The M16/N64 geometry and dispatch are unchanged. More shared staging and changed
+float association are the principal risks; no exact-bit claim is made.
+
+Select long `prompt_tps` against immutable C14; fixed TTFT/decode and both other
+regimes are controls. Whole-request p=0.527548, local s=1.4, added o=0.004,
+predicted gain 17.196%, ideal ceiling 111.662%, estimated saving 5131.718 ms.
+The speedup estimate is uncertain: only correction/barrier work is halved,
+not tensor arithmetic or packed loads. Moderate-cost bounded shader experiment.
+C16 ranks before C08 (2.153%), C12 (2.101%, deferred until C08), C09 (1.779%),
+and C15 (1.49%); their earlier evidence and state remain unchanged.
+
+Structure is the existing `cuda/shaders/matmul.cuh` (~210 productive category-K
+lines), no new files or interfaces. Staging grows from 7232 to 9792 bytes,
+within existing capability admission. K32 half leading dimensions and K16
+slice offsets preserve WMMA alignment; no tail lane exits. Reuse unchanged
+39-case packed-prefill range/reference gate, all 37 CUDA tests, CPU workspace,
+CUDA check/error matrix and pinned f16/int8 parity before performance. All
+thresholds and the complete-comparison two-hour limit remain fixed.

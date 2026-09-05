@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `eebe52a` (C12), building on `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C19 kept after all controls; refreshed profiles next.
+- Current retained runtime: `8ab48ff` (C19), building on `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
+- State: running, C19 profiles complete; C17 non-counting re-evaluation selected.
 - Attempts: 14 reached correctness (minimum 10); kept 9, code rejected/restored 5 (C06/C08/C13/C18 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -34,9 +34,11 @@ gates passed in session `51190`, extra int8 parity in `89187`, objective in
 commit. All `c11-timeline` rows completed in session `38969`; new discovery
 added C13/C14. C14 is accepted in `b948f67` after gates and all controls; its
 profiles completed in `53915`. C13's boundary test passed and is committed in
-`36c9912`; production now modifies only attention.cuh and is not yet accepted.
-Canonical gates passed in `34634`; extra int8 parity precedes long objective.
-C04/C10 are closed-untried with zero current target owner. Continue this pool.
+`36c9912`; C13 was subsequently rejected/restored. C07 is interesting/restored;
+C08 and C18 are rejected/restored. C16, C12 and C19 were subsequently kept with
+complete controls and refreshed profiles; the latest states are in the pool
+and chronological decision sections below. C04/C10 are closed-untried with zero
+current target owner. Continue this pool.
 Baseline and accepted immutable executables, plus all A/B records, remain under
 the same private campaign directory. No other production candidate is applied.
 
@@ -1568,3 +1570,32 @@ setting change or competing inference. This is a bounded three-repetition
 retention result, not an inferential significance claim. One shader +11/-4,
 no helper changes or new resource/interface. C19 is retained in this commit;
 refresh all affected profiles before C17/C09/C15 selection.
+
+C19 refreshed profiles `11982` completed, zero dropped records. Short
+prefill/decode 513.612/1162.282 ms, tensor 461.953 ms versus C12 717.319;
+long 23384.748/2297.645 ms, tensor 12909.205 versus 20244.451 ms. Tensor
+registers rise 48 -> 56, local bytes stay zero; the measured gain survives this
+resource tradeoff. Long prefill attention 9485.067 ms is now the second-largest
+owner; decode attention remains 1191.679 ms. Recompute and rank ready entries:
+
+| ID | Whole-request p | s | o | Predicted gain | Ideal gain | Saved ms | State |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C17 short | .065310 | 8 | .0002 | 6.039% | 6.987% | 95.44 | selected re-evaluation |
+| C15 long | .046401 | 1.8 | .0005 | 2.054% | 4.866% | 516.79 | ready |
+| C09 short | .848306 | 1.02 | 0 | 1.691% | 559.221% | 27.88 | ready |
+
+C15 is phase-eligible: long decode owner is 51.87%, ideal phase gain >100%.
+C17 short decode argmax 106.056/1162.282 ms =9.125%, ideal phase gain 10.04%.
+C12, not a favorable rerun, changed that premise; C19 further reduced the
+whole-request denominator. `git diff c8abb5f HEAD --` both argmax files is empty.
+
+### C17 re-evaluation predeclared
+
+Reapply exactly private `c07.patch` via apply_patch: `shaders/argmax.cuh`
+(~45 productive category-K lines), `kernels/argmax.rs` (~45 orchestration lines),
+no new files/tests/interfaces. Same 256-thread total-key/first-index reduction,
+u64 strided scan and four-byte output invariant. Existing 21-case raw-bit/tie
+test is the exact gate; all canonical gates and pinned f16 parity precede short
+model-decode objective against immutable C19, then both other controls before
+keep. All thresholds unchanged. Preserve C07's original interesting result;
+C17 is one re-evaluation comparison, not attempt 15 or a duplicate new premise.

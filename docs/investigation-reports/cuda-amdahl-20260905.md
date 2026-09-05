@@ -5,24 +5,21 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `61a540a` (C01).
-- State: running, C01 kept; C05 implemented and correctness passed; objective next.
-- Attempts: 2/10 reached correctness; kept 1, C05 performance pending, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C05 (committed with this decision), building on `61a540a` (C01).
+- State: running, C01 and C05 kept; profile refresh next.
+- Attempts: 2/10; kept 2, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01).
+- Current-campaign retained commits: `61a540a` (C01), C05 (this decision's production commit).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
 are terminal. C01 is accepted. Session `3733` completed all three refreshed
-timelines with no dropped records. C05 is implemented but not accepted. Session
-`67864` captured its exact baseline on C01; session `1863` passed exact equality
-and every canonical gate. The current next command runs extra int8 parity,
-fast build/copy and the long prompt-throughput objective. Preserve the immutable
-`c05-exact-baseline.log`. Compare performance against **C01**, not the original
-campaign baseline. If the objective passes, measure short and medium controls
-before retaining. If rejected, restore only C05's attention shader diff and
-temporary output statements; preserve C01 and the permanent long-history test.
-The active command handle is session `57416`; inspect/poll it before retrying.
+timelines with no dropped records. C05 is accepted after exact equality,
+canonical gates, f16/int8 parity and all three A/B rows. Sessions `57416` and
+`39069` completed. Temporary bit printing was removed, preserving the permanent
+long-history test. Preserve `c05-exact-baseline.log` and `c05-exact-candidate.log`
+as evidence; no unaccepted production edit remains. Next refresh `c05-timeline`
+for all three regimes, then rerank and choose the largest credible ready item.
 Baseline executable, accepted `c01-bench` and all A/B records remain under the
 same campaign directory. No rejected or interrupted production edit remains.
 
@@ -92,7 +89,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
-| C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | ready, implemented; correctness passed, objective pending | Preserve reduction tree in a warp for its final five stages; exact baseline captured before editing; distinct from historical matmul shuffle rejection |
+| C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
@@ -370,7 +367,7 @@ an exact reduction-order claim and does not count as an optimization attempt.
 Planned C05 structure is the existing category-K `shaders/attention.cuh`
 (~110 productive lines), no new production file; dispatch geometry stays fixed.
 
-### C05 in progress
+### C05 kept
 
 The shader retains shared-memory tree stages at strides >=32, then uses warp
 shuffles for the same paired additions below 32. An active mask and a reduced
@@ -409,3 +406,56 @@ Retain only after all controls pass. Remove temporary bit-output instrumentation
 before retaining C05 (the permanent long-history test remains), then update the
 pool and rerank. A rejected candidate still counts as attempt two after this
 correctness gate; a performance failure is not an excuse to stop the campaign.
+
+During C05 measurement, verified C09's alignment prerequisite: CUDA allocations
+are aligned and `CudaBuffer::view` rejects every odd byte offset. All packed
+block strides (144, 176, 210) and the half-factor offsets (0, 2, 208) are even.
+Thus a two-byte metadata read needs no new layout, padding or public constraint.
+This establishes a bounded implementation prerequisite only; C09 remains queued
+and has not been implemented or counted.
+
+C03 implementation constraint from static review: hoist format dispatch outside
+the reduction loops but pass one shared scratch array into the specialized
+device bodies. Declaring a separate shared array per template instance could
+multiply per-block shared storage even though only one format executes, changing
+occupancy and confounding the premise. Preserve the current kernel entry ABIs,
+128-thread geometry, four-token tile and shared storage sizes. The bounded plan
+fits only `shaders/matmul.cuh` (~140 productive category-K lines); exact patterned
+multi-block and full/tail batch output must be captured before that edit.
+
+C05 long objective completed in 346.04 s, one warm-up and three measured reps:
+
+```text
+prompt_tokens=3584 completion_tokens=32 decoded_tokens=31 prompt_tps_mean=44.00 prompt_tps_median=44.00 prompt_tps_stddev=0.01 prompt_tps_cv=0.0002 ttft_ms_mean=81448.65 ttft_ms_median=81450.76 ttft_ms_stddev=17.57 ttft_cv=0.0002 model_decode_tps_mean=6.45 model_decode_tps_median=6.45 model_decode_tps_stddev=0.00 model_decode_tps_cv=0.0007 decode_tps_mean=6.05 decode_tps_median=6.05 decode_tps_stddev=0.00 decode_tps_cv=0.0007 delta_interval_ms_mean=165.24 delta_interval_ms_median=159.78 delta_interval_ms_stddev=28.97 delta_interval_ms_cv=0.1753 decode_begin_tps=6.27 decode_middle_tps=6.25 decode_end_tps=5.67
+```
+
+Against C01: objective +5.642%, TTFT -5.340%, model decode +0.311%, public
+decode +0.332%. The objective CV is 0.02% in both A and B, so no rerun applies.
+Pinned int8 parity also passed with all 16 top-1 IDs matching the oracle.
+The full-request gain is substantially below the initial 21.07% prediction;
+the assumed 2x local speedup was optimistic. Do not propagate that local speedup
+to related synchronization candidates. Refresh actual attention times after the
+controls before ranking a bounded variant. C05 remains unaccepted until both
+short and medium controls complete without a >5% regression.
+
+C05 controls completed and passed:
+
+| Regime | Prompt tok/s (CV) | TTFT ms (CV) | Model decode tok/s (CV) | Public deltas/s (CV) | Complete wall s |
+|---|---:|---:|---:|---:|---:|
+| Short | 61.85 (0.0017) | 2069.49 (0.0017) | 16.27 (0.0006) | 15.79 (0.0006) | 17.09 |
+| Medium | 56.10 (0.0010) | 18252.01 (0.0010) | 11.63 (0.0009) | 10.91 (0.0009) | 84.79 |
+
+Short prompt improves 0.31%, TTFT falls 0.31%, model decode regresses 0.245%
+and public decode 0.190%. Medium prompt improves 2.354%, TTFT falls 2.303%,
+model decode improves 0.259% and public decode 0.276%. No control exceeds the
+5% regression limit; all counts match C01. Both objective CVs remain 0.02%,
+correctness and exact-output gates passed, comparison finished within two hours,
+and no rerun was required. Terminal state: **keep**. Long device counters show
+0.846 s of stock software power capping over 346.04 s and zero thermal slowdown;
+this is classified as brief power-limited operation at unchanged settings.
+
+Removed the temporary exact-output statements before committing; the production
+diff remains only the attention reduction (+14/-2), with no dispatch or storage
+change. Conceptual complexity increases slightly for the explicit warp boundary
+and short-block mask; both protect the existing reduction order and valid lanes.
+The shader remains a single category-K operation and no new file is introduced.

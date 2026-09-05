@@ -45,12 +45,24 @@ __device__ void cuda_attention_body(
                     k_cache, cache_base + threadIdx.x, k_metadata, vector)
             : 0.0f;
         __syncthreads();
-        for (uint32_t stride = blockDim.x / 2; stride > 0; stride /= 2) {
+        for (uint32_t stride = blockDim.x / 2; stride >= 32; stride /= 2) {
             if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
             __syncthreads();
         }
+        // Keep the same paired additions; the final subtree fits in one warp.
+        // Padded lanes are zero and the mask also covers blocks smaller than 32.
+        float sum = 0.0f;
+        if (threadIdx.x < 32) {
+            sum = partial[threadIdx.x];
+            const unsigned mask = __activemask();
+            const uint32_t first_stride = blockDim.x < 32 ? blockDim.x / 2 : 16;
+            for (uint32_t stride = first_stride; stride > 0; stride /= 2) {
+                const float other = __shfl_down_sync(mask, sum, stride);
+                if (threadIdx.x < stride) sum += other;
+            }
+        }
         if (threadIdx.x == 0) {
-            const float score = partial[0] * scale;
+            const float score = sum * scale;
             const float next_maximum = fmaxf(maximum, score);
             previous = expf(maximum - next_maximum);
             weight = expf(score - next_maximum);

@@ -6,17 +6,22 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `61a540a` (C01).
-- State: running, C01 kept; profile refresh and pool reranking next.
+- State: running, C01 kept and profile refreshed; C05 selected, exact baseline captured.
 - Attempts: 1/10, kept 1, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
-are terminal. C01 is accepted. Session `3733` is acquiring `c01-timeline` for
-short/medium/long in order; short is complete with zero dropped records. Poll
-the same handle, then update fractions and rerank the persistent pool before
-starting another candidate. No GPU measurement may overlap the active trace.
+are terminal. C01 is accepted. Session `3733` completed all three refreshed
+timelines with no dropped records. C05 is selected next. Session `67864`
+completed its exact-output baseline capture on accepted C01. The only pending
+test edit is temporary output instrumentation in the long-history test;
+no C05 production edit has begun. Compare all six `cuda-attention-bits` lines
+(match anywhere, since the test harness prefixes the first) from the immutable
+`c05-exact-baseline.log` against C05 after implementation. Do not overwrite
+that baseline or regenerate it to accept drift. Then run the canonical gate,
+int8 parity and the long prompt-throughput objective, followed by both controls.
 Baseline executable, accepted `c01-bench` and all A/B records remain under the
 same campaign directory. No rejected or interrupted production edit remains.
 
@@ -86,7 +91,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C02 | Parallel RMSNorm width; short prefill+decode normalization owns 406.330 ms with one block and serial width loops | Short model decode | ready | Small kernel and launch change; numeric reduction risk |
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
-| C05 | Warp-level score reduction for attention; long prefill owns 28932.070 ms at baseline with block barriers at every context token | Long prompt throughput | deferred until C01 long profile | First test the same reduction tree in a warp for its final five stages; capture exact baseline output before editing; distinct from historical matmul shuffle rejection |
+| C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | ready, selected next | Preserve reduction tree in a warp for its final five stages; exact baseline captured before editing; distinct from historical matmul shuffle rejection |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
@@ -308,7 +313,7 @@ runtime and continue the pool; this first keep does not complete the campaign.
 ### Refresh after C01
 
 `python3 target/cuda-amdahl-20260905/run.py trace c01-timeline target/cuda-amdahl-20260905/c01-bench short medium long`
-is active. Short now measures 2063.187 ms before the first sample and 1960.483 ms
+completed on all three regimes with zero dropped records. Short measures 2063.187 ms before the first sample and 1960.483 ms
 after it. Decode attention falls from 1157.333 to 120.986 ms (about 9.57x local),
 consistent with the measured public gain. Short's remaining largest owner is
 matmul: 1878.154 ms batched + 1243.279 ms single + 155.715 ms logits, about 81.4%
@@ -323,4 +328,43 @@ paired additions. Before making that exact candidate, capture the synthetic
 long-history f16/int8 outputs on accepted C01 and require byte equality afterward,
 in addition to all canonical gates. A reordered warp-first variant would be a
 separate later premise only if the remaining barrier cost warrants it. No C05
-production edit has been made; wait for the full refreshed ranking.
+production edit has been made.
+
+Medium's refreshed timeline is 18446.651 ms before sampling and 2740.845 ms
+decode; batched matmul owns 15049.655 ms, prefill attention 2286.728 ms and
+decode attention 893.949 ms. Long is 85923.358 ms before sampling and 4986.238 ms
+decode; batched matmul owns 53163.622 ms, prefill attention 28887.801 ms and
+decode attention 3121.867 ms. Long's public instrumented TTFT is 85925.56 ms
+(-0.137% versus C01 unprofiled mean); model decode 6.41 versus 6.43 tok/s.
+The largest remaining overall owner is matmul; the largest ready candidate's
+credible effect is C05 on the measured shared attention body.
+
+Refreshed priority estimates (`p` of the whole request; local objective/control
+fractions remain separate). These replace the initial estimates for selection:
+
+| Priority / ID | Regime | p | s | o | Predicted global gain | Ideal global gain ceiling | Predicted saved ms | State |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 1 / C05 | Long | 0.3521 | 2 | 0.002 | 21.07% | 54.35% | 15823.0 | ready, selected |
+| 2 / C06 | Short | 0.8145 | 1.25 | 0.003 | 19.03% | 438.99% | 643.4 | deferred until C03 |
+| 3 / C03 | Short | 0.8145 | 1.2 | 0.001 | 15.57% | 438.99% | 542.2 | ready |
+| 4 / C04 | Short | 0.4668 | 1.25 | 0.001 | 10.18% | 87.54% | 371.6 | deferred until C03 |
+| 5 / C02 | Short | 0.1020 | 8 | 0.001 | 9.68% | 11.36% | 355.0 | ready |
+| 6 / C08 | Short | 0.8145 | 1.1 | 0.0005 | 7.94% | 438.99% | 295.9 | deferred until C03 |
+| 7 / C09 | Short | 0.8145 | 1.05 | 0 | 4.03% | 438.99% | 156.1 | deferred until C03 |
+| 8 / C07 | Short | 0.0269 | 8 | 0.0002 | 2.39% | 2.76% | 93.8 | deferred until C02 |
+
+Uncertainty remains as in the premise table; these estimates are hypotheses,
+not measured improvements. C05 is a smaller, directly attributable change than
+the deferred output-mapping experiment. For C07, decode phase fraction is now
+0.0552, so its local objective ceiling is 5.84%; its full-request ceiling stays
+small and it remains lower priority until larger work has been removed.
+
+C05 exact gate preparation added temporary integer-bit output to the existing
+long-history test, then ran that one test on C01. It passed, capturing f16/int8
+prefill and decode for all three declared dimension/context pairs. Capture:
+`c05-exact-baseline.log`; the first marker follows the test-name prefix, so
+extract with `rg -o 'cuda-attention-bits.*'` rather than anchoring to line start.
+No expected values are updated after candidate implementation. This supports
+an exact reduction-order claim and does not count as an optimization attempt.
+Planned C05 structure is the existing category-K `shaders/attention.cuh`
+(~110 productive lines), no new production file; dispatch geometry stays fixed.

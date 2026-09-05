@@ -886,19 +886,31 @@ fn attention_gqa_scores_match_reference_for_both_kv_schemes() -> Result<()> {
 // partial blocks and causal masking; the scalar reference uses stored KV values.
 #[test]
 fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
-    const ROWS: usize = 3;
     const HEADS: usize = 2;
     let device = Device::acquire()?;
     let module = Module::load(&device.context)?;
-    for (dim, context) in [(3, 17), (3, 4097), (128, 3584), (129, 33), (256, 129)] {
-        let base = context - ROWS;
+    // Preserve the original three-row cases; also cover four-query and K16 tile tails.
+    for (dim, context, rows) in [
+        (3, 17, 3),
+        (3, 4097, 3),
+        (128, 3584, 3),
+        (129, 33, 3),
+        (256, 129, 3),
+        (16, 17, 4),
+        (128, 3584, 4),
+        (128, 3584, 5),
+        (256, 129, 4),
+        (128, 33, 32),
+        (128, 529, 4),
+    ] {
+        let base = context - rows;
         let keys = (0..context * dim)
             .map(|i| ((i * 13 + 7) % 37) as f32 / 16.0 - 1.0)
             .collect::<Vec<_>>();
         let values = (0..context * dim)
             .map(|i| ((i * 11 + 3) % 31) as f32 / 8.0 - 2.0)
             .collect::<Vec<_>>();
-        let queries = (0..ROWS * HEADS * dim)
+        let queries = (0..rows * HEADS * dim)
             .map(|i| ((i * 7 + 5) % 29) as f32 / 16.0 - 0.75)
             .collect::<Vec<_>>();
         let key_input = upload_f16(&device, &keys)?;
@@ -921,7 +933,7 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
             )?;
             run(&device, encoder)?;
             let row_bytes = (HEADS * dim * 2) as u64;
-            let output = CudaBuffer::allocate(&device, row_bytes * ROWS as u64, CudaFormat::F16)?;
+            let output = CudaBuffer::allocate(&device, row_bytes * rows as u64, CudaFormat::F16)?;
             let encoder = CudaEncoder::begin(&device);
             super::attention::prefill(
                 &encoder,
@@ -931,11 +943,11 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                 &cache,
                 HEADS as u32,
                 base as u32,
-                ROWS as u32,
+                rows as u32,
                 0,
             )?;
             run(&device, encoder)?;
-            let actual = read_f16(&device, &output, ROWS * HEADS * dim)?;
+            let actual = read_f16(&device, &output, rows * HEADS * dim)?;
             let mut expected_values = Vec::with_capacity(actual.len());
             let stored_keys = keys
                 .chunks_exact(dim)
@@ -945,7 +957,7 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                 .chunks_exact(dim)
                 .map(|v| stored_kv_vector(scheme, v))
                 .collect::<Vec<_>>();
-            for row in 0..ROWS {
+            for row in 0..rows {
                 for head in 0..HEADS {
                     let offset = (row * HEADS + head) * dim;
                     let query = &queries[offset..offset + dim];
@@ -976,7 +988,7 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
             }
             let decode = CudaBuffer::allocate(&device, row_bytes, CudaFormat::F16)?;
             // Exercise both sides of the buffered/online boundary, not only the last row.
-            for row in 0..ROWS {
+            for row in 0..rows {
                 let query = query_input.view(row_bytes * row as u64, row_bytes)?;
                 let encoder = CudaEncoder::begin(&device);
                 super::attention::decode(
@@ -998,6 +1010,40 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                     close(decoded, actual[offset]);
                     close(decoded, expected_values[offset]);
                 }
+            }
+            if scheme == KvQuant::F16 && rows == 4 && (dim == 16 || context == 529) {
+                // Masked future K/V must not affect an earlier query, even via 0 * NaN.
+                let poisoned = upload_f16(&device, &vec![f32::NAN; dim])?;
+                let future = ((base + 1) * dim * 2) as u64;
+                let encoder = CudaEncoder::begin(&device);
+                super::kv_write::encode(
+                    &encoder,
+                    &module,
+                    &cache,
+                    &poisoned,
+                    &poisoned,
+                    future,
+                    future,
+                    cache.meta_base_for(KvRole::Key),
+                    cache.meta_base_for(KvRole::Value),
+                    1,
+                )?;
+                super::attention::prefill(
+                    &encoder,
+                    &module,
+                    &output,
+                    &query_input,
+                    &cache,
+                    HEADS as u32,
+                    base as u32,
+                    rows as u32,
+                    0,
+                )?;
+                run(&device, encoder)?;
+                assert_eq!(
+                    read_f16(&device, &output, HEADS * dim)?,
+                    actual[..HEADS * dim]
+                );
             }
         }
     }

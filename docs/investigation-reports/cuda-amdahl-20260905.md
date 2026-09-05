@@ -133,7 +133,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
-| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | deferred pending long-history oracle and C29 | Preserves score/softmax leaves; no new global scratch/launch; numeric reordering gate required |
+| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | deferred pending long-history oracle | Preserves score/softmax leaves; no new global scratch/launch; numeric reordering gate required |
+| C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | ready for baseline gate, selected | PV remains f32; preserve four-query block parallelism, int8 and unsupported tails use C24 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -2819,3 +2820,113 @@ thermal counters remain0. Preserve raw telemetry and these nonzero counters;
 do not claim unthrottled hardware or selectively rerun a favorable row. The
 same stock configuration/desktop-client conditions remain the recorded tuple.
 Refreshed diagnostic session9593 runs all three rows, separate from public A/B.
+
+C29 retained commit `1a32047`;9593 completed all three profiles, zero dropped
+records. Prefill/decode ms419.236/547.300,3846.066/698.203,18533.195/1154.468.
+Total tensor prefill373.995/2980.253/10507.219; attention prefill
+9.484/578.163/7038.978. Decode dot/logits467.967/458.972/455.723;
+decode attention27.953/186.916/646.091. Long prefill attention now exceeds
+every individual tensor entry, while combined tensor work remains larger.
+
+### C31 fresh discovery and bounded design
+
+Current C24 prefill reloads each K/V tile for independent queries. Existing
+matmul.cuh proves the supported half-input/f32-accumulator WMMA path is already
+available in this exact build. C31 stages K/V once for four queries of one head,
+computes QK with WMMA, then keeps softmax and PV in f32. No probability/weight
+narrowing or int8-to-half approximation: select only F16 KV, rows>=4, and
+head dimensions divisible by16; retain C24 for int8, smaller batches and tails.
+
+Four real queries occupy a padded M16 tile. This deliberately retains the
+current256-block geometry at32 rows/32 heads; a full16-query tile would cut
+block parallelism by four. Only one warp performs the padded QK matrix work;
+all128 threads consume f32 weights and update PV. Padding/idle matrix warps and
+new barriers are explicitly costs, not free Tensor acceleration. Shared Q is
+staged once; each16-context tile stages K/V, stores QK scores, publishes online
+coefficients, and finishes PV reads before replacing shared storage.
+Preserve causal masks before softmax; PV must skip future tokens, not multiply
+their possibly non-finite V by zero. Output query tails never exit through a
+block barrier. Reconstructed KV values are never narrowed beyond existing F16.
+
+C31 owner p .009812/.127229/.357532, credible s=1.15,o=.005: roughly
+-.37/1.17/4.34% whole-request predicted gain, with a long ideal ceiling>55%.
+Long prompt objective ranks above ready C30's ~1.2% medium whole-request
+prediction. C28 still needs cross-layer capacity/cold-start gates. C31 is a
+bounded kernel/dispatch experiment (~45–60 minutes) despite prediction<5%:
+query reuse and QK matrix work are distinct from C24's exact warp score tree.
+Main uncertainty is reduced active matrix lanes versus K/V reuse, register
+pressure, shared traffic and barriers. No achieved-occupancy/bandwidth claim.
+
+Structure: existing attention.cuh (~450 productive category-K lines),
+kernels/attention/prefill.rs (~70 orchestration lines), module.rs (~150 excluding
+tests), exec/dispatch.rs (~130 excluding its test-only arity guard). Add one
+fixed F16 tensor-prefill entry and include it in S01's11-argument test guard.
+No new file, dependency, global scratch, cache layout, public API or capability.
+
+Before production, extend the existing long/tail test with (dim,context,rows)
+(16,17,4),(128,3584,4),(128,3584,5),(256,129,4),(128,33,32), preserving all
+five original rows=3 cases and both KV schemes. These cover Q4 tiling, causal
+K16 boundaries, query tails and the actual32-row workload. Baseline must pass
+the unchanged scalar .02+.02*abs(expected) bound. C31 is numeric reordering,
+not an exact-output candidate; retain the original bound and teacher-forced
+16-step top-two gate, plus frozen local IDs for129/130 real-model fixtures.
+Run all canonical gates, f16/int8 parity and memcheck/synccheck before public
+long A/B; both other regimes and TTFT/decode controls<=5%, objective>=5%,
+CV<=5%, canonical rerun rule/two-hour cap. Never weaken a failing gate.
+
+C31 extended baseline83369 passes on C29. Before production, strengthen its
+new(dim16,context17,rows4,F16) case: poison the second query's future K/V token
+with NaNs and require the first query to remain exactly equal to its unpoisoned
+output. Later queries are intentionally poisoned and not asserted finite.
+This protects causal masking both before softmax and during PV, specifically
+against `0 * NaN`; it is additional coverage, not a relaxed numeric gate.
+
+The test's first draft failed formatting, then compilation before GPU work:
+KV-write takes byte payload offsets, not a token position. After inspecting
+that signature, set both F16 K/V offsets to(base+1)*dim*2 for this one-KV-head
+fixture. Keep the failed compiler log; rerun the corrected baseline under a
+new label. No production candidate or performance result is involved.
+
+C31 corrected causal baseline26703 passes, including the NaN future-token check.
+Pre-production resource design narrows eligibility to F16, dim==128, rows>=4,
+base>=512. A generic maximum-dim256 allocation would reserve ~25.6 KiB shared
+per block; fixed128 staging needs ~13.4 KiB. Preserve C24 for short histories,
+other dimensions, int8 and tiny tails. This is a declared resource/overhead
+boundary before any C31 performance, not a post-result workload change.
+
+Trace attribution sorts prefill kernels by start time and excludes the first
+16 batches *26 layers (base<512), verifying104/832/2912 total records.
+Eligible owners are0/432.486/6893.835 ms; use these narrowed fractions instead
+of all attention. Short is now an unchanged control. Add(dim128,context529,
+rows4) to the baseline test and apply the existing NaN future-token check there
+too, retaining its earlier dim16 coverage. Long rows4/5 cases already exercise
+eligible full/tail query groups. No reference or bound changes.
+
+Existing129/130 real-model fixtures no longer cover the narrowed new path.
+Before production, declare a new immutable fixture: `benchmark` repeated543
+times, spaces and final period, with the canonical empty System message.
+Expected549 prompt IDs; batches at base512 and the five-row tail at544 exercise
+C31, and its decode can later cover C30. Authenticate the same model and freeze
+the first pinned16-step f16/int8 oracle results before candidate implementation.
+This is correctness support, never a new performance workload. No choosing a
+replacement prompt/reference after a failure. Restore canonical source before
+public benchmarks. Structure/other gates remain as declared above.
+
+C31 final narrowed baseline58852 passes all11 shape/history/row cases for both
+KV schemes and both NaN-future checks. Eligible p is0/.095172/.350160,
+s=1.15,o=.005: predicted-.498/.747/4.240%, ideal0/10.518/53.884%,
+saved-4.83/33.69/800.76 ms. The uniform overhead estimate is conservative even
+for the unchanged short GPU path. Long remains selected before code.
+
+New549-token baseline63852 passes f16/int8 on retained C29, with all16 local
+IDs identical to the pinned oracle:
+2757,10637,2479,1636,6483,15566,1278,3541,50147,115799,58987,34796,1033,9246,1639,3508.
+The private long-parity.sh verifies549 IDs before requesting the CPU oracle;
+the frozen replay now accepts only an additional literal `long` fixture with
+that strict count. Existing129/130 selection and IDs remain unchanged. Restore
+the canonical prompt before the support checkpoint and C31 production edits.
+
+C30 inspection additionally found the existing dispatch guard limits blocks
+to256 threads. Its future512-thread variant therefore requires a narrowly
+validated fixed-kernel exception and rejection tests, not a blanket weakening
+of every kernel's launch guard. No C30 production change is made now.

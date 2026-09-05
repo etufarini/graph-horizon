@@ -14,7 +14,7 @@ __device__ __forceinline__ float cuda_cache_value(
 }
 
 template <bool INT8>
-__device__ void cuda_attention_body(
+__device__ void cuda_attention_online(
     const __half *query, const unsigned char *k_cache, const unsigned char *v_cache,
     __half *out, uint32_t dim, uint32_t kv_heads, uint32_t q_heads,
     uint32_t base, uint32_t rows, uint32_t layer, uint32_t context,
@@ -92,25 +92,102 @@ __device__ void cuda_attention_body(
     }
 }
 
+template <bool INT8>
+__device__ void cuda_attention_buffered(
+    const __half *query, const unsigned char *k_cache, const unsigned char *v_cache,
+    __half *out, uint32_t dim, uint32_t kv_heads, uint32_t q_heads,
+    uint32_t base, uint32_t rows, uint32_t layer, uint32_t context,
+    uint64_t k_metadata, uint64_t v_metadata) {
+    const uint32_t id = blockIdx.x;
+    const uint32_t position = base + id / q_heads;
+    // Decode only: prefill calls online directly and does not own score storage.
+    // Bounded shared scores preserve the online path for larger positions.
+    if (position >= 4096) {
+        cuda_attention_online<INT8>(query, k_cache, v_cache, out, dim, kv_heads,
+            q_heads, base, rows, layer, context, k_metadata, v_metadata);
+        return;
+    }
+    const uint32_t kv_head = (id % q_heads) / (q_heads / kv_heads);
+    const uint64_t q_base = uint64_t(id) * dim;
+    const uint32_t lane = threadIdx.x % 32;
+    const uint32_t warp = threadIdx.x / 32;
+    __shared__ float scores[4096];
+    __shared__ float partial[128];
+    const float scale = rsqrtf(float(dim));
+    for (uint32_t token = warp; token <= position; token += 4) {
+        const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
+        float sum = 0.0f;
+        for (uint32_t i = lane; i < dim; i += 32) {
+            sum += __half2float(query[q_base + i])
+                * cuda_cache_value<INT8>(k_cache, vector * dim + i, k_metadata, vector);
+        }
+        for (uint32_t stride = 16; stride > 0; stride /= 2) {
+            const float other = __shfl_down_sync(0xffffffff, sum, stride);
+            if (lane < stride) sum += other;
+        }
+        if (lane == 0) scores[token] = sum * scale;
+    }
+    __syncthreads();
+    float maximum = -CUDART_INF_F;
+    for (uint32_t token = threadIdx.x; token <= position; token += 128) {
+        maximum = fmaxf(maximum, scores[token]);
+    }
+    partial[threadIdx.x] = maximum;
+    __syncthreads();
+    for (uint32_t stride = 64; stride > 0; stride /= 2) {
+        if (threadIdx.x < stride) partial[threadIdx.x] =
+            fmaxf(partial[threadIdx.x], partial[threadIdx.x + stride]);
+        __syncthreads();
+    }
+    maximum = partial[0];
+    // All warps must read the maximum before partial[0] becomes a sum.
+    __syncthreads();
+    float sum = 0.0f;
+    for (uint32_t token = threadIdx.x; token <= position; token += 128) {
+        const float weight = expf(scores[token] - maximum);
+        scores[token] = weight;
+        sum += weight;
+    }
+    partial[threadIdx.x] = sum;
+    __syncthreads();
+    for (uint32_t stride = 64; stride > 0; stride /= 2) {
+        if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
+        __syncthreads();
+    }
+    const float denominator = partial[0];
+    for (uint32_t part = 0; part < 2; ++part) {
+        const uint32_t i = threadIdx.x + part * 128;
+        if (i < dim) {
+            float value = 0.0f;
+            for (uint32_t token = 0; token <= position; ++token) {
+                const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
+                value += scores[token]
+                    * cuda_cache_value<INT8>(v_cache, vector * dim + i, v_metadata, vector);
+            }
+            out[q_base + i] = __float2half_rn(value / denominator);
+        }
+    }
+}
+
 extern "C" __global__ void cuda_attention_decode_f16(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
     uint32_t layer, uint32_t context) {
-    cuda_attention_body<false>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, 0, 0);
+    cuda_attention_buffered<false>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, 0, 0);
 }
 
 extern "C" __global__ void cuda_attention_decode_int8(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
     uint32_t layer, uint32_t context, uint64_t kmeta, uint64_t vmeta) {
-    cuda_attention_body<true>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, kmeta, vmeta);
+    cuda_attention_buffered<true>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, kmeta, vmeta);
 }
 
 extern "C" __global__ void cuda_attention_prefill_f16(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
     uint32_t layer, uint32_t context) {
-    cuda_attention_body<false>(
+    cuda_attention_online<false>(
         q, k, v, out, dim, kvh, qh, base, rows, layer, context, 0, 0);
 }
 
@@ -118,6 +195,6 @@ extern "C" __global__ void cuda_attention_prefill_int8(
     const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t base, uint32_t rows,
     uint32_t layer, uint32_t context, uint64_t kmeta, uint64_t vmeta) {
-    cuda_attention_body<true>(
+    cuda_attention_online<true>(
         q, k, v, out, dim, kvh, qh, base, rows, layer, context, kmeta, vmeta);
 }

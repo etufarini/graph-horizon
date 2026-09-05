@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `65ef6ed` (C17), building on `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C17 profiles complete; C15 selected, strengthened baseline test committed.
-- Attempts: 14 distinct (minimum 10): 9 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 10, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C15 kept after all controls; profiles next, C09 remains ready.
+- Attempts: 15 distinct (minimum 10): 10 kept, 4 rejected (C06/C08/C13/C18), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 11, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation).
 
@@ -112,13 +112,13 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | restored, interesting objective | Exact gates passed; +4.595% below keep threshold |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | rejected, restored | Exact gates passed, objective +1.097% below 3% |
-| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
+| C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short model decode (retargeted before first attempt after C19) | ready | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
 | C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | kept | Exact/canonical gates and controls pass; objective +31.712% |
 | C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | rejected, restored | Correctness passed; prefill -0.045% fails its objective despite decode +26.978% |
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
-| C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
+| C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | kept | Strengthened numeric/canonical/f16/int8 gates and controls pass; objective +34.066% |
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
 | C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | kept, non-counting re-evaluation | Exact/canonical gates and all controls pass; objective +8.529% |
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
@@ -1676,3 +1676,70 @@ long tests, canonical gates and f16/int8 parity before the objective. Verify
 generated prefill entries do not reference buffered shared storage; the installed
 PTX assembler can provide an independent static resource check. Other regimes
 and TTFT/prompt stay controls; no threshold or tuple changes.
+
+C15 implemented only the declared shader wiring/body (+82/-5). Canonical gate
+`61491` passed formatting, CUDA check, CPU workspace, 11 error tests, all 37
+CUDA tests (including thirty decode rows and tiny exact equality), and pinned
+f16 parity with all 16 top-one IDs unchanged. Fast build `89180` completed.
+Extra int8 parity precedes performance; saved `c15.ptx` and `c15-bench`.
+
+Independent static resource check (installed tool, no GPU profiling/replay):
+`ptxas --gpu-name sm_86 --verbose target/fast/build/graph_horizon_engine-60f4ad72f87b54df/out/cuda_kernels.ptx
+-o target/cuda-amdahl-20260905/c15.cubin`, log `c15-resources.log`. Both prefill
+entries use 40 registers and **40 shared bytes**; both decode entries use 40
+registers and **16936 shared bytes**. All have zero stack/spill bytes. Thus
+prefill does not own buffered score storage; this verifies C15's distinct
+resource-reachability premise, not a hardware occupancy measurement.
+
+Extra int8 parity `13900` passed, all 16 local IDs unchanged. Acquire the fixed
+objective with `run.py bench c15 target/cuda-amdahl-20260905/c15-bench long`,
+then `compare.py c17 c15 long model_decode_tps long`. Both other regimes are
+controls before retention. No C15 performance was acquired before all gates.
+
+C09 queue audit before its first implementation: C19 removed coefficient work
+from every quant-staging lane, so its old broad prefill-owner estimate is no
+longer causal. For a model Q4 matrix O x K in the fixed short trace, 31 decode
+steps issue 31*O*(K/256)*4 half-metadata warp groups, whereas four prefill batches
+issue 4*(O/64)*2*(K/32)*2 groups in C19's compact coefficient phase. The ratio
+is 62; Q6's K16 coefficient granularity gives 31. Model dimensions are multiples
+of 64/256, verified by the existing inventory/launch mapping. Logits further
+increase decode ownership. These are source/trace-derived instruction-work
+ratios, not measured bandwidth or a promised speedup.
+
+Therefore retarget still-unattempted C09 to **short model decode**, before any
+C09 production code or performance. On current C17, decode matmul+logits
+957.889/1569.023 ms gives p=.61050 (phase .90530), s=1.02, o=0, predicted whole
+gain ~1.21%, ideal ~156.74%, saved ~18.78 ms. This lowers its conservative rank
+below C15 but retains a material phase ceiling. Same exact 26+39 snapshots,
+canonical/f16/int8 gates, TTFT/prompt and both other regimes as controls.
+Alignment proof remains checked even-offset views plus even block strides
+144/176/210 and metadata offsets 0/2/208. No algorithm or input precision change.
+
+C15 long objective `87173` passed provisionally: model decode 14.56 -> 19.52
+(+34.0659%, CV .03% -> .04%), public 13.65 -> 18.30 (+34.0659%, CV .01%),
+prompt 152.51 -> 152.30 (-.1377%), TTFT 23500.22 -> 23533.10 ms (+.1399%).
+Prompt/TTFT candidate CV prints .0000 but standard deviations are .01 token/s
+and 1.09 ms, not zero uncertainty. Counts 3584/32/31 unchanged; wall 101.67 s.
+Run `run.py bench c15 .../c15-bench short medium` before retention, then
+`compare.py c17 c15 long model_decode_tps short medium long`. No rerun needed.
+
+### C15 kept
+
+Both controls completed in `98896`. Complete comparison passes every declared
+gate: **keep** after numeric/reference and tiny exact gates, canonical/f16/int8
+parity, stable objective and both controls. Candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 252.26 [.0017] | 507.42 [.0017] | 30.83 [.0010] | 29.85 [.0011] | 7.15 |
+| medium | 217.74 [.0022] | 4702.96 [.0022] | 26.70 [.0005] | 25.02 [.0006] | 24.45 |
+| long | 152.30 [.0000 rounded] | 23533.10 [.0000 rounded] | 19.52 [.0004] | 18.30 [.0001] | 101.67 |
+
+Model decode gains +2.664/+11.343/+34.066%; worst control medium TTFT +.4279%
+(prompt -.4253%). Counts unchanged in all regimes. No rerun. Stock power-cap
+increments short .818714 s, medium 0, long .671703 s; thermal counters zero,
+no machine settings changed. C15 adds a second cohesive attention algorithm
+only because phase-specific resource ownership demonstrably matters; explicit
+entry wiring preserves online prefill. No host interface, global allocation,
+cache layout or format changes. Production +82/-5 in one category-K shader.
+C15 is retained in this commit; refresh all affected profiles before C09.

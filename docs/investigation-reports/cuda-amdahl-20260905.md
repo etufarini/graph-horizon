@@ -140,7 +140,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | kept | Long prompt+7.706%; worst control-2.816%; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C31 re-evaluation |
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
 | C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-11.540%; K16 alone does not recover the direct path; non-counting |
-| C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C33 re-evaluation |
+| C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | kept | Medium prompt+23.651%, all controls improve; commit483ea2a; non-counting C33 re-evaluation |
+| C38 | Replace scalar shared half-pair loads with warp-cooperative matrix loads | Medium prompt throughput | ready | Same K16 registers, arithmetic, padding and barriers; exact fragment mapping and alignment gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3966,3 +3967,49 @@ orchestration remains below its predeclared productive-line limits.
 Refresh all three profiles in session6851 before ranking the already identified
 matrix-load premise. C33/C35/C36 remain rejected; C37 is a non-counting bounded
 re-evaluation, not an additional distinct attempt.
+
+### C37 refreshed profile and C38 design
+
+C37 commit483ea2a; profiles6851 all complete with zero dropped records.
+Prefill/decode elapsed ms: short306.464188/552.821475,
+medium2664.265885/584.887149, long10827.628616/717.860252. Prefill gaps
+5.626013/53.148154/167.297016; decode gaps12.523979/12.504942/11.636954.
+Tensor matmul owns260.151445/2083.101459/7309.223099ms; decode dot+logits
+471.864806/472.800436/476.078565ms. Medium shape inventory validates all182
+projections in each of32 batches: Q4 1478.941984ms, Q6 604.159475ms. Long
+tensor attention remains2388.752452ms. These are diagnostic, not public A/B.
+
+C38 changes the shared-to-register transport mechanism, not tile dimensions or
+math: six scalar half-pair loads per K16 instruction become ldmatrix.x4(A) and
+ldmatrix.x2(B). C37 retains scalar LDS while accepted older WMMA SASS uses LDSM.
+No stall counters are available: instruction evidence motivates a bounded test,
+not a claim of achieved bandwidth or the fraction lost to load instructions.
+
+The [toolkit-matching PTX ISA](https://docs.nvidia.com/cuda/archive/12.4.1/parallel-thread-execution/index.html#warp-level-matrix-instructions-ldmatrix)
+defines cooperative row-address and register ownership. Predeclared mapping:
+A lane address row m+lane%16, K offset slice+(lane/16)*8; B address output
+warp*16+n+lane%8, K offset slice+((lane/8)%2)*8. B is physically N-by-K and
+therefore uses non-transposed loads, already the logical column-major operand.
+High lanes supply valid replicated addresses for x2. Existing32-byte-aligned
+arrays and pitches24/40 halfs keep every tile row16-byte aligned. All lanes
+execute both loads uniformly; existing three publication/reuse barriers remain.
+The compute75 image is untouched, and shared addresses must be converted using
+the CUDA shared-address intrinsic before the inline PTX register operand.
+
+Structure: only backend/cuda/shaders/matmul.cuh (~475 productive lines, category
+K, no new file/helper). Temporary output logging in existing kernel tests is
+removed before canonical gates. Invariant: identical MMA registers and every
+output bit; smallest change is only the load sequence. Risk: fragment ordering,
+shared address/alignment or warp convergence. Reuse the immutable324-record
+c37-exact-candidate baseline from the same two-image/raw-cache matrix fixtures;
+candidate must match byte-for-byte before performance. Then frozen129/130/549
+both KV, full canonical CUDA/CPU/error tests, standalone-int8 and hybrid f16/int8,
+both-image memcheck/synccheck. No oracle, prompt or numeric tolerance changes.
+
+Amdahl fixed-work T859.285663/3249.153034/11545.488868ms; owned fractions
+.302753154/.641121374/.633080434. Credible net local s1.1, added o.002 (address
+work and scheduling uncertainty) predict2.619150/5.964056/5.882040%; ideal
+ceilings43.421230/178.645739/172.539295%, savings21.931560/182.874554/641.383849ms.
+Medium wins the uncertainty tie and is objective; >=5%, CV<=5%, all controls
+<=5% regression and the unchanged two-hour comparison limit. C38 is one distinct
+transport premise only after reaching correctness; no attempt is counted yet.

@@ -3076,3 +3076,108 @@ admission. The fixed-kernel geometry guard protects the larger launch invariant;
 no KV/global allocation/ownership changes. Count24 distinct attempts,15 kept
 plus four non-counting retained re-evaluations=19 optimization commits.
 Refresh all three profiles before C28 selection and fresh discovery.
+
+C30 retained as `c15f222`. Profile1431 completes all three traces with0 drops.
+Prefill/decode ms:422.984315/551.517230,3660.077159/577.968137,
+15202.672669/708.805028. Prefill matrix totals376.236302/3003.636301/
+10456.572495ms; decode dot+logits472.825795/468.909172/471.213855ms.
+Decode attention28.955761/56.123217/187.264681ms; eligible medium/long
+owners were186.856116/639.175215ms on C31. Prefill gaps6.584159/47.065504/
+172.610374ms; decode gaps9.887959/13.304755/11.000824ms. Matrix work now
+dominates every decode regime and combined prefill; attention remains material
+in long prefill. No achieved occupancy/bandwidth counter is available.
+
+### C28 bounded implementation and gate
+
+Select the existing C28 lossless load-time weight cache next. Remove repeated
+bit extraction and coefficient reconstruction, not quantization precision.
+Current matrix owners (prefill plus decode, omitting small embedding/first
+logits conservatively) give p .871278349/.819374318/.686786391. With credible
+s1.15 and o.02 (extra steady-state traffic/dispatch uncertainty), predicted
+whole-request gains10.3320/9.5140/7.4784%, ideal676.8701/453.6311/219.2709%,
+saved91.26/368.18/1107.13ms. Short model decode remains selected; its owned
+phase p=.857318265. The large byte expansion could instead lose performance:
+these are hypotheses, not a bandwidth-saturation claim. One-time conversion,
+temporary allocations, synchronization and startup costs are measured separately
+below; they are not silently zero or hidden in steady-state public throughput.
+
+Private cache layout per256 weights:320 bytes, first64 bytes f32 metadata,
+then256 one-byte quants. Q4/Q5 store eight(factor,negative bias) pairs and
+unsigned quants; Q6 stores16 factors and signed quants[-32,31]. New crate-private
+format tags distinguish these three layouts; original raw tags/paths remain.
+One GPU conversion uses the existing raw `cuda_weight_parts` arithmetic.
+All finite half coefficients widen exactly, and coefficient/integer products
+fit f32 without overflow. Preserve original logical reduction leaves, Q4/Q5
+K32 versus Q6 K16 groups, paired-stage order and all dispatch geometry. Never
+narrow reconstructed weights to half. Non-finite metadata keeps that tensor raw.
+Cached views require four-byte alignment for f32 metadata (raw views stay even).
+
+Standalone admission first validates the original raw plan, then chooses the
+expanded cache only if the complete reserve/KV/scratch/weights/staging plan fits;
+otherwise retain all raw weights, never change context or placement. Expanded
+weights4,286,380,032 bytes include destinations; max cached staging503,316,480
+conservatively covers the largest simultaneous raw conversion330,301,440.
+Finite-metadata fallback may use less, never more. Hybrid always retains raw
+loading and its existing byte accounting. Conversion source allocation stays
+live through encoder submit even after a launch error; unpublished transactions
+must release every allocation. No dependency, public API or device requirement.
+
+Necessary structure, estimates exclude tests:
+
+```text
+cuda/
+  loader.rs (~150 lines): choose admitted standalone cache, isolate hybrid
+  module.rs (~165 lines): one additional fixed conversion entry
+  mem/
+    budget.rs (~175 lines): checked raw/cached plan arithmetic
+    buffer.rs (~180 lines): private cache tags and aligned views
+    weights/
+      mod.rs (~155 lines): existing selected WeightSet transaction
+      cache.rs (~95 lines): single-tensor conversion ownership and metadata gate
+  kernels/
+    mod.rs (~75 lines): checked format/span mapping
+    matmul.rs (~150 lines): preserve paired dispatch for corresponding cache tags
+    tests.rs (tests only): raw/cache identity and unchanged references
+  shaders/
+    quant.cuh (~250 lines, category K): lossless decode/cache variants
+    matmul.cuh (~320 lines, category K): same operation on cached format variants
+```
+
+Split existing mem/weights.rs into its domain folder before implementation:
+conversion ownership plus the existing transaction would exceed200 productive
+lines together. No prefix-named sibling or public abstraction. Existing tests
+and history remain with weights/mod.rs. No change to embedding dispatch is
+needed beyond the shared private format mapping.
+
+Pre-performance gates: exact raw/cache GPU embedding bytes across every finite
+binary16 coefficient (63,488 patterns per format, with representative integer
+scales/quants, not every Cartesian combination); preserve signed zeros and high
+range. Extend all107 existing matrix vectors with raw/cache identity including
+f32 logits and original references. Add malformed block, non-finite fallback,
+cache view alignment, exact-fit/one-byte capacity fallback/overflow and upload
+transaction failpoint checks, including release after converted weights.
+Run canonical CPU/CUDA/error gates, all three frozen f16/int8 fixtures,
+canonical f16/int8, CUDA-hybrid feature check and canonical25%-mixed f16/int8
+parity to verify isolation, plus focused memcheck/synccheck. No oracle weakening.
+
+Before production, capture three separate startup observations on C30 using a
+temporary timer around `Engine::new` in examples/bench.rs. Same model/context/
+KV/build, short prompt, max2, warmup0,reps1 for this diagnostic only. Freeze
+the startup timer before candidate code and repeat identically on C28; report
+raw times, dispersion and startup/steady-request break-even if applicable.
+Remove timer before canonical public benchmarks and final commits. Public A/B
+remains max32,warmup1,reps3 on loaded-model throughput, objective>=5%,CV<=5%,
+both other regimes/all metrics controls<=5%, canonical rerun/two-hour rule.
+Memory/startup tradeoff must be explicit in any retention, not a cold-speed
+claim. C28 is ready after the separate startup baseline; no implementation or
+countable attempt yet.
+
+C28 startup baseline build25907 and serial session13264 complete on C30.
+Engine initialization ms878.103766,701.841815,677.758611 (median701.841815);
+walls1.50/1.32/1.30s. These are fresh-process initialization observations,
+not a disk-cold experiment: no OS cache flush or machine setting changes.
+Retain the slower first observation; diagnostic dispersion is not the public
+objective CV and does not authorize selective repeats. Temporary example timer
+removed exactly; preserve its immutable baseline executable and raw logs.
+The public C30 tuple remains the max32 benchmark already recorded, not these
+max2 diagnostic rates. C28 production follows this checkpoint.

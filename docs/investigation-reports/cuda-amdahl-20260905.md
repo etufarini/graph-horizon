@@ -139,7 +139,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C33 | Lane-owned MMA accumulators remove shared C round trip and one block barrier | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-15.461%; direct loads have concrete shared-bank collisions; keep C32 |
 | C34 | Share the existing padded M16 attention tile across eight real queries | Long prompt throughput | kept | Long prompt+7.706%; worst control-2.816%; exact/canonical/frozen/hybrid/sanitizer gates pass; non-counting C31 re-evaluation |
 | C35 | Pad C33 MMA shared rows to remove the concrete scalar-load bank collisions | Medium prompt throughput | rejected, restored | Exact/canonical/frozen/hybrid/sanitizer gates pass, prompt-11.466%; non-counting C33 re-evaluation |
-| C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | ready | Refreshed C34 tensor owner69.289%; select one compatible75/80 PTX, preserving admitted devices and existing WMMA fallback |
+| C36 | Preserve direct accumulator ownership while using optional K16 MMA on capable targets | Medium prompt throughput | rejected, restored | All gates pass, medium prompt-11.540%; K16 alone does not recover the direct path; non-counting |
+| C37 | Reuse staged inputs for direct-MMA row sums, removing the added strided global reread | Medium prompt throughput | ready | Restore one publication barrier while preserving row-sum order, padding and direct accumulators; non-counting C33 re-evaluation |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -3804,3 +3805,95 @@ barrier risks; compiling the80 image may also change other code generation,
 so all-regime controls remain mandatory. Objective medium prompt>=5%, CV<=5%,
 all controls regression<=5%, unchanged public tuple and canonical time/rerun
 rules. Count conservatively as another non-counting C33 re-evaluation.
+
+C36 draft uses two fixed build targets, one checked module-image selection and
+the declared K16 direct kernel only in the80 compilation. Initial check96206
+passes without warnings. The75 PTX compares byte-identical to saved C34 PTX,
+so no fallback compiler differences need explanation. Existing matrix test
+now runs both allow-optimization=false/true routes, each with raw/cache gates;
+the function-resolution failpoint test also exercises both routes and checks
+the selected test-only capability fact. No new production field or function.
+Full CUDA25939 is running; no C36 performance or acceptance yet.
+
+C36 CUDA25939 passes all43 tests, including both PTX matrix routes and both
+function-failure paths. Fast43033 passes.75 PTX SHA256 remains
+9ddad33ce0e189dec2fefd560183267b27160ac19c8da1eadeb3a5c3f4184426,
+identical to C34 in debug and fast builds. Compiled tensor SASS now uses
+HMMA.16816.F32. Only the three tensor entries change static resources versus
+C34: ordinary/paired/wide56/56/66 registers,6976/13952/8320 shared bytes,
+all0 spills; every other entry retains its register/shared counts. These
+checks confirm the intended target/ownership change, not its performance.
+Frozen real-model gates follow, starting with549.
+
+C36 CUDA25939 duration102.81s includes doubled matrix-route coverage. Frozen
+54940997,1307582,12991414 all pass f16/int8 with identical frozen local IDs;
+hybrid check37061 is clean. Restore the canonical prompt before full gates.
+The fast example grows from1,483,368 to2,169,320 bytes (+685,952), with
+679,116-byte75 and685,892-byte80 PTX images. Only one image/module is loaded;
+the binary-size cost preserves the original compatible path. No runtime
+memory or startup-speed claim follows from these file sizes.
+
+C36 canonical83301 passes fmt, CUDA workspace check, CPU tests,11error_matrix,
+all43 CUDA tests103.15s and standalone f16 parity14.15s. Source checks leave
+the canonical prompt intact and no temporary hooks. Orchestration nonblank
+counts before test modules are build75,module167,loader140, all below their
+declared estimates even before excluding test-only fields/comments. Serial
+isolation and matrix sanitizers follow; candidate still not accepted.
+
+C36 isolation33218 passes standalone int8 and25%-mixed f16/int8 with unchanged
+canonical token IDs. Minimum-target assembler check33512 accepts the preserved
+75 image; this is compilation evidence, not new physical-device qualification.
+Run memcheck/synccheck serially across all16 kernel tests, including both
+matrix routes, before the public objective.
+
+C36 memcheck/synccheck58502 pass all16 kernel tests101.82/96.47s with0 errors,
+including both selected and forced-fallback matrix paths. Begin the fixed
+unprofiled medium objective against accepted C34; every declared prerequisite
+has passed, but no performance decision has been made yet.
+
+### C36 rejected and restored; C37 staged row-sum reuse
+
+C36 objective92997: medium prompt275.80[CV.0189], TTFT3713.74[.0191], model
+53.08[.0321], public49.76[.0316], wall18.35s, counts1024/32/31. Versus C34
+prompt-11.540189%, TTFT+13.074853%, model-1.411590%, public-1.387237%.
+Reject objective/TTFT; all objective CVs<=5%, so no rerun and no other public
+rows. Power-cap increment .811722s, thermal0. Save c36.patch and both PTX/
+binary/SASS evidence, then restore all five candidate files to accepted C34;
+worktree contains only this report.26 distinct attempts remain15 kept,
+10 rejected,1 interesting. Eight non-counting re-evaluations comprise6 kept,
+2 rejected;21 optimization commits plus separate S01 remain accepted.
+
+Diagnostic19964 completes0 drops: prefill3669.623140ms/gap57.352530,
+decode591.487892/gap14.070921. Q4 prefill2365.969904ms, Q6692.797046ms;
+all shapes remain slower than C34. K16 code generation is verified but does
+not by itself explain/recover the loss. No unchanged subset is promoted.
+
+C37 targets a remaining concrete cost introduced by C33 and preserved in C36:
+row sums reread global input with one lane per token, stride width*2 bytes,
+despite those same half values already having been staged in A. For the tested
+widths this accesses a different global row per lane; cache hits may avoid
+DRAM traffic, so no bandwidth/transaction-time claim is made. Reuse shared A
+instead, in the identical increasing-K f32 sum order. Publish A/B/coefficients
+first, then compute row sums and publish them before MMA. This restores three
+barriers, but still removes shared-C store/reload and retains the padded,
+lane-owned K16 accumulator path. It is a bounded ablation of the added global
+reread, not a claim that every direct-MMA change was beneficial.
+
+Same C34 T/p and conservative net s1.1,o.003 as C36: predicted short/medium/
+long2.998282/6.381830/6.305077%, ideals54.609740/225.614455/217.886945%,
+savings28.017629/232.906906/814.827314ms. Medium remains representative among
+similar effects. Benefit is uncertain because one barrier returns; no other
+pool entry is pending, but fresh discovery remains required after the decision.
+
+Reuse C36's fixed75/80 build and checked single-module selection only as this
+candidate's reversible starting point, retaining accepted75 WMMA unchanged.
+Existing productive estimates build105,module185,loader155,matmul.cuh~505 K
+still suffice; no new file/function/interface/dependency. Before the row-sum
+edit, record all matrix outputs on the saved C36 draft; require exact candidate
+identity, unchanged scalar/raw-cache gates and both image/failpoint routes.
+Then full canonical/frozen f16/int8, hybrid isolation and memcheck/synccheck;
+all temporary records removed before public work. Compare only to accepted
+C34, medium prompt>=5%, CV<=5%, all controls regression<=5%, same time/rerun
+rules. C37 is conservatively non-counting, and C36 remains rejected regardless
+of its outcome. Main risks are shared publication/lifetime, padded addressing
+and barrier cost; no arithmetic regrouping or reduced precision is intended.

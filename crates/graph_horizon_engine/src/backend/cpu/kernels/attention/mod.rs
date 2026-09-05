@@ -24,6 +24,8 @@
 // AGENTS deroga K: kernel attention denso decode/prefill, nessun dispatch cross-operazione né I/O.
 
 // AVX2+F16C inner kernels, used internally by the dispatch above.
+#[cfg(target_arch = "x86_64")]
+mod paired;
 mod simd;
 // Per-scheme quantize-on-write / dequantize-on-read variants of the same op family.
 mod read_q;
@@ -591,6 +593,20 @@ fn attention_prefill_f16(
     layer: usize,
     context: usize,
 ) {
+    #[cfg(target_arch = "x86_64")]
+    if n > 1
+        && n.is_multiple_of(2)
+        && q_heads / kv_heads == 4
+        && key_dim > 0
+        && key_dim.is_multiple_of(8)
+        && value_dim > 0
+        && value_dim.is_multiple_of(8)
+        && simd_supported()
+    {
+        return paired::prefill(
+            out, q, k_cache, v_cache, key_dim, value_dim, kv_heads, base, n, layer, context,
+        );
+    }
     let q = q.read_f16_as_f32();
     let kc = k_cache.bytes();
     let vc = v_cache.bytes();
@@ -717,6 +733,84 @@ mod tests {
         let buf = CpuBuffer::zeroed(values.len() * 2, CpuFormat::F16);
         buf.write_f16_from_f32(values);
         buf
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn paired_positions_match_decode_bytes_and_preserve_views() {
+        if !simd_supported() {
+            return;
+        }
+        for (n, key_dim, value_dim, kv_heads, base, layer, group) in [
+            (2, 8, 16, 1, 0, 0, 4),
+            (4, 128, 80, 3, 5, 1, 4),
+            (32, 128, 128, 8, 1024, 1, 4),
+            (3, 128, 80, 3, 5, 1, 4), // odd-batch fallback
+            (2, 10, 16, 3, 5, 1, 4),  // key tail fallback
+            (2, 128, 14, 3, 5, 1, 4), // value tail fallback
+            (2, 128, 80, 3, 5, 1, 2), // smaller GQA fallback
+        ] {
+            let context = base + n + 3;
+            let q_heads = kv_heads * group;
+            let q_len = n * q_heads * key_dim;
+            let k_len = (layer + 1) * context * kv_heads * key_dim;
+            let v_len = (layer + 1) * context * kv_heads * value_dim;
+            let q_parent = f16_buf(
+                &(0..q_len + 16)
+                    .map(|i| (i as f32 * 0.031).sin() * 0.7)
+                    .collect::<Vec<_>>(),
+            );
+            let k_parent = f16_buf(
+                &(0..k_len + 16)
+                    .map(|i| (i as f32 * 0.019).cos() * 0.6)
+                    .collect::<Vec<_>>(),
+            );
+            let v_parent = f16_buf(
+                &(0..v_len + 16)
+                    .map(|i| (i as f32 * 0.023).sin() * 0.8)
+                    .collect::<Vec<_>>(),
+            );
+            let q_before = q_parent.bytes().clone();
+            let k_before = k_parent.bytes().clone();
+            let v_before = v_parent.bytes().clone();
+            let q = q_parent.view(16, q_len * 2);
+            let kc = k_parent.view(16, k_len * 2);
+            let vc = v_parent.view(16, v_len * 2);
+            let out_len = n * q_heads * value_dim;
+            let actual_parent = f16_buf(&vec![0.375; out_len + 16]);
+            let expected_parent = f16_buf(&vec![0.375; out_len + 16]);
+            let actual = actual_parent.view(16, out_len * 2);
+            let expected = expected_parent.view(16, out_len * 2);
+            attention_prefill_f16(
+                &actual, &q, &kc, &vc, key_dim, value_dim, kv_heads, q_heads, base, n, layer,
+                context,
+            );
+            for row in 0..n {
+                let query = q.view(row * q_heads * key_dim * 2, q_heads * key_dim * 2);
+                let output = expected.view(row * q_heads * value_dim * 2, q_heads * value_dim * 2);
+                attention_decode_f16(
+                    &output,
+                    &query,
+                    &kc,
+                    &vc,
+                    key_dim,
+                    value_dim,
+                    kv_heads,
+                    q_heads,
+                    base + row,
+                    layer,
+                    context,
+                );
+            }
+            assert_eq!(
+                *actual_parent.bytes(),
+                *expected_parent.bytes(),
+                "n={n} key={key_dim} value={value_dim} kv={kv_heads} base={base} group={group}"
+            );
+            assert_eq!(*q_parent.bytes(), q_before);
+            assert_eq!(*k_parent.bytes(), k_before);
+            assert_eq!(*v_parent.bytes(), v_before);
+        }
     }
 
     #[test]

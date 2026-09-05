@@ -197,7 +197,10 @@ pub(super) unsafe fn row_dot_q6k_avx2_batched(
 // spirit to row2_dot_q4k_avx2_batched. Per-token order matches the single-row batched
 // kernel, so `out0[i]`/`out1[i]` are bit-identical to two `row_dot_q6k_avx2_batched`
 // calls. `acc` is `2*n*8` f32: row0 partials in `[0..n*8]`, row1 in `[n*8..2*n*8]`.
+// Activations are [in_dim/128][4 chunks][batch][4 streams][8 lanes], offset
+// to the current token tile. Validated dimensions bound every 32-float record.
 #[target_feature(enable = "avx2,fma")]
+#[allow(clippy::too_many_arguments)]
 pub(super) unsafe fn row2_dot_q6k_avx2_batched(
     a: &[f32],
     bytes: &[u8],
@@ -206,6 +209,7 @@ pub(super) unsafe fn row2_dot_q6k_avx2_batched(
     out0: &mut [f32],
     out1: &mut [f32],
     acc: &mut [f32],
+    batch: usize,
 ) {
     unsafe {
         let n = out0.len();
@@ -235,11 +239,12 @@ pub(super) unsafe fn row2_dot_q6k_avx2_batched(
                     let w1 = unpack_chunk(bytes, qlb1, qhb1, scb1, is, l, d1);
                     let o = abase + n2 + l;
                     for i in 0..n {
-                        let ar = a.as_ptr().add(i * in_dim + o);
+                        let chunk = o / 128 * 4 + o % 128 / 8;
+                        let ar = a.as_ptr().add((chunk * batch + i) * 32);
                         let av0 = _mm256_loadu_ps(ar);
-                        let av1 = _mm256_loadu_ps(ar.add(32));
-                        let av2 = _mm256_loadu_ps(ar.add(64));
-                        let av3 = _mm256_loadu_ps(ar.add(96));
+                        let av1 = _mm256_loadu_ps(ar.add(8));
+                        let av2 = _mm256_loadu_ps(ar.add(16));
+                        let av3 = _mm256_loadu_ps(ar.add(24));
                         let p0 = acc.as_mut_ptr().add(i * 8);
                         let p1 = acc.as_mut_ptr().add((n + i) * 8);
                         let mut a0 = _mm256_loadu_ps(p0);

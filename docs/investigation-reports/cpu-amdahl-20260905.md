@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-08 interesting evidence only, code restored; bounding CPU25-09 worker locality.
+- State: CPU25-09 rejected and restored; bounding CPU25-12 process-local large-page backing.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 7 / 3 / 4 / 0 / 2. Rejected-code includes three canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 8 / 3 / 5 / 0 / 2. Rejected-code includes four canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -81,7 +81,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | prompt +3.668%: canonical interesting, below keep threshold; restored | rejected (evidence only) |
-| CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | many migrations; bounded inherited-mask worker-only Linux route; caller untouched | ready |
+| CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | route verified active; model decode -10.243%; restored | rejected |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | pending memory attribution | unknown | unknown | unknown | not scored | unknown | >2 GiB anonymous weight storage, zero observed huge pages; page-walk cost and safe platform mechanism unresolved | deferred |
@@ -1633,3 +1633,61 @@ CPU stays inside it and parent affinity is unchanged. Full CPU workspace tests,
 CPU check, Clippy, format/diff and exact pinned F16 parity follow. Verify actual
 benchmark worker masks and unchanged caller mask read-only before crediting any
 gain; if affinity never activates, do not claim a locality improvement.
+
+CPU25-09 is applied in the declared three files; the new boundary has 35
+productive upper-count lines (within 55). Its focused sparse-mask/caller
+preservation test passed. Gate session `58631` is running the remaining full
+CPU suite/check/Clippy/pinned-parity/build chain with logs `cpu25-09-*`.
+No performance benchmark or external-thread affinity change has started.
+
+CPU25-09 gate session `58631` completed successfully: focused locality test,
+170 root/167 engine tests and all unchanged integration groups passed, as did
+CPU check, warning-denied Clippy, pinned real-model F16 parity with full initial
+log identity, benchmark build, formatting and diff checks. Reproducibility
+requires both `cpu25-09.patch` and the separately saved new
+`cpu25-09-locality.rs`; binary is `cpu25-09-bench`. This is attempt eight.
+
+At 04:02:36+02:00, session `27105`, runner PID `368115`, began:
+
+```text
+screen.sh cpu25-05-bench cpu25-09-a 32 1 3 short
+screen.sh cpu25-09-bench cpu25-09-b 32 1 3 short
+awk -v objective=model_decode_tps -f compare.awk cpu25-09-a-short.out cpu25-09-b-short.out
+```
+
+Comparison deadline 06:02:36+02:00. No stability rerun or other controls yet.
+Telemetry is `cpu25-09-telemetry.log`; read-only masks are captured separately
+to verify the intended variable. Resume this session; do not duplicate inference.
+
+The first A mask snapshot arrived after A had exited; its empty output is not
+treated as evidence and no benchmark was repeated. B's executable identity was
+verified at PID `368261`. `cpu25-09-b-short-masks.log` confirms eleven daemon
+workers restricted individually to logical CPUs 1..11, while the benchmark
+caller retains 0..11 and every thread retains NUMA allowance 0. Thus the tested
+worker-local route is active, with all twelve participants and no caller pin.
+
+### CPU25-09 final decision: reject and restore
+
+Session `27105` completed successfully in approximately two minutes.
+
+| Metric | A, CPU25-05 | B, worker locality | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 33.89 | 32.69 | -3.541% | 2.64% / 1.95% |
+| TTFT ms | 3779.15 | 3915.96 | +3.620% | 2.61% / 1.93% |
+| Model decode token/s, objective | 7.81 | 7.01 | -10.243% | 1.30% / 2.15% |
+| Public decode token/s | 7.57 | 6.79 | -10.304% | 1.31% / 2.15% |
+
+Counts match 128/32/32. Stable objective regresses and public decode exceeds
+the control limit. Reject without rerun or other-regime controls. The observed
+migrations did not make this worker-only affinity policy profitable; caller
+contention and environmental interference are possible, not proven causes.
+Do not automatically extend the experiment to caller affinity, topology-specific
+ordering or a tuning sweep without evidence isolating a new premise.
+
+Restore module/pool wiring to `998b189` and remove only the new `locality.rs`
+candidate file, whose exact private copy and patch remain recoverable. All
+candidate processes have ended, so their per-thread restrictions no longer
+exist. The campaign never changed global CPU policies or other processes.
+Eight attempts are complete: three kept, four canonical rejects, one interesting
+evidence-only restoration; two untried closures. Next bound CPU25-12, whose
+small process-local backing mechanism is cheaper than the unresolved VNNI path.

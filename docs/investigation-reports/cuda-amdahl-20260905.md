@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `6a77c87` (C09), building on `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C21 retained in `cd6993b`; profiles refreshed. C22 baseline107 snapshots and extra parity pass, implementation next; C23 queued. Not complete.
-- Attempts: 18 distinct (minimum 10): 12 kept, 5 rejected (C06/C08/C13/C18/C20), 1 interesting/restored (C07); plus 1 non-counting re-evaluation kept (C17). Total retained runtime commits 13, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C22 kept after all controls, building on C21 `cd6993b`. Profiles next; C23 queued. Not complete.
+- Attempts: 18 distinct (minimum 10): 12 kept, 5 rejected (C06/C08/C13/C18/C20), 1 interesting/restored (C07); plus 2 non-counting re-evaluations kept (C17/C22). Total retained runtime commits 14, not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09).
 
@@ -125,7 +125,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | kept | Exact/canonical gates and all controls pass; objective +31.205% |
 | C20 | Reuse WMMA weight/coefficient staging across 32 tokens instead of two independent 16-token blocks | Medium prompt throughput | rejected, restored | All exact/canonical gates pass; objective +1.613% below 3% |
 | C21 | Give each physical thread two logical reduction leaves sharing packed nibble bytes, preserving the 128-leaf tree | Short model decode | kept | Exact/canonical/f16/int8 gates and all controls pass; objective +20.095% |
-| C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | ready after C21, non-counting bounded re-evaluation | C20 shape attribution separates a large-grid gain from all other regressions; static dispatch gate must be predeclared |
+| C22 | Restrict C20 weight reuse to large output grids that remove a resource wave; preserve M16 elsewhere | Medium prompt throughput | kept, non-counting bounded re-evaluation | Exact/canonical/extra parity and all controls pass; objective +7.240% |
 | C23 | Keep online softmax coefficients warp-local to remove their block-wide publication barrier | Long prompt throughput | ready after C22 | Two barriers instead of three per four context tokens; replicated scalar work/register cost uncertain |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -2098,3 +2098,53 @@ C22 baseline session72466 passed all107 matrix snapshots and the frozen extra
 preserves the already-frozen longer model fixture. Remove temporary prints and
 prompt fixture, retaining only the three useful large-grid test cases before
 the C22 production edit. This test-only checkpoint does not count as an attempt.
+
+C22 test checkpoint `0ec0a87` precedes production. Candidate session9866 passed
+all107 full-output snapshots with empty diffs and both frozen130-token parity
+replays, preserving exact local IDs. Removed temporary fixtures; test/parity
+files now match HEAD exactly. Run canonical gates and both canonical KV rows
+before the medium objective; the only dispatch difference from C20 is the
+predeclared output-width threshold, and C21 decode remains intact.
+
+C22 canonical session76178 passed formatting, CUDA check, CPU workspace,11 error
+tests, all37 CUDA tests and both canonical f16/int8 parity rows, all16 original
+local IDs unchanged. Build93421 completed; `c22-bench`/`c22.ptx` immutable.
+Static resource check remains M16 63 registers/9792 shared bytes, M32
+72/14976, zero stack/spills. Acquire medium prompt objective against C21 using
+`run.py bench c22 .../c22-bench medium` then `compare.py c21 c22 medium
+prompt_tps medium`; both other regimes before retention, no quota increment.
+
+C22 medium objective session61427 passes provisionally: prompt229.57 ->246.19
+(+7.2396%, CV .03% -> .13%), TTFT4460.57 ->4159.38 ms (-6.7523%, CV .13%),
+model decode34.13 ->33.97 (-.4688%, CV .38%), public31.98 ->31.85 (-.4065%,
+CV .33%). Counts1024/32/31 unchanged; wall21.34 s. No rerun needed. Acquire
+short and long controls with the same binary before deciding keep. The universal
+C20 rejection is not overwritten; only this predeclared bounded dispatch is
+eligible for retention after all controls.
+
+### C22 kept as non-counting bounded re-evaluation
+
+Both controls session46526 completed; full `compare.py c21 c22 medium
+prompt_tps short medium long` passes every declared gate: **keep**.
+Candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 286.35 [.0046] | 447.02 [.0046] | 40.03 [.0019] | 38.75 [.0022] | 5.97 |
+| medium | 246.19 [.0013] | 4159.38 [.0013] | 33.97 [.0038] | 31.85 [.0033] | 21.34 |
+| long | 165.38 [.0000 rounded] | 21671.24 [.0000 rounded] | 22.98 [.0004] | 21.54 [.0005] | 93.09 |
+
+Prompt gains +7.739/+7.240/+4.797%; the objective was medium before production.
+Worst control: short model decode -1.209% and public -1.224%, within the declared
+5% limit, not claimed unchanged. Long TTFT sample deviation .04 ms explains
+the rounded-zero CV; uncertainty is not zero. All token/delta counts unchanged.
+No rerun. Stock power-cap increments short .953916 s, medium .673849 s, long0;
+thermal counters0, sampled clocks about1980 MHz and no setting changes.
+
+The shape exception adds one fixed entry and one explicit condition, justified
+by the isolated negative result on smaller output grids; no tuning surface or
+public option is added. M16 resource isolation and107 exact snapshots pass,
+including N8193/M33 tails. Canonical and frozen extra parity passed for both KV
+schemes. Production +47/-23 across the three declared files. C22 is retained
+in this commit, but does not increment distinct attempts; C20 remains rejected.
+Refresh all three affected profiles before selecting C23.

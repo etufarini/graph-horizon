@@ -96,8 +96,13 @@ pub(crate) fn encode_batched(
         );
     }
     let token_groups = rows.checked_add(3).ok_or_else(super::arithmetic)? / 4;
-    // Packed K16 groups have constant scale/bias; smaller batches keep SIMT.
-    let (kernel, grid) = if format != 0 && rows >= 16 {
+    // Large output grids amortize M32 staging; smaller grids retain M16 parallelism.
+    let (kernel, grid) = if format != 0 && rows >= 32 && output_width >= 8192 {
+        (
+            Kernel::MatmulTensorWide,
+            (output_width.div_ceil(64), rows.div_ceil(32), 1),
+        )
+    } else if format != 0 && rows >= 16 {
         (
             Kernel::MatmulTensor,
             (output_width.div_ceil(64), rows.div_ceil(16), 1),

@@ -10,11 +10,12 @@ use std::sync::Arc;
 use color_eyre::eyre::{Result, eyre};
 use cudarc::driver::{CudaContext, result, sys};
 
-const FUNCTION_NAMES: [&str; 17] = [
+const FUNCTION_NAMES: [&str; 18] = [
     "cuda_embedding",
     "cuda_matmul",
     "cuda_matmul_batched",
     "cuda_matmul_tensor",
+    "cuda_matmul_tensor_wide",
     "cuda_logits",
     "cuda_rmsnorm",
     "cuda_rope",
@@ -36,6 +37,7 @@ pub(crate) enum Kernel {
     Matmul,
     MatmulBatched,
     MatmulTensor,
+    MatmulTensorWide,
     Logits,
     RmsNorm,
     Rope,

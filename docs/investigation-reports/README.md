@@ -14,6 +14,7 @@ and [validation evidence](../project-status/validation-evidence.md).
 
 | Report | Scope |
 |---|---|
+| [CUDA Amdahl campaign 2026-09-05](cuda-amdahl-20260905.md) | Complete critical-path campaign, 31 countable attempts, retained CUDA scheduling/kernels, rejected experiments, and quantitative stop |
 | [CUDA Amdahl optimization](cuda-amdahl-optimization.md) | Matmul and attention attribution, retained CUDA kernels, rejected candidates, and quantitative stop |
 | [CPU Amdahl optimization](cpu-amdahl-optimization.md) | Retained cache-sized tiling, rejected AVX-512/SMT candidates, and quantitative stop |
 | [NVIDIA Vulkan long-context prefill](vulkan-nvidia-long-context-prefill.md) | Prefill attribution, routing correction, and quantitative stop |

@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `eebe52a` (C12), building on `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C12 profiles complete; C18 selected, exact baseline snapshot running.
-- Attempts: 12 reached correctness (minimum 10); kept 8, code rejected/restored 4 (C06/C08/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C18 rejected/restored; C19 selected, diagnostic trace running.
+- Attempts: 13 reached correctness (minimum 10); kept 8, code rejected/restored 5 (C06/C08/C13/C18 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12).
 
@@ -119,7 +119,8 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
 | C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | ready | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
-| C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | ready, awaiting current C12 comparison | PTX executes discarded coefficient loads/conversions; exact gate required |
+| C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
+| C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | selected | Distinct warp-work reduction; same helper/math and exact 65-case gate |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1449,3 +1450,64 @@ The unchanged 26 SIMT snapshots remain the original frozen baseline (C12 exact
 gate already matched them). Only test instrumentation is present at this stage.
 After this baseline passes, implement the predeclared owner-lane guard in
 `quant.cuh`; select long prompt against C12 with all predeclared gates/controls.
+
+Baseline `48860` passed with 39 snapshots. Implemented owner-lane guards only
+in `cuda_weight_parts`, whose sole caller is the WMMA staging function. All 26
+SIMT and all 39 tensor snapshots match bit-for-bit in `c18-exact.log` (`86450`,
+65 markers, both diffs empty). Restored the test file exactly to HEAD to remove
+all temporary prints before canonical `run.py gate c18`.
+
+The lane guard preserves results, but SIMD execution is an important uncertainty:
+with K-contiguous staging a warp can still execute coefficient instructions for
+its one active owner lane. Thus 31/32 discarded lane results do not imply 31/32
+fewer warp instructions. The original s=1.2 estimate remains only a hypothesis;
+the unprofiled outcome must decide. A compact coefficient-owner phase would be
+a distinct causal variant if the guard alone does not reduce warp work.
+
+Canonical C18 gate `69639` completed: formatting, CUDA check, CPU workspace,
+11 error tests, all 37 CUDA tests and pinned f16 parity passed, all 16 top-one
+IDs unchanged. Fast build `86864` completed; immutable `c18-bench` and `c18.ptx`
+saved. Extra int8 parity precedes the fixed long prompt objective against C12.
+Only `quant.cuh` is changed in production (+15/-10); tests restored exactly.
+
+Extra int8 parity passed in `23517`, all 16 local IDs unchanged. Acquire
+`run.py bench c18 target/cuda-amdahl-20260905/c18-bench long`, then
+`compare.py c12 c18 long prompt_tps long`; both controls only after a
+provisional keep. Baseline C12 and candidate remain within the two-hour window.
+
+Read-only C18 PTX confirms the lane guard branches before coefficient loads,
+but every K32 staging warp still contains an owner. This supports a distinct
+bounded **C19**: move the 64 coefficient owners into one `threadIdx.x < 64`
+phase before quant staging. Each owner calls the existing helper at group base
+and stores factor/bias; the B loop consumes only the quant result, allowing
+unused coefficient calculations to disappear after inlining. Two full owner
+warps replace coefficient work issued by every staging warp. Preserve the same
+barrier, staging, WMMA layout, consumed arithmetic and output bits. This changes
+ownership grouping, not merely the guard condition or a tuning parameter.
+
+C19 is deferred until C18's objective decision, then must be reranked. Existing
+`matmul.cuh` (~240 productive category-K lines), no helper/file/ABI or extra
+storage. Main risks are compiler dead-code elimination and strided metadata
+loads; require PTX evidence for both compact owners and metadata-free quant
+staging, exact 26+39 snapshots and all canonical/f16/int8 gates. Long prompt
+objective, same controls. On C12 p=.612558, s=1.25, o=.001: predicted ~13.83%,
+ideal 158.10%, saved ~4015.84 ms; estimates depend on the currently unmeasured
+coefficient instruction share and must not be interpreted as promised speedup.
+
+### C18 rejected
+
+Long objective `46038` completed: prompt 116.39 -> 100.39 (-13.7469%, CV 0.09%
+-> 0.01%), TTFT 30792.26 -> 35702.32 ms (+15.9458%, CV 0.01%), model decode
+13.89 -> 13.92 (+0.2160%, CV 0.03%), public 13.04 -> 13.06 (+0.1534%, CV
+0.03%). Counts 3584/32/31 unchanged, wall 152.98 s. **Reject** for objective
+regression and TTFT control regression. No rerun or other controls. Saved
+`c18.patch` and restored quant.cuh exactly to accepted HEAD. Immutable-binary
+diagnostic `run.py trace c18-timeline .../c18-bench long` runs in `77729`.
+
+C18 validates no runtime change; its guard does not reduce the number of
+coefficient-executing warps. Source/PTX and the measured regression support
+the already-declared C19 compact-owner variant. C12 remains baseline, so the
+current profile fractions remain valid: select C19 (~13.83% conservative whole
+request), then C17 (5.302%), C09 (1.733%), C15 (1.572%). No deferred entry is
+silently closed. C19 changes only matmul.cuh, with original quant.cuh restored;
+all 65 exact snapshots and canonical/f16/int8 gates precede long objective.

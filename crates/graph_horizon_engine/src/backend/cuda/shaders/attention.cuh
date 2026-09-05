@@ -93,7 +93,7 @@ __device__ void cuda_attention_online(
     }
 }
 
-template <bool INT8>
+template <bool INT8, uint32_t THREADS = 128>
 __device__ void cuda_attention_buffered(
     const __half *query, const unsigned char *k_cache, const unsigned char *v_cache,
     __half *out, uint32_t dim, uint32_t kv_heads, uint32_t q_heads,
@@ -103,7 +103,7 @@ __device__ void cuda_attention_buffered(
     const uint32_t position = base + id / q_heads;
     // Decode only: prefill calls online directly and does not own score storage.
     // Bounded shared scores preserve the online path for larger positions.
-    if (position >= 4096) {
+    if (THREADS == 128 && position >= 4096) {
         cuda_attention_online<INT8>(query, k_cache, v_cache, out, dim, kv_heads,
             q_heads, base, rows, layer, context, k_metadata, v_metadata);
         return;
@@ -115,7 +115,7 @@ __device__ void cuda_attention_buffered(
     __shared__ float scores[4096];
     __shared__ float partial[128];
     const float scale = rsqrtf(float(dim));
-    for (uint32_t token = warp; token <= position; token += 4) {
+    for (uint32_t token = warp; token <= position; token += THREADS / 32) {
         const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
         float sum = 0.0f;
         for (uint32_t i = lane; i < dim; i += 32) {
@@ -130,10 +130,13 @@ __device__ void cuda_attention_buffered(
     }
     __syncthreads();
     float maximum = -CUDART_INF_F;
-    for (uint32_t token = threadIdx.x; token <= position; token += 128) {
-        maximum = fmaxf(maximum, scores[token]);
+    // Preserve exactly128 logical softmax leaves even in the512-thread entry.
+    if (threadIdx.x < 128) {
+        for (uint32_t token = threadIdx.x; token <= position; token += 128) {
+            maximum = fmaxf(maximum, scores[token]);
+        }
+        partial[threadIdx.x] = maximum;
     }
-    partial[threadIdx.x] = maximum;
     __syncthreads();
     for (uint32_t stride = 64; stride > 0; stride /= 2) {
         if (threadIdx.x < stride) partial[threadIdx.x] =
@@ -144,18 +147,46 @@ __device__ void cuda_attention_buffered(
     // All warps must read the maximum before partial[0] becomes a sum.
     __syncthreads();
     float sum = 0.0f;
-    for (uint32_t token = threadIdx.x; token <= position; token += 128) {
-        const float weight = expf(scores[token] - maximum);
-        scores[token] = weight;
-        sum += weight;
+    if (threadIdx.x < 128) {
+        for (uint32_t token = threadIdx.x; token <= position; token += 128) {
+            const float weight = expf(scores[token] - maximum);
+            scores[token] = weight;
+            sum += weight;
+        }
+        partial[threadIdx.x] = sum;
     }
-    partial[threadIdx.x] = sum;
     __syncthreads();
     for (uint32_t stride = 64; stride > 0; stride /= 2) {
         if (threadIdx.x < stride) partial[threadIdx.x] += partial[threadIdx.x + stride];
         __syncthreads();
     }
     const float denominator = partial[0];
+    if (THREADS == 512) {
+        // Four contiguous history segments change only the f32 PV reduction.
+        __shared__ float values[4 * 256];
+        const uint32_t group = threadIdx.x / 128;
+        const uint32_t begin = (position + 1) * group / 4;
+        const uint32_t end = (position + 1) * (group + 1) / 4;
+        for (uint32_t part = 0; part < 2; ++part) {
+            const uint32_t i = threadIdx.x % 128 + part * 128;
+            if (i < dim) {
+                float value = 0.0f;
+                for (uint32_t token = begin; token < end; ++token) {
+                    const uint64_t vector = (uint64_t(layer) * context + token) * kv_heads + kv_head;
+                    value += scores[token]
+                        * cuda_cache_value<INT8>(v_cache, vector * dim + i, v_metadata, vector);
+                }
+                values[group * 256 + i] = value;
+            }
+        }
+        __syncthreads();
+        if (threadIdx.x < dim) {
+            const uint32_t i = threadIdx.x;
+            const float value = ((values[i] + values[256 + i]) + values[512 + i]) + values[768 + i];
+            out[q_base + i] = __float2half_rn(value / denominator);
+        }
+        return;
+    }
     for (uint32_t part = 0; part < 2; ++part) {
         const uint32_t i = threadIdx.x + part * 128;
         if (i < dim) {
@@ -358,6 +389,20 @@ extern "C" __global__ void cuda_attention_decode_int8(
     uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
     uint32_t layer, uint32_t context, uint64_t kmeta, uint64_t vmeta) {
     cuda_attention_buffered<true>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, kmeta, vmeta);
+}
+
+extern "C" __global__ void cuda_attention_decode_split_f16(
+    const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
+    uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
+    uint32_t layer, uint32_t context) {
+    cuda_attention_buffered<false, 512>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, 0, 0);
+}
+
+extern "C" __global__ void cuda_attention_decode_split_int8(
+    const __half *q, const unsigned char *k, const unsigned char *v, __half *out,
+    uint32_t dim, uint32_t kvh, uint32_t qh, uint32_t position,
+    uint32_t layer, uint32_t context, uint64_t kmeta, uint64_t vmeta) {
+    cuda_attention_buffered<true, 512>(q, k, v, out, dim, kvh, qh, position, 1, layer, context, kmeta, vmeta);
 }
 
 extern "C" __global__ void cuda_attention_prefill_f16(

@@ -69,7 +69,17 @@ pub(crate) fn launch(
         .checked_mul(block.1)
         .and_then(|value| value.checked_mul(block.2))
         .ok_or_else(arithmetic)?;
-    if grid.0 == 0 || grid.1 == 0 || grid.2 == 0 || block_threads == 0 || block_threads > 256 {
+    // The larger block is a fixed attention ABI, never a general launch-limit relaxation.
+    let split = matches!(
+        kernel,
+        Kernel::AttentionDecodeSplitF16 | Kernel::AttentionDecodeSplitInt8
+    );
+    let valid_block = if split {
+        module.split_attention && block == (512, 1, 1)
+    } else {
+        block_threads > 0 && block_threads <= 256
+    };
+    if grid.0 == 0 || grid.1 == 0 || grid.2 == 0 || !valid_block {
         return Err(arithmetic());
     }
     encoder
@@ -132,4 +142,40 @@ fn arithmetic() -> color_eyre::Report {
 
 fn failed() -> color_eyre::Report {
     eyre!("cuda: command submission failed")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::cuda::Device;
+
+    #[test]
+    fn split_attention_requires_its_exact_geometry_and_capability() -> Result<()> {
+        let device = Device::acquire()?;
+        let mut module = Module::load(&device.context)?;
+        let encoder = CudaEncoder::begin(&device);
+        for kernel in [
+            Kernel::AttentionDecodeSplitF16,
+            Kernel::AttentionDecodeSplitInt8,
+        ] {
+            for block in [(128, 1, 1), (256, 2, 1), (512, 1, 2), (0, 1, 1)] {
+                assert!(launch(&encoder, &module, kernel, &[], (1, 1, 1), block).is_err());
+            }
+        }
+        for kernel in [
+            Kernel::AttentionDecodeF16,
+            Kernel::AttentionDecodeInt8,
+            Kernel::Matmul,
+        ] {
+            assert!(launch(&encoder, &module, kernel, &[], (1, 1, 1), (512, 1, 1)).is_err());
+        }
+        module.split_attention = false;
+        for kernel in [
+            Kernel::AttentionDecodeSplitF16,
+            Kernel::AttentionDecodeSplitInt8,
+        ] {
+            assert!(launch(&encoder, &module, kernel, &[], (1, 1, 1), (512, 1, 1)).is_err());
+        }
+        encoder.submit()
+    }
 }

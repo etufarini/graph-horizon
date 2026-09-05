@@ -888,7 +888,7 @@ fn attention_gqa_scores_match_reference_for_both_kv_schemes() -> Result<()> {
 fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
     const HEADS: usize = 2;
     let device = Device::acquire()?;
-    let module = Module::load(&device.context)?;
+    let mut module = Module::load(&device.context)?;
     // Preserve the original three-row cases; also cover four-query and K16 tile tails.
     for (dim, context, rows) in [
         (3, 17, 3),
@@ -1005,10 +1005,32 @@ fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
                     0,
                 )?;
                 run(&device, encoder)?;
-                for (i, decoded) in read_f16(&device, &decode, HEADS * dim)?
-                    .into_iter()
-                    .enumerate()
-                {
+                let decoded_values = read_f16(&device, &decode, HEADS * dim)?;
+                if module.split_attention && (512..4096).contains(&(base + row)) {
+                    // Optional capability fallback must remain numerically valid on this device.
+                    module.split_attention = false;
+                    let encoder = CudaEncoder::begin(&device);
+                    super::attention::decode(
+                        &encoder,
+                        &module,
+                        &decode,
+                        &query,
+                        &cache,
+                        HEADS as u32,
+                        (base + row) as u32,
+                        0,
+                    )?;
+                    run(&device, encoder)?;
+                    module.split_attention = true;
+                    for (i, fallback) in read_f16(&device, &decode, HEADS * dim)?
+                        .into_iter()
+                        .enumerate()
+                    {
+                        close(fallback, expected_values[row * HEADS * dim + i]);
+                        close(decoded_values[i], fallback);
+                    }
+                }
+                for (i, decoded) in decoded_values.into_iter().enumerate() {
                     let offset = row * HEADS * dim + i;
                     close(decoded, actual[offset]);
                     close(decoded, expected_values[offset]);

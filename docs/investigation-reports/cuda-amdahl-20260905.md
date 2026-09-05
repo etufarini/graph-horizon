@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: `1a32047` (C29), above `2d77b2f` (C27), `99f4330` (C24), S01 `6d37587` and `e7790cd` (C22), building on `cd6993b` (C21), `6a77c87` (C09), `56afc25` (C15), `65ef6ed` (C17), `8ab48ff` (C19), `eebe52a` (C12), `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C31 `4d9e718` accepted and all profiles refreshed. C30 selected after strengthened baseline; C28 deferred. Not complete.
-- Attempts: 23 distinct reached correctness (minimum 10): 14 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits18 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- Current retained runtime: C30 accepted in this checkpoint above `4d9e718` (C31), `1a32047` (C29) and the earlier accepted commits listed below; S01 remains a separate correctness fix.
+- State: running, C30 accepted after all gates and controls; refreshed profiles next. C28 deferred. Not complete.
+- Attempts: 24 distinct reached correctness (minimum 10): 15 kept, 8 rejected (C06/C08/C13/C18/C20/C23/C25/C26), 1 interesting/restored (C07); plus 4 non-counting re-evaluations kept (C17/C22/C27/C29). Total retained optimization commits19 plus separate S01 correctness commit, not_verified0, closed-untried2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained optimization commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12), `8ab48ff` (C19), `65ef6ed` (C17 re-evaluation), `56afc25` (C15), `6a77c87` (C09), `cd6993b` (C21), `e7790cd` (C22 non-counting bounded re-evaluation), `99f4330` (C24), `2d77b2f` (C27 non-counting re-evaluation), `1a32047` (C29 non-counting bounded re-evaluation). Separate correctness support: S01 `6d37587`.
 
@@ -133,7 +133,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C27 | Consolidate C21's exact logical leaves in one warp per packed output, preserving four partial sums | Short model decode | kept, conservative non-counting C06 re-evaluation | Short decode +46.265%, all controls pass; exact107/canonical/frozen/sanitizer gates pass |
 | C28 | Cache decoded integer quants and f32 coefficients losslessly at load time | Short model decode, prefill controls | deferred pending capacity/layout design | Private format possible, but physical budget, fallback, hybrid isolation and exact arithmetic need a complete gate |
 | C29 | Restrict C26 stage-major pairing to Q4/Q5 output grids<=3072, preserving ordinary larger grids | Medium prompt throughput | kept, non-counting bounded re-evaluation | Medium prompt +5.120%; all controls pass; exact/canonical/frozen/sanitizer gates pass |
-| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | ready, selected | Frozen549 oracle available; strengthened scalar baseline passes; preserve capability fallback |
+| C30 | Parallelize long-history buffered decode within512-thread blocks, merging four f32 V partial sums | Medium model decode, long control | kept | Medium model decode +19.457%, long +61.511%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 | C31 | Share F16 K/V tiles across four prefill queries and use existing half-input/f32-accumulator WMMA for QK | Long prompt throughput | kept | Long prompt +21.603%; all numeric/canonical/frozen/sanitizer gates and controls pass |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
@@ -3030,3 +3030,49 @@ Short is ineligible; its uniform overhead estimate is conservative. C28's
 cross-layer cache gate remains deferred, not falsified. C30 is the highest
 ready bounded candidate. Baseline76918 passes all14 scalar cases in2.40s;
 commit these extra support cases before production. No threshold/oracle change.
+
+C30 support checkpoint `e772a0a`; clean worktree confirmed before production.
+Implementation uses the planned512-thread specialization and optional cached
+module capability, with exact geometry rejection. Numeric98207 passes all14
+cases; added forced-capability fallback and guard tests43746 pass. Static
+new F16/int8 entries use40/48 registers and20992 shared bytes, zero stack or
+spills. Old entries remain40 registers/16936 shared bytes. These are resource
+bounds, not measured occupancy. C30 reaches its correctness gate as the24th
+distinct attempt; frozen/canonical/sanitizer and performance gates still pending.
+
+C30 frozen549 session48511 and frozen130 session23634 pass both schemes and
+exact frozen local IDs. Frozen129 follows, then restore canonical source.
+
+C30 frozen129 session66608 passes both schemes. Canonical source restored;
+gate56562 passes fmt, CUDA workspace check, CPU workspace,11 error tests,
+all38 CUDA tests and f16 parity. Canonical int8 session18827 passes; fast19168
+completed and immutable executable/PTX saved. Sanitizer69191 passes memcheck
+6.15s and synccheck2.50s, both0 errors. Only now start medium model-decode
+objective against C31; both controls required if provisional keep.
+
+C30 medium2844 provisionally passes: model decode45.69 ->54.58 token/s
+(+19.4572%, CV .0030 ->.0020), public42.81 ->51.11 (+19.3880%,CV .0016).
+Prompt280.21 ->278.54(-.5960%,CV .0002), TTFT3654.43 ->3676.31ms
+(+.5987%,CV .0002), within controls. Counts1024/32/31; wall18.11s.
+Power-cap increment .554086s, thermal counters0. No rerun; short/long next.
+
+### C30 kept after controls
+
+Controls9284 complete with unchanged128/32/32 and3584/32/31 counts. Means[CV]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| Short | 304.04[.0012] | 420.99[.0012] | 58.29[.0000 rounded] | 56.47[.0004] | 4.89 |
+| Medium | 278.54[.0002] | 3676.31[.0002] | 54.58[.0020] | 51.11[.0016] | 18.11 |
+| Long | 234.22[.0023] | 15302.20[.0023] | 44.90[.0045] | 42.07[.0045] | 64.86 |
+
+Against C31, short/long model decode+.3098/+61.5108%; public+.3733/
+61.4351%. Largest negative control is medium TTFT+.5987%, within5%.
+Short power-cap increment .973690s, long0; thermal counters0; long observed
+SM1980/memory7301MHz, temperature67C. No rerun or significance claim.
+C30 kept after all predeclared gates. Complexity adds one specialization of
+the existing operation and one cached capability bit to preserve old-device
+admission. The fixed-kernel geometry guard protects the larger launch invariant;
+no KV/global allocation/ownership changes. Count24 distinct attempts,15 kept
+plus four non-counting retained re-evaluations=19 optimization commits.
+Refresh all three profiles before C28 selection and fresh discovery.

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use color_eyre::eyre::{Result, eyre};
 use cudarc::driver::{CudaContext, result, sys};
 
-const FUNCTION_NAMES: [&str; 20] = [
+const FUNCTION_NAMES: [&str; 22] = [
     "cuda_embedding",
     "cuda_matmul",
     "cuda_matmul_batched",
@@ -26,6 +26,8 @@ const FUNCTION_NAMES: [&str; 20] = [
     "cuda_kv_write_int8",
     "cuda_attention_decode_f16",
     "cuda_attention_decode_int8",
+    "cuda_attention_decode_split_f16",
+    "cuda_attention_decode_split_int8",
     "cuda_attention_prefill_f16",
     "cuda_attention_prefill_tensor_f16",
     "cuda_attention_prefill_int8",
@@ -50,6 +52,8 @@ pub(crate) enum Kernel {
     KvWriteInt8,
     AttentionDecodeF16,
     AttentionDecodeInt8,
+    AttentionDecodeSplitF16,
+    AttentionDecodeSplitInt8,
     AttentionPrefillF16,
     AttentionPrefillTensorF16,
     AttentionPrefillInt8,
@@ -65,6 +69,7 @@ pub(crate) struct Module {
     raw: sys::CUmodule,
     context: Arc<CudaContext>,
     pub(crate) functions: Functions,
+    pub(crate) split_attention: bool,
 }
 
 // SAFETY: CUDA module/function handles may be used across threads only after
@@ -81,6 +86,11 @@ impl Module {
 
     pub(super) fn load_inner(context: &Arc<CudaContext>, fail_at: Option<usize>) -> Result<Self> {
         context.bind_to_thread().map_err(|_| load_error())?;
+        // Optional optimization capability: query failure preserves the portable path.
+        let split_attention = context
+            .attribute(sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK)
+            .unwrap_or(0)
+            >= 512;
         let ptx = include_bytes!(concat!(env!("OUT_DIR"), "/cuda_kernels.ptx"));
         let mut image = Vec::with_capacity(ptx.len().saturating_add(1));
         image.extend_from_slice(ptx);
@@ -103,6 +113,7 @@ impl Module {
             raw,
             context: context.clone(),
             functions: Functions { entries },
+            split_attention,
         })
     }
 }

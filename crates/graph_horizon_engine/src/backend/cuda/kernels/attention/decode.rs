@@ -22,10 +22,21 @@ pub(crate) fn encode(
     layer: u32,
 ) -> Result<()> {
     let args = super::validate(out, query, kv, q_heads, position, 1, layer)?;
+    let split = module.split_attention && (512..4096).contains(&position);
     let kernel = match kv.scheme {
+        KvQuant::F16 if split => Kernel::AttentionDecodeSplitF16,
+        KvQuant::Int8 if split => Kernel::AttentionDecodeSplitInt8,
         KvQuant::F16 => Kernel::AttentionDecodeF16,
         KvQuant::Int8 => Kernel::AttentionDecodeInt8,
     };
-    // Four warps score a context tile; each thread owns up to two dimensions.
-    dispatch::launch(encoder, module, kernel, &args, (q_heads, 1, 1), (128, 1, 1))
+    // Split history only within bounded shared scores and the optional block capability.
+    let threads = if split { 512 } else { 128 };
+    dispatch::launch(
+        encoder,
+        module,
+        kernel,
+        &args,
+        (q_heads, 1, 1),
+        (threads, 1, 1),
+    )
 }

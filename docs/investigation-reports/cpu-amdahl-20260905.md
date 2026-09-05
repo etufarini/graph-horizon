@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-03 rejected and restored; CPU25-08 dynamic output chunks selected next.
+- State: CPU25-08 correctness passed after one transient harness retry; medium prompt A/B running in session `42824`.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 6 / 3 / 3 / 0 / 2.
+- Current attempts / kept / rejected / not_verified / closed-untried: 7 / 3 / 3 / 0 / 2 (one attempt pending A/B).
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -1501,3 +1501,46 @@ once with the correct absolute offset. CPU release workspace includes the
 unchanged exact Q4 and paired-attention tests. CPU check, warning-denied Clippy,
 format/diff checks and pinned F16 parity with complete initial-log identity all
 precede performance. Only provisional objective success triggers both controls.
+
+CPU25-08 is implemented in `parallel.rs` only, 98 productive upper-count lines
+(within 125), with a bounded atomic `fetch_update` claim loop and the unchanged
+joined worker pool. Three focused parallel tests passed. Full gate session
+`48673` is running workspace/check/Clippy/pinned-parity/build sequentially,
+with logs `cpu25-08-*`. No benchmark has started. The candidate remains
+unaccepted and separate from rejected spin/transient-weight code.
+
+Session `48673` encountered a support-harness hang, not a numeric assertion:
+root `support_scripts::parity_script_contract` remained over two minutes in
+its final signalled mock-server case. Read-only process inspection found
+test PID `349321` waiting for script `352159`, which was waiting for fixture
+server `352208`; the real pinned oracle was not involved. Fixture lifecycle
+records show nine completed mock servers and the final server started without
+a stop. The test's readiness check accepts an earlier `started` line, so a
+signal/setup race is plausible but not established as the exact cause.
+
+Preserve `cpu25-08-workspace-hang.log`, fixture lifecycle/process snapshots and
+the untouched temporary fixture. Explicitly terminated only this owned gate
+runner, Cargo/test and fixture descendants (348618/348879/349321/352159/352208),
+so this interrupted run cannot be credited as passing. No source/assertion or
+oracle changes. Apply the skill's single identical-command retry for this
+actual stuck verification command; do not start performance before success.
+
+Single identical-tuple verification retry `83457` completed successfully:
+170 root/167 engine tests plus unchanged integration groups passed, including
+the previously hung script contract. All three focused parallel tests pass.
+CPU check, warning-denied Clippy, pinned F16 parity/full baseline-log comparison,
+benchmark build, formatting and diff checks passed. No source/assertion changed
+between verification attempts; output filenames distinguish retry evidence.
+Private `cpu25-08.patch` and `cpu25-08-bench` preserve the seventh attempt.
+
+At 03:52:23+02:00, A/B session `42824`, runner PID `361358`, started:
+
+```text
+screen.sh cpu25-05-bench cpu25-08-a 32 1 3 medium
+screen.sh cpu25-08-bench cpu25-08-b 32 1 3 medium
+awk -f compare.awk cpu25-08-a-medium.out cpu25-08-b-medium.out
+```
+
+Comparison deadline 05:52:23+02:00. No stability rerun or short/long controls
+have started. Telemetry file is `cpu25-08-telemetry.log`. Resume the same
+session and keep inference/build activity serialized.

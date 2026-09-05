@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-08 correctness passed after one transient harness retry; medium prompt A/B running in session `42824`.
+- State: CPU25-08 interesting evidence only, code restored; bounding CPU25-09 worker locality.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 7 / 3 / 3 / 0 / 2 (one attempt pending A/B).
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 7 / 3 / 4 / 0 / 2. Rejected-code includes three canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -80,7 +80,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
-| CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | completion spread exists; bounded four-way subdivision; extra allocations | ready |
+| CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | prompt +3.668%: canonical interesting, below keep threshold; restored | rejected (evidence only) |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
@@ -1544,3 +1544,45 @@ awk -f compare.awk cpu25-08-a-medium.out cpu25-08-b-medium.out
 Comparison deadline 05:52:23+02:00. No stability rerun or short/long controls
 have started. Telemetry file is `cpu25-08-telemetry.log`. Resume the same
 session and keep inference/build activity serialized.
+
+Further feasibility checks while this benchmark runs, without changing it:
+[Linux affinity documentation](https://man7.org/linux/man-pages/man2/sched_setaffinity.2.html)
+confirms that PID zero changes only the calling thread and that effective masks
+remain constrained by permitted CPUs/cpusets. A worker-local trial can therefore
+stay inside inherited masks, retain every logical participant, and fall back
+unchanged if its bounded mask cannot be read/set. The caller's affinity must
+remain untouched. This is distinct from the historical physical-worker reduction.
+
+[Rust's VNNI intrinsic documentation](https://doc.rust-lang.org/core/arch/x86_64/fn._mm512_dpbusd_epi32.html)
+marks `_mm512_dpbusd_epi32` stable since 1.89, later than this repository's
+1.88 minimum. CPU25-10 cannot silently raise that floor. A bounded guarded
+assembly implementation would need explicit register/ISA and numeric tests;
+otherwise the intrinsic-only variant is infeasible under the current scope.
+No affinity, ISA path, toolchain requirement or dependency was changed here.
+
+### CPU25-08 final decision: interesting evidence only, restore code
+
+Session `42824` completed successfully in approximately five minutes.
+
+| Metric | A, CPU25-05 | B, dynamic chunks | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 32.99 | 34.20 | +3.668% | 4.46% / 1.96% |
+| TTFT ms | 31075.64 | 29950.82 | -3.620% | 4.37% / 1.94% |
+| Model decode token/s | 7.47 | 7.78 | +4.150% | 5.36% / 2.47% |
+| Public decode token/s | 7.00 | 7.30 | +4.286% | 5.36% / 2.48% |
+
+Counts agree 1024/32/31. Objective CV passes, controls do not regress, but
+3.668% is below the 5% keep threshold. Canonical outcome is exactly
+`interesting`, not `keep`; preserve evidence and restore `parallel.rs` and
+its added test to `998b189`. No stability rerun or other-regime controls.
+For the skill's persistent queue, its code disposition is `rejected (evidence
+only)`; the count distinguishes this one interesting outcome from the three
+canonical rejects. Do not misreport seven attempts as seven measured failures
+or treat this result as statistical significance.
+
+The bounded load-balancing mechanism shows a sub-threshold signal, but no
+isolated cause supports varying the subdivision factor or adding a scheduler
+framework. CPU25-09's independent migration/locality premise remains open;
+CPU25-10/12 still require bounded feasibility. Next inspect and declare
+worker-local affinity preserving the inherited allowed mask and all logical
+workers. No dynamic-chunk or bounded-spin code remains in production.

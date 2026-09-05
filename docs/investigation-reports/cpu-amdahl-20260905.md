@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-10 extra output baseline captured; implementing the declared native integer candidate. CPU25-13 remains deferred.
+- State: CPU25-10 rejected at numerical correctness and restored; CPU25-13 selected for the final outstanding bounded experiment.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 9 / 3 / 6 / 0 / 2. Rejected-code includes five canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 10 / 3 / 7 / 0 / 2. Rejected-code includes six canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -82,10 +82,10 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .24–.63 s | prompt +3.668%: canonical interesting, below keep threshold; restored | rejected (evidence only) |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | short / decode | .03–.12 uncertain bound | 1.5 | .002 | .81–3.95% / 1.03–1.14x | .02–.10 s on diagnostic interval | route verified active; model decode -10.243%; restored | rejected |
-| CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | .40 | 1.5 | .040 | 10.29% / 1.67x | 2.72 s | native ISA/MSRV probe passed; bounded four-row layout and stricter output-quality gate | ready |
+| CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | .40 | 1.5 | .040 | 10.29% / 1.67x | 2.72 s | exact integer/packing tests pass; full-path numerical tolerance fails; restored without performance | rejected |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | decode +5.161% on sole rerun, but first-request control +5.820%; restored | rejected |
-| CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode, pending activation evidence | 0–.10 | 2.0 | unknown | not scored; ideal at most 1.11x | unknown | removes CPU25-12's measured synchronous setup cost; delayed backing and interference unresolved | deferred |
+| CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode, pending activation evidence | 0–.10 | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s | removes CPU25-12's measured synchronous setup cost; delayed backing and interference unresolved | ready |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -1946,3 +1946,57 @@ production, producing four records in `cpu25-10-a-quality.log`; saved executable
 feasibility probe passed without target-feature flags or a production dependency
 change. Proceed with the declared candidate; its stricter quality baseline is
 now immutable. No candidate performance has been measured.
+
+### CPU25-10 terminal correctness failure
+
+Focused release gate session `97540` compiled successfully and ran four tests.
+Quantization edge cases, independent exact canonical packing (including nonzero
+row/byte origins), and signed native integer dots all passed. The complete
+numeric path failed its unchanged predeclared tolerance: in=256, out=12, n=32,
+row=7, token=24 produced 1.6611328 against float reference 2.0710335, absolute
+error .4099007 versus allowed .16568268 (about 19.8% relative error).
+This is a genuine correctness rejection and the tenth countable attempt.
+No model/performance result, MSRV production pass or extra-quality B is claimed.
+The earlier integration compilation error is separately preserved, not counted.
+
+Saved `cpu25-10.patch`, all three integer sources, the temporary quality source,
+immutable four-output A and focused gate log in the private recovery directory.
+Restored both existing matmul files to `998b189` and removed only those four new
+candidate/temporary files; their private copies remain recoverable. No tolerance,
+fixture, oracle or precision requirement was weakened. Exact integer dots do
+not remove activation quantization error. A finer-block quantization sweep would
+add work/layout complexity without fresh evidence overcoming the historical
+fine-block integer regression; no such parameter-only successor is queued.
+
+### CPU25-13 declaration before implementation
+
+Replace synchronous collapse by kernel `MADV_HUGEPAGE` advice on the same fully
+owned, initialized, aligned 2 MiB interior of immutable quantized weights before
+publication. This is a distinct mechanism supported by CPU25-12's measured
+load penalty: the application requests eligible backing without synchronously
+copying every range. Actual promotion may be delayed or absent. No application
+worker, machine policy, persistent repack, new dependency or public API change.
+Byte contents, Vec ownership and logical results must remain unchanged; advice
+failure retains the original behavior. The existing kernel policy remains fixed.
+
+Smallest structure, productive estimates excluding tests:
+
+```text
+cpu/mod.rs       (+2 conditional wiring lines)
+cpu/buffer.rs    (~170 lines; existing resource ownership)
+cpu/memory.rs    (~45 lines; one best-effort owned-range backing hint)
+examples/cpu_load.rs (~50 lines; TEMPORARY first-request timing oracle)
+```
+
+Risk gate: exact guarded bytes, pointer and capacity checks, full CPU workspace,
+CPU check, warning-denied Clippy and unchanged pinned real-model F16 parity.
+Objective short model decode, A=`cpu25-05-bench`; same 128/32/32 fixed work,
+warmup1/reps3 and canonical thresholds. p=0–.10, s=2, o=.001 predicts -.10–5.15%,
+ideal at most 1.11x, about -.003–.126 s on the diagnostic decode interval.
+Observe actual anonymous large-page backing after loading and at the final
+measured repetition without changing the workload or delaying for promotion.
+If objective passes, require medium/long controls plus the same fresh-process
+startup total and whole-process elapsed <=5% regression controls as CPU25-12.
+An inactive hint cannot establish a causal backing gain even if unrelated drift
+improves throughput. Exactly one complete objective rerun for CV>5%; no tuning
+of kernel intervals or waiting selectively for favorable backing is authorized.

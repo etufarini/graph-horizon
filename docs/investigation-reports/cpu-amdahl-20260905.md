@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-05 attribution refreshed and instrumentation removed; CPU25-06 selected for bounded worker handoff experiment.
+- State: CPU25-06 rejected and restored; preparing CPU25-03 transient Q4 weight reuse.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 4 / 3 / 1 / 0 / 2.
+- Current attempts / kept / rejected / not_verified / closed-untried: 5 / 3 / 2 / 0 / 2.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -78,7 +78,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-03: decode ephemeral weight rows once across wide token tiles | medium / prefill | .14 | 1.20 | .005 | 1.87% / 1.16x | .68 s | refreshed profile; scratch traffic may outweigh removed decode | deferred |
 | CPU25-04: remove alleged duplicated SMT activation footprint | medium / prefill | 0 | n/a | 0 | 0% / 1.00x | 0 | source proves activation data is shared, not duplicated | closed |
 | CPU25-05: share attention K/V reads across adjacent query positions | long / prefill | .15 | 1.30 | .005 | 3.05% / 1.18x | 3.78 s | measured long prompt +16.817%; medium prompt -2.161% within control limit; all gates pass | kept |
-| CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | refreshed bounds; 20-us cap; borrowed-job and idle-power risk | ready |
+| CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .06–.11 | 2.0 | .005 | 2.56–5.26% / 1.06–1.12x | .064–.128 s | correct but model decode -3.539%; restored | rejected |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | medium / prefill | <=.03 generous upper bound | unbounded | 0 | ideal <=3.10% / 1.031x | <=1.09 s | direct ablation shows checked coefficients dominate; even generous remainder cannot clear 5% | closed |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
 | CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
@@ -1326,3 +1326,59 @@ Before performance: focused pool tests, unchanged exact Q4/attention tests via
 the CPU release workspace suite, CPU feature check, warning-denied Clippy,
 format/diff checks and pinned real-model F16 parity with full-log identity to
 the initial baseline. Reject correctness failures without measuring performance.
+
+CPU25-06 implementation is confined to `pool.rs`, 158 productive upper-count
+lines before its test module (within the 185 estimate). The first compile
+identified a test-fixture-only mutable-reference capture; explicitly coercing
+the leaked fixture to `&'static Pool` fixes ownership without changing production
+semantics or a test assertion. Original diagnostic is saved as
+`cpu25-06-test-fixture-compile.log`; this is not a separate attempt or rerun.
+Both focused pool tests passed. Full correctness/build session `86126` is
+running the predeclared sequence, logging `cpu25-06-*`; performance has not
+started. Resume this handle before any benchmark.
+
+Session `86126` completed successfully: both focused tests, workspace 170 root
+and 168 engine tests plus one documentation, four family and twelve semantic
+tests passed; seven external tests remain declared ignored. CPU check, Clippy
+with warnings denied, formatting, diff validation and pinned F16 parity pass.
+The full parity log is byte-identical to the initial baseline. Candidate binary
+and exact patch are privately saved as `cpu25-06-bench` and `cpu25-06.patch`.
+This is the fifth countable attempt; it is not yet a performance success.
+
+At 03:33:13+02:00, session `89216`, runner PID `340314`, started:
+
+```text
+screen.sh cpu25-05-bench cpu25-06-a 32 1 3 short
+screen.sh cpu25-06-bench cpu25-06-b 32 1 3 short
+awk -v objective=model_decode_tps -f compare.awk cpu25-06-a-short.out cpu25-06-b-short.out
+```
+
+Comparison deadline 05:33:13+02:00. Resume this same session. No stability rerun
+or medium/long control has started. Thermal/frequency observations are recorded
+privately by `cpu25-06-telemetry.log`; no policy changes or concurrent inference.
+
+### CPU25-06 final decision: reject and restore
+
+Session `89216` completed successfully within approximately two minutes.
+
+| Metric | A, CPU25-05 | B, bounded spin | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 36.28 | 34.87 | -3.886% | 2.01% / 4.67% |
+| TTFT ms | 3528.66 | 3676.68 | +4.195% | 2.01% / 4.80% |
+| Model decode token/s, objective | 7.63 | 7.36 | -3.539% | 4.20% / 2.09% |
+| Public decode token/s | 7.39 | 7.13 | -3.518% | 4.19% / 2.08% |
+
+Counts match 128/32/32. Objective stability passes, but gain fails the 3% floor,
+so reject. No rerun or other-regime controls are warranted. The one-file
+candidate and its tests were restored exactly to retained `998b189`; the private
+patch/binary/logs preserve reproducibility. No rejected production code remains.
+The absolute decode rate shifted lower than recent diagnostics on both sides;
+this is disclosed, not a reason to select a favorable repeat or infer causality.
+
+This result falsifies the tested bounded-spin implementation's public benefit,
+not every scheduler mechanism. Do not tune its timeout without new evidence
+isolating why it failed. CPU25-09 retains its separately observed migration
+premise; CPU25-08 targets load balance rather than sleeping; neither is closed.
+Rerank: bounded CPU25-03 transient decoded rows next (largest remaining scored
+conservative gain), then CPU25-08; unknown VNNI/locality/backing need additional
+feasibility evidence. There are five attempts, three kept and two rejected.

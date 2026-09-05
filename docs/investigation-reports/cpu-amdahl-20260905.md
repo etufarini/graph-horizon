@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-13 rejected and restored; fresh discovery selected CPU25-14 Q6 four-stream activation packing.
+- State: CPU25-14 kept; all pool entries terminal. Final complete benchmark, attribution and quantitative closure pending.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 11 / 3 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 12 / 4 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -86,7 +86,7 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | decode +5.161% on sole rerun, but first-request control +5.820%; restored | rejected |
 | CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode | 0–.10 | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s | sole rerun model decode -6.538%, limited actual promotion; restored | rejected |
-| CPU25-14: pack Q6 four-stream activation chunks across tokens | medium / prefill | .15 | 1.20 | .005 | 2.04% / 1.18x | .58 s | fresh source discovery: 36 KiB token stride, exact-order transient layout; small bounded experiment | ready |
+| CPU25-14: pack Q6 four-stream activation chunks across tokens | medium / prefill | .15 | 1.20 | .005 | 2.04% / 1.18x | .58 s | medium prompt +11.091%, short decode -4.586% within control limit; exact outputs, all gates pass | kept |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -2103,3 +2103,25 @@ Reuse the declared profiler structure; remove its source and feature wiring
 after saving the private executable. Finish with fresh bottleneck/source
 discovery, explicit hotspot closure, final CPU gates, documentation index/status
 update and clean accepted-only branch. No global configuration or external write.
+
+### CPU25-14 retained decision
+
+Long control completed with matching3584/32/31 counts: prompt31.24->37.70
+(+20.679%, CV4.50%/.11%), TTFT114893.12->95076.98 (-17.247%, CV4.38%/.11%),
+model decode7.69->9.16 (+19.116%, CV15.93%/1.86%), public7.21->8.58
+(+19.001%, CV15.92%/1.85%). No control mean regresses beyond5%; the unusually
+variable baseline decode is unchanged code and its apparent gain is NOT credited
+to packing. Short decode's -4.586% is a measured close-to-limit trade-off.
+Medium objective is stable and passes; keep this single Q6 layout optimization.
+No rerun was used; the comparison completed well inside its07:23 deadline.
+
+Realized productive upper counts q6k240/q6k_simd275 fit260/290 estimates.
+Only two existing files change; no new function, dependency or public API.
+Complexity increases by one transient activation view and explicit internal
+stride parameter, protecting the SIMD access layout while preserving fallback
+storage and exact arithmetic. Extra storage is n*in_dim*4 bytes per Q6 call,
+at most1.125 MiB for the canonical32x9216 shape; it is not persistent weight
+expansion. Saved executable SHA256
+`e07ea430d9b809d02cfc38a4f4f084f0786e47a4e5c711bbdca759f91b88df79`.
+The only post-build edit removes a duplicated test comment, not executable code.
+Commit includes this evidence and unchanged exact gate; final attribution follows.

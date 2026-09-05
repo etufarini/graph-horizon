@@ -2059,3 +2059,47 @@ existing numeric tests, workspace/check/Clippy and pinned F16 parity before
 performance. Objective medium prompt, A=`cpu25-05-bench`, canonical tuple,
 thresholds, sole objective stability rerun and short/long controls. No global
 flags, public API, dependency, arithmetic reassociation or larger model.
+
+CPU25-14 correctness passed: exact packed-path test across all declared shapes,
+170 root/167 engine and unchanged integration groups, CPU feature check,
+warning-denied Clippy and byte-identical pinned parity output. A/B session54861,
+runner395864, started 05:23:15+02:00, deadline07:23:15+02:00; commands are
+`screen.sh cpu25-05-bench cpu25-14-a 32 1 3 medium`, then
+`screen.sh cpu25-14-bench cpu25-14-b 32 1 3 medium`, then `compare.awk`.
+No controls or rerun yet. This is the twelfth countable implementation, still
+pending its mandatory performance classification. No code is accepted yet.
+
+CPU25-14 objective session54861 completed. Medium counts1024/32/31 match.
+Prompt33.63->37.36 (+11.091%, CV3.11%/1.86%); TTFT30468.97->27418.02
+(-10.013%, CV3.08%/1.85%); model decode7.61->7.51 (-1.314%, CV3.47%/9.42%);
+public7.14->7.04 (-1.401%, CV3.48%/9.42%). Objective is stable and provisional
+gain passes; high non-objective decode CV is disclosed, not a reason to select
+a new objective pair. No stability rerun. Proceed with both short/long controls.
+
+Controls session92052, runner396839, began05:29:48+02:00. Short counts128/32/32
+match: prompt35.11->35.29 (+.513%, CV1.18%/5.55%); TTFT3646.04->3634.93
+(-.305%, CV1.18%/5.69%); model7.85->7.49 (-4.586%, CV3.60%/2.51%);
+public7.61->7.26 (-4.599%, CV3.60%/2.52%). Control means remain within5%,
+close to the limit; prompt/control CV is disclosed. `compare.awk` labels its
+input prompt as objective by default, so its final short-row instability phrase
+is not the campaign decision: medium prompt is the declared objective and is
+stable. No selective control rerun. Long A/B remains in progress.
+
+### Final verification plan, declared before final measurements
+
+After CPU25-14's terminal decision, directly compare immutable initial
+`baseline-bench` (6238489) with the final accepted release binary, in adjacent
+A/B pairs for short, medium and long, preserving all canonical tuple fields,
+warmup1/reps3. This is a descriptive cumulative campaign measurement, not a
+fourteenth/fifteenth candidate or permission to multiply isolated percentages.
+Disclose every metric/CV and any aggregate control weakness. If prompt objective
+dispersion exceeds5%, permit only one complete six-record rerun, not a selected
+regime. Preserve both complete sets. No statistical-significance claim.
+
+Refresh final disjoint operation attribution using the same previously validated
+temporary cpu-profile timers and parser, one no-warmup repetition per regime,
+paired with a matching unprofiled diagnostic repetition to disclose overhead.
+Reuse the declared profiler structure; remove its source and feature wiring
+after saving the private executable. Finish with fresh bottleneck/source
+discovery, explicit hotspot closure, final CPU gates, documentation index/status
+update and clean accepted-only branch. No global configuration or external write.

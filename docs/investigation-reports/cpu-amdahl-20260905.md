@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-01 kept; refreshed attribution complete; CPU25-02 selected.
+- State: CPU25-02 single objective rerun provisionally passed; controls pending.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected / not_verified / closed-untried: 1 / 1 / 0 / 0 / 1.
+- Current attempts / kept / rejected / not_verified / closed-untried: 2 / 1 / 0 / 0 / 1 (one attempt pending A/B).
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -81,6 +81,8 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-06: bounded worker handoff spin before sleeping | short / decode-only interval | .08 | 2.0 | .005 | 3.63% / 1.09x | .17 s | worker timestamps support a bound, not causal savings; borrowed-job and idle-power risk | deferred |
 | CPU25-07: direct SIMD rotation in the FP16 RoPE buffer | prefill / pending refreshed regime | unknown | unknown | unknown | not scored | unknown | target conversion/copy/rotation, not rejected coefficient reuse; exact gate required | deferred |
 | CPU25-08: smaller dynamically assigned independent output chunks | medium / prefill | .04–.08 | 1.5 | .005 | .84–2.21% / 1.04–1.09x | .31–.80 s | completion spread exists; causal removable fraction uncertain; extra allocations | deferred |
+| CPU25-09: retain worker locality across dispatches, preserving all logical workers | pending scheduler attribution | unknown | unknown | unknown | not scored | unknown | many observed migrations; affinity portability, allowed-mask and caller-policy risks | deferred |
+| CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | unknown | unknown | unknown | not scored | unknown | differs from AVX2 canonical Q8 and expanded persistent repack; numeric quality and packing cost unresolved | deferred |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -614,3 +616,141 @@ against the unchanged single-row kernel (including odd batches and tile tails),
 all focused Q4 tests, release CPU workspace tests, CPU feature check, and pinned
 real-model F16 parity with output compared to the baseline record. Failed
 correctness rejects this candidate. No test tolerance or oracle changes.
+
+CPU25-02 correctness/build session is `87923`. Its chained command writes
+`cpu25-02-{exact,workspace,check,parity,build}.log` in the private raw directory,
+compares full parity output with `baseline-parity-verified-revision.log`, then
+preserves `cpu25-02-bench`. No performance command has started. Resume this
+handle and inspect the gate logs before starting the predeclared objective A/B.
+
+Session `87923` completed successfully: six focused tests; 170 root, 165 engine,
+one documentation, four family-agnostic and 12 semantic tests; seven declared
+external tests ignored. CPU check passed. Pinned F16 parity passed and the full
+output is byte-identical to the original baseline record. Assembly has the
+intended interleaved four accumulator chains and no vector stack accesses in
+the token loop. The unchanged outer decode preparation still accesses stack
+constants. The source patch and assembly are preserved as `cpu25-02.patch` and
+`cpu25-02-row2.asm`.
+
+Objective A/B session `69742` started at 2026-09-05T01:58:47+02:00; its two-hour
+limit is 03:58:47+02:00. It sequentially runs:
+
+```text
+screen.sh cpu25-01-bench cpu25-02-a 32 1 3 medium
+screen.sh cpu25-02-bench cpu25-02-b 32 1 3 medium
+awk -f compare.awk cpu25-02-a-medium.out cpu25-02-b-medium.out
+```
+
+All paths are relative to the private raw directory, with the repository as
+working directory. Poll the same session. Short/long controls have not started.
+CPU25-02 is the second countable attempt, not yet accepted or rejected.
+
+Further read-only worker-gap analysis: in the retained short diagnostic, 9328
+decode inter-dispatch gaps total 384.624 ms; 86.4% are at most 20 us, 87.3% at
+most 50 us, 89.0% at most 100 us and 99.2% at most 250 us. This supports trying
+a small bounded post-job spin for CPU25-06 rather than indefinite busy workers.
+The prefill distribution differs (34.9% at most 20 us), so prefill controls are
+essential. These are post-join coordinator gaps, not measurements of the full
+idle interval of an early-finishing worker; the experiment must account for
+that distinction. No scheduling code has been changed.
+
+### CPU25-02 objective instability and single rerun
+
+Session `69742` completed successfully. Initial medium A/B:
+
+| Metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 34.22 | 34.89 | +1.958% | 2.01% | 5.04% |
+| TTFT ms | 29927.76 | 29396.63 | -1.775% | 2.01% | 5.01% |
+| Model decode tok/s | 6.80 | 6.92 | +1.765% | 6.54% | 6.63% |
+| Public decode deltas/s | 6.38 | 6.49 | +1.724% | 6.54% | 6.63% |
+
+Work counts match (1024 prompt, 32 completion, 31 public deltas). The objective
+CV in B is above 5%, so the mandatory single complete A/B rerun is used, not
+a favorable-row retry. Run both medium records again under labels
+`cpu25-02-rerun-a` and `cpu25-02-rerun-b`, preserving every parameter and binary.
+The original two-hour comparison deadline still applies. A second unstable
+objective yields `not_verified: unstable measurement`; there is no third try.
+
+Live rerun session: `49144`. The first A/B telemetry session `12285` has ended.
+Resume the rerun handle and its four-metric comparison; do not restart the
+completed initial session or start controls before a provisional objective pass.
+
+The single rerun session `49144` completed successfully:
+
+| Metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 34.84 | 37.38 | +7.290% | 3.94% | .10% |
+| TTFT ms | 29417.22 | 27396.87 | -6.868% | 3.87% | .10% |
+| Model decode tok/s | 7.33 | 10.37 | +41.473% | 9.39% | 1.56% |
+| Public decode deltas/s | 6.87 | 9.72 | +41.485% | 9.40% | 1.55% |
+
+The objective passes the predeclared mean/CV gate and no medium control
+regresses. Counts match. The unusually large decode improvement is NOT credited
+to this prefill-only mechanism: environmental drift and code-layout effects are
+possible confounders, and baseline decode variability is substantial. Neither
+this CV screen nor the earlier first candidate's CVs establish causal or
+statistical significance. No additional objective rerun is permitted.
+
+Run the short and long A/B controls sequentially under the original labels
+`cpu25-02-{a,b}-{short,long}` with 32/1/3. Acceptance remains conditional on both
+controls; the comparison deadline remains 03:58:47+02:00. Do not bundle another
+candidate or claim the measured decode gain as a retained kernel speedup.
+
+Short control session `56932` completed successfully:
+
+| Metric | A | B | Delta | CV A | CV B |
+|---|---:|---:|---:|---:|---:|
+| Prompt tok/s | 39.89 | 41.04 | +2.883% | .78% | .34% |
+| TTFT ms | 3209.34 | 3119.21 | -2.808% | .78% | .34% |
+| Model decode tok/s | 11.00 | 10.99 | -.091% | .52% | .12% |
+| Public decode deltas/s | 10.66 | 10.64 | -.188% | .52% | .11% |
+
+Counts match: 128 prompt, 32 completion, 32 public deltas. The control passes:
+no metric regresses by 5%. `compare.awk`'s generic final phrase treats every
+input row as an objective and says below 3%; that phrase is inapplicable here
+because the predeclared objective is medium, not short. Retain its four metric
+calculations, apply the predeclared control rule. Long A/B is the last pending
+performance gate. No second objective rerun will be started.
+
+Live long-control session: `67377`, runner PID `308383` at launch. Poll this
+same handle and `cpu25-02-{a,b}-long.{out,time,start,end}`. No other inference,
+build or test is running alongside the control; read-only source inspection and
+low-rate telemetry may continue. Only CPU25-01 remains accepted until this gate
+and final retained-tree checks complete.
+
+Read-only discovery during the long baseline: per-thread `/proc` scheduler
+counters already show roughly 8,000–25,000 CPU migrations per thread and
+124,000–137,000 context switches in the sampled twelve-thread process. Private
+snapshot: `cpu25-02-a-long-scheduler.log`. This justifies deferred CPU25-09,
+preserving all twelve logical workers while investigating locality across
+dispatches. It is distinct from the historical physical-core-only experiment,
+which reduced parallelism. Migration counts alone do not provide a removable
+time fraction. Before any trial, assess a narrow reversible mechanism that
+respects the process's allowed CPU mask, caller affinity, portability and the
+no-new-dependency/public-API constraints. Do not alter the live control's
+affinity. CPU25-06 may incidentally reduce migrations; propagate its evidence
+before treating this as independently ready.
+
+RoPE read-only audit: the emitted retained code calls `Yarn::pair` inside each
+head/pair iteration and already uses packed SSE arithmetic for the pair's
+rotation. Runtime RoPE source is unchanged from `dd83f5a` except unrelated
+backend feature guards. The historical 115 ms whole-request difference is not
+a direct phase timer and does not prove the conversion/rotation split. CPU25-07
+therefore still needs narrow attribution; neither repeat coefficient reuse nor
+assign all RoPE time to wider SIMD on this evidence alone.
+
+Historical integer-path audit consulted `ba451b2` and `282beeb`: per-eight Q8
+scales with frequent horizontal reductions lost heavily; canonical 256-value
+Q8 with AVX2 maddubs/madd achieved only 1.118x local; persistent native Q4
+repacking later increased RSS by 1.41 GiB and regressed. Host capability
+inspection confirms AVX-512 VNNI, absent from those actual CPU implementations.
+CPU25-10 is therefore deferred for a genuinely different bounded mechanism:
+native integer dot with output-row lane interleaving prepared transiently per
+worker, rather than the rejected expanded model-lifetime weight representation.
+It is NOT permission to repeat the canonical AVX2 arithmetic substitution.
+Before any implementation, prove integer range bounds, specify activation
+rounding/scale layout, account for quantization and transient packing overhead,
+and predeclare a risk-specific real-model quality gate. Do not assign the full
+Q4 bucket a ready score before that analysis. Unresolved numerical or authority
+constraints are reasons to defer or explicitly close it, not to weaken tests.

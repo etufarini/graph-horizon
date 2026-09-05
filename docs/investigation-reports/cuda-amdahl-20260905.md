@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `7682cd2` (C16), building on `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C16 profiles complete; C08 selected for exact gate.
-- Attempts: 10/10 reached correctness; kept 7, code rejected/restored 3 (C06/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C08 rejected/restored; C12 selected.
+- Attempts: 11 reached correctness (minimum 10); kept 7, code rejected/restored 4 (C06/C08/C13 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16).
 
@@ -109,11 +109,11 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
 | C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | rejected, restored | Correctness passed; objective -0.404% |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | restored, interesting objective | Exact gates passed; +4.595% below keep threshold |
-| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | ready | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
+| C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short model decode | rejected, restored | Exact gates passed, objective +1.097% below 3% |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | ready | Small; prove two-byte alignment for every packed format and exact output |
 | C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | closed-untried | C11 removes that shared tree completely: current owner p=0 and ideal gain 0% |
 | C11 | Four context scores per attention block iteration, one warp per score; merge their online softmax together | Long prompt throughput | kept | Numeric and f16/int8 parity gates plus all controls passed; objective +22.881% |
-| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | deferred until C08 evidence/profile | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
+| C12 | Pair the two 128-wide K slices belonging to one quantized block, reusing block address and half metadata within each thread | Short model decode | selected | Moderate exact-order kernel change; no warp shuffle, new layout, or global allocation |
 | C13 | Buffer attention scores in block-shared memory, parallelize stable softmax, then scan V without per-context barriers | Long prompt throughput | rejected, restored | Correctness passed; prefill -0.045% fails its objective despite decode +26.978% |
 | C14 | Factorized quantized prefill via warp matrix instructions, applying float scale/bias outside exact integer-quant products | Short prompt throughput | kept | All numeric/parity gates and controls passed; objective +119.104% |
 | C15 | Isolate buffered attention to decode, preserving online prefill without its shared score allocation | Long model decode | ready | Direct C13 phase evidence; same numeric gates, separate prefill ownership |
@@ -1292,3 +1292,48 @@ snapshots (`matmul-wide-c05-baseline.log`; rows 1/9 remain on unchanged SIMT),
 then remove temporary printing and run all canonical gates and pinned parity.
 Both other regimes are controls after a provisional keep. PTX must demonstrate
 constant bounds; correctness or exact-gate failure restores the candidate.
+
+Implemented C08 in one shader (+6/-4): fixed iteration step and reduction start
+in both SIMT functions. Exact gate `c08-exact.log` passed in `53241`; all 26
+`cuda-matmul-bits` lines equal the frozen baseline (`diff -u` empty). Removed
+the temporary eprintln before canonical `run.py gate c08`. No test edits remain.
+
+Canonical gate `72973` completed: formatting, CUDA check, CPU workspace, 11
+error tests, all 37 CUDA tests and pinned f16 parity passed. All 16 top-one IDs
+are unchanged. Saved generated `c08.ptx`: no `%ntid.x` remains in the three
+SIMT entry bodies; K increments are constant 128 and reduction is unrolled.
+K-loop packed metadata loads are still present, so C12's pairing premise is not
+closed by compilation alone. Built/copied `c08-bench`; acquire short objective
+with `run.py bench c08 target/cuda-amdahl-20260905/c08-bench short` against C16.
+
+### C08 rejected
+
+Objective `15242` completed: model decode 20.97 -> 21.20 (+1.0968%, CV 0.10%
+-> 0.23%), public 20.35 -> 20.58 (+1.1302%, CV 0.20%), prompt 164.69 ->
+165.37 (+0.4129%, CV 0.09%), TTFT 777.24 -> 774.04 ms (-0.4117%, CV 0.09%).
+Counts 128/32/32 unchanged, wall 10.11 s. **Reject** below 3%, no rerun or
+control campaign. Saved `c08.patch` and restored the shader exactly to HEAD.
+An immutable-binary diagnostic (`14855`) measures the remaining dot owner.
+Constant bounds did not remove enough work; no unchanged geometry variant is
+supported. C12 remains independently supported by repeated packed metadata
+loads in the K loop, not by C08's insufficient loop-control effect.
+
+### C12 predeclared implementation
+
+C16 remains the accepted baseline and fractions. Select C12 (2.161% conservative
+whole-request prediction, 135.813% ideal ceiling, ~48.44 ms saved), then C09
+(1.776%) and C15 (1.567%). C12 is no longer deferred. Objective short model
+decode; same exact 26-case gate, canonical gates, fixed controls and thresholds.
+
+In existing `shaders/matmul.cuh` (~235 productive category-K lines), change only
+the packed single-dot loop: iterate 256-value blocks, compute one block address,
+call existing q4/q6 accessors for thread index and index+128, then add the two
+products in their original per-thread sequence. All callers already launch 128
+threads and packed widths are validated multiples of 256. Keep F16 loop and
+shared reduction identical to accepted C16. The fixed pair is necessary to
+express metadata reuse, not a bundled C08 reduction optimization. No new
+function, layout, allocation, shuffle or interface. Main risk is preserving
+dequant arithmetic and exact sum order. Require generated-code evidence that
+the block's half metadata loads are reused; all numerical expressions retain
+the original accessor definitions. Temporary bit prints are removed after the
+exact gate, before the canonical gate and performance.

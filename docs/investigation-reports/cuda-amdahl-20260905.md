@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Current retained runtime: `eebe52a` (C12), building on `7682cd2` (C16), `b948f67` (C14), `b01470c` (C11), `14b669d` (C02), `2547df3` (C03), `f251074` (C05), and `61a540a` (C01).
-- State: running, C18 rejected/restored; C19 selected, diagnostic trace running.
-- Attempts: 13 reached correctness (minimum 10); kept 8, code rejected/restored 5 (C06/C08/C13/C18 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
+- State: running, C19 kept after all controls; refreshed profiles next.
+- Attempts: 14 reached correctness (minimum 10); kept 9, code rejected/restored 5 (C06/C08/C13/C18 rejected, C07 interesting), not_verified 0, closed-untried 2 (C04/C10). No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
 - Current-campaign retained commits: `61a540a` (C01), `f251074` (C05), `2547df3` (C03), `14b669d` (C02), `b01470c` (C11), `b948f67` (C14), `7682cd2` (C16), `eebe52a` (C12).
 
@@ -120,7 +120,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C16 | Apply Q4/Q5 float correction once per format-defined K32 coefficient group, retaining Q6 K16 | Long prompt throughput | kept | Numeric/parity gates and all controls pass; objective +5.246% |
 | C17 | Re-evaluate exact argmax after C12's retained decode reduction materially raises its removable fraction | Short model decode | ready | Re-evaluation of C07, not a new countable mechanism; never a selective rerun |
 | C18 | Compute WMMA scale/bias only for the coefficient-owner lanes, retaining integer quant work for every lane | Long prompt throughput | rejected, restored | Exact/canonical gates pass; prompt -13.747%, TTFT +15.946% |
-| C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | selected | Distinct warp-work reduction; same helper/math and exact 65-case gate |
+| C19 | Pack 64 coefficient owners into two active warps before the quant-staging loop | Long prompt throughput | kept | Exact/canonical gates and all controls pass; objective +31.205% |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -1511,3 +1511,60 @@ current profile fractions remain valid: select C19 (~13.83% conservative whole
 request), then C17 (5.302%), C09 (1.733%), C15 (1.572%). No deferred entry is
 silently closed. C19 changes only matmul.cuh, with original quant.cuh restored;
 all 65 exact snapshots and canonical/f16/int8 gates precede long objective.
+
+C18 diagnostic `77729` completed with zero dropped records: tensor prefill
+25163.176 ms versus C12 20244.451, prefill attention 9503.026 versus 9512.112;
+decode remains 2304.728 versus 2302.753 ms. Tensor registers stay 48, no local
+memory. This localizes the regression to the guarded staging kernel and does
+not establish bandwidth/occupancy as the limiter.
+
+Implemented C19 only in matmul.cuh: compact coefficient phase before A/B staging,
+removed interleaved coefficient stores from B loop. Shared bytes, barriers,
+formats and numeric expressions unchanged. Exact `64832` passed: all 26 SIMT
+and 39 tensor snapshots match frozen accepted output, both diffs empty.
+Temporary test instrumentation restored exactly to HEAD before `run.py gate c19`.
+Fast build `59682` completed. PTX now branches at thread index >63 around the
+coefficient-only phase; its body contains half scale/min loads but no quant
+loads. B staging contains only packed quant loads/bit extraction and integer-to-
+half conversion, with no discarded coefficient loads or float scaling. Compiler
+dead-code elimination therefore realizes the predeclared mechanism.
+
+C19 canonical gates `42948` passed: formatting, CUDA workspace check, CPU
+workspace, 11 error tests, all 37 CUDA tests and pinned f16 parity with all
+16 top-one IDs unchanged. Saved `c19.ptx` and `c19-bench`; extra int8 parity
+runs before the long objective. Production +11/-4 in the existing shader,
+original helper contract preserved; conceptual complexity stays local and the
+ownership invariant is explicit. This is countable attempt 14, not accepted yet.
+
+Extra int8 parity `24452` passed, all 16 IDs unchanged. Acquire
+`run.py bench c19 target/cuda-amdahl-20260905/c19-bench long` against C12,
+then `compare.py c12 c19 long prompt_tps long`; no performance was measured
+before all declared correctness gates passed.
+
+C19 long objective `85361` passed provisionally: prompt 116.39 -> 152.71
+(+31.2054%, CV .09% -> .01%), TTFT 30792.26 -> 23469.56 ms (-23.7810%, CV
+.01%), model decode 13.89 -> 13.90 (+.0720%, CV .05%), public 13.04 -> 13.05
+(+.0767%, CV .05%). Counts 3584/32/31 unchanged; wall 104.01 s. Run
+`run.py bench c19 target/cuda-amdahl-20260905/c19-bench short medium` before
+retaining the candidate. No rerun; the prediction understated the measured gain.
+
+### C19 kept
+
+Both controls completed in `2936`; complete comparison `compare.py c12 c19
+long prompt_tps short medium long` passes all declared gates. **Keep** after
+exact output, canonical/f16/int8 correctness, objective and both controls.
+Candidate means [CV fraction]:
+
+| Regime | Prompt token/s | TTFT ms | Model decode token/s | Public delta/s | Wall s |
+|---|---:|---:|---:|---:|---:|
+| short | 250.15 [.0004] | 511.69 [.0004] | 27.67 [.0028] | 26.88 [.0029] | 7.62 |
+| medium | 217.98 [.0002] | 4697.63 [.0002] | 22.10 [.0004] | 20.77 [.0008] | 25.40 |
+| long | 152.71 [.0001] | 23469.56 [.0001] | 13.90 [.0005] | 13.05 [.0005] | 104.01 |
+
+Prompt gains +51.166/+43.843/+31.205%; worst control medium model decode
+-.4953%. Counts unchanged in all regimes; no rerun. Stock power-cap increments
+short .823520 s, medium 0, long .593948 s; thermal counters remain zero. No
+setting change or competing inference. This is a bounded three-repetition
+retention result, not an inferential significance claim. One shader +11/-4,
+no helper changes or new resource/interface. C19 is retained in this commit;
+refresh all affected profiles before C17/C09/C15 selection.

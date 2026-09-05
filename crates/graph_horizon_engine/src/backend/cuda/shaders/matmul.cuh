@@ -131,6 +131,17 @@ __device__ __forceinline__ void cuda_matmul_tensor_format(
     // Packed widths are positive multiples of 256, so every group is full.
     for (uint32_t group = 0; group < width / GROUP; ++group) {
         const uint32_t base = group * GROUP;
+        // Two complete warps own coefficients; B staging consumes only quants.
+        // Unused helper results disappear after inlining, preserving the same math.
+        if (threadIdx.x < 64) {
+            const uint32_t column = output + threadIdx.x;
+            float factor = 0.0f, bias = 0.0f;
+            if (column < outputs) {
+                cuda_weight_parts<FORMAT>(weight, column, base, width, factor, bias);
+            }
+            factors[threadIdx.x] = factor;
+            biases[threadIdx.x] = bias;
+        }
         for (uint32_t i = threadIdx.x; i < 16 * GROUP; i += 128) {
             const uint32_t row = token + i / GROUP;
             a[i] = row < rows ? input[uint64_t(row) * width + base + i % GROUP]
@@ -143,10 +154,6 @@ __device__ __forceinline__ void cuda_matmul_tensor_format(
                 ? cuda_weight_parts<FORMAT>(weight, column, base + i % GROUP, width, factor, bias)
                 : 0.0f;
             b[i] = __float2half_rn(quant);
-            if (i % GROUP == 0) {
-                factors[i / GROUP] = factor;
-                biases[i / GROUP] = bias;
-            }
         }
         __syncthreads();
         if (threadIdx.x < 16) {

@@ -1727,7 +1727,7 @@ Necessary tree, declared before any production change:
 
 ```text
 cpu/mod.rs        (~85 lines; Linux x86_64 module wiring)
-cpu/buffer.rs     (~160 lines; owned quantized-weight setup call)
+cpu/buffer.rs     (~170 lines; owned quantized-weight setup call)
 cpu/memory.rs     (~45 lines; one bounded native advice boundary, plus tests)
 examples/cpu_load.rs (~55 lines; TEMPORARY load/first-request/cleanup timing)
 ```
@@ -1747,3 +1747,19 @@ unaligned guarded views, exact byte preservation and unchanged Vec ownership.
 CPU workspace/check/Clippy and exact pinned F16 parity precede performance.
 Read actual B AnonHugePages once to verify promotion; a non-activated route
 cannot be credited as a successful large-page optimization.
+
+Temporary startup probe baseline build `23861` passed without a production
+change; saved as `cpu25-12-a-load`. Private `startup.sh` runs three fresh
+processes with the same calibrated 128-token prompt, 32 completion tokens and
+32 decoded tokens, checking those exact counts and saving per-process time(1),
+load/generation/cleanup/total measurements. Capture this baseline before
+activating advice; the temporary example is not accepted production material.
+
+Baseline startup session `28150` completed, exact counts pass in all processes:
+load ms 1101.503/1096.467/1105.496; first-generation ms
+7854.225/7903.586/7783.293; cleanup ms 183.071/181.880/187.193; total ms
+9138.800/9181.934/9075.982. No production advice had been applied. Before
+implementation, refine buffer's estimate to 170 to allow platform-local mutable
+ownership without an unused-mut suppression on other targets; no responsibility
+or scope expansion. Production still matches `998b189`; only the declared
+temporary example and report differ. Proceed with the isolated candidate.

@@ -7,9 +7,9 @@
 - Immutable starting revision: `62384895acfde94cf28fded1294ad860daabf2ff`.
 - Retained production checkpoint: `998b189d6f68947e19ef99c757e57406f98f1522` (CPU25-05); preceding checkpoints `245c15f59ff8dacc0392631aec7cea04db2c2ed9` (CPU25-02) and `13b2ab47da66bd190deab8138ca729fada08c2cd` (CPU25-01).
 - Started: 2026-09-05T00:40:43+02:00.
-- State: CPU25-10 rejected at numerical correctness and restored; CPU25-13 selected for the final outstanding bounded experiment.
+- State: CPU25-13 rejected and restored; fresh discovery selected CPU25-14 Q6 four-stream activation packing.
 - Deadline: none; minimum ten distinct countable attempts, two hours per comparison.
-- Current attempts / kept / rejected-code / not_verified / closed-untried: 10 / 3 / 7 / 0 / 2. Rejected-code includes six canonical rejects and one canonical interesting result.
+- Current attempts / kept / rejected-code / not_verified / closed-untried: 11 / 3 / 8 / 0 / 2. Rejected-code includes seven canonical rejects and one canonical interesting result.
 
 The user explicitly selected CPU. The GPU Amdahl skill is applied to CPU
 critical-path attribution and its backend-neutral campaign and correctness
@@ -85,7 +85,8 @@ to this campaign; historical CPU-01 through CPU-07 are separate.
 | CPU25-10: native VNNI integer dot with bounded transient row interleaving | medium / Q4 prefill | .40 | 1.5 | .040 | 10.29% / 1.67x | 2.72 s | exact integer/packing tests pass; full-path numerical tolerance fails; restored without performance | rejected |
 | CPU25-11: per-call RoPE coefficient vector, preserving head-major traversal | medium / prefill | .10 | 5.0 | .002 | 8.46% / 1.111x | 2.83 s | correct locally, but public prompt -6.598% and TTFT +7.018%; restored | rejected |
 | CPU25-12: process-local large-page backing for immutable CPU weights | short / decode | 0–.10 unresolved | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s steady diagnostic interval | decode +5.161% on sole rerun, but first-request control +5.820%; restored | rejected |
-| CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode, pending activation evidence | 0–.10 | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s | removes CPU25-12's measured synchronous setup cost; delayed backing and interference unresolved | ready |
+| CPU25-13: asynchronous kernel promotion hint for owned weights | short / decode | 0–.10 | 2.0 | .001 plus measured startup | -.10–5.15% / 1.00–1.11x | -.003–.126 s | sole rerun model decode -6.538%, limited actual promotion; restored | rejected |
+| CPU25-14: pack Q6 four-stream activation chunks across tokens | medium / prefill | .15 | 1.20 | .005 | 2.04% / 1.18x | .58 s | fresh source discovery: 36 KiB token stride, exact-order transient layout; small bounded experiment | ready |
 
 CPU25-01 is selected first: its medium measured Q4 share is 63.2% of the
 profiled complete request, versus 40.1% short and 55.8% long. Conservative
@@ -2000,3 +2001,61 @@ startup total and whole-process elapsed <=5% regression controls as CPU25-12.
 An inactive hint cannot establish a causal backing gain even if unrelated drift
 improves throughput. Exactly one complete objective rerun for CV>5%; no tuning
 of kernel intervals or waiting selectively for favorable backing is authorized.
+
+### CPU25-13 final rejection
+
+Correctness completed successfully: 170 root/167 engine tests, unchanged other
+integration groups, CPU check, warning-denied Clippy and byte-identical pinned
+parity log. No startup probe was needed because the objective failed first.
+Private source/patch and candidate executable are preserved; existing wiring
+and buffer restored to `998b189`, only the new memory source removed.
+
+Initial A/B started 05:09:40+02:00, session49001; short model decode 7.87->7.23
+(-8.132%), CV5.42%/7.82%, so run exactly one complete rerun. Initial prompt
+34.68->35.36 (+1.961%), TTFT3707.03->3620.59 (-2.332%), public7.63->7.00
+(-8.257%). First backing snapshot reports 28672 KiB AnonHugePages; a later
+snapshot missed process exit and is explicitly unavailable, not zero.
+
+Sole rerun started 05:12:48+02:00, session6450; all 128/32/32 counts agree:
+
+| Metric | A | B | Change | CV A / B |
+|---|---:|---:|---:|---:|
+| Prompt token/s | 35.04 | 35.10 | +.171% | 2.72% / 3.80% |
+| TTFT ms | 3655.19 | 3650.03 | -.141% | 2.68% / 3.88% |
+| Model decode token/s | 8.26 | 7.72 | -6.538% | 3.14% / 1.74% |
+| Public decode token/s | 8.00 | 7.48 | -6.500% | 3.15% / 1.74% |
+
+Reject; no medium/long/startup controls after a terminal objective failure and
+no second rerun. Five-second read-only snapshots in this rerun show actual
+AnonHugePages increasing from 12288 to 45056 KiB, far below synchronous collapse's
+1673216 KiB. Delayed limited activation is evidenced, but no specific cause of
+the throughput loss is asserted. Waiting longer or changing the kernel's scan
+policy would alter the declared workload/environment; no such variant is queued.
+Eleven distinct attempts are complete; all original entries are now terminal.
+
+### Fresh discovery: CPU25-14 declaration
+
+Source inspection of current Q4/Q6 pair kernels, their callers, RoPE and the
+latest retained-profile shapes found one additional bounded material premise.
+Q4 already packs and interleaves; Q6 still reads `a[i*in_dim+o+{0,32,64,96}]`,
+four distant eight-float streams per token. Its dominant width9216 imposes a
+36 KiB token stride. Q6 prefill owns 5607.275/29176.471=.1922 of the current
+medium diagnostic request. Historical wider-Q6 rejection did not test layout.
+
+Pack those four eight-value streams into one contiguous 32-float record per
+token/chunk before dispatch, retaining original activation storage for odd-row
+and scalar fallbacks. The pair kernel then reads four consecutive vectors;
+weight extraction, FMA order, tile size, worker policy and decode stay unchanged.
+Only supported AVX2+FMA uses the packed view. p=.15, s=1.20, o=.005 predicts
+2.04%, ideal1.18x, about .58 s saved; a conservative subthreshold estimate does
+not close this cheap candidate with a sufficient ideal ceiling. Packing may
+instead add traffic and hurt the shared cache; no counter attribution is claimed.
+
+No new file or function: `matmul/q6k.rs` ~260 productive lines and
+`matmul/q6k_simd.rs` ~290, both existing single-operation category-K kernels.
+Add exact FP16 full-path comparisons to the unchanged single-row batched kernel
+across widths256/512/3072/9216, n2/5/21/32/33 and even/odd row tails, plus all
+existing numeric tests, workspace/check/Clippy and pinned F16 parity before
+performance. Objective medium prompt, A=`cpu25-05-bench`, canonical tuple,
+thresholds, sole objective stability rerun and short/long controls. No global
+flags, public API, dependency, arithmetic reassociation or larger model.

@@ -147,6 +147,7 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C41 | Eight-way bounded decode history partition on an optional1024-thread entry | Long model decode throughput | rejected, restored | All gates pass; long model decode-1.098%, own attention cost worsens; keep512 |
 | C42 | Keep each lane's query components in registers across buffered QK history | Long model decode throughput | interesting, restored | Exact/all gates pass; long model decode+4.571%, below5%; no rerun |
 | C43 | Specialize query-resident QK to the fixed128 f16 split path, removing per-component branches | Long model decode throughput | kept | Long model+7.708%, worst control TTFT+4.825%; all gates pass; non-counting C42 extension |
+| C44 | Increase standalone CUDA graph batching32→64 to expose more concurrent tensor tiles | Medium prompt throughput | ready | One existing capacity constant feeds checked budget and allocation; hybrid remains32/4 |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -4459,3 +4460,43 @@ decode gaps13.892781/11.946128/12.831005. Tensor prefill owns265.248911/
 prefill attention2439.713647ms. These profiles refresh cost owners; they do not
 replace the public medium control or authorize a repeat of it. Finish fresh
 discovery and hotspot closure audit before declaring campaign completion.
+
+### Fresh graph/budget audit: C44 design
+
+C43 retained fe83feb. The pool was terminal, but source inspection across
+CUDA namespace, selection, homogeneous session, batch encoder/buffers and
+MemoryPlan finds a bounded orchestration mechanism not tested by C20/C22:
+increase standalone graph batch capacity32→64 while preserving every kernel's
+M16/M32 shape. C20 increased per-block M and reduced block parallelism; C44
+instead supplies more existing tiles per launch and halves layer traversals.
+Current small output grids instantiate only32/96 blocks per32-row batch, below
+the device's static aggregate resident-block capacity. This is source/grid
+evidence for a reversible scheduling/reuse experiment, not achieved occupancy.
+
+`cuda::PREFILL_ROWS` already feeds both standalone MemoryPlan::new and
+selection::session; BatchBuffers computes every allocation from that capacity,
+and encode chunks prompt by the same checked value. Standalone single-token
+buffers, KV layout/context, retained weights and sampling do not change.
+Hybrid uses its independent graph shape32/all-GPU and4/mixed; leave it unchanged.
+The recorded model has106496 bytes of batch scratch per row, so64 rows adds
+3407872 bytes (3.25MiB) versus32, covered by existing preflight. Near-capacity
+admission may change by that amount; never silently reduce context or placement.
+
+Structure before edit: backend/cuda/mod.rs (~135 productive orchestration
+lines), one constant and explanatory invariant comment; existing mem/budget.rs
+test extension only. No new file/helper/API/dependency. Test that MemoryPlan's
+scratch equals RuntimeBytes at the actual CUDA constant and exact-fit handling
+still includes it; preserve all existing allocation/overflow/alias tests.
+Main risks: batch-boundary causal/tail behavior, changed kernel geometry and
+scratch admission, not precision. All CUDA PTX must remain byte-identical to C43.
+Require frozen129/130/549 both KV (now two64-row chunks plus1/2, and512+37),
+canonical CPU/error/CUDA/parity, standalone int8 and mixed hybrid gates, plus
+real-model frozen549 under memcheck/synccheck if feasible to exercise new batch
+geometry. Existing small kernel bounds remain; no oracle or tolerance changes.
+
+Medium prompt against accepted C43 is objective; other regimes and every other
+metric controls, unchanged >=5%/CV<=5%/regression<=5%/two-hour rule. Same model,
+context4096, KVf16, all-GPU placement and public prompts; internal batch capacity
+is the sole intentional variable. Use current tensor-precall owner conservatively
+with net s1.1,o.002 for scheduling and larger scratch, not infinite reuse.
+C44 is one new orchestration premise only after it reaches correctness.

@@ -5,11 +5,11 @@
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).
 - Branch: `perf/cuda-amdahl-20260905`.
 - Immutable start: `62384895acfde94cf28fded1294ad860daabf2ff`.
-- Current retained runtime: C05 (committed with this decision), building on `61a540a` (C01).
-- State: running, C01 and C05 kept; profile refresh next.
+- Current retained runtime: `f251074` (C05), building on `61a540a` (C01).
+- State: running, C05 profile refreshed; C06 selected, wide-dot baseline gate passed.
 - Attempts: 2/10; kept 2, rejected 0, not_verified 0, closed-untried 0. No overall deadline; each A/B comparison has a two-hour limit.
 - Persistent private evidence: `target/cuda-amdahl-20260905/`.
-- Current-campaign retained commits: `61a540a` (C01), C05 (this decision's production commit).
+- Current-campaign retained commits: `61a540a` (C01), `f251074` (C05).
 
 Recovery checkpoint: baseline, all three `baseline-timeline` acquisitions and
 C01 correctness/A/B/controls completed. Sessions `65351`, `84583` and `82983`
@@ -18,8 +18,9 @@ timelines with no dropped records. C05 is accepted after exact equality,
 canonical gates, f16/int8 parity and all three A/B rows. Sessions `57416` and
 `39069` completed. Temporary bit printing was removed, preserving the permanent
 long-history test. Preserve `c05-exact-baseline.log` and `c05-exact-candidate.log`
-as evidence; no unaccepted production edit remains. Next refresh `c05-timeline`
-for all three regimes, then rerank and choose the largest credible ready item.
+as evidence. Session `56032` completed all refreshed C05 timelines with zero
+dropped records. C06 is selected next; its wide-dot test passed on accepted C05
+in session `63196`. No C06 production edit has yet been made.
 Baseline executable, accepted `c01-bench` and all A/B records remain under the
 same campaign directory. No rejected or interrupted production edit remains.
 
@@ -90,10 +91,11 @@ Initial pool from the current unprofiled screen and short/medium CUPTI timelines
 | C03 | Specialize matmul weight format outside K loops; short batched+single+logits own 3327.535 ms at baseline | Short prompt throughput, decode control | ready, rerank after C01 profile | Moderate; eliminate per-element format branching without new formats; exact gate required |
 | C04 | Move full-tile token bounds outside K loops; PTX already scalarizes four accumulators but repeats four token-bound branches at every K step | Short prompt throughput | deferred until C03 | Small; same four-token tile and accumulation order, exact gate |
 | C05 | Warp-level score reduction for attention; long prefill owns 28887.801 ms after C01 with block barriers at every context token | Long prompt throughput | kept | Same reduction tree, exact f16/int8 output and complete controls passed |
-| C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | deferred until current matmul specialization measured | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
+| C06 | Multiple output rows per matmul block, each owned by a warp, reusing input across outputs and reducing barriers | Short prompt throughput | ready, selected after C05 | Moderate numeric risk and occupancy uncertainty; different mapping, not a historical block-width rerun |
 | C07 | Parallelize exact total-order argmax; short decode sampling owns 107.860 ms in one thread | Short model decode | deferred until C01/C02 refresh | Small; current full-request ideal ceiling only 2.16%, may become material after larger removals |
 | C08 | Encode the existing 128-thread matmul geometry as compile-time loop/reduction bounds; PTX retains runtime block width and reduction loop | Short prompt throughput | deferred until C03 | Small; unchanged launch geometry/order, exact gate; distinct from historical block-width tuning |
 | C09 | Read aligned packed f16 metadata with one 16-bit load instead of two byte loads plus recombination; PTX confirms repeated byte loads in hot matmul | Short prompt throughput | deferred until C03 | Small; prove two-byte alignment for every packed format and exact output |
+| C10 | Warp-first attention reduction to remove remaining inter-warp shared-tree stages; unlike C05 this changes pairing | Long prompt throughput | deferred until C06 refresh | Numeric gate; C05 disproved 2x local estimate, so use conservative 1.15x pending refreshed owner fractions |
 
 The pool is intentionally not ten guesses. Replenish from each decision/profile
 until ten distinct implemented attempts or an explicit incomplete stop. C01/C02
@@ -459,3 +461,64 @@ diff remains only the attention reduction (+14/-2), with no dispatch or storage
 change. Conceptual complexity increases slightly for the explicit warp boundary
 and short-block mask; both protect the existing reduction order and valid lanes.
 The shader remains a single category-K operation and no new file is introduced.
+
+### Refresh after C05 and C06 selection
+
+C05 timelines completed with zero dropped records. Prefill attention versus C01
+falls 35.747 -> 25.274 ms short, 2286.728 -> 1872.478 ms medium, and
+28887.801 -> 24567.576 ms long: local speedups 1.414x, 1.221x, 1.176x. Decode
+attention is essentially unchanged (long 3121.867 -> 3113.900 ms). The effect
+depends on available blocks; do not use the short local gain to predict long.
+Long's instrumented public outcome is close to the unprofiled row and is not
+used as the retention record.
+
+Current short timeline: 2051.322 ms prefill/first sample + 1956.775 ms decode,
+4008.097 ms total. Batched matmul is 1880.592 ms, single matmul 1240.370 ms,
+logits 158.121 ms (81.81% combined); RMSNorm 399.394 ms (9.96% combined).
+Medium totals 20878.144 ms; long totals 86717.248 ms, including 53288.460 ms
+batched matmul and 27681.475 ms attention across both phases. Gaps remain below
+0.5% overall, so a host allocation/submission experiment still has a small ceiling.
+
+Dependency review shows C06 does not require C03 specialization: its warp
+ownership can be measured independently with unchanged format decoding. Remove
+that unnecessary dependency and choose C06, whose credible whole-request gain
+is largest among the remaining ready entries. This corrects the earlier queue
+ordering rather than silently preferring an easier lower-ranked edit.
+
+| Remaining priority | ID / state | Full-request p | s | o | Predicted global gain | Ideal gain ceiling | Saved ms |
+|---|---|---:|---:|---:|---:|---:|---:|
+| 1 | C06 ready, selected | 0.8181 short | 1.25 | 0.003 | 19.13% | 449.68% | 643.8 |
+| 2 | C03 ready | 0.8181 short | 1.2 | 0.001 | 15.65% | 449.68% | 542.5 |
+| 3 | C04 deferred until C03 | 0.4692 short | 1.25 | 0.001 | 10.24% | 88.42% | 372.1 |
+| 4 | C02 ready | 0.0996 short | 8 | 0.001 | 9.44% | 11.06% | 345.5 |
+| 5 | C08 deferred until C03 | 0.8181 short | 1.1 | 0.0005 | 7.98% | 449.68% | 296.1 |
+| 6 | C10 deferred until C06 | 0.3192 long | 1.15 | 0.002 | 4.13% | 46.89% | 3437.8 |
+| 7 | C09 deferred until C03 | 0.8181 short | 1.05 | 0 | 4.05% | 449.68% | 156.1 |
+| 8 | C07 deferred until C02 | 0.0270 short | 8 | 0.0002 | 2.39% | 2.77% | 93.7 |
+
+These are rounded ranking estimates with the prior uncertainty caveats. C10 is
+a distinct bounded variant: C05 removed only within-warp stages while preserving
+pairing; remaining stages cross warps and still use shared writes and barriers.
+Use conservative s=1.15 after C05's negative prediction calibration. It is not
+an attempted or accepted optimization, and waits for C06's bottleneck shift.
+
+C06 predeclared gate: canonical CPU workspace, CUDA check/error tests, full CUDA
+suite, existing bounded packed-format numeric tests, authenticated real-model
+top-two parity, and the new wide-dot scalar-reference test. Reduction order
+changes, so no bit-exact claim. The new test covers widths 3 (F16), 768, 3072,
+9216, one/nine input rows, three output rows, and every supported weight format;
+checks every batched output against stored-weight scalar reference with the
+unchanged bound, exact batch/single agreement and float logits. All 26 cases
+passed on C05 before C06 edits; raw log `matmul-wide-c05-baseline.log` contains
+temporary bit snapshots, whose print statements were removed before checkpoint.
+
+C06 structure: existing `shaders/matmul.cuh` (~80 productive category-K lines)
+and `kernels/matmul.rs` (~115 productive orchestration lines), no new file.
+Keep 128 threads/block, assign four independent output rows to its four warps,
+iterate K by lane with stride 32, reduce each output inside that warp, and use
+ceiling(output_width/4) blocks. Invalid output rows return as an entire warp,
+so full-warp shuffle masks remain valid. Keep the four-token prefill tile,
+all layouts, formats, spans, placement and interfaces. Main risk is reordered
+floating-point reduction and altered latency/occupancy. Objective: short prompt
+throughput; decode, TTFT and both other regimes are controls. Canonical 5% keep,
+5% CV and 5% control limits remain fixed before measurement.

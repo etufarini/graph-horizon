@@ -256,6 +256,109 @@ fn dense_operations_match_packed_quant_reference_with_signed_values() -> Result<
     Ok(())
 }
 
+// Multi-block dots and both output/token tails cover the real projection widths.
+// Scalar stored-weight references retain the existing numeric error bound.
+#[test]
+fn dense_operations_cover_wide_dots_and_output_tails() -> Result<()> {
+    const OUTPUTS: usize = 3;
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    for width in [3, 768, 3072, 9216] {
+        for rows in [1, 9] {
+            let inputs = (0..rows * width)
+                .map(|i| f16_to_f32(f32_to_f16(((i * 7 + 3) % 37) as f32 / 19.0 - 0.7)))
+                .collect::<Vec<_>>();
+            let input = upload_f16(&device, &inputs)?;
+            let last_input = input.view(((rows - 1) * width * 2) as u64, (width * 2) as u64)?;
+            for format in [
+                CudaFormat::F16,
+                CudaFormat::Q4K,
+                CudaFormat::Q5K,
+                CudaFormat::Q6K,
+            ] {
+                if format != CudaFormat::F16 && width % 256 != 0 {
+                    continue;
+                }
+                let raw = if format == CudaFormat::F16 {
+                    f16_bytes(
+                        &(0..OUTPUTS * width)
+                            .map(|i| ((i * 5 + 3) % 31) as f32 / 23.0 - 0.5)
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    patterned_weight(format, OUTPUTS * (width / 256))
+                };
+                let weights = CudaBuffer::upload(&device, &raw, format)?;
+                let output =
+                    CudaBuffer::allocate(&device, (rows * OUTPUTS * 2) as u64, CudaFormat::F16)?;
+                let single = CudaBuffer::allocate(&device, (OUTPUTS * 2) as u64, CudaFormat::F16)?;
+                let logits = CudaBuffer::allocate(&device, (OUTPUTS * 4) as u64, CudaFormat::F32)?;
+                let encoder = CudaEncoder::begin(&device);
+                super::matmul::encode_batched(
+                    &encoder,
+                    &module,
+                    &output,
+                    &input,
+                    &weights,
+                    width as u32,
+                    OUTPUTS as u32,
+                    rows as u32,
+                )?;
+                super::matmul::encode(
+                    &encoder,
+                    &module,
+                    &single,
+                    &last_input,
+                    &weights,
+                    width as u32,
+                    OUTPUTS as u32,
+                    false,
+                )?;
+                super::matmul::encode(
+                    &encoder,
+                    &module,
+                    &logits,
+                    &last_input,
+                    &weights,
+                    width as u32,
+                    OUTPUTS as u32,
+                    true,
+                )?;
+                run(&device, encoder)?;
+                let actual = read_f16(&device, &output, rows * OUTPUTS)?;
+                let last = read_f16(&device, &single, OUTPUTS)?;
+                let projected = super::super::exec::readback::logits(&device, &logits, OUTPUTS)?;
+                assert_eq!(&actual[(rows - 1) * OUTPUTS..], &last);
+                for token in 0..rows {
+                    for row in 0..OUTPUTS {
+                        let expected = (0..width)
+                            .map(|i| {
+                                let weight = if format == CudaFormat::F16 {
+                                    let offset = (row * width + i) * 2;
+                                    f16_to_f32(u16::from_le_bytes([raw[offset], raw[offset + 1]]))
+                                } else {
+                                    reference_weight(
+                                        format,
+                                        &raw,
+                                        row * (width / 256) + i / 256,
+                                        i % 256,
+                                    )
+                                };
+                                inputs[token * width + i] * weight
+                            })
+                            .sum::<f32>();
+                        close(actual[token * OUTPUTS + row], expected);
+                        if token == rows - 1 {
+                            close(projected[row], expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn dense_operations_cover_normalization_rope_and_elementwise() -> Result<()> {
     let device = Device::acquire()?;

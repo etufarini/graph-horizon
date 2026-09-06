@@ -16,6 +16,7 @@ and [validation evidence](../project-status/validation-evidence.md).
 |---|---|
 | [CUDA Amdahl optimization](cuda-amdahl-optimization.md) | Matmul and attention attribution, retained CUDA kernels, rejected candidates, and quantitative stop |
 | [CPU Amdahl optimization](cpu-amdahl-optimization.md) | Retained cache-sized tiling, rejected AVX-512/SMT candidates, and quantitative stop |
+| [CPU Amdahl campaign 20260905](cpu-amdahl-20260905.md) | Twelve new trials: Q4/Q6 activation layout, token scheduling, paired-position attention, rejected numeric/scheduling/backing candidates, and full final measurements |
 | [NVIDIA Vulkan long-context prefill](vulkan-nvidia-long-context-prefill.md) | Prefill attribution, routing correction, and quantitative stop |
 | [NVIDIA Vulkan long-context decode](vulkan-nvidia-long-context-decode.md) | Decode attribution, routing, residency, and reranking |
 | [AMD Vulkan long-context prefill](vulkan-amd-long-context-prefill.md) | Split-GQA route and qualification |

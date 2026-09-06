@@ -86,12 +86,25 @@ and their distinct evidence boundaries.
 | Request KV reuse | serialized standalone Vulkan or Metal requests; keyed calls may also reuse an identical token prefix | ordinary generation on CPU/hybrid; prefix zero on a key/token mismatch and cache invalidation on failure | avoids reallocating request-local cache while preserving fresh tail logits |
 | CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
 | CPU cache-sized prefill token tiling | x86_64 architectural L2 report and supported quantized batched shapes | historical 256 KiB cache premise and existing 16--64 tile bounds | validation environment short prompt 30.68 → 33.20 tok/s; long prompt 27.32 → 31.09 tok/s |
+| CPU packed Q4 activation blocks | AVX2+FMA batched Q4 row pairs | original scalar, single-row and decode paths | 3B/1024 prompt 32.88 → 39.68 tok/s in the recorded validation environment |
+| CPU interleaved Q4 token accumulators | packed AVX2+FMA Q4 token pairs | original odd-token loop | 3B/1024 prompt 34.84 → 37.38 tok/s after the sole stability rerun |
+| CPU paired-position attention | F16 KV, exact 4:1 GQA, even query batch and AVX2+FMA+F16C dimensions | original attention paths for other shapes/schemes | 3B/3584 prompt 30.03 → 35.08 tok/s; medium prompt -2.161% within control limit |
+| CPU packed Q6 activation streams | AVX2+FMA batched Q6 row pairs | original scalar, single-row and decode paths | 3B/1024 prompt 33.63 → 37.36 tok/s; short model decode -4.586% within control limit |
 | CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
 | Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |
 | Metal pipelined C64 attention QK | Metal matrix path, rows 64, F16 KV, head 128, exact 4:1 GQA | established tiled/segmented/serial Metal attention | 3B/15K TTFT 103.184 → 84.298 s; 28K 280.058 → 214.704 s |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
+
+The four CPU rows added by [campaign20260905](../investigation-reports/cpu-amdahl-20260905.md)
+were retained on `perf/cpu-amdahl-20260905`, through `6545e72`, and are not
+part of the historical main-integration table above. Their separate adjacent
+A/B gains must not be multiplied. The report owns exact tuples, CVs, controls,
+the complete initial/final comparison and environmental-drift limitations.
+All four preserve the existing per-output arithmetic order and pass focused
+exact-output tests plus pinned real-model F16 parity. This does not broaden CPU
+performance qualification or claim a decode speedup on unchanged decode code.
 
 ## Historical NVIDIA A/B Comparison
 

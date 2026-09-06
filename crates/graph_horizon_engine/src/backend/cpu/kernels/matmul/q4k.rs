@@ -97,7 +97,7 @@ pub(super) fn row_dot_q4k_scalar(a: &[f32], bytes: &[u8], row: usize, in_dim: us
 
 // Per-row batched dot dispatcher: on x86_64 with AVX2+FMA the SIMD batched kernel
 // runs (decode each sub-block once, FMA into every token's lane-parallel
-// accumulator — same per-token order as `row_dot_q4k_avx2`, so bit-identical to it);
+// accumulator — the same order as the two-row batched kernel);
 // every other target uses the scalar batched kernel. `acc` is a per-worker scratch
 // of `n*8` f32 used only by the SIMD path (the eight lane partials per token).
 #[inline]
@@ -120,35 +120,6 @@ fn row_dot_q4k_batched(
     }
     let _ = acc;
     row_dot_q4k_batched_scalar(a, bytes, row, in_dim, out);
-}
-
-// Two-output-row batched dot dispatcher: on x86_64 with AVX2+FMA the register-blocked
-// SIMD kernel processes rows `row0` and `row0+1` together, reusing each activation load
-// across both rows (bit-identical to two single-row calls); every other target falls
-// back to two scalar single-row dots. `acc` is per-worker scratch of `2*n*8` f32 (both
-// rows' lane partials), used only by the SIMD path.
-#[inline]
-fn row2_dot_q4k_batched(
-    a: &[f32],
-    bytes: &[u8],
-    row0: usize,
-    in_dim: usize,
-    out0: &mut [f32],
-    out1: &mut [f32],
-    acc: &mut [f32],
-) {
-    #[cfg(target_arch = "x86_64")]
-    {
-        if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
-            // SAFETY: reached only after the runtime AVX2+FMA check just above.
-            return unsafe {
-                super::q4k_simd::row2_dot_q4k_avx2_batched(a, bytes, row0, in_dim, out0, out1, acc)
-            };
-        }
-    }
-    let _ = acc;
-    row_dot_q4k_batched_scalar(a, bytes, row0, in_dim, out0);
-    row_dot_q4k_batched_scalar(a, bytes, row0 + 1, in_dim, out1);
 }
 
 // Fused Q4_K row dot against `n` activation vectors at once: decode each 32-value
@@ -259,7 +230,24 @@ pub(crate) fn matmul_batched(
         matmul(out, a, w, in_dim, out_dim);
         return;
     }
+    // The graph supplies an exact n-row view, including partial final batches.
     let a = a.read_f16_as_f32();
+    // Pack one 32-value block from every token contiguously. The pair kernel
+    // traverses tokens inside each weight sub-block, so this removes its wide
+    // activation stride without changing any per-token arithmetic.
+    #[cfg(target_arch = "x86_64")]
+    let packed = if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
+        let mut packed = vec![0f32; a.len()];
+        for (block, dst) in packed.chunks_exact_mut(n * 32).enumerate() {
+            for (token, row) in a.chunks_exact(in_dim).enumerate() {
+                dst[token * 32..(token + 1) * 32]
+                    .copy_from_slice(&row[block * 32..(block + 1) * 32]);
+            }
+        }
+        packed
+    } else {
+        Vec::new()
+    };
     let w_bytes = w.bytes();
     let w_bytes: &[u8] = &w_bytes[w.window()];
     let tile = token_tile(in_dim);
@@ -270,12 +258,10 @@ pub(crate) fn matmul_batched(
         // L1-resident; the scalar fallback ignores it. Allocated once per worker.
         let mut acc = vec![0f32; 2 * tile.min(n) * 8];
         let rows = chunk.len() / n;
-        // Token tile OUTER, output row inner: the tile's activations (`tb × in_dim × 4`)
-        // are read once and reused across ALL of this worker's output rows while
-        // resident in cache, instead of being re-streamed per output row. This matters
-        // for wide-in_dim projections whose full activation exceeds L3 (`down`: act is
-        // [n][3072] ≈ 12 MB > 9 MB L3). The adaptive `tile` keeps `tb × in_dim × 4` near
-        // L2. Per-token accumulation order is unchanged → bit-identical.
+        // Reuse each token tile across this worker's output rows. Packing changes
+        // the address order within that shared activation allocation, not the
+        // values or per-token accumulation order. The adaptive tile still limits
+        // the activation footprint to approximately the L2 budget.
         let mut t0 = 0;
         while t0 < n {
             let tb = tile.min(n - t0);
@@ -285,14 +271,39 @@ pub(crate) fn matmul_batched(
             let mut k = 0;
             while k + 1 < rows {
                 let (lo, hi) = chunk.split_at_mut((k + 1) * n);
-                row2_dot_q4k_batched(
+                #[cfg(target_arch = "x86_64")]
+                if !packed.is_empty() {
+                    // SAFETY: packing occurs only after AVX2/FMA detection.
+                    // Each sub-block has n token windows; t0 offsets the first
+                    // window, while tb bounds the tile inside that full stride.
+                    unsafe {
+                        super::q4k_simd::row2_dot_q4k_avx2_batched(
+                            &packed[t0 * 32..],
+                            w_bytes,
+                            o0 + k,
+                            in_dim,
+                            &mut lo[k * n + t0..k * n + t0 + tb],
+                            &mut hi[t0..t0 + tb],
+                            &mut acc[..2 * tb * 8],
+                            n,
+                        );
+                    }
+                    k += 2;
+                    continue;
+                }
+                row_dot_q4k_batched_scalar(
                     &a[t0 * in_dim..],
                     w_bytes,
                     o0 + k,
                     in_dim,
                     &mut lo[k * n + t0..k * n + t0 + tb],
+                );
+                row_dot_q4k_batched_scalar(
+                    &a[t0 * in_dim..],
+                    w_bytes,
+                    o0 + k + 1,
+                    in_dim,
                     &mut hi[t0..t0 + tb],
-                    &mut acc[..2 * tb * 8],
                 );
                 k += 2;
             }
@@ -477,5 +488,52 @@ mod tests {
         assert_eq!(token_tile_for_l2(3072, 1024 * 1024), 64);
         assert_eq!(token_tile_for_l2(9216, 1024 * 1024), 21);
         assert_eq!(token_tile_for_l2(256, 1024 * 1024), 64);
+    }
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn packed_batch_is_exact_against_original_single_row_kernel() {
+        if !(is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma")) {
+            return;
+        }
+        // Odd output count exercises pair chunks and the original trailing row;
+        // wide inputs and n=65 cross both the 21-token and 64-token tile bounds.
+        for in_dim in [256, 512, 3072, 9216] {
+            for n in [2, 5, 21, 32, 33, 65] {
+                let out_dim = 13;
+                let w = q4k_weight(in_dim, out_dim);
+                let values: Vec<f32> = (0..n * in_dim).map(|i| (i as f32 * 0.013).sin()).collect();
+                let a = f16_buf(&values);
+                let original = a.read_f16_as_f32();
+                let out = CpuBuffer::zeroed(n * out_dim * 2, CpuFormat::F16);
+                matmul_batched(&out, &a, &w, in_dim, out_dim, n);
+                let got = out.read_f16_as_f32();
+                let bytes = w.bytes();
+                let mut expected = vec![0f32; n];
+                let mut acc = vec![0f32; n * 8];
+                for row in 0..out_dim {
+                    // SAFETY: feature gate above; validated synthetic rows and
+                    // full-sized activation/output/accumulator slices.
+                    unsafe {
+                        super::super::q4k_simd::row_dot_q4k_avx2_batched(
+                            &original,
+                            &bytes,
+                            row,
+                            in_dim,
+                            &mut expected,
+                            &mut acc,
+                        );
+                    }
+                    for token in 0..n {
+                        let expected = crate::backend::cpu::buffer::f32_to_f16(expected[token]);
+                        let expected = f16_to_f32(expected);
+                        assert_eq!(
+                            got[token * out_dim + row].to_bits(),
+                            expected.to_bits(),
+                            "in={in_dim} n={n} row={row} token={token}"
+                        );
+                    }
+                }
+            }
+        }
     }
 }

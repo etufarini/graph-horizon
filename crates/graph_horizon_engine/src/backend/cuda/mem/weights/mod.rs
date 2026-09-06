@@ -5,6 +5,8 @@
 
 use std::borrow::Cow;
 
+pub(in crate::backend::cuda) mod cache;
+
 use color_eyre::eyre::{Result, bail, eyre};
 
 use super::buffer::{CudaBuffer, CudaFormat};
@@ -14,7 +16,8 @@ use crate::backend::source::{OutputWeight, WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
 use crate::gguf::tensor_index::{GgmlType, TensorInfo};
 
-use super::super::Device;
+use crate::backend::cuda::Device;
+use crate::backend::cuda::module::Module;
 
 pub(crate) fn load_selected(
     device: &Device,
@@ -22,7 +25,7 @@ pub(crate) fn load_selected(
     source: &dyn WeightSource,
     selection: &WeightSelection,
 ) -> Result<WeightSet<CudaBuffer>> {
-    load_inner(device, file, source, selection, None)
+    load_inner(device, file, source, selection, None, None)
 }
 
 pub(in crate::backend::cuda) fn load_inner(
@@ -30,6 +33,7 @@ pub(in crate::backend::cuda) fn load_inner(
     file: &GgufFile,
     source: &dyn WeightSource,
     selection: &WeightSelection,
+    cache: Option<&Module>,
     fail_at: Option<usize>,
 ) -> Result<WeightSet<CudaBuffer>> {
     let groups = source.groups();
@@ -44,23 +48,24 @@ pub(in crate::backend::cuda) fn load_inner(
     let mut index = 0;
     let tied = groups.tail.output.is_tied();
     let token_embd = (selection.embedding || (selection.tail && tied))
-        .then(|| load_step(device, file, groups.embedding, &mut index, fail_at))
+        .then(|| load_step(device, file, groups.embedding, None, &mut index, fail_at))
         .transpose()?;
     let output_norm = selection
         .tail
-        .then(|| load_step(device, file, groups.tail.norm, &mut index, fail_at))
+        .then(|| load_step(device, file, groups.tail.norm, None, &mut index, fail_at))
         .transpose()?;
     let output = match groups.tail.output {
         OutputWeight::Dedicated(tensor) if selection.tail => {
-            Some(load_step(device, file, tensor, &mut index, fail_at)?)
+            Some(load_step(device, file, tensor, None, &mut index, fail_at)?)
         }
         _ => None,
     };
     let mut layers = Vec::with_capacity(selection.layers.len());
     for group in &groups.layers[selection.layers.clone()] {
         let mut loaded = Vec::with_capacity(9);
-        for tensor in group {
-            loaded.push(load_step(device, file, tensor, &mut index, fail_at)?);
+        for (slot, tensor) in group.iter().enumerate() {
+            let cache = cache.filter(|_| !matches!(slot, 0 | 5) && tensor.dims.len() == 2);
+            loaded.push(load_step(device, file, tensor, cache, &mut index, fail_at)?);
         }
         let mut loaded = loaded.into_iter();
         layers.push(LayerWeights {
@@ -90,6 +95,7 @@ fn load_step(
     device: &Device,
     file: &GgufFile,
     tensor: &TensorInfo,
+    cache: Option<&Module>,
     index: &mut usize,
     fail_at: Option<usize>,
 ) -> Result<CudaBuffer> {
@@ -97,10 +103,15 @@ fn load_step(
         bail!("cuda: weight upload failed");
     }
     *index += 1;
-    load_tensor(device, file, tensor)
+    load_tensor(device, file, tensor, cache)
 }
 
-fn load_tensor(device: &Device, file: &GgufFile, tensor: &TensorInfo) -> Result<CudaBuffer> {
+fn load_tensor(
+    device: &Device,
+    file: &GgufFile,
+    tensor: &TensorInfo,
+    cache: Option<&Module>,
+) -> Result<CudaBuffer> {
     let raw = file
         .tensor_bytes(tensor)
         .map_err(|_| eyre!("cuda: weight upload failed"))?;
@@ -112,7 +123,7 @@ fn load_tensor(device: &Device, file: &GgufFile, tensor: &TensorInfo) -> Result<
         GgmlType::Q6_K => (raw.into(), CudaFormat::Q6K),
         other => bail!("cuda: unsupported weight format '{}'", other.name()),
     };
-    CudaBuffer::upload(device, &bytes, format)
+    cache::upload(device, cache, &bytes, format)
 }
 
 #[cfg(test)]
@@ -187,9 +198,13 @@ mod tests {
             let name = format!("w{index}");
             header.extend_from_slice(&(name.len() as u64).to_le_bytes());
             header.extend_from_slice(name.as_bytes());
-            header.extend_from_slice(&1u32.to_le_bytes());
+            let matrix = format == GgmlType::Q6_K;
+            header.extend_from_slice(&(if matrix { 2u32 } else { 1u32 }).to_le_bytes());
             let (dimension, payload) = tensor(format);
             header.extend_from_slice(&dimension.to_le_bytes());
+            if matrix {
+                header.extend_from_slice(&1u64.to_le_bytes());
+            }
             header.extend_from_slice(&type_id(format).to_le_bytes());
             header.extend_from_slice(&offset.to_le_bytes());
             offset += payload.len() as u64;
@@ -236,7 +251,7 @@ mod tests {
         ];
         with_file(&formats, |file| -> Result<()> {
             for (tensor, expected) in file.tensors().iter().zip(expected) {
-                assert_eq!(load_tensor(&device, file, tensor)?.format(), expected);
+                assert_eq!(load_tensor(&device, file, tensor, None)?.format(), expected);
             }
             Ok(())
         })?;
@@ -247,7 +262,7 @@ mod tests {
             for fail_at in 0..=11 {
                 reset_test_counts();
                 assert_eq!(
-                    load_inner(&device, file, &source, &selection, Some(fail_at))
+                    load_inner(&device, file, &source, &selection, None, Some(fail_at))
                         .err()
                         .expect("injected CUDA upload failure")
                         .to_string(),
@@ -360,5 +375,48 @@ mod tests {
             }
         });
         Ok(())
+    }
+
+    #[test]
+    fn cached_upload_failpoints_release_raw_and_converted_allocations() -> Result<()> {
+        let device = Device::acquire()?;
+        let module = Module::load(&device.context)?;
+        with_file(&[GgmlType::Q6_K; 11], |file| -> Result<()> {
+            let source = Source(file.tensors());
+            let selection = WeightSelection::full(1);
+            for fail_at in 0..=11 {
+                reset_test_counts();
+                assert!(
+                    load_inner(
+                        &device,
+                        file,
+                        &source,
+                        &selection,
+                        Some(&module),
+                        Some(fail_at)
+                    )
+                    .is_err()
+                );
+                assert_eq!(
+                    test_counts().0,
+                    test_counts().1,
+                    "cached failpoint {fail_at}"
+                );
+            }
+            reset_test_counts();
+            let weights = load_inner(&device, file, &source, &selection, Some(&module), None)?;
+            assert_eq!(
+                weights.token_embd.as_ref().unwrap().format(),
+                CudaFormat::Q6K
+            );
+            assert_eq!(weights.layers[0].attn_q.format(), CudaFormat::Q6K);
+            assert_eq!(
+                weights.layers[0].attn_q.prefill().format(),
+                CudaFormat::Q6KCached
+            );
+            drop(weights);
+            assert_eq!(test_counts().0, test_counts().1);
+            Ok(())
+        })
     }
 }

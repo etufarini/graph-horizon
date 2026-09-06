@@ -14,6 +14,7 @@ and [validation evidence](../project-status/validation-evidence.md).
 
 | Report | Scope |
 |---|---|
+| [CUDA Amdahl campaign 2026-09-05](cuda-amdahl-20260905.md) | Complete critical-path campaign, 31 countable attempts, retained CUDA scheduling/kernels, rejected experiments, and quantitative stop |
 | [CUDA Amdahl optimization](cuda-amdahl-optimization.md) | Matmul and attention attribution, retained CUDA kernels, rejected candidates, and quantitative stop |
 | [CPU Amdahl optimization](cpu-amdahl-optimization.md) | Retained cache-sized tiling, rejected AVX-512/SMT candidates, and quantitative stop |
 | [CPU Amdahl campaign 20260905](cpu-amdahl-20260905.md) | Twelve new trials: Q4/Q6 activation layout, token scheduling, paired-position attention, rejected numeric/scheduling/backing candidates, and full final measurements |

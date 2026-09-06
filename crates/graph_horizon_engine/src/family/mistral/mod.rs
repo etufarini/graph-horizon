@@ -90,13 +90,6 @@ impl RuntimeModel {
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
         let shape = graph::MistralGraph::shape(&contract.config);
-        #[cfg(not(hybrid_backend))]
-        let memory = memory::homogeneous(
-            &contract.tensors,
-            &contract.config,
-            context,
-            settings.kv_quant,
-        )?;
         let backend = selection::load(
             file,
             &contract.tensors,
@@ -106,6 +99,14 @@ impl RuntimeModel {
             settings.kv_quant,
             settings.vram_weights_percent,
             settings.vram_reserve_mib,
+        )?;
+        #[cfg(not(hybrid_backend))]
+        let memory = memory::homogeneous(
+            &contract.tensors,
+            &contract.config,
+            context,
+            settings.kv_quant,
+            &backend,
         )?;
         #[cfg(hybrid_backend)]
         let memory = memory::hybrid(selection::placement(&backend))?;

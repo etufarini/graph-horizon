@@ -29,6 +29,23 @@ authenticated 3B Instruct Q4_K_M, context-4096, and f16/int8 KV tuple in
 The qualification run's separate context-2048 f16 measurement recorded 1.28
 prompt tok/s and 0.59 end-to-end decode tok/s.
 
+The completed `cuda-amdahl-20260905` campaign on the same qualified model,
+context, KV and software boundary retains 128-row standalone prefill and
+row-batched RoPE at `475f883`. Its fast-profile screen used one warm-up and
+three measured repetitions:
+
+| Regime | Refreshed C44 prompt t/s | Final prompt t/s | C44 model decode t/s | Final model decode t/s |
+|---|---:|---:|---:|---:|
+| 128 prompt tokens | 498.32 | 568.21 | 56.11 | 57.08 |
+| 1,024 prompt tokens | 454.55 | 519.42 | 54.30 | 54.76 |
+| 3,584 prompt tokens | 379.82 | 430.58 | 46.85 | 46.90 |
+
+These are same-driver C44/final measurements after campaign resumption, not a
+backend comparison or a broader support claim. The original campaign entry is
+not compared cumulatively across the recorded driver/toolchain discontinuity.
+The detailed tuple, dispersion, controls and rejected candidates are in the
+[campaign report](../investigation-reports/cuda-amdahl-20260905.md).
+
 A later CUDA/Vulkan benchmark completed its short and medium CUDA workloads but
 timed out on the long CUDA workload, so it reports no comparative winner. Its
 generated report is untracked local performance evidence only and does not

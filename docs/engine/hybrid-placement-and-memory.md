@@ -22,7 +22,7 @@ and execution:
 | Vulkan-hybrid `AllGpu` | Accounted 32-row fallback; 512 with the eligible, capacity-fitting Matrix2 Q4/Q64 capability set | Vulkan |
 | Metal standalone | 64 rows | Metal |
 | Metal-hybrid `AllGpu` (`all-metal`) | 32 rows | Metal |
-| CUDA standalone | 32 rows | CUDA |
+| CUDA standalone | 128 rows | CUDA |
 | CUDA-hybrid `AllGpu` (`all-gpu`) | 32 rows | CUDA |
 | Vulkan, Metal, or CUDA `Mixed` | 4 rows | CPU prefix, one crossing, accelerator suffix |
 
@@ -42,6 +42,17 @@ the automatic plan.
 CPU/accelerator breakdown. `Engine::memory()` reports retained model weights
 and full-context KV capacity; neither value is process RSS or live allocator
 telemetry.
+
+Standalone CUDA may retain an additional lossless representation of Q6 layer
+projection weights for prefill batches of at least 16 rows; decode keeps the
+original packed weights. Admission accounts for both representations and falls
+back to raw weights if the extra storage does not fit, without changing context
+or placement. `Engine::memory()` includes any retained companion; CUDA hybrid
+does not create it.
+
+Standalone CUDA uses the same 128-row capacity for prefill allocation and checked
+scratch admission. CUDA hybrid keeps its independent 32-row all-GPU and 4-row
+mixed capacities. Cancellation is checked between graph batches.
 
 Vulkan and CUDA use separate RAM and VRAM. On Linux, the automatic RAM budget
 is `floor(MemAvailable × 90 / 100)` from one strict `/proc/meminfo`

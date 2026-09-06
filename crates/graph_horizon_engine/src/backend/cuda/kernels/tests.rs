@@ -257,6 +257,348 @@ fn dense_operations_match_packed_quant_reference_with_signed_values() -> Result<
 }
 
 #[test]
+fn cached_embeddings_preserve_every_finite_half_coefficient() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    let format = CudaFormat::Q6K;
+    let pattern = patterned_weight(format, 1);
+    let mut raw = Vec::with_capacity(63_488 * pattern.len());
+    for bits in 0..=u16::MAX {
+        if bits & 0x7c00 == 0x7c00 {
+            continue;
+        }
+        let start = raw.len();
+        raw.extend_from_slice(&pattern);
+        let metadata = start + 208;
+        raw[metadata..metadata + 2].copy_from_slice(&bits.to_le_bytes());
+    }
+    let cached = super::super::mem::weights::cache::upload(&device, Some(&module), &raw, format)?;
+    assert_eq!(cached.format(), format);
+    assert_eq!(cached.prefill().format(), CudaFormat::Q6KCached);
+    let weights = CudaBuffer::upload(&device, &raw, format)?;
+    let width = 63_488 * 256;
+    let bytes = u64::from(width) * 4;
+    let original = CudaBuffer::allocate(&device, bytes, CudaFormat::F32)?;
+    let converted = CudaBuffer::allocate(&device, bytes, CudaFormat::F32)?;
+    let encoder = CudaEncoder::begin(&device);
+    super::embedding::encode(&encoder, &module, &original, &weights, 0, width)?;
+    super::embedding::encode(&encoder, &module, &converted, cached.prefill(), 0, width)?;
+    run(&device, encoder)?;
+    let original = original.read(&device, bytes as usize)?;
+    let converted = converted.read(&device, bytes as usize)?;
+    let mismatch = original.iter().zip(&converted).position(|(a, b)| a != b);
+    assert!(
+        mismatch.is_none(),
+        "cached coefficient mismatch {format:?} at {mismatch:?}"
+    );
+    Ok(())
+}
+
+// Multi-block dots and both output/token tails cover the real projection widths.
+// Scalar stored-weight references retain the existing numeric error bound.
+#[test]
+fn dense_operations_cover_wide_dots_and_output_tails() -> Result<()> {
+    const OUTPUTS: usize = 3;
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    for width in [3, 768, 3072, 9216] {
+        for rows in [1, 9] {
+            let inputs = (0..rows * width)
+                .map(|i| f16_to_f32(f32_to_f16(((i * 7 + 3) % 37) as f32 / 19.0 - 0.7)))
+                .collect::<Vec<_>>();
+            let input = upload_f16(&device, &inputs)?;
+            let last_input = input.view(((rows - 1) * width * 2) as u64, (width * 2) as u64)?;
+            for format in [
+                CudaFormat::F16,
+                CudaFormat::Q4K,
+                CudaFormat::Q5K,
+                CudaFormat::Q6K,
+            ] {
+                if format != CudaFormat::F16 && width % 256 != 0 {
+                    continue;
+                }
+                let raw = if format == CudaFormat::F16 {
+                    f16_bytes(
+                        &(0..OUTPUTS * width)
+                            .map(|i| ((i * 5 + 3) % 31) as f32 / 23.0 - 0.5)
+                            .collect::<Vec<_>>(),
+                    )
+                } else {
+                    patterned_weight(format, OUTPUTS * (width / 256))
+                };
+                let mut identity = None;
+                for cache in [None, Some(&module)] {
+                    let weights =
+                        super::super::mem::weights::cache::upload(&device, cache, &raw, format)?;
+                    let output = CudaBuffer::allocate(
+                        &device,
+                        (rows * OUTPUTS * 2) as u64,
+                        CudaFormat::F16,
+                    )?;
+                    let single =
+                        CudaBuffer::allocate(&device, (OUTPUTS * 2) as u64, CudaFormat::F16)?;
+                    let logits =
+                        CudaBuffer::allocate(&device, (OUTPUTS * 4) as u64, CudaFormat::F32)?;
+                    let encoder = CudaEncoder::begin(&device);
+                    super::matmul::encode_batched(
+                        &encoder,
+                        &module,
+                        &output,
+                        &input,
+                        &weights,
+                        width as u32,
+                        OUTPUTS as u32,
+                        rows as u32,
+                    )?;
+                    super::matmul::encode(
+                        &encoder,
+                        &module,
+                        &single,
+                        &last_input,
+                        &weights,
+                        width as u32,
+                        OUTPUTS as u32,
+                        false,
+                    )?;
+                    super::matmul::encode(
+                        &encoder,
+                        &module,
+                        &logits,
+                        &last_input,
+                        &weights,
+                        width as u32,
+                        OUTPUTS as u32,
+                        true,
+                    )?;
+                    run(&device, encoder)?;
+                    let actual = read_f16(&device, &output, rows * OUTPUTS)?;
+                    let last = read_f16(&device, &single, OUTPUTS)?;
+                    let projected =
+                        super::super::exec::readback::logits(&device, &logits, OUTPUTS)?;
+                    assert_eq!(&actual[(rows - 1) * OUTPUTS..], &last);
+                    let bits = actual
+                        .iter()
+                        .chain(&last)
+                        .chain(&projected)
+                        .map(|v| v.to_bits())
+                        .collect::<Vec<_>>();
+                    if let Some(expected) = &identity {
+                        assert_eq!(&bits, expected, "raw/cache dot bits");
+                    } else {
+                        identity = Some(bits);
+                    }
+                    for token in 0..rows {
+                        for row in 0..OUTPUTS {
+                            let expected = (0..width)
+                                .map(|i| {
+                                    let weight = if format == CudaFormat::F16 {
+                                        let offset = (row * width + i) * 2;
+                                        f16_to_f32(u16::from_le_bytes([
+                                            raw[offset],
+                                            raw[offset + 1],
+                                        ]))
+                                    } else {
+                                        reference_weight(
+                                            format,
+                                            &raw,
+                                            row * (width / 256) + i / 256,
+                                            i % 256,
+                                        )
+                                    };
+                                    inputs[token * width + i] * weight
+                                })
+                                .sum::<f32>();
+                            close(actual[token * OUTPUTS + row], expected);
+                            if token == rows - 1 {
+                                close(projected[row], expected);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn packed_prefill_tiles_match_reference_and_preserve_weight_range() -> Result<()> {
+    let device = Device::acquire()?;
+    for allow_mma16 in [false, true] {
+        let module = Module::load_inner(&device.context, None, allow_mma16)?;
+        for format in [CudaFormat::Q4K, CudaFormat::Q5K, CudaFormat::Q6K] {
+            let block_bytes = match format {
+                CudaFormat::Q4K => 144,
+                CudaFormat::Q5K => 176,
+                CudaFormat::Q6K => 210,
+                _ => unreachable!(),
+            };
+            let pattern = patterned_weight(format, 5);
+            for width in [256_usize, 768, 3072] {
+                for rows in [16_usize, 17, 32, 33] {
+                    for outputs in [17_usize, 65, 8193] {
+                        // One large output grid covers the wide dispatch and both tile tails.
+                        if outputs == 8193 && (width != 256 || rows != 33) {
+                            continue;
+                        }
+                        let raw = (0..outputs * width / 256)
+                            .flat_map(|block| {
+                                let start = (block % 5) * block_bytes;
+                                pattern[start..start + block_bytes].iter().copied()
+                            })
+                            .collect::<Vec<_>>();
+                        let values = (0..width * rows)
+                            .map(|i| ((i * 7 % 31) as f32 - 15.0) * 0.03125)
+                            .collect::<Vec<_>>();
+                        let input = upload_f16(&device, &values)?;
+                        let mut identity = None;
+                        for cache in [None, Some(&module)] {
+                            let weight = super::super::mem::weights::cache::upload(
+                                &device, cache, &raw, format,
+                            )?;
+                            let out = CudaBuffer::allocate(
+                                &device,
+                                (rows * outputs * 2) as u64,
+                                CudaFormat::F16,
+                            )?;
+                            let encoder = CudaEncoder::begin(&device);
+                            super::matmul::encode_batched(
+                                &encoder,
+                                &module,
+                                &out,
+                                &input,
+                                &weight,
+                                width as u32,
+                                outputs as u32,
+                                rows as u32,
+                            )?;
+                            run(&device, encoder)?;
+                            let actual = read_f16(&device, &out, rows * outputs)?;
+                            let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                            if let Some(expected) = &identity {
+                                assert_eq!(&bits, expected, "raw/cache tensor bits");
+                            } else {
+                                identity = Some(bits);
+                            }
+                            for token in 0..rows {
+                                for row in 0..outputs {
+                                    let expected = (0..width)
+                                        .map(|i| {
+                                            values[token * width + i]
+                                                * reference_weight(
+                                                    format,
+                                                    &raw,
+                                                    row * (width / 256) + i / 256,
+                                                    i % 256,
+                                                )
+                                        })
+                                        .sum::<f32>();
+                                    close(actual[token * outputs + row], expected);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Reconstructed weights exceed half range, but cancelling products do not.
+            let mut raw = constant_weight(format, 17);
+            for block in raw.chunks_exact_mut(block_bytes) {
+                let (scale, quants) = match format {
+                    CudaFormat::Q4K => (0, 16..144),
+                    CudaFormat::Q5K => (0, 48..176),
+                    CudaFormat::Q6K => (208, 0..128),
+                    _ => unreachable!(),
+                };
+                block[scale..scale + 2].copy_from_slice(&f32_to_f16(65504.0).to_le_bytes());
+                block[quants].fill(0x22);
+            }
+            for rows in [16_usize, 32] {
+                let values = (0..rows * 256)
+                    .map(|i| if i % 2 == 0 { 1.0 } else { -1.0 })
+                    .collect::<Vec<_>>();
+                let input = upload_f16(&device, &values)?;
+                let mut identity = None;
+                for cache in [None, Some(&module)] {
+                    let weight =
+                        super::super::mem::weights::cache::upload(&device, cache, &raw, format)?;
+                    let out =
+                        CudaBuffer::allocate(&device, (rows * 17 * 2) as u64, CudaFormat::F16)?;
+                    let encoder = CudaEncoder::begin(&device);
+                    super::matmul::encode_batched(
+                        &encoder,
+                        &module,
+                        &out,
+                        &input,
+                        &weight,
+                        256,
+                        17,
+                        rows as u32,
+                    )?;
+                    run(&device, encoder)?;
+                    let actual = read_f16(&device, &out, rows * 17)?;
+                    let bits = actual.iter().map(|v| v.to_bits()).collect::<Vec<_>>();
+                    if let Some(expected) = &identity {
+                        assert_eq!(&bits, expected, "raw/cache range bits");
+                    } else {
+                        identity = Some(bits);
+                    }
+                    for value in actual {
+                        close(value, 0.0);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn normalization_wide_rows_and_dimension_tails_match_reference() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    for width in [1_usize, 3, 129, 3072, 9216] {
+        for rows in [1_usize, 3] {
+            let values = (0..width * rows)
+                .map(|i| {
+                    let value = ((i * 13 % 37) as f32 - 18.0) * 0.03125;
+                    value * if i % 7 == 0 { 100.0 } else { 1.0 }
+                })
+                .collect::<Vec<_>>();
+            let weights = (0..width)
+                .map(|i| ((i % 17) as f32 - 8.0) * 0.125)
+                .collect::<Vec<_>>();
+            let input = upload_f32(&device, &values)?;
+            let weight = upload_f16(&device, &weights)?;
+            let out = CudaBuffer::allocate(&device, (width * rows * 2) as u64, CudaFormat::F16)?;
+            for epsilon in [0.0_f32, 1e-5] {
+                let encoder = CudaEncoder::begin(&device);
+                super::normalization::encode(
+                    &encoder,
+                    &module,
+                    &out,
+                    &input,
+                    &weight,
+                    width as u32,
+                    epsilon,
+                    rows as u32,
+                )?;
+                run(&device, encoder)?;
+                let actual = read_f16(&device, &out, width * rows)?;
+                for row in 0..rows {
+                    let values = &values[row * width..(row + 1) * width];
+                    let sum = values.iter().map(|value| value * value).sum::<f32>();
+                    let inverse = 1.0 / (sum / width as f32 + epsilon).sqrt();
+                    for i in 0..width {
+                        close(actual[row * width + i], values[i] * inverse * weights[i]);
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn dense_operations_cover_normalization_rope_and_elementwise() -> Result<()> {
     let device = Device::acquire()?;
     let module = Module::load(&device.context)?;
@@ -331,6 +673,92 @@ fn dense_operations_cover_normalization_rope_and_elementwise() -> Result<()> {
     let rotated_key = read_f16(&device, &rotary_key, 4)?;
     close(rotated_key[0], expected_key_pair.cos);
     close(rotated_key[1], expected_key_pair.sin);
+    Ok(())
+}
+
+#[test]
+fn batched_rope_matches_row_dispatch_across_scale_boundary() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    let values = [
+        1.0, 0.0, 0.5, -0.5, -1.0, 0.25, 0.75, 0.125, 0.375, -0.625, -0.875, 1.25,
+    ];
+    let q_batch = upload_f16(&device, &values)?;
+    let k_batch = upload_f16(&device, &values)?;
+    let q_rows = upload_f16(&device, &values)?;
+    let k_rows = upload_f16(&device, &values)?;
+    let yarn = Yarn {
+        rope_dim: 4,
+        original_context: 128,
+        freq_base: 10_000.0,
+        factor: 2.0,
+        beta_fast: 32.0,
+        beta_slow: 1.0,
+        log_multiplier: 0.1,
+        q_temperature_scale: 1.0,
+    };
+
+    let batched = CudaEncoder::begin(&device);
+    super::rope::encode_batched(
+        &batched, &module, &q_batch, &k_batch, 1, 1, 4, 127, 3, &yarn,
+    )?;
+    run(&device, batched)?;
+
+    let row_dispatch = CudaEncoder::begin(&device);
+    for row in 0..3u32 {
+        let q = q_rows.view(u64::from(row) * 8, 8)?;
+        let k = k_rows.view(u64::from(row) * 8, 8)?;
+        super::rope::encode(
+            &row_dispatch,
+            &module,
+            &q,
+            1,
+            4,
+            127 + row,
+            &yarn,
+            RopeRole::Query,
+        )?;
+        super::rope::encode(
+            &row_dispatch,
+            &module,
+            &k,
+            1,
+            4,
+            127 + row,
+            &yarn,
+            RopeRole::Key,
+        )?;
+    }
+    run(&device, row_dispatch)?;
+
+    assert_eq!(
+        q_batch.read(&device, values.len() * 2)?,
+        q_rows.read(&device, values.len() * 2)?
+    );
+    assert_eq!(
+        k_batch.read(&device, values.len() * 2)?,
+        k_rows.read(&device, values.len() * 2)?
+    );
+    let encoder = CudaEncoder::begin(&device);
+    assert!(
+        super::rope::encode_batched(&encoder, &module, &q_batch, &k_batch, 1, 1, 4, 0, 0, &yarn)
+            .is_err()
+    );
+    assert!(
+        super::rope::encode_batched(
+            &encoder,
+            &module,
+            &q_batch,
+            &k_batch,
+            1,
+            1,
+            4,
+            u32::MAX,
+            2,
+            &yarn
+        )
+        .is_err()
+    );
     Ok(())
 }
 
@@ -473,6 +901,15 @@ fn attention_prefill_is_causal_and_one_row_matches_decode() -> Result<()> {
         assert_eq!(
             read_f16(&device, &decode, 2)?,
             read_f16(&device, &prefill.view(8, 4)?, 2)?
+        );
+        // A one-row prefill still has the prefill ABI, including its rows scalar.
+        let single = CudaBuffer::allocate(&device, 4, CudaFormat::F16)?;
+        let encoder = CudaEncoder::begin(&device);
+        super::attention::prefill(&encoder, &module, &single, &query, &cache, 1, 2, 1, 0)?;
+        run(&device, encoder)?;
+        assert_eq!(
+            read_f16(&device, &single, 2)?,
+            read_f16(&device, &decode, 2)?
         );
     }
     Ok(())
@@ -618,6 +1055,207 @@ fn attention_gqa_scores_match_reference_for_both_kv_schemes() -> Result<()> {
     Ok(())
 }
 
+// Dense scores at the end of a long cache exercise reduction drift, GQA reuse,
+// partial blocks and causal masking; the scalar reference uses stored KV values.
+#[test]
+fn attention_long_history_and_dimension_tails_match_reference() -> Result<()> {
+    const HEADS: usize = 2;
+    let device = Device::acquire()?;
+    let mut module = Module::load(&device.context)?;
+    // Preserve the original three-row cases; also cover four-query and K16 tile tails.
+    for (dim, context, rows) in [
+        (3, 17, 3),
+        (3, 4097, 3),
+        (128, 3584, 3),
+        (129, 33, 3),
+        (256, 129, 3),
+        (16, 17, 4),
+        (128, 3584, 4),
+        (128, 3584, 5),
+        (256, 129, 4),
+        (128, 33, 32),
+        (128, 529, 4),
+        (3, 514, 3),
+        (129, 1025, 3),
+        (256, 4097, 3),
+        (128, 529, 8),
+        (128, 521, 9),
+        (128, 545, 16),
+        (128, 529, 17),
+    ] {
+        let base = context - rows;
+        let keys = (0..context * dim)
+            .map(|i| ((i * 13 + 7) % 37) as f32 / 16.0 - 1.0)
+            .collect::<Vec<_>>();
+        let values = (0..context * dim)
+            .map(|i| ((i * 11 + 3) % 31) as f32 / 8.0 - 2.0)
+            .collect::<Vec<_>>();
+        let queries = (0..rows * HEADS * dim)
+            .map(|i| ((i * 7 + 5) % 29) as f32 / 16.0 - 0.75)
+            .collect::<Vec<_>>();
+        let key_input = upload_f16(&device, &keys)?;
+        let value_input = upload_f16(&device, &values)?;
+        let query_input = upload_f16(&device, &queries)?;
+        for scheme in [KvQuant::F16, KvQuant::Int8] {
+            let cache = kv(&device, scheme, context, dim)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::kv_write::encode(
+                &encoder,
+                &module,
+                &cache,
+                &key_input,
+                &value_input,
+                0,
+                0,
+                cache.meta_base_for(KvRole::Key),
+                cache.meta_base_for(KvRole::Value),
+                context as u32,
+            )?;
+            run(&device, encoder)?;
+            let row_bytes = (HEADS * dim * 2) as u64;
+            let output = CudaBuffer::allocate(&device, row_bytes * rows as u64, CudaFormat::F16)?;
+            let encoder = CudaEncoder::begin(&device);
+            super::attention::prefill(
+                &encoder,
+                &module,
+                &output,
+                &query_input,
+                &cache,
+                HEADS as u32,
+                base as u32,
+                rows as u32,
+                0,
+            )?;
+            run(&device, encoder)?;
+            let actual = read_f16(&device, &output, rows * HEADS * dim)?;
+            let mut expected_values = Vec::with_capacity(actual.len());
+            let stored_keys = keys
+                .chunks_exact(dim)
+                .map(|v| stored_kv_vector(scheme, v))
+                .collect::<Vec<_>>();
+            let stored_values = values
+                .chunks_exact(dim)
+                .map(|v| stored_kv_vector(scheme, v))
+                .collect::<Vec<_>>();
+            for row in 0..rows {
+                for head in 0..HEADS {
+                    let offset = (row * HEADS + head) * dim;
+                    let query = &queries[offset..offset + dim];
+                    let scores = stored_keys[..=base + row]
+                        .iter()
+                        .map(|key| {
+                            query.iter().zip(key).map(|(q, k)| q * k).sum::<f32>()
+                                / (dim as f32).sqrt()
+                        })
+                        .collect::<Vec<_>>();
+                    let maximum = scores.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    let weights = scores
+                        .iter()
+                        .map(|s| (s - maximum).exp())
+                        .collect::<Vec<_>>();
+                    let denominator = weights.iter().sum::<f32>();
+                    for d in 0..dim {
+                        let expected = weights
+                            .iter()
+                            .zip(&stored_values)
+                            .map(|(w, v)| w * v[d])
+                            .sum::<f32>()
+                            / denominator;
+                        close(actual[offset + d], expected);
+                        expected_values.push(expected);
+                    }
+                }
+            }
+            let decode = CudaBuffer::allocate(&device, row_bytes, CudaFormat::F16)?;
+            // Exercise both sides of the buffered/online boundary, not only the last row.
+            for row in 0..rows {
+                let query = query_input.view(row_bytes * row as u64, row_bytes)?;
+                let encoder = CudaEncoder::begin(&device);
+                super::attention::decode(
+                    &encoder,
+                    &module,
+                    &decode,
+                    &query,
+                    &cache,
+                    HEADS as u32,
+                    (base + row) as u32,
+                    0,
+                )?;
+                run(&device, encoder)?;
+                let decoded_values = read_f16(&device, &decode, HEADS * dim)?;
+                if module.split_attention && (512..4096).contains(&(base + row)) {
+                    // Optional capability fallback must remain numerically valid on this device.
+                    module.split_attention = false;
+                    let encoder = CudaEncoder::begin(&device);
+                    super::attention::decode(
+                        &encoder,
+                        &module,
+                        &decode,
+                        &query,
+                        &cache,
+                        HEADS as u32,
+                        (base + row) as u32,
+                        0,
+                    )?;
+                    run(&device, encoder)?;
+                    module.split_attention = true;
+                    for (i, fallback) in read_f16(&device, &decode, HEADS * dim)?
+                        .into_iter()
+                        .enumerate()
+                    {
+                        close(fallback, expected_values[row * HEADS * dim + i]);
+                        close(decoded_values[i], fallback);
+                    }
+                }
+                for (i, decoded) in decoded_values.into_iter().enumerate() {
+                    let offset = row * HEADS * dim + i;
+                    close(decoded, actual[offset]);
+                    close(decoded, expected_values[offset]);
+                }
+            }
+            if scheme == KvQuant::F16
+                && ((rows == 4 && (dim == 16 || context == 529))
+                    || (rows == 9 && context == 521)
+                    || (rows == 17 && context == 529))
+            {
+                // Masked future K/V must not affect an earlier query, even via 0 * NaN.
+                let poisoned = upload_f16(&device, &vec![f32::NAN; dim])?;
+                let future = ((base + 1) * dim * 2) as u64;
+                let encoder = CudaEncoder::begin(&device);
+                super::kv_write::encode(
+                    &encoder,
+                    &module,
+                    &cache,
+                    &poisoned,
+                    &poisoned,
+                    future,
+                    future,
+                    cache.meta_base_for(KvRole::Key),
+                    cache.meta_base_for(KvRole::Value),
+                    1,
+                )?;
+                super::attention::prefill(
+                    &encoder,
+                    &module,
+                    &output,
+                    &query_input,
+                    &cache,
+                    HEADS as u32,
+                    base as u32,
+                    rows as u32,
+                    0,
+                )?;
+                run(&device, encoder)?;
+                assert_eq!(
+                    read_f16(&device, &output, HEADS * dim)?,
+                    actual[..HEADS * dim]
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 #[test]
 fn attention_rejects_empty_overflow_gqa_and_context_before_submission() -> Result<()> {
     let device = Device::acquire()?;
@@ -658,6 +1296,39 @@ fn attention_rejects_empty_overflow_gqa_and_context_before_submission() -> Resul
         );
     }
     encoder.submit()
+}
+
+#[test]
+fn argmax_wide_lanes_and_total_order_ties_are_exact() -> Result<()> {
+    let device = Device::acquire()?;
+    let module = Module::load(&device.context)?;
+    let output = CudaBuffer::allocate(&device, 4, CudaFormat::Raw)?;
+    for length in [1_usize, 3, 255, 256, 257, 131072, 131075] {
+        for mode in 0..3 {
+            let mut values = (0..length)
+                .map(|i| f32::from_bits((i as u32).wrapping_mul(1664525).wrapping_add(1013904223)))
+                .collect::<Vec<_>>();
+            if mode == 1 {
+                values[length / 3] = f32::from_bits(0x7fff_ffff);
+                values[length - 1] = f32::from_bits(0x7fff_ffff);
+            } else if mode == 2 {
+                values.fill(f32::from_bits(0xffff_ffff));
+            }
+            let expected = (1..length).fold(0, |best, i| {
+                if values[i].total_cmp(&values[best]).is_gt() {
+                    i
+                } else {
+                    best
+                }
+            });
+            let logits = upload_f32(&device, &values)?;
+            assert_eq!(
+                super::argmax::read(&device, &module, &logits, &output, length)?,
+                expected as u32
+            );
+        }
+    }
+    Ok(())
 }
 
 #[test]

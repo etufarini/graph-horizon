@@ -52,7 +52,15 @@ pub(crate) fn encode(
             Arg::U32(output_width),
             Arg::U32(format),
         ],
-        (output_width, 1, 1),
+        (
+            if format == 0 {
+                output_width
+            } else {
+                output_width.div_ceil(4)
+            },
+            1,
+            1,
+        ),
         (128, 1, 1),
     )
 }
@@ -68,6 +76,8 @@ pub(crate) fn encode_batched(
     output_width: u32,
     rows: u32,
 ) -> Result<()> {
+    // A companion changes only tensor prefill; raw weights remain authoritative elsewhere.
+    let weight = if rows >= 16 { weight.prefill() } else { weight };
     let input_items = u64::from(input_width)
         .checked_mul(u64::from(rows))
         .ok_or_else(super::arithmetic)?;
@@ -96,10 +106,30 @@ pub(crate) fn encode_batched(
         );
     }
     let token_groups = rows.checked_add(3).ok_or_else(super::arithmetic)? / 4;
+    // Large output grids amortize M32 staging; smaller grids retain M16 parallelism.
+    let (kernel, grid) = if format != 0 && rows >= 32 && output_width >= 8192 {
+        (
+            Kernel::MatmulTensorWide,
+            (output_width.div_ceil(64), rows.div_ceil(32), 1),
+        )
+    } else if (format == 1 || format == 2) && rows >= 16 && output_width <= 3072 {
+        // Small Q4/Q5 grids can reuse paired groups without M32's shared cost.
+        (
+            Kernel::MatmulTensorPaired,
+            (output_width.div_ceil(64), rows.div_ceil(16), 1),
+        )
+    } else if format != 0 && rows >= 16 {
+        (
+            Kernel::MatmulTensor,
+            (output_width.div_ceil(64), rows.div_ceil(16), 1),
+        )
+    } else {
+        (Kernel::MatmulBatched, (output_width, token_groups, 1))
+    };
     dispatch::launch(
         encoder,
         module,
-        Kernel::MatmulBatched,
+        kernel,
         &[
             Arg::Buffer(input, input_bytes),
             Arg::Buffer(weight, weight_bytes),
@@ -109,7 +139,7 @@ pub(crate) fn encode_batched(
             Arg::U32(rows),
             Arg::U32(format),
         ],
-        (output_width, token_groups, 1),
+        grid,
         (128, 1, 1),
     )
 }

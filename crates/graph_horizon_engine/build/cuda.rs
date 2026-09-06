@@ -20,28 +20,28 @@ pub(crate) fn build() {
         println!("cargo:rerun-if-changed={}", source.display());
     }
 
-    let output_path = PathBuf::from(std::env::var_os("OUT_DIR").expect("build: OUT_DIR not set"))
-        .join("cuda_kernels.ptx");
-    let output = Command::new("nvcc")
-        .args([
-            "--ptx",
-            "--std=c++17",
-            "-O3",
-            "--gpu-architecture=compute_75",
-            "--output-file",
-        ])
-        .arg(&output_path)
-        .arg(source_dir.join("kernels.cu"))
-        .output()
-        .unwrap_or_else(|_| compiler_unavailable());
-    if !output.status.success() {
-        panic!(
-            "CUDA kernel compilation failed\n{}",
-            bounded(&output.stderr)
-        );
-    }
-    if std::fs::metadata(output_path).map_or(true, |metadata| metadata.len() == 0) {
-        panic!("CUDA kernel compilation failed");
+    // Fixed images preserve75 admission while allowing80-only instructions where supported.
+    let output_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("build: OUT_DIR not set"));
+    for (architecture, filename) in [
+        ("--gpu-architecture=compute_75", "cuda_kernels.ptx"),
+        ("--gpu-architecture=compute_80", "cuda_kernels_80.ptx"),
+    ] {
+        let output_path = output_dir.join(filename);
+        let output = Command::new("nvcc")
+            .args(["--ptx", "--std=c++17", "-O3", architecture, "--output-file"])
+            .arg(&output_path)
+            .arg(source_dir.join("kernels.cu"))
+            .output()
+            .unwrap_or_else(|_| compiler_unavailable());
+        if !output.status.success() {
+            panic!(
+                "CUDA kernel compilation failed\n{}",
+                bounded(&output.stderr)
+            );
+        }
+        if std::fs::metadata(output_path).map_or(true, |metadata| metadata.len() == 0) {
+            panic!("CUDA kernel compilation failed");
+        }
     }
 }
 

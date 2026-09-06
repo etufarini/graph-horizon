@@ -92,6 +92,12 @@ hardware, driver, and operating-system tuples are owned by
 An unavailable row is external verification, not an implicit support or failure
 claim.
 
+CUDA embeds compute-7.5 and compute-8.0 PTX images and loads exactly one.
+Compute capability 8.0 or newer selects direct K16 matrix instructions for
+packed prefill; older admitted devices, or a failed optional capability query,
+retain the 7.5-compatible WMMA path. This selection does not broaden device
+qualification; both images are tested in the recorded validation environment.
+
 CUDA hybrid is qualified as composition, not as a new numeric backend. It uses
 separate RAM and VRAM, an immutable plan, 32-row all-GPU and 4-row mixed
 prefill, and exactly one synchronous CPU-to-CUDA residual crossing per mixed

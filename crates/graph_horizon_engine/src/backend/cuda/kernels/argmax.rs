@@ -33,7 +33,7 @@ pub(crate) fn read(
             Arg::U32(length),
         ],
         (1, 1, 1),
-        (1, 1, 1),
+        (256, 1, 1),
     )?;
     encoder.submit()?;
     let bytes = output.read(device, 4)?;

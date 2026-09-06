@@ -9,28 +9,40 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Graph Horizon v0.1.5
 
-Graph Horizon v0.1.5 is the source candidate that aligns CUDA with the other
-installer-supported backends and prepares stable hybrid quick-install choices.
-The local installer accepts standalone `cuda` and the `vulkan-hybrid`,
-`metal-hybrid`, and `cuda-hybrid` profiles on their declared platforms. Both
-CUDA profiles require CUDA Toolkit `nvcc` before any frontend or Rust build
-starts and use visible device ordinal 0. No hybrid profile enables prefix-KV
-reuse.
+Graph Horizon v0.1.5 adds standalone CUDA and CUDA-hybrid installation on Linux
+`x86_64`. Both require CUDA Toolkit `nvcc` before frontend or Rust builds and
+use visible device ordinal 0. Quick installation also exposes the existing
+Vulkan-hybrid and Metal-hybrid profiles on their declared platforms. Hybrid
+profiles retain explicit placement and do not enable prefix-KV reuse.
 
-Installer availability does not promote either CUDA profile to production or
-broaden its qualified boundary. CUDA hybrid is qualified only for the frozen
-six-row model, context, KV, placement, hardware, driver, and toolkit tuple in
-validation evidence. No CUDA-hybrid performance comparison is claimed.
+CPU prefill now packs Q4_K and Q6_K activations and shares attention cache
+reads across paired positions on eligible SIMD shapes. CUDA adds tiled
+quantized matrix products, parallel normalization and sampling, shared prefill
+attention work, split long-history decode, lossless Q6 prefill weight storage,
+128-row standalone prefill, and batched rotary embedding. Release qualification
+corrected a shared-capacity regression so CUDA-hybrid retains 32-row all-GPU
+prefill and its separate 4-row mixed batches. Shape and capability
+checks retain the existing fallback paths. Vulkan device policy now uses
+explicit capability profiles.
 
-After an explicitly authorized publication of the exact candidate as `v0.1.5`,
-the tagged bootstrap can select any of the three hybrid profiles; for example:
+These changes preserve the public Q4_K_M model format, explicit backend
+selection, and CLI/Web interfaces. CUDA availability does not promote either
+CUDA profile to production or broaden its recorded qualification boundary.
+Performance measurements in the investigation reports belong to their original
+commits and recorded environments; they are not new release-wide guarantees.
+CUDA-hybrid has no performance comparison claim.
+
+Internal changes add profiling and benchmark support and preserve the full
+CPU/CUDA investigation records. No additional model family is supported.
+
+Install the authenticated source release with, for example:
 
 ```sh
 curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend cuda-hybrid
 ```
 
-Publication, release-integrity verification, and platform-specific installed
-binary smokes remain external verification.
+See [validation evidence](validation-evidence.md) for release gates and
+platform-specific external verification.
 
 ## Graph Horizon v0.1.4
 

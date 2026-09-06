@@ -109,7 +109,7 @@ impl CudaBuffer {
         if self.format != CudaFormat::Q6K
             || cache.format != CudaFormat::Q6KCached
             || self.len == 0
-            || self.len % 210 != 0
+            || !self.len.is_multiple_of(210)
             || expected != Some(cache.len)
             || self.offset != 0
             || cache.offset != 0

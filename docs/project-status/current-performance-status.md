@@ -79,8 +79,8 @@ The package version is `0.1.5`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 `v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
 `v0.1.3` corrects release identity, `v0.1.4` prepares generic release model
-selection and a closed family dispatcher, and `v0.1.5` prepares the qualified
-CUDA profiles and installer paths.
+selection and a closed family dispatcher, and `v0.1.5` adds CUDA profiles,
+installer paths, and the retained CPU/CUDA optimizations documented below.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 

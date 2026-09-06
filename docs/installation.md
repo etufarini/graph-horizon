@@ -32,9 +32,8 @@ Models are acquired separately. See
 
 ## Quick Install
 
-The commands below are prepared for the authenticated `v0.1.5` bootstrap after
-that exact candidate is published. They do not claim publication; `v0.1.4`
-remains the current stable release.
+The commands below use the authenticated `v0.1.5` bootstrap and its immutable
+source archive.
 
 ### Apple Silicon and Metal
 

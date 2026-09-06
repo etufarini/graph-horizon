@@ -21,7 +21,11 @@ pub(crate) use loader::load;
 pub(crate) use mem::buffer::{CudaBuffer, CudaFormat};
 
 // Standalone graph batches and their memory preflight must use the same capacity.
+#[cfg(feature = "cuda")]
 pub(crate) const PREFILL_ROWS: usize = 128;
+// Hybrid retains its qualified all-GPU capacity; mixed batches are bounded separately.
+#[cfg(feature = "cuda-hybrid")]
+pub(crate) const PREFILL_ROWS: usize = 32;
 
 pub(crate) struct CudaBackend {
     pub(crate) device: Device,

@@ -48,13 +48,11 @@ platform coverage.
 
 ## Quick Install
 
-### Prepared v0.1.5 release
+### v0.1.5 release
 
-After the exact `v0.1.5` candidate is published, the commands below build Graph
-Horizon from its authenticated source release and install it in
-`$HOME/.local/bin` by default. They are prepared release commands, not evidence
-that publication has occurred. Review the complete
-[prerequisites and installation options](docs/installation.md) before running it.
+The commands below build Graph Horizon from its authenticated source release
+and install it in `$HOME/.local/bin` by default. Review the complete
+[prerequisites and installation options](docs/installation.md) before running them.
 
 On Apple Silicon macOS with the Xcode command-line Metal tools:
 
@@ -136,18 +134,14 @@ artifacts, model sizes, contexts, and KV schemes remain unclaimed; see the
 
 ## Stable Release And Main
 
-The current published stable release is `v0.1.4`, frozen by an immutable
-annotated tag. Its release claims and validation evidence apply only to that
-exact tagged commit. `v0.1.5` remains a source candidate until its exact final
-commit, annotated tag, archive, and checksum are published and verified. `main`
-contains ongoing development, may be ahead of the stable tag, and is not
-automatically release-qualified.
+The stable release is `v0.1.5`, identified by its immutable annotated tag,
+authenticated source archive, and adjacent checksum. Release claims apply only
+to that exact tagged commit. `main` contains ongoing development, may be ahead
+of the stable tag, and is not automatically release-qualified.
 
-The prepared `v0.1.5` commands deliberately use the future immutable tag
-instead of `main`. See the
-[release notes](docs/project-status/release-notes.md) and
-[exact validation evidence](docs/project-status/validation-evidence.md) for the
-scope and identity of published claims.
+See the [release notes](docs/project-status/release-notes.md) and
+[validation evidence](docs/project-status/validation-evidence.md) for the scope
+of qualification and historical release identities.
 
 ## Models
 

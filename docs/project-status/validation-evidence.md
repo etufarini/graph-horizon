@@ -8,10 +8,15 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.5` is the current release candidate. No local or remote
-`v0.1.5` tag exists at preparation time. Graph Horizon `0.1.4` remains the
-current published stable release. Its annotated local and anonymous remote tag,
-published source archive, and archive-embedded commit all resolve to
+Graph Horizon `0.1.5` is the current release version. Its immutable identity is
+`v0.1.5^{commit}`: the annotated tag, archive-embedded commit, and adjacent
+checksum must agree. Exact-commit public-readiness, archive installation, and
+anonymous publication checks run after the preparation commit; their completed
+results belong in the [release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5).
+They are separate from historical qualification below.
+
+For the previous release, Graph Horizon `0.1.4`, the annotated local and
+anonymous remote tag, published source archive, and archive-embedded commit resolve to
 `dd485f3a44363880bf11fc5bc69d77f149415025`.
 The published archive SHA-256 is
 `7db3d1b03d9b5003801c069b2fb8ae0345caaa9e67287f8e3d1fa2f7d18c8b6d`,
@@ -48,7 +53,49 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
-## v0.1.5 CUDA Profiles Candidate — 3 September 2026
+## v0.1.5 Release Preparation — 6 September 2026
+
+The release starts from integrated `main` at `58f65fe` and includes the CPU and
+CUDA changes described in the release notes. Qualification uses Linux
+`x86_64`, Rust/Cargo 1.95.0 plus minimum 1.88.0, Node.js 24.15.0, npm 11.12.1,
+and CUDA Toolkit 12.4.131 in the recorded validation environment.
+
+The gate exposed two defects in the integrated source: a warnings-denied
+CUDA divisibility lint and a shared prefill constant that unintentionally gave
+CUDA-hybrid the standalone 128-row capacity. The release uses the equivalent
+`is_multiple_of` check and separates capacities by build profile: 128 standalone,
+32 hybrid all-GPU, with mixed batches still bounded independently to 4 rows.
+The existing hybrid capacity assertion remains unchanged and passes.
+
+| Preparation gate | Result |
+|---|---|
+| Rust format and exact source-structure contract | PASS |
+| CPU Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 167, documentation 1, family 4, semantic harness 12 |
+| CUDA Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 155, documentation 1, family 4, semantic harness 12 |
+| CUDA-hybrid Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 230, documentation 1, family 5, semantic harness 12 |
+| Vulkan Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 164, documentation 1, family 4, semantic harness 12 |
+| Vulkan-hybrid Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 239, documentation 1, family 5, semantic harness 12 |
+| Minimum Rust 1.88 CPU suite and CUDA/CUDA-hybrid/Vulkan/Vulkan-hybrid all-target checks | PASS |
+| Frontend install, tests, diagnostics, build, audit | PASS: 135 tests, 0 errors/warnings, 0 vulnerabilities |
+| Tracked shell syntax, installer/bootstrap/release-integrity fixtures | PASS: 13 shell scripts; fixtures in each app/support suite |
+| Live Web/News providers | PASS: 3 tests in each of 3 consecutive rounds |
+| Authenticated 3B Instruct parity/lifecycle, context 4096, f16 and int8 | PASS: 18/18 rows across CPU, CUDA, Vulkan, and both hybrid profiles at 100/25/0% weights; all local token sequences equal the pinned oracle |
+| Fresh 3B, 8B, and 14B Reasoning semantic qualification, Vulkan all-GPU, context 4096, f16 | PASS: each 4/4 critical, 9/9 semantic, 9/9 complete reasoning markers |
+| Metal and Metal-hybrid execution | external verification: requires macOS arm64 |
+
+The semantic runner completed with `qualified=6 not_qualified=0
+external_verification=0`: three fresh Reasoning results above and three
+explicitly preserved Instruct results, which are not new semantic runs.
+
+Ordinary suites retain their declared ignored model/network tests. Harness unit
+tests alone are not real-model semantic qualification. Exact release identity
+and post-commit product/publication gates are recorded separately as described
+under Current State; previous backend/performance evidence is not reassigned.
+
+## Historical v0.1.5 CUDA Profiles Preparation — 3 September 2026
+
+This section records the earlier installer task before release authorization;
+its pending publication rows are historical, not the final release result.
 
 The compatible CUDA backend and qualification changes after v0.1.4 select patch
 version `0.1.5`. The candidate adds standalone and hybrid CUDA to the local

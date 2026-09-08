@@ -6,7 +6,7 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: baseline complete; CPU/GPU timeline acquisition in progress.
+- State: baseline attribution complete; C01 selected before implementation.
 - Attempts: 0 of at least 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
@@ -71,13 +71,68 @@ tiles, and eight-warp decode blocks. Its 12-query attention result was
 interesting at +3.20% but below the keep threshold. These premises are closed
 unless a new measurement changes one of their assumptions.
 
+## Baseline timeline and critical path
+
+Nsight Systems captured CUDA API and GPU activity without CPU sampling. The
+host importer converted the original `.qdstrm` files to `.nsys-rep` and SQLite
+under the campaign directory; no workload was repeated for conversion. The
+profiled prompt rates differ from the unprofiled means by -0.56%, -0.94%, and
+-0.13% for short, medium, and long, so the timelines are representative
+diagnostics but the unprofiled public records remain authoritative.
+
+| Regime | Prefill span ms | Tensor matmul ms | Tensor attention ms | Decode span ms | Decode matmul ms | Decode attention ms | Prefill gap ms |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Short | 463.300 | 442.126 | 0 | 631.123 | 497.304 | 28.074 | 0.348 |
+| Medium | 3,966.649 | 3,556.723 | 203.235 | 654.221 | 499.097 | 44.256 | 6.201 |
+| Long | 16,066.583 | 12,525.621 | 3,167.210 | 760.612 | 501.799 | 149.485 | 19.256 |
+
+All request work uses one stream. Long prefill is 99.88% attributed to kernels;
+the three tensor matmul entries own 77.96% of prefill and tensor attention owns
+19.71%. Synchronization time is host waiting on the same GPU critical path, not
+additional removable time. There is no request-time host-to-device transfer.
+Host-gap, transfer, and command-submission mechanisms therefore cannot reach
+the retention threshold.
+
+The trace reports 128-thread tensor matmul blocks with 70/96/72 registers per
+thread and 9,792/14,976/19,584 bytes shared for ordinary/wide/paired entries.
+Tensor attention uses 64 registers and 13,408 bytes shared. Baseline PTX uses
+scalar `ld.global.u16` and `st.shared.u16` for both hot tensor families and no
+32-bit load/store equivalents. A targeted Nsight Compute run on one proven-hot
+wide launch returned `ERR_NVGPUCTRPERM`; no kernel was replayed and that run is
+not performance evidence. Static launch records, PTX, and isolated causal A/B
+experiments are the available counter path.
+
 ## Candidate pool
 
-The active pool will be populated and ranked after the new timeline,
-critical-path attribution, and targeted counter or causal evidence. No
-historical candidate will be counted as a new attempt. The public screen makes
-long prefill the initial diagnostic priority: its 16.05 s TTFT dominates the
-approximately 0.75 s required for 32 model decode tokens.
+The pool is ranked from long-prefill critical-path time, static launch
+resources, baseline PTX, and historical closures. `p` is full-request / target
+phase. Predicted gain and ceiling apply to the declared phase objective;
+absolute saved time uses the conservative local speedup. Predictions are
+working bounds, not measured results.
+
+| ID | Premise and one intentional variable | Objective; controls | Full / phase `p` | Credible `s`; `o` | Predicted gain; ideal ceiling; saved | Cost, numeric risk, uncertainty | State |
+|---|---|---|---:|---:|---:|---|---|
+| C01 | Replace scalar half activation staging in compute-7.5 tensor matmul with aligned half-pair load/store | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.001 | 3.75%; 353.74%; 596.5 ms | Low; bit-copy exact; benefit limited by unknown staging share | ready, selected |
+| C02 | Add a full-tile tensor-matmul entry for divisible token/output grids, removing repeated row/output tail predicates | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.002 | 3.64%; 353.74%; 596.5 ms | Medium; exact; extra entry/dispatch and instruction-share uncertainty | deferred after C01 |
+| C03 | Read two staged half activations at a time while preserving left-to-right row-sum additions | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact if add order remains fixed; shared-load share uncertain | deferred after C01 |
+| C04 | Vectorize tensor-attention K/V global-to-shared staging as aligned half pairs | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.08; 0.001 | 1.38%; 24.55%; 234.6 ms | Low; bit-copy exact; repeated history loads make it diagnostic | ready |
+| C05 | Keep eight queries per tensor-attention block but use 256 threads so two 128-thread groups split PV ownership and tile staging | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.003 | 2.32%; 24.55%; 413.1 ms | Medium; exact tree per output; occupancy and mapping risk | deferred after C04 |
+| C06 | Parallelize each tensor-attention 16-score softmax across a fixed lane group | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.002 | 2.43%; 24.55%; 413.1 ms | Medium; reordered f32 reductions require bounded numeric gate | deferred after C04 |
+| C07 | Route packed decode matmul to two output warps per 64-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.05; 0.001 | 3.79%; 371.62%; 23.7 ms | Low; exact per-warp dot; smaller blocks may improve scheduling or add grid cost | ready |
+| C08 | Route packed decode matmul to three output warps per 96-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.04; 0.001 | 3.02%; 371.62%; 19.1 ms | Low; exact per-warp dot; complements the historical four/eight-warp evidence | deferred after C07 |
+| C09 | Vectorize cached-Q6 integer weight staging into adjacent pairs without changing coefficient or MMA order | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 upper bound | 1.04; 0.002 | 2.88%; 353.74%; 481.8 ms upper bound | Medium; exact; Q6 share and conversion-codegen benefit need C01 PTX refresh | deferred |
+| C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
+| C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
+
+C01 is selected as the largest low-cost exact candidate supported by new PTX
+evidence. The input and shared addresses are at least four-byte aligned because
+tensor widths are multiples of 256, coefficient groups are even, and shared A
+is explicitly 32-byte aligned. The candidate will pair only adjacent elements
+inside one row and preserve every arithmetic operation. Its exact gate freezes
+the current packed-prefill f16 output vectors before the production edit, then
+requires byte identity after it. It also requires formatting, CPU workspace
+tests, CUDA workspace check, all CUDA kernel/error tests, compute-sanitizer
+memcheck for tensor tails, and canonical real-model parity before long A/B.
 
 ## Authenticated prompts and baseline
 
@@ -127,5 +182,7 @@ sha256sum MODEL
 
 Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
-CUDA workspace check, baseline build, stable public screen, and exact-token
-oracle parity passed. The profiler funnel remains in progress.
+CUDA workspace check, baseline build, stable public screen, exact-token oracle
+parity, three timelines, critical-path attribution, PTX inspection, and the
+targeted counter attempt completed. C01 is predeclared; no production edit has
+yet been made.

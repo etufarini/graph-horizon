@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: C01/C02 interesting and C03 rejected, all restored; C04 selected.
-- Attempts: 3 of at least 10 new countable attempts.
+- State: C01/C02 interesting and C03/C04 rejected, all restored; C05 selected.
+- Attempts: 4 of at least 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
 
@@ -115,8 +115,8 @@ working bounds, not measured results.
 | C01 | Replace scalar half activation staging in compute-7.5 tensor matmul with aligned half-pair load/store | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.001 | 3.75%; 353.74%; 596.5 ms | Low; bit-copy exact; measured local equivalent about 1.0425 | interesting, removed: +3.282% |
 | C02 | Add a full-tile tensor-matmul entry for divisible token/output grids, removing repeated row/output tail predicates | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.002 | 3.64%; 353.74%; 596.5 ms | Medium; exact; extra entry/dispatch and instruction-share uncertainty | interesting, removed: +3.457% |
 | C03 | Read two staged half activations at a time while preserving left-to-right row-sum additions | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact if add order remains fixed; shared-load share uncertain | rejected, removed: +1.755% |
-| C04 | Vectorize tensor-attention K/V global-to-shared staging as aligned half pairs | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.08; 0.001 | 1.38%; 24.55%; 234.6 ms | Low; bit-copy exact; repeated history loads make it diagnostic | ready, selected |
-| C05 | Keep eight queries per tensor-attention block but use 256 threads so two 128-thread groups split PV ownership and tile staging | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.003 | 2.32%; 24.55%; 413.1 ms | Medium; exact tree per output; occupancy and mapping risk | deferred after C04 |
+| C04 | Vectorize tensor-attention K/V global-to-shared staging as aligned half pairs | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.08; 0.001 | 1.38%; 24.55%; 234.6 ms | Low; bit-copy exact; repeated history loads make it diagnostic | rejected, removed: +1.908% |
+| C05 | Keep eight queries per tensor-attention block but use 256 threads so two 128-thread groups split PV ownership and tile staging | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.003 | 2.32%; 24.55%; 413.1 ms | Medium; exact tree per output; occupancy and mapping risk | ready, selected |
 | C06 | Parallelize each tensor-attention 16-score softmax across a fixed lane group | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.002 | 2.43%; 24.55%; 413.1 ms | Medium; reordered f32 reductions require bounded numeric gate | deferred after C04 |
 | C07 | Route packed decode matmul to two output warps per 64-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.05; 0.001 | 3.79%; 371.62%; 23.7 ms | Low; exact per-warp dot; smaller blocks may improve scheduling or add grid cost | ready |
 | C08 | Route packed decode matmul to three output warps per 96-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.04; 0.001 | 3.02%; 371.62%; 19.1 ms | Low; exact per-warp dot; complements the historical four/eight-warp evidence | deferred after C07 |
@@ -124,13 +124,12 @@ working bounds, not measured results.
 | C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
 
-C04 is selected after C03 because tensor attention owns 19.71% of long prefill
-and its baseline PTX still stages K/V with scalar 16-bit global/shared traffic.
-It will combine adjacent aligned half copies without changing score or value
-arithmetic. Existing causal, GQA, long-history, and tail tests plus a fresh
-exact capture are the bounded gate; formatting, CPU workspace tests, CUDA
-workspace check, all CUDA kernel/error tests, compute-sanitizer memcheck, and
-canonical real-model parity must pass before long A/B.
+C05 is selected after C04 to test whether the tensor-attention critical path is
+limited by per-block ownership rather than K/V instruction width. It retains
+eight queries and their QK/softmax order while a second 128-thread group splits
+PV output dimensions and tile staging. Existing causal, GQA, long-history, and
+tail tests plus a fresh exact capture are the bounded gate; all standard gates,
+memcheck, and canonical parity must pass before long A/B.
 
 ## Candidate decisions
 
@@ -211,6 +210,27 @@ production and capture changes were removed, returning to the retained
 checkpoint. This is the third countable attempt; the result closes row-sum load
 width as an independent retention path.
 
+### C04 — aligned half-pair tensor-attention staging
+
+C04 replaced adjacent scalar F16 K/V copies in tensor attention with aligned
+32-bit copies. The fresh tensor-route capture held 1,024 output values and had
+the same SHA-256 before and after:
+`95a062dd8e1d7fc768f0fca95063328a116fc43e33593aa7936800286b9e09c0`.
+All standard gates, focused memcheck with zero errors, and exact 16-token parity
+passed. PTX verifies that global/shared scalar half counts changed from 15/15
+to 1/1 while 32-bit counts became 14/16.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 223.31 (CV 0.0053) | 227.57 (CV 0.0056) | +1.9077% |
+| Long TTFT ms | 16,049.70 | 15,749.46 | -1.8707% |
+| Long model decode t/s | 42.46 | 42.57 | +0.2591% |
+| Long public delta t/s | 39.79 | 39.90 | +0.2765% |
+
+Terminal state: `rejected`, below 3%. No stability rerun or controls apply. The
+production and capture changes were removed. This is the fourth countable
+attempt and closes scalar K/V staging width as an independent retention path.
+
 ## Authenticated prompts and baseline
 
 Repeating `benchmark` 124, 1,020, and 3,580 times with a final period produced
@@ -261,5 +281,5 @@ Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
-targeted counter attempt completed. C01 through C03 completed and were
-restored. C04 is predeclared; no production edit is currently applied.
+targeted counter attempt completed. C01 through C04 completed and were
+restored. C05 is predeclared; no production edit is currently applied.

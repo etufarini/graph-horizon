@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
 - Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: C01-C06 rejected; C13 replenished and selected; no production
-  candidate is applied.
-- Attempts: 6 of the required 10 new countable attempts.
+- State: C01-C06 rejected, C13 interesting and removed; C08 selected; no
+  production candidate is applied.
+- Attempts: 7 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
 
@@ -92,12 +92,12 @@ objective. Predictions are conservative working estimates, not measurements.
 | C05 | Reuse one shared K/V tile sequentially with the existing barriers in tensor attention | Long prompt | 0.1889 / 0.1978 | 1.25; 0 | 3.75%; 23.29% | rejected: +0.31% objective |
 | C06 | Fill all 16 query rows already computed by Turing WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | rejected: +2.11% objective |
 | C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | closed-untried: depends on rejected C05 |
-| C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | deferred after C01/C02 |
+| C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | ready, selected |
 | C09 | Use 32 output columns per tensor block to increase residency when 64-column shared tiles remain limiting | Medium prompt | 0.7705 / 0.8966 | 1.07; 0 | 5.31%; 335.7% | deferred after C01/C02 |
 | C10 | Pack eight independent quantized decode output warps in a 256-thread block, halving block scheduling without changing dot order | Short model decode | 0.4506 / 0.7813 | 1.08; 0 | 6.16% phase; 82.0% full ceiling | deferred after prefill leaders |
 | C11 | Move tensor-attention threshold from base 512 to 384 | Long prompt | 0.0037 / 0.0038 | unbounded; 0 | <=0.37%; <=0.37% | closed-untried: ideal ceiling below 5% |
 | C12 | Remove host/GPU gaps from medium prefill | Medium prompt | 0.0010 / 0.0011 | unbounded; 0 | <=0.10%; <=0.10% | closed-untried: timeline is already dense |
-| C13 | Use 12 useful query rows per padded M16 tensor-attention tile to trade block count against C06 register pressure | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | ready, selected |
+| C13 | Use 12 useful query rows per padded M16 tensor-attention tile to trade block count against C06 register pressure | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | interesting, removed: +3.20% objective |
 
 C01 instead cost 312.1 ms on the medium request: the measured launch-amortization
 loss outweighed its lower static resource use. C02 saved only 34.5 ms, showing
@@ -289,3 +289,20 @@ Decision: rejected below the 3% lower bound; short and medium controls were not
 run. The production diff was removed. The positive result replenishes the pool
 with C13, which tests 12 useful rows and fewer accumulators as a measured
 block-count/register-pressure crossover.
+
+### C13 — 12 useful query rows per tensor-attention block
+
+The candidate used 12 of the padded M16 QK rows and 12 PV accumulators per
+thread. Formatting, CPU workspace tests, the CUDA workspace check, all 11
+error-matrix tests, all 44 CUDA backend tests, and exact 16-token parity passed.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 226.56 | 233.82 | +3.20% |
+| Long TTFT ms | 15,819.34 | 15,328.03 | -3.11% |
+| Prompt t/s CV | 0.0054 | 0.0041 | stable |
+
+Decision: interesting evidence in the 3–5% band, but not retainable. The
+production diff was removed and controls were not run. Across 8, 12, and 16
+useful rows, 12 is the measured local optimum; the family is closed because its
+best end-to-end point remains below the 5% retention threshold.

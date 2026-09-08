@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: C01/C02 interesting and C03–C09 rejected, all restored; C12 selected.
-- Attempts: 9 of at least 10 new countable attempts.
+- State: ten attempts complete and restored; fresh discovery and final audit running.
+- Attempts: 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
 
@@ -123,13 +123,11 @@ working bounds, not measured results.
 | C09 | Vectorize cached-Q6 integer weight staging into adjacent pairs without changing coefficient or MMA order | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 upper bound | 1.04; 0.002 | 2.88%; 353.74%; 481.8 ms upper bound | Medium; exact; Q6 share and conversion-codegen benefit need C01 PTX refresh | rejected, removed: +0.802% |
 | C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
-| C12 | Pack adjacent dequantized tensor-matmul values into one 32-bit shared store while retaining scalar source reads | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact; PTX shows 56 scalar shared stores but their stall share is uncertain | ready, selected |
+| C12 | Pack adjacent dequantized tensor-matmul values into one 32-bit shared store while retaining scalar source reads | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact; PTX shows 56 scalar shared stores but their stall share is uncertain | rejected, removed: -4.084% |
 
-C12 is selected after C09's PTX refresh exposed a format-independent scalar
-shared-store path. It retains scalar source reads and coefficient logic, but
-packs adjacent converted half values into one aligned 32-bit shared store.
-Fresh ordinary/wide/paired exact captures, standard gates, memcheck, and
-canonical parity must pass before long A/B.
+All implemented entries are terminal. Fresh discovery now revisits the largest
+measured owner and every mechanism family against current and inherited causal
+evidence before the quantitative stop can be declared.
 
 ## Candidate decisions
 
@@ -331,6 +329,29 @@ Terminal state: `rejected`, below 3%. No stability rerun or controls apply. The
 production and capture changes were removed. This is the ninth countable
 attempt and closes cached-Q6 source-load width as an independent path.
 
+### C12 — paired tensor-matmul shared stores
+
+C12 retained scalar source reads and coefficient logic while packing adjacent
+converted half values into aligned 32-bit shared stores. Fresh ordinary, wide,
+and paired captures produced 2,724,564 bytes and matched exactly before and
+after, SHA-256
+`6bb3c6f3f2b5ca6e7c7bc9d37a19d5d4e0b871fdb2a055527b6d78fcfe993151`.
+All standard gates, focused memcheck with zero errors, and exact parity passed.
+PTX confirms scalar shared stores fell from 56 to 28 for all three entries;
+32-bit stores became 18/18/12 for ordinary/wide/paired.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 223.31 (CV 0.0053) | 214.19 (CV 0.0072) | -4.0840% |
+| Long TTFT ms | 16,049.70 | 16,733.16 | +4.2584% |
+| Long model decode t/s | 42.46 | 42.57 | +0.2591% |
+| Long public delta t/s | 39.79 | 39.91 | +0.3016% |
+
+Terminal state: `rejected`, below 3% and regressive. No stability rerun or
+additional controls apply. Production and capture changes were removed. This
+is the tenth countable attempt and closes paired shared stores as an
+independent path.
+
 ## Authenticated prompts and baseline
 
 Repeating `benchmark` 124, 1,020, and 3,580 times with a final period produced
@@ -381,6 +402,5 @@ Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
-targeted counter attempt completed. C01 through C09 completed and were
-restored. C12 is predeclared from fresh PTX evidence; no production edit is
-currently applied.
+targeted counter attempt completed. All ten implemented candidates were
+restored; fresh discovery and final checkpoint verification remain in progress.

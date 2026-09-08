@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: C01/C02 interesting and C03–C08 rejected, all restored; C09 selected.
-- Attempts: 8 of at least 10 new countable attempts.
+- State: C01/C02 interesting and C03–C09 rejected, all restored; C12 selected.
+- Attempts: 9 of at least 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
 
@@ -120,14 +120,16 @@ working bounds, not measured results.
 | C06 | Parallelize each tensor-attention 16-score softmax across a fixed lane group | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.002 | 2.43%; 24.55%; 413.1 ms | Medium; reordered f32 reductions require bounded numeric gate | rejected, removed: -0.533% |
 | C07 | Route packed decode matmul to two output warps per 64-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.05; 0.001 | 3.79%; 371.62%; 23.7 ms | Low; exact per-warp dot; smaller blocks may improve scheduling or add grid cost | rejected, removed: -0.903% |
 | C08 | Route packed decode matmul to three output warps per 96-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.04; 0.001 | 3.02%; 371.62%; 19.1 ms | Low; exact per-warp dot; complements the historical four/eight-warp evidence | rejected, removed: -1.172% |
-| C09 | Vectorize cached-Q6 integer weight staging into adjacent pairs without changing coefficient or MMA order | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 upper bound | 1.04; 0.002 | 2.88%; 353.74%; 481.8 ms upper bound | Medium; exact; Q6 share and conversion-codegen benefit need C01 PTX refresh | ready, selected |
+| C09 | Vectorize cached-Q6 integer weight staging into adjacent pairs without changing coefficient or MMA order | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 upper bound | 1.04; 0.002 | 2.88%; 353.74%; 481.8 ms upper bound | Medium; exact; Q6 share and conversion-codegen benefit need C01 PTX refresh | rejected, removed: +0.802% |
 | C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
+| C12 | Pack adjacent dequantized tensor-matmul values into one 32-bit shared store while retaining scalar source reads | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact; PTX shows 56 scalar shared stores but their stall share is uncertain | ready, selected |
 
-C09 is selected after the decode-geometry subpool closes. It changes only
-cached-Q6 integer staging for tensor matmul, pairing adjacent values before the
-same half conversion and MMA order. Fresh Q6 ordinary/wide exact captures,
-standard gates, memcheck, and canonical parity must pass before long A/B.
+C12 is selected after C09's PTX refresh exposed a format-independent scalar
+shared-store path. It retains scalar source reads and coefficient logic, but
+packs adjacent converted half values into one aligned 32-bit shared store.
+Fresh ordinary/wide/paired exact captures, standard gates, memcheck, and
+canonical parity must pass before long A/B.
 
 ## Candidate decisions
 
@@ -308,6 +310,27 @@ Terminal state: `rejected`, below 3%. No stability rerun or additional controls
 apply. Production and capture changes were removed. This is the eighth
 countable attempt; two, three, four, and eight packed warps are now measured.
 
+### C09 — paired cached-Q6 source reads
+
+C09 paired adjacent cached-Q6 int8 source reads before the unchanged half
+conversion and MMA order. Four ordinary/wide captures across both compiled
+images produced 5,428,286 bytes and matched exactly before and after, SHA-256
+`bdc3f13ac85092eba271902d248edabea3fafe9d80c0a76e7784cb4659b8a3b1`.
+All standard gates, focused memcheck with zero errors, and exact parity passed.
+PTX introduced 16-bit global reads, while aggregate scalar counts remained for
+the other inlined formats.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 223.31 (CV 0.0053) | 225.10 (CV 0.0043) | +0.8016% |
+| Long TTFT ms | 16,049.70 | 15,922.21 | -0.7943% |
+| Long model decode t/s | 42.46 | 42.61 | +0.3533% |
+| Long public delta t/s | 39.79 | 39.93 | +0.3518% |
+
+Terminal state: `rejected`, below 3%. No stability rerun or controls apply. The
+production and capture changes were removed. This is the ninth countable
+attempt and closes cached-Q6 source-load width as an independent path.
+
 ## Authenticated prompts and baseline
 
 Repeating `benchmark` 124, 1,020, and 3,580 times with a final period produced
@@ -358,5 +381,6 @@ Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
-targeted counter attempt completed. C01 through C08 completed and were
-restored. C09 is predeclared; no production edit is currently applied.
+targeted counter attempt completed. C01 through C09 completed and were
+restored. C12 is predeclared from fresh PTX evidence; no production edit is
+currently applied.

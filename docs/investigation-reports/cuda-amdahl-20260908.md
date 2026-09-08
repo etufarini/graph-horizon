@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
 - Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: baseline and ranked pool complete; C01 selected; no production
-  candidate is applied.
-- Attempts: 0 of the required 10 new countable attempts.
+- State: baseline and ranked pool complete; C01 rejected; C02 selected; no
+  production candidate is applied.
+- Attempts: 1 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
 
@@ -35,10 +35,9 @@ above 5%.
 
 Every candidate runs the CPU workspace tests, a matching CUDA feature check,
 CUDA local error tests, risk-specific exact or numeric tests, and all available
-real-model checks before performance. The locally installed reference server is
-not the pinned oracle revision, so teacher-forced parity is currently recorded
-as `external verification: llama.cpp revision 13f2b28b0 unavailable`; this
-does not waive any independent gate.
+real-model checks before performance. The campaign built the reference server
+at the pinned llama.cpp revision `13f2b28b098623391b1aacfd27995e1c8b7de9a9`;
+teacher-forced parity is therefore an active exact-token gate.
 
 ## Environment and artifact preflight
 
@@ -86,8 +85,8 @@ objective. Predictions are conservative working estimates, not measurements.
 
 | ID | Premise and intentional variable | Objective | Full / phase `p` | Credible `s`; `o` | Predicted gain; ideal ceiling | State |
 |---|---|---|---:|---:|---:|---|
-| C01 | On compute 7.5, route the 9,216-output M32 tensor kernel to M16; 96 registers and 14,976 B shared fall to 70 and 9,792 | Medium prompt | 0.3005 / 0.3496 | 1.30; 0 | 7.45%; 42.96% | ready, selected |
-| C02 | On compute 7.5, route paired K stages to ordinary M16; shared allocation falls 19,584 -> 9,792 B | Medium prompt | 0.2281 / 0.2654 | 1.20; 0 | 3.95%; 29.55% | ready |
+| C01 | On compute 7.5, route the 9,216-output M32 tensor kernel to M16; 96 registers and 14,976 B shared fall to 70 and 9,792 | Medium prompt | 0.3005 / 0.3496 | 1.30; 0 | 7.45%; 42.96% | rejected: -7.47% objective |
+| C02 | On compute 7.5, route paired K stages to ordinary M16; shared allocation falls 19,584 -> 9,792 B | Medium prompt | 0.2281 / 0.2654 | 1.20; 0 | 3.95%; 29.55% | ready, selected |
 | C03 | Bound compute-7.5 standalone prefill batches at 64 rows to reduce large-tile resource waves | Medium prompt | 0.8597 / 1.0000 | 1.08; 0.003 | 6.46%; 612.8% | deferred after C01/C02 |
 | C04 | Use a 96-row compute-7.5 batch as the smaller launch-count variant if C03 exposes a batching/resource crossover | Medium prompt | 0.8597 / 1.0000 | 1.04; 0.0015 | 3.26%; 612.8% | deferred after C03 |
 | C05 | Reuse one shared K/V tile sequentially in tensor attention, trading one barrier for lower shared residency | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | ready |
@@ -99,11 +98,11 @@ objective. Predictions are conservative working estimates, not measurements.
 | C11 | Move tensor-attention threshold from base 512 to 384 | Long prompt | 0.0037 / 0.0038 | unbounded; 0 | <=0.37%; <=0.37% | closed-untried: ideal ceiling below 5% |
 | C12 | Remove host/GPU gaps from medium prefill | Medium prompt | 0.0010 / 0.0011 | unbounded; 0 | <=0.10%; <=0.10% | closed-untried: timeline is already dense |
 
-C01 can save approximately 312.5 ms of the medium request at its credible local
-speedup. C02's estimate is 171.3 ms. The attention candidates own 3,103.0 ms
-of long prefill, while threshold tuning owns only one 60.2 ms fallback batch.
-The pool will be reranked and replenished after every result; deferred is not a
-terminal state.
+C01 instead cost 312.1 ms on the medium request: the measured launch-amortization
+loss outweighed its lower static resource use. C02's estimate remains 171.3 ms.
+The attention candidates own 3,103.0 ms of long prefill, while threshold tuning
+owns only one 60.2 ms fallback batch. The pool is reranked after every result;
+deferred is not a terminal state.
 
 ## Baseline screen
 
@@ -181,3 +180,22 @@ ncu --kernel-name regex:^cuda_matmul_tensor_wide$ --launch-count 1 --set basic .
 
 CUDA workspace check passed. All three timeline acquisitions and direct imports
 completed. Nsight Compute ended with `ERR_NVGPUCTRPERM` and no profiled kernel.
+
+### C01 — M32-to-M16 routing on compute 7.5
+
+The candidate changed only the compute-7.5 dispatch for quantized matmul with
+9,216 outputs; compute capability 8 and newer retained the M32 route. Formatting,
+the CUDA workspace check, all 11 error-matrix tests, all 44 CUDA backend tests,
+and exact 16-token parity passed. The CPU workspace suite had already passed
+before the CUDA-only initializer correction; that correction is not compiled in
+the CPU configuration.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Medium prompt t/s | 264.77 | 245.00 | -7.47% |
+| Medium TTFT ms | 3,867.54 | 4,179.63 | +8.07% |
+| Prompt t/s CV | 0.0040 | 0.0037 | stable |
+
+Decision: rejected below the 3% lower bound; short and long controls were not
+run. The production diff was removed. C01 is one countable attempt because it
+passed correctness and reached a stable objective A/B classification.

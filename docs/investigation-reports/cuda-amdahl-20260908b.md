@@ -6,7 +6,7 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: ten attempts complete and restored; fresh discovery and final audit running.
+- State: **complete quantitative stop**; every pool entry is terminal.
 - Attempts: 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
@@ -56,7 +56,7 @@ in byte size and SHA-256. Exact device identity and live telemetry remain in
 ignored raw logs so tracked documentation stays hardware-neutral. The pinned
 reference oracle is llama.cpp revision
 `13f2b28b098623391b1aacfd27995e1c8b7de9a9`; its availability and parity row
-will be verified before the first candidate benchmark.
+were verified before the first candidate benchmark.
 
 ## Historical evidence
 
@@ -125,9 +125,9 @@ working bounds, not measured results.
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
 | C12 | Pack adjacent dequantized tensor-matmul values into one 32-bit shared store while retaining scalar source reads | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact; PTX shows 56 scalar shared stores but their stall share is uncertain | rejected, removed: -4.084% |
 
-All implemented entries are terminal. Fresh discovery now revisits the largest
-measured owner and every mechanism family against current and inherited causal
-evidence before the quantitative stop can be declared.
+All implemented entries are terminal. The final discovery section revisits the
+largest measured owner and every mechanism family against current and inherited
+causal evidence.
 
 ## Candidate decisions
 
@@ -403,4 +403,139 @@ model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
 targeted counter attempt completed. All ten implemented candidates were
-restored; fresh discovery and final checkpoint verification remain in progress.
+restored; fresh discovery and final checkpoint verification completed.
+
+## Final quantitative stop
+
+No current candidate met the 5% retain threshold. C01 and C02 were stable
+interesting signals and were removed; the other eight implemented candidates
+were rejected and removed. C10 and C11 remained closed because even perfect
+removal of their measured owners cannot reach 5%. There is no current-campaign
+production commit.
+
+The observed local speedup `s` below is candidate rate divided by its immutable
+baseline rate. Added overhead `o` and predictions are the bounds declared
+before measurement; the public A/B is authoritative.
+
+| ID | Objective `p` full / phase | Observed local `s` | Added `o` | Predicted gain | Ideal ceiling | Measured objective | Terminal state / commit |
+|---|---:|---:|---:|---:|---:|---:|---|
+| C01 | .74437 / .77961 | 1.032824 | .001 | +3.75% | +353.74% | +3.2824% long prompt | interesting, removed / none |
+| C02 | .74437 / .77961 | 1.034571 | .002 | +3.64% | +353.74% | +3.4571% long prompt | interesting, removed / none |
+| C03 | .74437 / .77961 | 1.017554 | .001 | +2.22% | +353.74% | +1.7554% long prompt | rejected / none |
+| C04 | .18822 / .19713 | 1.019077 | .001 | +1.38% | +24.55% | +1.9077% long prompt | rejected / none |
+| C05 | .18822 / .19713 | 1.002015 | .003 | +2.32% | +24.55% | +0.2015% long prompt | rejected / none |
+| C06 | .18822 / .19713 | .994671 | .002 | +2.43% | +24.55% | -0.5329% long prompt | rejected / none |
+| C07 | .45440 / .78797 | .990967 | .001 | +3.79% | +371.62% | -0.9033% short decode | rejected / none |
+| C08 | .45440 / .78797 | .988276 | .001 | +3.02% | +371.62% | -1.1724% short decode | rejected / none |
+| C09 | .74437 / .77961 upper bound | 1.008016 | .002 | +2.88% | +353.74% | +0.8016% long prompt | rejected / none |
+| C10 | <=.00120 | n/a | 0 | <=0.12% | <=0.12% | unimplemented | closed / none |
+| C11 | <=.00283 | n/a | 0 | <=0.28% | <=0.28% | unimplemented | closed / none |
+| C12 | .74437 / .77961 | .959160 | .001 | +2.22% | +353.74% | -4.0840% long prompt | rejected / none |
+
+Every measured objective CV is below 1.1%, well inside the 5% screen. No
+stability rerun was eligible. Because no objective reached 5%, the canonical
+procedure did not run the two non-objective regimes as retention controls;
+same-run TTFT and decode controls are recorded in each decision.
+
+### Final restored screen
+
+The final executable is byte-identical to the immutable baseline and has the
+same SHA-256:
+`fe03b2f5b025fb8132a86315e1f6e487e2b5baaa8b68b1a5f3dc1c96dda194b6`.
+The repeated public screen therefore measures environmental drift, not a
+cumulative optimization.
+
+| Regime | Initial prompt t/s | Final prompt t/s (CV) | Drift | Final TTFT ms (CV) | Final model decode t/s (CV) | Final public delta t/s (CV) |
+|---|---:|---:|---:|---:|---:|---:|
+| Short | 276.33 | 276.35 (.0003) | +0.0072% | 463.19 (.0003) | 51.75 (.0009) | 50.12 (.0009) |
+| Medium | 260.43 | 258.61 (.0001) | -0.6988% | 3,959.62 (.0001) | 49.95 (.0024) | 46.80 (.0028) |
+| Long | 223.31 | 222.30 (.0037) | -0.4523% | 16,122.84 (.0037) | 42.09 (.0053) | 39.44 (.0056) |
+
+All prompt drift is below 0.7% and every final throughput CV is below 1%, so
+the initial timeline and every candidate classification remain representative.
+
+### Fresh discovery and hotspot closure
+
+The exact restored binary leaves the long prefill timeline unchanged: tensor
+matmul remains the largest measured owner at 12,525.621 ms, 77.96% of prefill;
+tensor attention remains second at 3,167.210 ms, 19.71%. Fresh source, PTX,
+timeline, and historical review found no new bounded single-variable candidate:
+
+- Tensor matmul already inherits format specialization, cached Q6, direct
+  accumulators, staged row sums, packed coefficient ownership, and admitted
+  batching. Current C01–C03/C09/C12 test remaining scalar traffic, tails, and
+  staging; historical campaigns reject the remaining row, output-column,
+  M16/M32, cache, cooperative-load, accumulator, and capacity geometries.
+- Tensor attention already inherits tiled QK, online softmax/PV, eight-query
+  reuse, and long-history paths. Current C04–C06 plus historical shared-tile,
+  12/16-query, transpose, buffering, and ownership experiments falsify the
+  remaining bounded traffic, parallelism, and layout mechanisms.
+- Decode matmul remains material, but exact packed-dot ownership and
+  query-resident attention are inherited. Current two/three-warp results and
+  historical four/eight-warp, split-history, cache, and compile-time geometry
+  evidence close the credible scheduling variants.
+- Combining C01 and C02 would combine two below-threshold variants, not isolate
+  a new measured cause, and is therefore not a countable bounded candidate.
+  Host gaps and pointwise fusion have ideal ceilings of only 0.12% and 0.28%.
+  Request transfers are absent. New numeric formats, dependencies, public APIs,
+  and machine-setting changes are outside the authorized boundary.
+
+Thus the campaign reached ten distinct correctness-gated attempts, every pool
+entry is terminal, fresh discovery found no new bounded candidate, and every
+material remaining owner is experimentally exhausted, below the threshold, or
+outside scope. The largest remaining bottleneck is tensor matmul in long
+prefill; its large mathematical ceiling is not evidence of another credible
+bounded mechanism.
+
+### Final correctness audit
+
+The restored checkpoint reran:
+
+```text
+cargo fmt --all -- --check
+cargo test --locked --workspace --no-default-features --features cpu
+cargo check --locked --workspace --profile fast --no-default-features --features cuda
+cargo test ... --features cuda error_matrix -- --nocapture
+cargo test ... --features cuda backend::cuda:: -- --nocapture
+support/testing/parity-check.sh ... --backend cuda --kv f16
+cargo build --locked --profile fast --no-default-features --features cuda --example bench
+bench-final MODEL --context 4096 --kv f16 --prompt PROMPT --max-tokens 32 --warmup 1 --reps 3
+```
+
+Formatting and the CUDA workspace check passed. CPU workspace suites passed,
+including 170 root and 167 engine tests plus integration suites. All 11 CUDA
+error-matrix tests and all 44 CUDA backend tests passed. Final authenticated
+parity again matched all 16 oracle IDs exactly. The rebuilt executable compares
+byte-for-byte equal to the initial baseline. Candidate-specific exact captures,
+ten memchecks, and C05/C06 racechecks are recorded under the campaign directory;
+all report zero errors or hazards.
+
+Nsight Compute counters remain externally unavailable with
+`ERR_NVGPUCTRPERM`; no replay result was used. Nsight Systems timelines, static
+launch resources, PTX changes, causal A/Bs, and public metrics remain the
+evidence path. Exact device identity is private raw evidence. Results are tied
+to this recorded validation environment and are not a universal hardware claim.
+
+### Current-campaign summary
+
+Countable attempts: **10** — 0 kept, 8 rejected/restored, 2
+interesting/restored. Retained optimization commits: **0**. `not_verified`:
+**0**. Closed untried: **2** (C10/C11). The branch contains documentary
+checkpoints only; production source equals the immutable start.
+
+### Inherited optimization summary
+
+Inherited changes were present before this campaign and never counted as
+current keeps. The original CUDA campaign retained parallel matmul `5d52db5`,
+128-thread matmul `a9f6466`, decode-isolated four-token prefill `34c9525`, and
+parallel prefill attention `0056aa3`.
+
+The later CUDA campaign retained these optimization revisions:
+`61a540a`, `f251074`, `2547df3`, `14b669d`, `b01470c`, `b948f67`,
+`7682cd2`, `eebe52a`, `8ab48ff`, `65ef6ed`, `56afc25`, `6a77c87`,
+`cd6993b`, `e7790cd`, `99f4330`, `2d77b2f`, `1a32047`, `4d9e718`,
+`c15f222`, `10b186c`, `ef84e39`, `483ea2a`, `9c18395`, `fe83feb`,
+`fcdcc9e`, and `475f883`. Re-evaluations among them were non-counting in their
+original campaign. Correctness support `6d37587` is inherited infrastructure,
+not an optimization. The intervening compute-7.5 campaign retained no
+candidate and is historical negative evidence only.

@@ -98,6 +98,9 @@ single-responsibility and line-limit rules. Before the first production edit,
 verify a clean worktree, capture the requested baseline, and work on a dedicated
 `perf/<experiment>` branch rather than `main`.
 
+Store all local benchmark inputs, adapters, raw measurements, and generated
+reports under the repository-root `benchmarks/` directory, which Git ignores.
+
 Do not request approval between candidates. Let evidence select the next
 experiment and continue until the task's stated completion or stop conditions
 are met. Keep each candidate isolated and reproducible. Commit useful

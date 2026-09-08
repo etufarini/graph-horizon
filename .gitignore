@@ -3,6 +3,7 @@
 # visible to Git.
 
 target
+__pycache__/
 web/frontend/node_modules/
 web/frontend/dist/
 
@@ -19,7 +20,7 @@ ref.oracle
 
 # local validation reports
 ABLATION_REPORT.md
-/gpu-benchmark-results/
+/benchmarks/
 
 # local planning graphics
 /graph-horizon-roadmap-2026-09-18-it.svg

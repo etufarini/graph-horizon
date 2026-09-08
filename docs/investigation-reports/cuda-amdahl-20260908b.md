@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: baseline attribution complete; C01 selected before implementation.
-- Attempts: 0 of at least 10 new countable attempts.
+- State: C01 interesting and restored; C02 selected before implementation.
+- Attempts: 1 of at least 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
 
@@ -112,8 +112,8 @@ working bounds, not measured results.
 
 | ID | Premise and one intentional variable | Objective; controls | Full / phase `p` | Credible `s`; `o` | Predicted gain; ideal ceiling; saved | Cost, numeric risk, uncertainty | State |
 |---|---|---|---:|---:|---:|---|---|
-| C01 | Replace scalar half activation staging in compute-7.5 tensor matmul with aligned half-pair load/store | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.001 | 3.75%; 353.74%; 596.5 ms | Low; bit-copy exact; benefit limited by unknown staging share | ready, selected |
-| C02 | Add a full-tile tensor-matmul entry for divisible token/output grids, removing repeated row/output tail predicates | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.002 | 3.64%; 353.74%; 596.5 ms | Medium; exact; extra entry/dispatch and instruction-share uncertainty | deferred after C01 |
+| C01 | Replace scalar half activation staging in compute-7.5 tensor matmul with aligned half-pair load/store | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.001 | 3.75%; 353.74%; 596.5 ms | Low; bit-copy exact; measured local equivalent about 1.0425 | interesting, removed: +3.282% |
+| C02 | Add a full-tile tensor-matmul entry for divisible token/output grids, removing repeated row/output tail predicates | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.05; 0.002 | 3.64%; 353.74%; 596.5 ms | Medium; exact; extra entry/dispatch and instruction-share uncertainty | ready, selected |
 | C03 | Read two staged half activations at a time while preserving left-to-right row-sum additions | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact if add order remains fixed; shared-load share uncertain | deferred after C01 |
 | C04 | Vectorize tensor-attention K/V global-to-shared staging as aligned half pairs | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.08; 0.001 | 1.38%; 24.55%; 234.6 ms | Low; bit-copy exact; repeated history loads make it diagnostic | ready |
 | C05 | Keep eight queries per tensor-attention block but use 256 threads so two 128-thread groups split PV ownership and tile staging | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.003 | 2.32%; 24.55%; 413.1 ms | Medium; exact tree per output; occupancy and mapping risk | deferred after C04 |
@@ -124,15 +124,45 @@ working bounds, not measured results.
 | C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
 
-C01 is selected as the largest low-cost exact candidate supported by new PTX
-evidence. The input and shared addresses are at least four-byte aligned because
-tensor widths are multiples of 256, coefficient groups are even, and shared A
-is explicitly 32-byte aligned. The candidate will pair only adjacent elements
-inside one row and preserve every arithmetic operation. Its exact gate freezes
-the current packed-prefill f16 output vectors before the production edit, then
-requires byte identity after it. It also requires formatting, CPU workspace
-tests, CUDA workspace check, all CUDA kernel/error tests, compute-sanitizer
-memcheck for tensor tails, and canonical real-model parity before long A/B.
+C02 is selected after C01 because its conservative target effect is now the
+largest among untested entries. It preserves the existing fallback entry for
+partial row or output grids and changes only the dispatch of grids divisible by
+the tensor tile. The exact gate freezes full-tile ordinary, wide, and paired
+outputs and also runs the existing partial-tail coverage to prove fallback
+routing. Formatting, CPU workspace tests, CUDA workspace check, all CUDA
+kernel/error tests, compute-sanitizer memcheck, and canonical real-model parity
+must pass before long A/B.
+
+## Candidate decisions
+
+### C01 — aligned half-pair activation staging
+
+C01 changed only compute-7.5 tensor-matmul activation staging from scalar
+16-bit copies to aligned 32-bit pairs. Fresh exact captures covered ordinary,
+wide, and paired paths and produced 2,730,004 bytes of output vectors with the
+same SHA-256 before and after:
+`e7f791637e061a7af0192992b70649844dbc4dc585032253eda4fa864dc22473`.
+Formatting, the CPU workspace, CUDA workspace check, all 11 error-matrix tests,
+all 44 CUDA tests, focused compute-sanitizer memcheck with zero errors, and
+canonical parity passed before performance. All 16 local top-1 IDs equaled the
+oracle.
+
+Candidate PTX replaced most scalar activation movement: ordinary/wide/paired
+`ld.global.u16` counts fell from 33/33/36 to 5/5/8 while 16/28/28 32-bit loads
+appeared. The stable objective result was:
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 223.31 (CV 0.0053) | 230.64 (CV 0.0035) | +3.2824% |
+| Long TTFT ms | 16,049.70 | 15,539.69 | -3.1777% |
+| Long model decode t/s | 42.46 | 42.92 | +1.0834% |
+| Long public delta t/s | 39.79 | 40.22 | +1.0807% |
+
+Terminal state: `interesting`, below the 5% keep threshold. No stability rerun
+or controls apply. The production change and temporary vector capture were
+removed with an empty worktree diff. This is one countable attempt. The measured
+effect promotes a later bounded variant that also removes scalar row-sum reads;
+it does not make the rejected partial implementation retainable.
 
 ## Authenticated prompts and baseline
 
@@ -184,5 +214,5 @@ Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
-targeted counter attempt completed. C01 is predeclared; no production edit has
-yet been made.
+targeted counter attempt completed. C01 completed and was restored. C02 is
+predeclared; no production edit is currently applied.

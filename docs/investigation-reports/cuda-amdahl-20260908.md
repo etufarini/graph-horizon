@@ -4,9 +4,9 @@
 
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
-- Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: ten attempts complete; post-10 discovery pending; no production
-  candidate is applied.
+- Immutable start and final production checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
+- State: complete; post-10 discovery closed the terminal pool; no production
+  candidate is applied or retained.
 - Attempts: 10 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
@@ -90,7 +90,7 @@ objective. Predictions are conservative working estimates, not measurements.
 | C03 | Bound compute-7.5 standalone prefill batches at 64 rows to reduce large-tile resource waves | Medium prompt | 0.8597 / 1.0000 | 1.08; 0.003 | 6.46%; 612.8% | rejected: -6.21% objective |
 | C04 | Use a 96-row compute-7.5 batch as the smaller launch-count variant after C03 exposed batching overhead | Medium prompt | 0.8597 / 1.0000 | 1.04; 0.0015 | 3.26%; 612.8% | rejected: -1.21% objective |
 | C05 | Reuse one shared K/V tile sequentially with the existing barriers in tensor attention | Long prompt | 0.1889 / 0.1978 | 1.25; 0 | 3.75%; 23.29% | rejected: +0.31% objective |
-| C06 | Fill all 16 query rows already computed by Turing WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | rejected: +2.11% objective |
+| C06 | Fill all 16 query rows already computed by compute-7.5 WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | rejected: +2.11% objective |
 | C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | closed-untried: depends on rejected C05 |
 | C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | rejected: -7.26% objective |
 | C09 | Use 32 output columns per tensor block to increase residency when 64-column shared tiles remain limiting | Medium prompt | 0.7705 / 0.8966 | 1.07; 0 | 5.31%; 335.7% | rejected: -7.36% objective |
@@ -358,3 +358,78 @@ error-matrix tests, all 44 CUDA backend tests, and exact 16-token parity passed.
 Decision: rejected below the 3% lower bound; medium and long controls were not
 run. The production diff was removed. Reduced block scheduling did not offset
 the loss of block-level scheduling flexibility.
+
+## Post-10 discovery and terminal pool
+
+After restoring C10, the fast benchmark binary was rebuilt from the production
+checkpoint and a fresh long CUDA/NVTX trace was acquired. The trace reproduced
+the baseline topology: wide, ordinary, and paired tensor matmul consumed
+4,746.6, 3,840.9, and 3,589.8 ms, or 74.4% together; tensor prefill attention
+consumed 3,095.1 ms, or 18.9%. Each largest component is within 0.7% of its
+initial trace duration, so no changed owner or new gap appeared.
+
+Fresh source and historical-evidence review leaves no `ready` or `deferred`
+candidate:
+
+- C01/C02 and C08/C09 experimentally close the compute-7.5 tensor route,
+  paired staging, and 32/64/128 output-tile families; 64-column M16 plus the
+  bounded M32 route remains the measured optimum.
+- C03/C04 close active prefill batch sizes 64/96/128 at 128 rows.
+- C05/C06/C13 close shared K/V storage and 8/12/16 useful attention-row
+  ownership. Even adding the two measured gains gives only 3.51%, with no
+  evidence that their interaction could close the remaining gap to 5%.
+- C10 closes wider quantized decode blocks. Earlier campaign evidence already
+  closes generic quant caches, direct/shared accumulator variants, attention
+  transpose, wider history splits, and 256-row standalone batches.
+- C07 is closed because its lower-shared prerequisite C05 was rejected. C11
+  and C12 remain closed by ideal ceilings of 0.37% and 0.10%.
+
+The largest remaining bottleneck is therefore tensor prefill matmul. Its simple
+dispatch, staging, batch, and output-tile variants are experimentally exhausted;
+further work would require a new arithmetic representation or algorithmic
+kernel design rather than another bounded geometry change.
+
+## Final outcome
+
+No candidate met the 5% retain threshold. Nine were rejected below 3%; C13 was
+interesting at +3.20% and removed as required. The final production tree is
+byte-identical to the immutable starting checkpoint; the only retained changes
+on the campaign branch are this investigation report and its documentary
+checkpoints.
+
+The final public screen used the rebuilt baseline binary and the same fixed
+workload:
+
+| Regime | Initial prompt t/s (CV) | Final prompt t/s (CV) | Drift | Final model decode t/s (CV) |
+|---|---:|---:|---:|---:|
+| Short | 282.70 (0.0015) | 279.98 (0.0018) | -0.96% | 52.43 (0.0025) |
+| Medium | 264.77 (0.0040) | 262.30 (0.0002) | -0.93% | 50.58 (0.0040) |
+| Long | 226.56 (0.0054) | 225.32 (0.0037) | -0.55% | 42.69 (0.0089) |
+
+All final CVs are below 5%, and baseline-to-final drift is below 1% for every
+prompt objective. No stability rerun applies. Exact parity remained green for
+every attempted candidate, and an additional run after final restoration again
+matched all 16 reference tokens. The final source restoration is verified by
+an empty production diff against `f6e481c27f6d9096ad330c6c84657060b193b5af`.
+
+### Attempt audit
+
+| ID | Objective result | Classification | Production state |
+|---|---:|---|---|
+| C01 | -7.47% medium prompt | rejected | removed |
+| C02 | +0.90% medium prompt | rejected | removed |
+| C03 | -6.21% medium prompt | rejected | removed |
+| C04 | -1.21% medium prompt | rejected | removed |
+| C05 | +0.31% long prompt | rejected | removed |
+| C06 | +2.11% long prompt | rejected | removed |
+| C13 | +3.20% long prompt | interesting | removed |
+| C08 | -7.26% medium prompt | rejected | removed |
+| C09 | -7.36% medium prompt | rejected | removed |
+| C10 | -2.05% short model decode | rejected | removed |
+
+Every countable attempt passed formatting, CPU workspace tests, CUDA workspace
+check, the 11-test error matrix, all 44 CUDA backend tests, and exact 16-token
+teacher-forced parity before measurement. One malformed CPU command omitted the
+required backend feature and failed before tests; the corrected canonical CPU
+command passed and the invocation error is not a candidate failure. No candidate
+needed the single permitted instability rerun.

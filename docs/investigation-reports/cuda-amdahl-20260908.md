@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
 - Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: baseline and ranked pool complete; C01-C05 rejected; C06 selected; no
-  production candidate is applied.
-- Attempts: 5 of the required 10 new countable attempts.
+- State: C01-C06 rejected; C13 replenished and selected; no production
+  candidate is applied.
+- Attempts: 6 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
 
@@ -90,13 +90,14 @@ objective. Predictions are conservative working estimates, not measurements.
 | C03 | Bound compute-7.5 standalone prefill batches at 64 rows to reduce large-tile resource waves | Medium prompt | 0.8597 / 1.0000 | 1.08; 0.003 | 6.46%; 612.8% | rejected: -6.21% objective |
 | C04 | Use a 96-row compute-7.5 batch as the smaller launch-count variant after C03 exposed batching overhead | Medium prompt | 0.8597 / 1.0000 | 1.04; 0.0015 | 3.26%; 612.8% | rejected: -1.21% objective |
 | C05 | Reuse one shared K/V tile sequentially with the existing barriers in tensor attention | Long prompt | 0.1889 / 0.1978 | 1.25; 0 | 3.75%; 23.29% | rejected: +0.31% objective |
-| C06 | Fill all 16 query rows already computed by Turing WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | ready, selected |
-| C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | deferred after C05 |
+| C06 | Fill all 16 query rows already computed by Turing WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | rejected: +2.11% objective |
+| C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | closed-untried: depends on rejected C05 |
 | C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | deferred after C01/C02 |
 | C09 | Use 32 output columns per tensor block to increase residency when 64-column shared tiles remain limiting | Medium prompt | 0.7705 / 0.8966 | 1.07; 0 | 5.31%; 335.7% | deferred after C01/C02 |
 | C10 | Pack eight independent quantized decode output warps in a 256-thread block, halving block scheduling without changing dot order | Short model decode | 0.4506 / 0.7813 | 1.08; 0 | 6.16% phase; 82.0% full ceiling | deferred after prefill leaders |
 | C11 | Move tensor-attention threshold from base 512 to 384 | Long prompt | 0.0037 / 0.0038 | unbounded; 0 | <=0.37%; <=0.37% | closed-untried: ideal ceiling below 5% |
 | C12 | Remove host/GPU gaps from medium prefill | Medium prompt | 0.0010 / 0.0011 | unbounded; 0 | <=0.10%; <=0.10% | closed-untried: timeline is already dense |
+| C13 | Use 12 useful query rows per padded M16 tensor-attention tile to trade block count against C06 register pressure | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | ready, selected |
 
 C01 instead cost 312.1 ms on the medium request: the measured launch-amortization
 loss outweighed its lower static resource use. C02 saved only 34.5 ms, showing
@@ -270,3 +271,21 @@ error-matrix tests, all 44 CUDA backend tests, and exact 16-token parity passed.
 Decision: rejected below the 3% lower bound; short and medium controls were not
 run. The production diff was removed. Lower static shared memory alone did not
 change effective residency enough to move the end-to-end objective.
+
+### C06 — 16 useful query rows per tensor-attention block
+
+The candidate filled all 16 rows already computed by the padded M16 QK tile,
+halving tensor-attention blocks while doubling per-thread PV accumulators.
+Formatting, CPU workspace tests, the CUDA workspace check, all 11 error-matrix
+tests, all 44 CUDA backend tests, and exact 16-token parity passed.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 226.56 | 231.34 | +2.11% |
+| Long TTFT ms | 15,819.34 | 15,492.27 | -2.07% |
+| Prompt t/s CV | 0.0054 | 0.0035 | stable |
+
+Decision: rejected below the 3% lower bound; short and medium controls were not
+run. The production diff was removed. The positive result replenishes the pool
+with C13, which tests 12 useful rows and fewer accumulators as a measured
+block-count/register-pressure crossover.

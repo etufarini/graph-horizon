@@ -6,8 +6,8 @@
 - Branch: `perf/cuda-amdahl-20260908b`.
 - Immutable start: `46f9277b0909ca4d63a41be9a805c4aef878ba67`.
 - Current retained checkpoint: the immutable start; no production candidate is applied.
-- State: C01/C02 interesting and C03–C05 rejected, all restored; C06 selected.
-- Attempts: 5 of at least 10 new countable attempts.
+- State: C01/C02 interesting and C03–C06 rejected, all restored; C07 selected.
+- Attempts: 6 of at least 10 new countable attempts.
 - Local evidence: `benchmarks/cuda-amdahl-20260908b/`.
 - Deadline: none; each A/B comparison retains the canonical two-hour limit.
 
@@ -117,19 +117,18 @@ working bounds, not measured results.
 | C03 | Read two staged half activations at a time while preserving left-to-right row-sum additions | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 | 1.03; 0.001 | 2.22%; 353.74%; 364.8 ms | Low; exact if add order remains fixed; shared-load share uncertain | rejected, removed: +1.755% |
 | C04 | Vectorize tensor-attention K/V global-to-shared staging as aligned half pairs | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.08; 0.001 | 1.38%; 24.55%; 234.6 ms | Low; bit-copy exact; repeated history loads make it diagnostic | rejected, removed: +1.908% |
 | C05 | Keep eight queries per tensor-attention block but use 256 threads so two 128-thread groups split PV ownership and tile staging | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.003 | 2.32%; 24.55%; 413.1 ms | Medium; exact tree per output; occupancy and mapping risk | rejected, removed: +0.202% |
-| C06 | Parallelize each tensor-attention 16-score softmax across a fixed lane group | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.002 | 2.43%; 24.55%; 413.1 ms | Medium; reordered f32 reductions require bounded numeric gate | ready, selected |
-| C07 | Route packed decode matmul to two output warps per 64-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.05; 0.001 | 3.79%; 371.62%; 23.7 ms | Low; exact per-warp dot; smaller blocks may improve scheduling or add grid cost | ready |
+| C06 | Parallelize each tensor-attention 16-score softmax across a fixed lane group | Long prompt; short/medium and decode/TTFT controls | 0.18822 / 0.19713 | 1.15; 0.002 | 2.43%; 24.55%; 413.1 ms | Medium; reordered f32 reductions require bounded numeric gate | rejected, removed: -0.533% |
+| C07 | Route packed decode matmul to two output warps per 64-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.05; 0.001 | 3.79%; 371.62%; 23.7 ms | Low; exact per-warp dot; smaller blocks may improve scheduling or add grid cost | ready, selected |
 | C08 | Route packed decode matmul to three output warps per 96-thread block | Short model decode; prompt/TTFT plus medium/long controls | 0.45440 / 0.78797 | 1.04; 0.001 | 3.02%; 371.62%; 19.1 ms | Low; exact per-warp dot; complements the historical four/eight-warp evidence | deferred after C07 |
 | C09 | Vectorize cached-Q6 integer weight staging into adjacent pairs without changing coefficient or MMA order | Long prompt; short/medium and decode/TTFT controls | 0.74437 / 0.77961 upper bound | 1.04; 0.002 | 2.88%; 353.74%; 481.8 ms upper bound | Medium; exact; Q6 share and conversion-codegen benefit need C01 PTX refresh | deferred |
 | C10 | Remove host launch/synchronization gaps | Long prompt | <=0.00120 | unbounded; 0 | <=0.12%; <=0.12%; <=19.3 ms | Ideal ceiling below 5% | closed-untried |
 | C11 | Fuse only residual/SILU pointwise launches around matmul | Long prompt | <=0.00283 | unbounded; 0 | <=0.28%; <=0.28%; <=45.4 ms | Measured owner excludes unproven matmul-store savings; present ceiling below 5% | closed-untried |
 
-C06 is selected after C05 because eight threads still execute each 16-score
-softmax serially. A fixed lane group will parallelize maximum and denominator
-work, intentionally changing their f32 reduction trees. Its predeclared numeric
-gate is every existing attention reference/tail test, finite half outputs, exact
-causal masking, and real-model parity; any failed bound terminates the candidate
-before performance.
+C07 is selected after the attention subpool closes without a retainable result.
+It changes only packed decode matmul geometry from four output warps to two per
+block, preserving one independent warp and reduction tree per output. Fresh
+Q4/Q5/Q6 exact captures, standard gates, memcheck, and canonical parity must
+pass before short model-decode A/B; prompt and TTFT remain same-run controls.
 
 ## Candidate decisions
 
@@ -252,6 +251,26 @@ Terminal state: `rejected`, below 3%. No stability rerun or controls apply. The
 production and capture changes were removed. This is the fifth countable
 attempt and closes a 256-thread query-ownership split in this geometry.
 
+### C06 — lane-parallel tensor-attention softmax
+
+C06 assigned one 16-lane group to each query's 16-score maximum and denominator
+reductions. The deliberately changed f32 tree nevertheless produced the same
+1,024 captured half values before and after, SHA-256
+`cf838508a264c64490b70fdb3b9051b78893332eedefc4c866908c4b48b59e51`.
+All standard gates, exact parity, memcheck with zero errors, and racecheck with
+zero hazards passed.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Long prompt t/s | 223.31 (CV 0.0053) | 222.12 (CV 0.0042) | -0.5329% |
+| Long TTFT ms | 16,049.70 | 16,135.61 | +0.5353% |
+| Long model decode t/s | 42.46 | 42.22 | -0.5652% |
+| Long public delta t/s | 39.79 | 39.57 | -0.5529% |
+
+Terminal state: `rejected`, below 3%. No stability rerun or controls apply. The
+production and capture changes were removed. This is the sixth countable
+attempt and closes lane-parallel softmax for the current 16-score tile.
+
 ## Authenticated prompts and baseline
 
 Repeating `benchmark` 124, 1,020, and 3,580 times with a final period produced
@@ -302,5 +321,5 @@ Results: clean immutable start; supported CUDA host; visible ordinal 0 idle;
 model byte size and digest match the catalog; all three prompts authenticated;
 CUDA workspace check, baseline build, stable public screen, exact-token oracle
 parity, three timelines, critical-path attribution, PTX inspection, and the
-targeted counter attempt completed. C01 through C05 completed and were
-restored. C06 is predeclared; no production edit is currently applied.
+targeted counter attempt completed. C01 through C06 completed and were
+restored. C07 is predeclared; no production edit is currently applied.

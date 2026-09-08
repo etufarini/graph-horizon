@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
 - Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: baseline and ranked pool complete; C01-C03 rejected; C04 selected; no
+- State: baseline and ranked pool complete; C01-C04 rejected; C05 selected; no
   production candidate is applied.
-- Attempts: 3 of the required 10 new countable attempts.
+- Attempts: 4 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
 
@@ -88,8 +88,8 @@ objective. Predictions are conservative working estimates, not measurements.
 | C01 | On compute 7.5, route the 9,216-output M32 tensor kernel to M16; 96 registers and 14,976 B shared fall to 70 and 9,792 | Medium prompt | 0.3005 / 0.3496 | 1.30; 0 | 7.45%; 42.96% | rejected: -7.47% objective |
 | C02 | On compute 7.5, route paired K stages to ordinary M16; shared allocation falls 19,584 -> 9,792 B | Medium prompt | 0.2281 / 0.2654 | 1.20; 0 | 3.95%; 29.55% | rejected: +0.90% objective |
 | C03 | Bound compute-7.5 standalone prefill batches at 64 rows to reduce large-tile resource waves | Medium prompt | 0.8597 / 1.0000 | 1.08; 0.003 | 6.46%; 612.8% | rejected: -6.21% objective |
-| C04 | Use a 96-row compute-7.5 batch as the smaller launch-count variant after C03 exposed batching overhead | Medium prompt | 0.8597 / 1.0000 | 1.04; 0.0015 | 3.26%; 612.8% | ready, selected |
-| C05 | Reuse one shared K/V tile sequentially in tensor attention, trading one barrier for lower shared residency | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | ready |
+| C04 | Use a 96-row compute-7.5 batch as the smaller launch-count variant after C03 exposed batching overhead | Medium prompt | 0.8597 / 1.0000 | 1.04; 0.0015 | 3.26%; 612.8% | rejected: -1.21% objective |
+| C05 | Reuse one shared K/V tile sequentially in tensor attention, trading one barrier for lower shared residency | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | ready, selected |
 | C06 | Fill all 16 query rows already computed by Turing WMMA instead of discarding half of the QK tile | Long prompt | 0.1889 / 0.1978 | 1.35; 0.005 | 4.60%; 23.29% | ready |
 | C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | deferred after C05 |
 | C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | deferred after C01/C02 |
@@ -236,3 +236,20 @@ Decision: rejected below the 3% lower bound; short and long controls were not
 run. The production diff was removed. Doubling the batch count costs more than
 the smaller launches recover, leaving C04's 96-row intermediate as the only
 remaining member of this batching family.
+
+### C04 — 96-row compute-7.5 prefill batches
+
+The candidate used the same capability-specific session selection as C03 but
+with 96 active rows. Formatting, CPU workspace tests, the CUDA workspace check,
+all 11 error-matrix tests, all 44 CUDA backend tests, and exact 16-token parity
+passed.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Medium prompt t/s | 264.77 | 261.56 | -1.21% |
+| Medium TTFT ms | 3,867.54 | 3,914.96 | +1.23% |
+| Prompt t/s CV | 0.0040 | 0.0002 | stable |
+
+Decision: rejected below the 3% lower bound; short and long controls were not
+run. The production diff was removed. Together C03 and C04 close the smaller
+batch family: 128 rows remains the measured optimum among 64, 96, and 128.

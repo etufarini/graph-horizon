@@ -5,9 +5,9 @@
 - Campaign ID: `cuda-amdahl-20260908`.
 - Branch: `perf/cuda-amdahl-20260908`.
 - Immutable start and current retained checkpoint: `f6e481c27f6d9096ad330c6c84657060b193b5af`.
-- State: C01-C06/C08-C09 rejected, C13 interesting and removed; C10 selected;
-  no production candidate is applied.
-- Attempts: 9 of the required 10 new countable attempts.
+- State: ten attempts complete; post-10 discovery pending; no production
+  candidate is applied.
+- Attempts: 10 of the required 10 new countable attempts.
 - Private evidence: `target/cuda-amdahl-20260908/`.
 - Deadline: none; every A/B comparison retains the canonical two-hour limit.
 
@@ -94,7 +94,7 @@ objective. Predictions are conservative working estimates, not measurements.
 | C07 | Stage 32 history positions per tensor-attention iteration after C05 lowers shared pressure | Long prompt | 0.1889 / 0.1978 | 1.15; 0.004 | 2.10%; 23.29% | closed-untried: depends on rejected C05 |
 | C08 | Use 128 output columns per tensor block to halve duplicated input staging and row sums | Medium prompt | 0.7705 / 0.8966 | 1.10; 0 | 7.53%; 335.7% | rejected: -7.26% objective |
 | C09 | Use 32 output columns per tensor block to increase residency when 64-column shared tiles remain limiting | Medium prompt | 0.7705 / 0.8966 | 1.07; 0 | 5.31%; 335.7% | rejected: -7.36% objective |
-| C10 | Pack eight independent quantized decode output warps in a 256-thread block, halving block scheduling without changing dot order | Short model decode | 0.4506 / 0.7813 | 1.08; 0 | 6.16% phase; 82.0% full ceiling | ready, selected |
+| C10 | Pack eight independent quantized decode output warps in a 256-thread block, halving block scheduling without changing dot order | Short model decode | 0.4506 / 0.7813 | 1.08; 0 | 6.16% phase; 82.0% full ceiling | rejected: -2.05% decode objective |
 | C11 | Move tensor-attention threshold from base 512 to 384 | Long prompt | 0.0037 / 0.0038 | unbounded; 0 | <=0.37%; <=0.37% | closed-untried: ideal ceiling below 5% |
 | C12 | Remove host/GPU gaps from medium prefill | Medium prompt | 0.0010 / 0.0011 | unbounded; 0 | <=0.10%; <=0.10% | closed-untried: timeline is already dense |
 | C13 | Use 12 useful query rows per padded M16 tensor-attention tile to trade block count against C06 register pressure | Long prompt | 0.1889 / 0.1978 | 1.25; 0.003 | 3.60%; 23.29% | interesting, removed: +3.20% objective |
@@ -341,3 +341,20 @@ Decision: rejected below the 3% lower bound; controls were not run. The complete
 production diff was removed. The 32/64/128 sweep closes with 64 columns as the
 clear optimum; neither added residency nor added staging reuse compensates the
 corresponding block-count trade-off.
+
+### C10 — eight quantized decode warps per block
+
+The candidate grouped eight independent quantized output warps in 256-thread
+blocks; the F16 path retained 128 threads and every warp kept its original dot
+order. Formatting, CPU workspace tests, the CUDA workspace check, all 11
+error-matrix tests, all 44 CUDA backend tests, and exact 16-token parity passed.
+
+| Metric | Baseline A | Candidate B | Change |
+|---|---:|---:|---:|
+| Short model decode t/s | 53.04 | 51.95 | -2.05% |
+| Short prompt t/s control | 282.70 | 278.37 | -1.53% |
+| Model decode t/s CV | 0.0019 | 0.0016 | stable |
+
+Decision: rejected below the 3% lower bound; medium and long controls were not
+run. The production diff was removed. Reduced block scheduling did not offset
+the loss of block-level scheduling flexibility.

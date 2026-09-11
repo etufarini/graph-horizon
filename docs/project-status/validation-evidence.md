@@ -12,9 +12,14 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `0.1.5` is the current release candidate. No local or remote
-`v0.1.5` tag exists at preparation time. Graph Horizon `0.1.4` remains the
-current published stable release. Its annotated local and anonymous remote tag,
+Graph Horizon `v0.1.5` was published on 6 September 2026 and is the current
+stable release. The [published release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5)
+identifies source commit `19c3844fc3da35b91db6d889f3eebe5748658c16`.
+Publication was checked through the GitHub release API; the archive checks
+reported there were not rerun during this documentation correction.
+The three-profile cleanup below is unreleased and does not change that release.
+
+For the previous `v0.1.4` release, the recorded local and anonymous remote tag,
 published source archive, and archive-embedded commit all resolve to
 `dd485f3a44363880bf11fc5bc69d77f149415025`.
 The published archive SHA-256 is
@@ -35,7 +40,7 @@ and anonymous remote tag resolve to
 `30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a historical
 release-identity defect even though the commits have the same Git tree.
 
-The `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, and `v0.1.4` tags and assets remain
+The `v0.1.0` through `v0.1.5` tags and assets remain
 immutable. They must not be moved, deleted, or replaced; any correction must
 use a later version. `main` is the moving development branch and may advance
 beyond a release tag. That normal branch movement is unrelated to the v0.1.2

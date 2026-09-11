@@ -23,9 +23,9 @@ Models are acquired separately. See
 
 ## Quick Install
 
-The commands below are prepared for the authenticated `v0.1.5` bootstrap after
-that exact candidate is published. They do not claim publication; `v0.1.4`
-remains the current stable release.
+The commands below install the published `v0.1.5` release. The local installer
+reference describes this checkout; its three-profile scope is an unreleased
+change. Existing tagged releases retain their original feature set.
 
 ### Linux x86_64 and Vulkan
 

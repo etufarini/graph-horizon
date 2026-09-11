@@ -7,27 +7,24 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
-GPU execution is restricted to Vulkan. CPU and Vulkan-hybrid remain available.
-The installer, validation scripts, and runtime telemetry accept only these
-three profiles; the serial correctness matrix now contains 46 rows.
+GPU support is focused on Vulkan. The supported execution profiles are CPU,
+Vulkan, and Vulkan-hybrid, including mixed CPU/GPU placement. Existing
+installations continue to use their installed version; source builds of the
+next version must select one of these three profiles.
 
 ## Graph Horizon v0.1.5
 
-Graph Horizon v0.1.5 remains a source candidate. The supported build and
-installer profiles are `cpu`, `vulkan`, and `vulkan-hybrid`; Vulkan is the only
-GPU backend. Hybrid placement keeps all-GPU, mixed CPU/GPU, and CPU-only modes.
-No hybrid profile enables prefix-KV reuse.
+Published on 6 September 2026. This source release includes inference
+performance improvements, installation updates, and release qualification.
+Its original feature set and evidence belong to the immutable tagged commit;
+the backend simplification above is a subsequent development change.
 
-After an explicitly authorized publication of the exact candidate as `v0.1.5`,
-the tagged bootstrap can install Vulkan hybrid:
+The complete original release notes and published verification record remain
+available on the [v0.1.5 release page](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5).
 
 ```sh
 curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend vulkan-hybrid
 ```
-
-Publication, release-integrity verification, and platform-specific installed
-binary smokes remain external verification. Historical qualification records
-apply only to their recorded revisions.
 
 ## Graph Horizon v0.1.4
 

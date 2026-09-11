@@ -79,8 +79,11 @@ pub(crate) fn row_dot_q6k(a: &[f32], bytes: &[u8], row: usize, in_dim: usize) ->
 // Two-output-row batched dispatcher: AVX2 register-blocked kernel (reuses each
 // activation load across both rows), else two scalar single-row batched passes.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn row2_dot_q6k_batched(
     a: &[f32],
+    packed: &[f32],
+    batch: usize,
     bytes: &[u8],
     row0: usize,
     in_dim: usize,
@@ -93,11 +96,13 @@ fn row2_dot_q6k_batched(
         if is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma") {
             // SAFETY: reached only after the runtime AVX2+FMA check just above.
             return unsafe {
-                super::q6k_simd::row2_dot_q6k_avx2_batched(a, bytes, row0, in_dim, out0, out1, acc)
+                super::q6k_simd::row2_dot_q6k_avx2_batched(
+                    packed, bytes, row0, in_dim, out0, out1, acc, batch,
+                )
             };
         }
     }
-    let _ = acc;
+    let _ = (acc, packed, batch);
     for (i, o) in out0.iter_mut().enumerate() {
         *o = row_dot_q6k_scalar(&a[i * in_dim..], bytes, row0, in_dim);
     }
@@ -167,6 +172,28 @@ pub(crate) fn matmul_batched(
     let w_bytes = w.bytes();
     let w_bytes: &[u8] = &w_bytes[w.window()];
     let tile = token_tile(in_dim);
+    // Each Q6 chunk consumes four eight-value streams 32 values apart. Pack
+    // those streams across tokens, without changing the per-token FMA order.
+    #[cfg(target_arch = "x86_64")]
+    let use_packed = is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma");
+    #[cfg(not(target_arch = "x86_64"))]
+    let use_packed = false;
+    let mut packed = Vec::new();
+    if use_packed {
+        packed.resize(n * in_dim, 0.0);
+        for block in 0..in_dim / 128 {
+            for lane in (0..32).step_by(8) {
+                for token in 0..n {
+                    let dst = ((block * 4 + lane / 8) * n + token) * 32;
+                    for stream in 0..4 {
+                        let src = token * in_dim + block * 128 + lane + stream * 32;
+                        packed[dst + stream * 8..dst + stream * 8 + 8]
+                            .copy_from_slice(&a[src..src + 8]);
+                    }
+                }
+            }
+        }
+    }
     let mut yt = vec![0f32; out_dim * n]; // output-row-major: row o at o*n
     parallel::for_units(&mut yt, n, |o0, chunk| {
         // Per-worker scratch for two token tiles (both rows' lane partials), L1-resident.
@@ -180,6 +207,8 @@ pub(crate) fn matmul_batched(
                 let (lo, hi) = chunk.split_at_mut((k + 1) * n);
                 row2_dot_q6k_batched(
                     &a[t0 * in_dim..],
+                    if use_packed { &packed[t0 * 32..] } else { &[] },
+                    n,
                     w_bytes,
                     o0 + k,
                     in_dim,
@@ -303,6 +332,53 @@ mod tests {
                     got[i * out_dim + o],
                     want[o]
                 );
+            }
+        }
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn packed_streams_match_original_batched_order_exactly() {
+        if !(is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma")) {
+            return;
+        }
+        for in_dim in [256, 512, 3072, 9216] {
+            for n in [2, 5, 21, 32, 33] {
+                for out_dim in [4, 17, 52] {
+                    let w = q6k_weight(in_dim, out_dim);
+                    let values: Vec<_> =
+                        (0..in_dim * n).map(|i| (i as f32 * 0.013).sin()).collect();
+                    let a = f16_buf(&values);
+                    let aw = a.read_f16_as_f32();
+                    let out = CpuBuffer::zeroed(n * out_dim * 2, CpuFormat::F16);
+                    matmul_batched(&out, &a, &w, in_dim, out_dim, n);
+                    let got = out.bytes();
+                    let bytes = w.bytes();
+                    let mut expected = vec![0.0; n];
+                    let mut acc = vec![0.0; n * 8];
+                    for row in 0..out_dim {
+                        // SAFETY: runtime ISA checked; complete canonical rows,
+                        // token-major activations and n*8 scratch are allocated.
+                        unsafe {
+                            super::super::q6k_simd::row_dot_q6k_avx2_batched(
+                                &aw,
+                                &bytes,
+                                row,
+                                in_dim,
+                                &mut expected,
+                                &mut acc,
+                            );
+                        }
+                        for (token, &value) in expected.iter().enumerate() {
+                            let index = (token * out_dim + row) * 2;
+                            assert_eq!(
+                                &got[index..index + 2],
+                                &f32_to_f16(value).to_le_bytes(),
+                                "in={in_dim} n={n} out={out_dim} token={token} row={row}",
+                            );
+                        }
+                    }
+                }
             }
         }
     }

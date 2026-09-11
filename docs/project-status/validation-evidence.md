@@ -63,12 +63,16 @@ The local `refactor/vulkan-only-gpu` branch starts at `6238489`. Engine removal
 is recorded in `ff346ba`, installer and telemetry changes in `1af8c71`, and
 active documentation changes in `92cd3e8`. The remaining cleanup removes the
 obsolete per-backend placement label and simplifies profile tests.
+Before PR creation, the branch incorporates `origin/main` at `f6e481c`,
+retaining its CPU optimizations and historical release evidence. The checks
+below were repeated on the resolved tree; CPU and Vulkan kernel sources
+match that base.
 
 | Local gate | Result |
 |---|---|
-| Locked workspace tests, `cpu` | PASS: 350 passed, 7 ignored |
-| Locked workspace tests, `vulkan` | PASS: 350 passed, 10 ignored |
-| Locked workspace tests, `vulkan-hybrid` | PASS: 418 passed, 9 ignored |
+| Locked all-target workspace tests, `cpu` | PASS: 353 passed, 7 ignored |
+| Locked all-target workspace tests, `vulkan` | PASS: 350 passed, 10 ignored |
+| Locked all-target workspace tests, `vulkan-hybrid` | PASS: 421 passed, 9 ignored |
 | All-target Clippy with `-D warnings`, all three profiles | PASS |
 | Rust 1.88 locked all-target checks, all three profiles | PASS |
 | Frontend checks, tests, and production build | PASS: no diagnostics, 135 tests |
@@ -84,6 +88,45 @@ Protected historical reports and generic cross-runtime skills remain available,
 with explicit current-scope notes. No protected Markdown or skill file was
 removed, renamed, or consolidated. References to retired profiles remain only
 in that protected material and rejection tests.
+
+## v0.1.5 Release Preparation — 6 September 2026
+
+The release starts from integrated `main` at `58f65fe` and includes the CPU and
+CUDA changes described in the release notes. Qualification uses Linux
+`x86_64`, Rust/Cargo 1.95.0 plus minimum 1.88.0, Node.js 24.15.0, npm 11.12.1,
+and CUDA Toolkit 12.4.131 in the recorded validation environment.
+
+The gate exposed two defects in the integrated source: a warnings-denied
+CUDA divisibility lint and a shared prefill constant that unintentionally gave
+CUDA-hybrid the standalone 128-row capacity. The release uses the equivalent
+`is_multiple_of` check and separates capacities by build profile: 128 standalone,
+32 hybrid all-GPU, with mixed batches still bounded independently to 4 rows.
+The existing hybrid capacity assertion remains unchanged and passes.
+
+| Preparation gate | Result |
+|---|---|
+| Rust format and exact source-structure contract | PASS |
+| CPU Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 167, documentation 1, family 4, semantic harness 12 |
+| CUDA Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 155, documentation 1, family 4, semantic harness 12 |
+| CUDA-hybrid Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 230, documentation 1, family 5, semantic harness 12 |
+| Vulkan Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 164, documentation 1, family 4, semantic harness 12 |
+| Vulkan-hybrid Clippy, complete all-target workspace suite, release build | PASS: app/support 170, engine 239, documentation 1, family 5, semantic harness 12 |
+| Minimum Rust 1.88 CPU suite and CUDA/CUDA-hybrid/Vulkan/Vulkan-hybrid all-target checks | PASS |
+| Frontend install, tests, diagnostics, build, audit | PASS: 135 tests, 0 errors/warnings, 0 vulnerabilities |
+| Tracked shell syntax, installer/bootstrap/release-integrity fixtures | PASS: 13 shell scripts; fixtures in each app/support suite |
+| Live Web/News providers | PASS: 3 tests in each of 3 consecutive rounds |
+| Authenticated 3B Instruct parity/lifecycle, context 4096, f16 and int8 | PASS: 18/18 rows across CPU, CUDA, Vulkan, and both hybrid profiles at 100/25/0% weights; all local token sequences equal the pinned oracle |
+| Fresh 3B, 8B, and 14B Reasoning semantic qualification, Vulkan all-GPU, context 4096, f16 | PASS: each 4/4 critical, 9/9 semantic, 9/9 complete reasoning markers |
+| Metal and Metal-hybrid execution | external verification: requires macOS arm64 |
+
+The semantic runner completed with `qualified=6 not_qualified=0
+external_verification=0`: three fresh Reasoning results above and three
+explicitly preserved Instruct results, which are not new semantic runs.
+
+Ordinary suites retain their declared ignored model/network tests. Harness unit
+tests alone are not real-model semantic qualification. Exact release identity
+and post-commit product/publication gates are recorded separately as described
+under Current State; previous backend/performance evidence is not reassigned.
 
 ## v0.1.5 CUDA Profiles Candidate — 3 September 2026
 

@@ -280,6 +280,98 @@ pub(super) unsafe fn axpy_f16_x4_avx2(
     }
 }
 
+// Two adjacent positions, four GQA heads each. The first position attends
+// `common` keys, the second `common+1`. Keep each head's original reduction and
+// causal softmax order; only K/V loads on the common prefix are shared wider.
+// SAFETY: caller checked AVX2/FMA/F16C, eight equal positive 8-aligned queries,
+// output of 8 positive 8-aligned heads, scores of 8*(common+1), and cache windows
+// containing common+1 head-strided rows. Every byte load stays inside those rows.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2,fma,f16c")]
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn attend_positions_avx2(
+    q: [&[f32]; 8],
+    kc: &[u8],
+    vc: &[u8],
+    key_stride: usize,
+    value_stride: usize,
+    common: usize,
+    scores: &mut [f32],
+    out: &mut [f32],
+) {
+    use core::arch::x86_64::*;
+    unsafe {
+        let key_dim = q[0].len();
+        let value_dim = out.len() / 8;
+        let len = common + 1;
+        let scale = 1.0 / (key_dim as f32).sqrt();
+        let mut maxima = [f32::NEG_INFINITY; 8];
+        for t in 0..common {
+            let mut acc = [_mm256_setzero_ps(); 8];
+            for d in (0..key_dim).step_by(8) {
+                let raw = _mm_loadu_si128(kc.as_ptr().add((t * key_stride + d) * 2).cast());
+                let key = _mm256_cvtph_ps(raw);
+                for h in 0..8 {
+                    acc[h] = _mm256_fmadd_ps(_mm256_loadu_ps(q[h].as_ptr().add(d)), key, acc[h]);
+                }
+            }
+            for h in 0..8 {
+                let score = hsum256(acc[h]) * scale;
+                scores[h * len + t] = score;
+                maxima[h] = maxima[h].max(score);
+            }
+        }
+        // The future key is never included in the earlier query's max or sum.
+        let extra = dot_f16_x4_avx2(q[4], q[5], q[6], q[7], kc, common * key_stride, key_dim);
+        for (i, dot) in [extra.0, extra.1, extra.2, extra.3].into_iter().enumerate() {
+            let h = i + 4;
+            let score = dot * scale;
+            scores[h * len + common] = score;
+            maxima[h] = maxima[h].max(score);
+        }
+        let mut denom = [0f32; 8];
+        for h in 0..8 {
+            let used = common + usize::from(h >= 4);
+            for t in 0..used {
+                let score = &mut scores[h * len + t];
+                *score = (*score - maxima[h]).exp();
+                denom[h] += *score;
+            }
+        }
+        for t in 0..common {
+            let weights: [_; 8] =
+                std::array::from_fn(|h| _mm256_set1_ps(scores[h * len + t] / denom[h]));
+            for d in (0..value_dim).step_by(8) {
+                let raw = _mm_loadu_si128(vc.as_ptr().add((t * value_stride + d) * 2).cast());
+                let value = _mm256_cvtph_ps(raw);
+                for (h, weight) in weights.into_iter().enumerate() {
+                    let dst = out.as_mut_ptr().add(h * value_dim + d);
+                    _mm256_storeu_ps(dst, _mm256_fmadd_ps(weight, value, _mm256_loadu_ps(dst)));
+                }
+            }
+        }
+        // Do not multiply the masked future value by zero for the earlier query:
+        // it must perform no operation at all, preserving its exact state.
+        let (_, last) = out.split_at_mut(4 * value_dim);
+        let (o0, tail) = last.split_at_mut(value_dim);
+        let (o1, tail) = tail.split_at_mut(value_dim);
+        let (o2, o3) = tail.split_at_mut(value_dim);
+        axpy_f16_x4_avx2(
+            o0,
+            o1,
+            o2,
+            o3,
+            scores[4 * len + common] / denom[4],
+            scores[5 * len + common] / denom[5],
+            scores[6 * len + common] / denom[6],
+            scores[7 * len + common] / denom[7],
+            vc,
+            common * value_stride,
+            value_dim,
+        );
+    }
+}
+
 // Horizontal sum of the 8 f32 lanes.
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]

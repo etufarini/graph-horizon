@@ -2,7 +2,7 @@
  * graph_horizon_engine — INT8 per-token asymmetric KV format
  * One group per (token, kv_head) vector of head_dim values; metadata = min,scale
  * as f16. The exact arithmetic here is normative for CPU and Vulkan, which
- * produce bit-identical codes. Metal uses the same stored format. For a group
+ * produce bit-identical codes. For a group
  * x[0..head_dim] (f32, widened
  * from the incoming f16):
  *   1. min = min(x), max = max(x) in f32;

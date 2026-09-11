@@ -69,7 +69,7 @@ mod tests {
     use crate::backend::buffers::{Buffers, Scratch, WeightSet};
     use crate::backend::cpu::{CpuBackend, CpuBuffer, CpuFormat};
     use crate::backend::hybrid::contract::HybridDevice;
-    use crate::backend::hybrid::placement::{BudgetInput, MemoryTopology};
+    use crate::backend::hybrid::placement::BudgetInput;
     use crate::backend::hybrid::weights::runtime::DeviceFixedBytes;
     use crate::backend::hybrid::{BackendBytes, HybridPlan, HybridRuntime};
     use crate::backend::source::{WeightSelection, WeightSource};
@@ -99,15 +99,9 @@ mod tests {
         }
 
         fn budget(_: &Self::Device) -> Result<BudgetInput> {
-            Ok(BudgetInput::Unified {
-                physical_memory: u64::MAX / 9,
-                recommended_working_set: u64::MAX,
-                current_allocated: 0,
+            Ok(BudgetInput {
+                gpu_available: u64::MAX,
             })
-        }
-
-        fn topology() -> MemoryTopology {
-            MemoryTopology::Unified
         }
 
         fn all_mode_name() -> &'static str {

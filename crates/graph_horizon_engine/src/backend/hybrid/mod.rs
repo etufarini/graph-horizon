@@ -5,56 +5,28 @@
  * in their owning sibling domains.
  */
 
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) mod contract;
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) mod crossing;
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) mod loader;
 pub(crate) mod placement;
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 mod plan;
 pub(crate) mod weights;
 
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) use plan::{BackendBytes, HybridMode, HybridPlan};
 
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 pub(crate) struct HybridRuntime<G> {
     pub(crate) plan: HybridPlan,
     pub(crate) backends: HybridBackends<G>,
     pub(crate) gpu_prefill_rows: usize,
 }
 
-#[cfg(any(
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(feature = "vulkan-hybrid")]
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum HybridBackends<G> {
     AllGpu(G),

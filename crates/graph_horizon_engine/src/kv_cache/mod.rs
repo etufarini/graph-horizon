@@ -14,13 +14,7 @@
  * release it. No raw math and no concrete GPU API here.
 */
 
-#[cfg(any(
-    feature = "cpu",
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid",
-    test
-))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", test))]
 pub(crate) mod int8;
 pub(crate) mod layout;
 pub(crate) mod scheme;
@@ -50,10 +44,7 @@ impl<Buf> Kv<Buf> {
     #[cfg(any(
         feature = "vulkan",
         feature = "vulkan-hybrid",
-        all(
-            test,
-            any(feature = "cpu", feature = "metal-hybrid", feature = "cuda-hybrid")
-        )
+        all(test, feature = "cpu")
     ))]
     pub(crate) fn meta_base(&self) -> u64 {
         self.meta_base_for(KvRole::Key)

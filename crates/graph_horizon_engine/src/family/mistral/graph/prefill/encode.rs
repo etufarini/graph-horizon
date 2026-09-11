@@ -106,12 +106,7 @@ pub(crate) fn record_batch<B: Backend>(
 }
 
 #[cfg(test)]
-#[cfg(any(
-    feature = "cpu",
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid"
-))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid"))]
 mod tests {
     use std::cell::Cell;
 

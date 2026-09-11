@@ -45,7 +45,7 @@ Check the tree and target feature:
 ```sh
 git status --short
 cargo test --workspace --no-default-features --features cpu
-cargo check --workspace --no-default-features --features <cpu|vulkan|vulkan-hybrid|metal|metal-hybrid>
+cargo check --workspace --no-default-features --features <cpu|vulkan|vulkan-hybrid>
 ```
 
 Use a 3B Q4_K_M artifact authenticated by `support/models.tsv`. Q8_0 is only a

@@ -6,6 +6,10 @@ remaining bottleneck. It does not define the runtime support contract.
 
 # Metal Long-Context Decode Optimization
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 Status: completed investigation on `perf/metal-long-context-decode`.
 
 Repository status: the branch was later pushed with final tip `f0c3120` and

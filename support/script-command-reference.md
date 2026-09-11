@@ -16,7 +16,7 @@ backend, context, or model.
 | `profiling/validate-kv.sh` | Runs explicit f16 and int8 KV profiles; authentication and verdict remain with the caller |
 | `profiling/validate-weights.sh` | Authenticates the six Q4_K_M artifacts and synthetic internal formats |
 | `testing/parity-check.sh` | Compares one exact prompt and top-two result with the pinned oracle |
-| `testing/matrix-check.sh` | Runs the six Q8 rejections, 60 primary rows, and eight hybrid endpoints |
+| `testing/matrix-check.sh` | Runs the six Q8 rejections, 36 primary rows, and four hybrid endpoints |
 | `testing/public-readiness.sh` | Verifies a clean installed product, local backends, and one public benchmark |
 | `testing/release-integrity.sh` | Verifies one published source release against its immutable version tag |
 | `testing/semantic-check.sh` | Runs the terminal Reasoning semantic qualification matrix |
@@ -29,9 +29,8 @@ Installer behavior is documented separately in the
 
 Real-model campaigns require authenticated, read-only GGUF artifacts plus
 `curl`, `jq`, `stat`, and either `sha256sum` or `shasum -a 256`. Oracle parity
-requires `llama-server` at revision `13f2b28b0`. Metal profiles additionally
-require macOS arm64 and `xcrun metal`/`metallib`. CUDA rows require Linux
-`x86_64`, `nvcc` at build time, and an NVIDIA driver at runtime.
+requires `llama-server` at revision `13f2b28b0` and a working Vulkan device
+for accelerated rows.
 
 Artifact identities and SHA-256 records are in [`models.tsv`](models.tsv).
 Every model directory is supplied explicitly as `--models-dir DIR`; scripts do
@@ -95,11 +94,11 @@ hostnames, usernames, generated text, and other private machine identity.
 validate-weights.sh --models-dir DIR
 
 validate-kv.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
+  --backend cpu|vulkan|vulkan-hybrid \
   --context N
 
 profile.sh --model PATH \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid \
+  --backend cpu|vulkan|vulkan-hybrid \
   --context N --kv f16|int8 [--weights-percent 0..100]
 ```
 
@@ -112,10 +111,10 @@ procedure is defined by the
 
 ```text
 parity-check.sh --models-dir DIR --model-id ID \
-  --backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid --kv f16|int8 \
+  --backend cpu|vulkan|vulkan-hybrid --kv f16|int8 \
   --reference-server PATH [--reference-port PORT] \
   [--weights-percent 0..100 \
-   --expect-mode all-gpu|all-metal|mixed|cpu-only]
+   --expect-mode all-gpu|mixed|cpu-only]
 ```
 
 The script authenticates one catalogued Q4_K_M artifact, starts one CPU
@@ -123,9 +122,9 @@ The script authenticates one catalogued Q4_K_M artifact, starts one CPU
 are distinct rows. Protocol, code, parity, placement, or lifecycle mismatches
 fail the row; missing infrastructure remains external verification.
 
-Standalone CUDA rejects `--weights-percent` and `--expect-mode` and reports no
-placement. CUDA hybrid requires both placement arguments and accepts
-`all-gpu`, `mixed`, or `cpu-only`. Neither profile enables prefix caching.
+Standalone profiles reject `--weights-percent` and `--expect-mode`.
+Vulkan hybrid requires both placement arguments and accepts `all-gpu`,
+`mixed`, and `cpu-only`.
 
 The complete sequence of 16 `local_ids` from each available homogeneous
 hybrid endpoint must equal the corresponding standalone backend sequence.
@@ -137,8 +136,8 @@ matrix-check.sh --models-dir DIR --reference-server PATH \
   [--reference-port PORT]
 ```
 
-The matrix attempts 74 serial rows: six Q8 rejections, 60 primary rows, and
-eight 3B-Instruct hybrid endpoints. Primary hybrid rows use 25%/mixed. Endpoint
+The matrix attempts 46 serial rows: six Q8 rejections, 36 primary rows, and
+four 3B-Instruct hybrid endpoints. Primary hybrid rows use 25%/mixed. Endpoint
 rows cover f16 and int8 with accelerator-only and CPU-only placement.
 
 Unavailable independent rows remain external verification. A comparison

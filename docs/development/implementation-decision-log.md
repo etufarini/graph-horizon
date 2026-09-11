@@ -5,6 +5,10 @@ already expressed by a narrower contract. Temporary task status is excluded.
 
 # Implementation Decision Log
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Explicit CPU Feature For Focused Rust Tests
 
 - Decision: run installer and documentation-contract tests with

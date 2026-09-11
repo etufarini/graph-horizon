@@ -8,10 +8,9 @@ available in Git history.
 
 ## Scope
 
-The retained implementation specializes CPU, Vulkan, and Metal inference for
-Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models, and includes a
-standalone CUDA backend plus a CUDA hybrid composition profile qualified on one
-frozen 3B tuple. It adds no public API, model-name route, or device-name route.
+The retained implementation specializes CPU and Vulkan inference for
+Ministral 3B, 8B, and capacity-guarded 14B Q4_K_M models, with Vulkan hybrid
+composition. It adds no public API, model-name route, or device-name route.
 Specialized device paths are capability-, vendor-family-, format-, and
 shape-gated and preserve a generic operation fallback where the backend defines
 one.
@@ -19,27 +18,6 @@ one.
 The authenticated 3B artifact used throughout the investigation was
 2,147,023,008 bytes with SHA-256
 `9ed150d4367e68df0ac8e1540f6ddc65b42d0ee26378329d1ecbca60f93fc5f8`.
-
-## CUDA Qualification Measurement
-
-CUDA is **qualified**, not production, only for the recorded Linux `x86_64`
-validation environment with driver 595.84, CUDA Toolkit 12.4.131,
-authenticated 3B Instruct Q4_K_M, context-4096, and f16/int8 KV tuple in
-[validation evidence](validation-evidence.md#cuda-implementation-gate--1-september-2026).
-The qualification run's separate context-2048 f16 measurement recorded 1.28
-prompt tok/s and 0.59 end-to-end decode tok/s.
-
-A later CUDA/Vulkan benchmark completed its short and medium CUDA workloads but
-timed out on the long CUDA workload, so it reports no comparative winner. Its
-generated report is untracked local performance evidence only and does not
-broaden the qualified tuple.
-
-CUDA hybrid was qualified separately at implementation commit `61c8b57` for
-context 4096 and both f16 and int8 KV. Its 100% all-GPU, 25% mixed, and 0%
-CPU-only rows passed the frozen numeric, endpoint, crossing, and lifecycle
-gates. This campaign recorded no performance comparison and makes no production
-claim; neighboring devices, software, artifacts, model sizes, contexts, and KV
-schemes remain unmeasured.
 
 ## Integration Identity
 
@@ -49,21 +27,18 @@ pushed and integrated as follows.
 
 | Work | Main integration |
 |---|---|
-| Metal parity and llama.cpp competition | PR #34, `87e3e4b` |
 | NVIDIA long-context decode | PR #35, `e955b26` |
-| Metal long-context decode | PR #36, `ae69781` |
 | AMD long-context decode | PR #37, `e3d23f2` |
 | NVIDIA long-context prefill | PR #38, `8884465` |
 | AMD long-context prefill | PR #39, `8e2f8cc` |
-| Metal long-context prefill | PR #40, `6e514c1` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
 The package version is `0.1.5`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 `v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
 `v0.1.3` corrects release identity, `v0.1.4` prepares generic release model
-selection and a closed family dispatcher, and `v0.1.5` prepares the qualified
-CUDA profiles and installer paths.
+selection and a closed family dispatcher. The current `v0.1.5` source candidate
+retains CPU, Vulkan, and Vulkan-hybrid profiles.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 
@@ -83,12 +58,10 @@ and their distinct evidence boundaries.
 | AMD required-wave32 Q6 decode/logits | AMD plus Vulkan subgroup-size control | default-subgroup pipeline | adds 6.3--6.5% at 3B KV128/2K on top of GQA |
 | AMD required-wave32 4:1 GQA decode | AMD, required subgroup 32, F16 KV, head 128, exact 4:1 GQA | exact wave64 or generic decode | 3B/28K 16.144 → 49.398 tok/s; 8B/28K 18.868 fallback → 28.374 tok/s |
 | Exact wave64 4:1 GQA decode | default subgroup 64, F16 KV, head 128, exact 4:1 GQA | generic decode | 3B/28K 16.144 → 29.762 tok/s without LDS or changed dot order |
-| Request KV reuse | serialized standalone Vulkan or Metal requests; keyed calls may also reuse an identical token prefix | ordinary generation on CPU/hybrid; prefix zero on a key/token mismatch and cache invalidation on failure | avoids reallocating request-local cache while preserving fresh tail logits |
+| Request KV reuse | serialized standalone Vulkan requests; keyed calls may also reuse an identical token prefix | ordinary generation on CPU/hybrid; prefix zero on a key/token mismatch and cache invalidation on failure | avoids reallocating request-local cache while preserving fresh tail logits |
 | CPU 32-row prefill and single-token SIMD routing | AVX2/F16C capability and supported Q4_K/Q6_K shapes | scalar and smaller-batch kernels | 3B/128 TTFT 7,030.85 → 5,024.78 ms; decode 5.71 → 6.79 tok/s |
 | CPU cache-sized prefill token tiling | x86_64 architectural L2 report and supported quantized batched shapes | historical 256 KiB cache premise and existing 16--64 tile bounds | validation environment short prompt 30.68 → 33.20 tok/s; long prompt 27.32 → 31.09 tok/s |
 | CPU four-query GQA attention | exact 4:1 GQA and supported SIMD width | pair/serial attention | 8K attention improved 1.542x locally |
-| Metal early tiled GQA prefill | unified-memory Apple9, F16 KV, head 128, width 32, exact 4:1 GQA | serial/segmented Metal attention | 3B/512 TTFT 6,188.66 → 2,554.70 ms |
-| Metal pipelined C64 attention QK | Metal matrix path, rows 64, F16 KV, head 128, exact 4:1 GQA | established tiled/segmented/serial Metal attention | 3B/15K TTFT 103.184 → 84.298 s; 28K 280.058 → 214.704 s |
 
 The benchmark harness also reports medians alongside means, dispersion, and CV,
 so performance decisions are less sensitive to outliers.
@@ -162,23 +135,6 @@ not a performance-qualified backend.
 | 3B decode / 128 | 6.79 tok/s | 10.312 tok/s | 1.52x latency |
 | 3B decode / 2K | 5.73 tok/s | 8.957 tok/s | 1.56x latency |
 
-### Metal Final Comparison
-
-These rows use a 10-core Apple silicon validation GPU on macOS 26.3, full Metal
-placement, F16 KV, and pinned llama.cpp `13f2b28b0`. Graph Horizon TTFT includes
-a broader public-event boundary than llama.cpp prompt evaluation.
-
-| Workload | Metal final | llama.cpp | Final ratio |
-|---|---:|---:|---:|
-| 3B prefill / 128 | 331.65 ms | 299.18 ms | 1.11x |
-| 3B prefill / 2K | 5.694 s | 5.649 s | 1.01x |
-| 3B prefill / 15K | 84.298 s | 72.853 s | 1.16x |
-| 3B prefill / 28K | 214.704 s | 176.111 s | 1.22x |
-| 8B prefill / 2K | 26.685 s | 15.427 s | 1.73x |
-| 14B prefill / 2K | 45.329 s | 24.351 s | 1.86x |
-| 3B decode / 2K | 25.40 tok/s | 27.56 tok/s | 1.09x latency |
-| 14B decode / 2K | 9.01 tok/s | 10.81 tok/s | 1.20x latency |
-
 ## Correctness And Portability
 
 - Focused CPU/Vulkan numeric oracles cover Q4, Q6, attention, GQA, and retained
@@ -189,12 +145,7 @@ a broader public-event boundary than llama.cpp prompt evaluation.
   3B/8B/14B with exact prompt IDs and zero crossings.
 - Corrected runtime `e7edc83` passes the available CPU, Vulkan, and
   Vulkan-hybrid matrix (`40 pass`, `34 external verification`, zero failures),
-  both warning-denied profiles, and all six semantic rows. The Metal checkpoint
-  passes pure/hybrid suites, focused numeric tests, and the authenticated 3B
-  teacher row on the M4 host.
-- The CUDA checkpoint passes the release engine suite, physical-device
-  operation oracles, lifecycle gates, and authenticated 3B f16/int8 teacher
-  rows on the frozen qualified tuple.
+  both warning-denied profiles, and all six semantic rows.
 - Specialized kernels are selected only after feature, resource, format, and
   shape checks. Unsupported tuples remain on the pre-existing generic paths.
 
@@ -243,18 +194,8 @@ stop decision are in
 [the AMD prefill checkpoint](../investigation-reports/vulkan-amd-long-context-prefill.md). Long
 decode retains wave32 GQA/Q6 and remains guarded through KV depth 28K.
 
-CUDA remains far below the mature Vulkan path on its completed benchmark rows,
-and the long workload did not finish before the runtime adapter timeout. No
-CUDA optimization or production claim follows from that incomplete comparison.
-
 CPU prefill now sizes its quantized-matmul activation tile from architectural
 L2 capacity; the retained A/B improves short prompt throughput by 8.21% and
 long by 13.80% without a decode regression. Quantized batched matmul remains
 the largest measured CPU limit; the next material designs require new
-packed-GEMM or query-tiled-attention subsystems. Metal's retained pipelined C64
-QK schedule removes 44.4% of 15K
-attention time; the complete evidence is in
-[the Metal prefill checkpoint](../investigation-reports/metal-long-context-prefill.md).
-The remaining Metal gap is exact attention's quadratic term, but grouped GQA,
-wider/split ownership, PV pipelining, and head-major KV have the wrong measured
-sign or fail to reproduce. INT8 remains on its correct separate non-tiled route.
+packed-GEMM or query-tiled-attention subsystems.

@@ -58,32 +58,6 @@ cargo run --locked --release --no-default-features --features cpu \
   --prompt "Example" --max-tokens 8 --warmup 0 --reps 1
 ```
 
-Metal:
-
-```sh
-cargo run --locked --release --no-default-features --features metal \
-  --example bench -- /path/to/model.gguf --context 2048 --kv f16 \
-  --prompt "Example" --max-tokens 8 --warmup 0 --reps 1
-```
-
-Metal-hybrid:
-
-```sh
-cargo run --locked --release --no-default-features --features metal-hybrid \
-  --example bench -- /path/to/model.gguf --context 2048 --kv f16 \
-  --weights-percent 25 --prompt "Example" --max-tokens 8 \
-  --warmup 0 --reps 1
-```
-
-CUDA-hybrid on its supported build platform:
-
-```sh
-cargo run --locked --release --no-default-features --features cuda-hybrid \
-  --example bench -- /path/to/model.gguf --context 2048 --kv f16 \
-  --weights-percent 25 --prompt "Example" --max-tokens 8 \
-  --warmup 0 --reps 1
-```
-
 These commands demonstrate the interface, not an A/B tuple. For an
 investigation, use the task-directed matrix when one is specified; otherwise
 use the default iterative tuple by reference from the process page and change

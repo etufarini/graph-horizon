@@ -20,15 +20,9 @@ and execution:
 | CPU standalone or `CpuOnly` | 32 rows | CPU |
 | Vulkan standalone | 256 rows normally; 512 with the qualified Matrix2 Q4/Q64 capability set; the bounded-submission profile uses 128 or the deep/long 64-row bound | Vulkan |
 | Vulkan-hybrid `AllGpu` | Accounted 32-row fallback; 512 with the eligible, capacity-fitting Matrix2 Q4/Q64 capability set | Vulkan |
-| Metal standalone | 64 rows | Metal |
-| Metal-hybrid `AllGpu` (`all-metal`) | 32 rows | Metal |
-| CUDA standalone | 32 rows | CUDA |
-| CUDA-hybrid `AllGpu` (`all-gpu`) | 32 rows | CUDA |
-| Vulkan, Metal, or CUDA `Mixed` | 4 rows | CPU prefix, one crossing, accelerator suffix |
+| Vulkan `Mixed` | 4 rows | CPU prefix, one crossing, accelerator suffix |
 
-Metal stores the immutable `Mixed` fact and applies only the qualified
-operation-local per-row matmul and serial-attention exceptions. Vulkan uses the
-same kernels for homogeneous and mixed placement.
+Vulkan uses the same kernels for homogeneous and mixed placement.
 
 ## Placement Options
 
@@ -43,16 +37,10 @@ CPU/accelerator breakdown. `Engine::memory()` reports retained model weights
 and full-context KV capacity; neither value is process RSS or live allocator
 telemetry.
 
-Vulkan and CUDA use separate RAM and VRAM. On Linux, the automatic RAM budget
+Vulkan uses separate RAM and VRAM. On Linux, the automatic RAM budget
 is `floor(MemAvailable × 90 / 100)` from one strict `/proc/meminfo`
 `MemAvailable` field, and malformed or overflowing input admits zero host
-bytes. The automatic VRAM reserve is the greater of 256 MiB and 5%. CUDA hybrid
-probes visible device ordinal 0 only after validating configuration; percentage
-zero selects CPU-only without initializing CUDA. A mixed pass performs exactly
-one synchronous checked FP32 residual transfer from CPU to CUDA. Metal uses
-unified memory derived from physical memory and the recommended working set,
-counting weights, KV, scratch, fixed, staging, crossing, and reserve against the
-same capacity.
+bytes. The automatic VRAM reserve is the greater of 256 MiB and 5%.
 
 Capability-specific wider routes include their scratch in admission. If an
 eligible 512-row Matrix2 plan does not fit, placement is recomputed with the
@@ -62,8 +50,7 @@ errors remain failures. The runtime never reduces context, changes placement,
 or retries another backend.
 
 Every hybrid profile uses request-local KV and does not reuse a prefix between
-requests. CUDA hybrid adds no unified-memory path, multi-GPU ownership, or new
-numeric kernel; it composes the existing CPU and CUDA implementations.
+requests.
 
 ## KV Cache And Sampling
 

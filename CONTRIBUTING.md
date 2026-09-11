@@ -11,8 +11,8 @@ AI development documents and generic skills listed there are protected from
 implicit deletion, renaming, merging, or consolidation.
 
 Before changing code, identify the invariant, smallest viable change, and main
-risk. Every build selects exactly one profile—`cpu`, `vulkan`,
-`vulkan-hybrid`, `metal`, `metal-hybrid`, `cuda`, or `cuda-hybrid`—with
+risk. Every build selects exactly one profile—`cpu`, `vulkan`, or
+`vulkan-hybrid`—with
 defaults disabled:
 
 ```sh

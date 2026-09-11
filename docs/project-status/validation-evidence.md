@@ -6,6 +6,10 @@ and experimental decisions remain in Git history and investigation reports.
 
 # Validation Evidence
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Current State
 
 Graph Horizon `0.1.5` is the current release candidate. No local or remote
@@ -49,6 +53,9 @@ performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
 ## v0.1.5 CUDA Profiles Candidate — 3 September 2026
+
+This earlier candidate is historical; current source retains only CPU, Vulkan,
+and Vulkan-hybrid. The original release preparation record follows.
 
 The compatible CUDA backend and qualification changes after v0.1.4 select patch
 version `0.1.5`. The candidate adds standalone and hybrid CUDA to the local
@@ -376,16 +383,14 @@ link here rather than duplicating device models.
 | CPU | Synthetic suite and post-repair real matrix across six artifacts and f16/int8; no performance promise | REFERENCE |
 | Vulkan | Suites, numeric oracles, and real NVIDIA/AMD Vulkan validation GPU matrices | PRODUCTION |
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
-| Metal | Suite, oracles, teacher row, and recorded Apple silicon/macOS 26.3 measurements | QUALIFIED |
-| Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
-| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
-| CUDA-hybrid | Shared hybrid suite, physical-device transfer checks, and six authenticated f16/int8 all-GPU/mixed/CPU-only rows on the recorded CUDA tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
 [current performance status](current-performance-status.md).
 
-### CUDA implementation gate — 1 September 2026
+## CUDA implementation gate — 1 September 2026
+
+This retired backend record is historical and does not define current support.
 
 The CUDA runtime checkpoint is `c58e154` on branch `feat/cuda-backend`; its
 offline-build checkpoint is `4cf4546`. The local tuple matched the recorded
@@ -436,7 +441,9 @@ The benchmark is not correctness evidence and does not broaden qualification.
 Neighboring GPUs, drivers, toolkits, artifacts, and model sizes remain
 unclaimed.
 
-### CUDA-hybrid implementation gate — 3 September 2026
+## CUDA-hybrid implementation gate — 3 September 2026
+
+This retired profile record is historical and does not define current support.
 
 The qualified runtime checkpoint is `61c8b57` on branch `feat/cuda-backend`.
 The clean working tree matched Linux `x86_64`, compute capability 7.5, 6144

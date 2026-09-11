@@ -6,6 +6,10 @@ runtime support.
 
 # Investigation Reports
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 These reports contain authenticated inputs, measurements, candidate decisions,
 qualification gates, and integration records from completed investigations.
 Current conclusions are summarized in

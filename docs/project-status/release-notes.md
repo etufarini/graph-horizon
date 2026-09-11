@@ -7,30 +7,27 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+GPU execution is restricted to Vulkan. CPU and Vulkan-hybrid remain available.
+The installer, validation scripts, and runtime telemetry accept only these
+three profiles; the serial correctness matrix now contains 46 rows.
+
 ## Graph Horizon v0.1.5
 
-Graph Horizon v0.1.5 is the source candidate that aligns CUDA with the other
-installer-supported backends and prepares stable hybrid quick-install choices.
-The local installer accepts standalone `cuda` and the `vulkan-hybrid`,
-`metal-hybrid`, and `cuda-hybrid` profiles on their declared platforms. Both
-CUDA profiles require CUDA Toolkit `nvcc` before any frontend or Rust build
-starts and use visible device ordinal 0. No hybrid profile enables prefix-KV
-reuse.
-
-Installer availability does not promote either CUDA profile to production or
-broaden its qualified boundary. CUDA hybrid is qualified only for the frozen
-six-row model, context, KV, placement, hardware, driver, and toolkit tuple in
-validation evidence. No CUDA-hybrid performance comparison is claimed.
+Graph Horizon v0.1.5 remains a source candidate. The supported build and
+installer profiles are `cpu`, `vulkan`, and `vulkan-hybrid`; Vulkan is the only
+GPU backend. Hybrid placement keeps all-GPU, mixed CPU/GPU, and CPU-only modes.
+No hybrid profile enables prefix-KV reuse.
 
 After an explicitly authorized publication of the exact candidate as `v0.1.5`,
-the tagged bootstrap can select any of the three hybrid profiles; for example:
+the tagged bootstrap can install Vulkan hybrid:
 
 ```sh
-curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend cuda-hybrid
+curl --fail --location --silent --show-error https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh | bash -s -- --backend vulkan-hybrid
 ```
 
 Publication, release-integrity verification, and platform-specific installed
-binary smokes remain external verification.
+binary smokes remain external verification. Historical qualification records
+apply only to their recorded revisions.
 
 ## Graph Horizon v0.1.4
 
@@ -48,7 +45,7 @@ rewriting the annotated release tag it verifies.
 
 This patch changes no supported runtime behavior, numeric operation, public
 API, model profile, or backend policy. The CLI, Web UI, Q4_K_M public profile,
-and CPU, Vulkan, Metal, and hybrid placement contracts are unchanged from
+and CPU, Vulkan, and hybrid placement contracts are unchanged from
 v0.1.3.
 
 After publication, install anonymously with:

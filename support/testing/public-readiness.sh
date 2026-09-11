@@ -8,7 +8,7 @@ model_id=""; model=""; benchmark_backend=""; report=""; id_seen=false
 model_seen=false; backend_seen=false; report_seen=false
 temp_root=""; server_pid=""
 
-usage() { echo "usage: public-readiness.sh --model-id ID --model /absolute/model.gguf --benchmark-backend cpu|vulkan|vulkan-hybrid|metal|metal-hybrid --report /absolute/report.md"; }
+usage() { echo "usage: public-readiness.sh --model-id ID --model /absolute/model.gguf --benchmark-backend cpu|vulkan|vulkan-hybrid --report /absolute/report.md"; }
 fail() { printf 'public-readiness: %s\n' "$1" >&2; exit "${2:-1}"; }
 
 stop_server() {
@@ -37,7 +37,7 @@ while (($#)); do
 done
 $id_seen && $model_seen && $backend_seen && $report_seen || fail "required arguments are missing" 2
 [[ "$model_id" =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || fail "invalid model ID" 2
-case "$benchmark_backend" in cpu|vulkan|vulkan-hybrid|metal|metal-hybrid) ;; *) fail "invalid benchmark backend" 2 ;; esac
+case "$benchmark_backend" in cpu|vulkan|vulkan-hybrid) ;; *) fail "invalid benchmark backend" 2 ;; esac
 for path in "$model" "$report"; do
     [[ "$path" == /* && "$path" != *[$'\001'-$'\037'$'\177']* ]] || fail "invalid path" 2
     case "$path/" in */./*|*/../*) fail "invalid path" 2 ;; esac
@@ -59,7 +59,7 @@ os="$(uname -s)"; arch="$(uname -m)"; kernel="$(uname -r)"
 case "$os/$arch" in Linux/x86_64|Darwin/arm64) ;; *) fail "unsupported platform" ;; esac
 cpu="$(LC_ALL=C lscpu | awk -F: '$1 ~ /^Model name/ { sub(/^[ \t]+/, "", $2); print $2; exit }')"; [[ -n "$cpu" && "$cpu" != *['`|'$'\r\n']* ]] || fail "CPU identity is unavailable"
 
-vulkan_status="external verification"; vulkan_hybrid_status="external verification"; metal_status="external verification"; metal_hybrid_status="external verification"
+vulkan_status="external verification"; vulkan_hybrid_status="external verification"
 available=(cpu); gpu="external verification"; driver="external verification"; vulkan_runtime="external verification"
 temp_root="$(mktemp -d /tmp/graph-horizon-readiness.XXXXXX)" || fail "temporary state cannot be created"
 [[ "$temp_root" =~ ^/tmp/graph-horizon-readiness\.[A-Za-z0-9]+$ && -d "$temp_root" ]] || fail "temporary state is invalid"
@@ -82,10 +82,6 @@ if command -v vulkaninfo >/dev/null 2>&1 && vulkaninfo --summary >"$vulkan_file"
     fi
 fi
 rm -f -- "$vulkan_file"
-if [[ "$os/$arch" == Darwin/arm64 ]] && command -v xcrun >/dev/null 2>&1 \
-    && xcrun -f metal >/dev/null 2>&1 && xcrun -f metallib >/dev/null 2>&1; then
-    available+=(metal metal-hybrid)
-fi
 for value in "$gpu" "$driver" "$vulkan_runtime" "$kernel"; do
     [[ "$value" != *['`|'$'\r\n']* && "$value" != */* ]] || fail "unsafe system identity"
 done
@@ -130,7 +126,7 @@ for backend in "${available[@]}"; do
         || fail "runtime check failed for $backend"
     grep -Fq "\"backend\":\"$backend\"" "$state/runtime.json" || fail "backend substitution detected for $backend"
     if [[ "$backend" == *-hybrid ]]; then
-        grep -Eq '"mode":"(all-gpu|all-metal|mixed)"' "$state/runtime.json" || fail "hybrid backend used CPU-only placement"
+        grep -Eq '"mode":"(all-gpu|mixed)"' "$state/runtime.json" || fail "hybrid backend used CPU-only placement"
     fi
     curl --fail --silent --max-time 300 -H 'content-type: application/json' -H 'x-graph-horizon-cache: 00112233445566778899aabbccddeeff' \
         --data-binary '{"messages":[{"role":"user","content":"Ciao"}]}' \
@@ -139,7 +135,7 @@ for backend in "${available[@]}"; do
     grep -Fq '"stats":' "$state/chat.sse" && grep -Fq '"done":true' "$state/chat.sse" \
         && ! grep -Fq '"error":' "$state/chat.sse" || fail "generation result failed for $backend"
     stop_server
-    case "$backend" in vulkan) vulkan_status=PASS ;; vulkan-hybrid) vulkan_hybrid_status=PASS ;; metal) metal_status=PASS ;; metal-hybrid) metal_hybrid_status=PASS ;; esac
+    case "$backend" in vulkan) vulkan_status=PASS ;; vulkan-hybrid) vulkan_hybrid_status=PASS ;; esac
 done
 
 cpu_binary="$temp_root/prefix-cpu/bin/graph-horizon"; cli_log="$state/cli.log"
@@ -205,8 +201,6 @@ Overall result: **PASS**
 | cpu | PASS |
 | vulkan | $vulkan_status |
 | vulkan-hybrid | $vulkan_hybrid_status |
-| metal | $metal_status |
-| metal-hybrid | $metal_hybrid_status |
 
 ## Limits
 
@@ -218,5 +212,5 @@ Overall result: **PASS**
 EOF
 install -m 0644 "$state/report.md" "$report" || fail "report cannot be written"
 printf '%s\n' 'clone/install: PASS' 'backend cpu: PASS' "backend vulkan: $vulkan_status" \
-    "backend vulkan-hybrid: $vulkan_hybrid_status" "backend metal: $metal_status" \
-    "backend metal-hybrid: $metal_hybrid_status" "benchmark $benchmark_backend: PASS" 'report: PASS'
+    "backend vulkan-hybrid: $vulkan_hybrid_status" \
+    "benchmark $benchmark_backend: PASS" 'report: PASS'

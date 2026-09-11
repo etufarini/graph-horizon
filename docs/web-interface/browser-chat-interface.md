@@ -14,7 +14,7 @@ one editable system prompt.
 
 An ordinary request has the strict body `{"messages":[]}`. The page also sends
 one random lowercase-hex `x-graph-horizon-cache` key for its lifetime. On
-standalone Vulkan and Metal, one KV allocation can reuse only an exact rendered
+standalone Vulkan, one KV allocation can reuse only an exact rendered
 token prefix with the same key. CPU and hybrid profiles do not reuse prefixes.
 
 At startup the browser requests context and runtime facts with three-second

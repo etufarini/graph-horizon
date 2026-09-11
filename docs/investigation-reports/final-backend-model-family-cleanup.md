@@ -7,6 +7,10 @@ detail remains in the backend-specific reports.
 
 # Final Backend and Model-Family Cleanup
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Baseline
 
 ```text

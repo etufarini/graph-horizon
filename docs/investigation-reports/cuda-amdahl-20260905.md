@@ -1,5 +1,9 @@
 # CUDA Amdahl campaign 2026-09-05
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Recovery state
 
 - Campaign ID: `cuda-amdahl-20260905` (new campaign; historical campaign completed).

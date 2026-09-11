@@ -6,17 +6,21 @@ and experimental decisions remain in Git history and investigation reports.
 
 # Validation Evidence
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Current State
 
-Graph Horizon `0.1.5` is the current release version. Its immutable identity is
-`v0.1.5^{commit}`: the annotated tag, archive-embedded commit, and adjacent
-checksum must agree. Exact-commit public-readiness, archive installation, and
-anonymous publication checks run after the preparation commit; their completed
-results belong in the [release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5).
-They are separate from historical qualification below.
+Graph Horizon `v0.1.5` was published on 6 September 2026 and is the current
+stable release. The [published release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5)
+identifies source commit `19c3844fc3da35b91db6d889f3eebe5748658c16`.
+Publication was checked through the GitHub release API; the archive checks
+reported there were not rerun during this documentation correction.
+The three-profile cleanup below is unreleased and does not change that release.
 
-For the previous release, Graph Horizon `0.1.4`, the annotated local and
-anonymous remote tag, published source archive, and archive-embedded commit resolve to
+For the previous `v0.1.4` release, the recorded local and anonymous remote tag,
+published source archive, and archive-embedded commit all resolve to
 `dd485f3a44363880bf11fc5bc69d77f149415025`.
 The published archive SHA-256 is
 `7db3d1b03d9b5003801c069b2fb8ae0345caaa9e67287f8e3d1fa2f7d18c8b6d`,
@@ -36,7 +40,7 @@ and anonymous remote tag resolve to
 `30f26c1b854dc1e48dc84b22b66f952e451bc967`. This is a historical
 release-identity defect even though the commits have the same Git tree.
 
-The `v0.1.0`, `v0.1.1`, `v0.1.2`, `v0.1.3`, and `v0.1.4` tags and assets remain
+The `v0.1.0` through `v0.1.5` tags and assets remain
 immutable. They must not be moved, deleted, or replaced; any correction must
 use a later version. `main` is the moving development branch and may advance
 beyond a release tag. That normal branch movement is unrelated to the v0.1.2
@@ -52,6 +56,38 @@ evidence for their declared revisions only.
 Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
+
+## Vulkan-Only GPU Cleanup
+
+The local `refactor/vulkan-only-gpu` branch starts at `6238489`. Engine removal
+is recorded in `ff346ba`, installer and telemetry changes in `1af8c71`, and
+active documentation changes in `92cd3e8`. The remaining cleanup removes the
+obsolete per-backend placement label and simplifies profile tests.
+Before PR creation, the branch incorporates `origin/main` at `f6e481c`,
+retaining its CPU optimizations and historical release evidence. The checks
+below were repeated on the resolved tree; CPU and Vulkan kernel sources
+match that base.
+
+| Local gate | Result |
+|---|---|
+| Locked all-target workspace tests, `cpu` | PASS: 353 passed, 7 ignored |
+| Locked all-target workspace tests, `vulkan` | PASS: 350 passed, 10 ignored |
+| Locked all-target workspace tests, `vulkan-hybrid` | PASS: 421 passed, 9 ignored |
+| All-target Clippy with `-D warnings`, all three profiles | PASS |
+| Rust 1.88 locked all-target checks, all three profiles | PASS |
+| Frontend checks, tests, and production build | PASS: no diagnostics, 135 tests |
+| Shell syntax, Markdown links, source structure, formatting, patch integrity | PASS |
+| Removed profiles and invalid feature combinations | Rejected before execution |
+| Current source, dependency, installer, and documentation audit | Only the three retained profiles remain |
+
+The recorded Linux x86_64 environment has a physical Vulkan device. Ignored
+real-artifact, oracle, long-context qualification, live-provider, and benchmark
+tests were not executed;
+this cleanup does not claim new model qualification or performance results.
+Protected historical reports and generic cross-runtime skills remain available,
+with explicit current-scope notes. No protected Markdown or skill file was
+removed, renamed, or consolidated. References to retired profiles remain only
+in that protected material and rejection tests.
 
 ## v0.1.5 Release Preparation — 6 September 2026
 
@@ -92,10 +128,10 @@ tests alone are not real-model semantic qualification. Exact release identity
 and post-commit product/publication gates are recorded separately as described
 under Current State; previous backend/performance evidence is not reassigned.
 
-## Historical v0.1.5 CUDA Profiles Preparation — 3 September 2026
+## v0.1.5 CUDA Profiles Candidate — 3 September 2026
 
-This section records the earlier installer task before release authorization;
-its pending publication rows are historical, not the final release result.
+This earlier candidate is historical; current source retains only CPU, Vulkan,
+and Vulkan-hybrid. The original release preparation record follows.
 
 The compatible CUDA backend and qualification changes after v0.1.4 select patch
 version `0.1.5`. The candidate adds standalone and hybrid CUDA to the local
@@ -423,16 +459,14 @@ link here rather than duplicating device models.
 | CPU | Synthetic suite and post-repair real matrix across six artifacts and f16/int8; no performance promise | REFERENCE |
 | Vulkan | Suites, numeric oracles, and real NVIDIA/AMD Vulkan validation GPU matrices | PRODUCTION |
 | Vulkan-hybrid | Qualified NVIDIA all-GPU; complete post-repair AMD mixed/CPU/all-GPU matrix, pending repetition on the selected final commit | QUALIFIED |
-| Metal | Suite, oracles, teacher row, and recorded Apple silicon/macOS 26.3 measurements | QUALIFIED |
-| Metal-hybrid | Suite and mixed path on the same host; claim limited to that tuple | QUALIFIED |
-| CUDA | Offline PTX build, physical-device synthetic oracles, authenticated f16/int8 teacher rows, lifecycle, and measurement on the recorded CUDA tuple | QUALIFIED |
-| CUDA-hybrid | Shared hybrid suite, physical-device transfer checks, and six authenticated f16/int8 all-GPU/mixed/CPU-only rows on the recorded CUDA tuple | QUALIFIED |
 
 Labels describe current path maturity and do not rewrite v0.1.0 history or
 extend to unmeasured hardware. Details are summarized in
 [current performance status](current-performance-status.md).
 
-### CUDA implementation gate — 1 September 2026
+## CUDA implementation gate — 1 September 2026
+
+This retired backend record is historical and does not define current support.
 
 The CUDA runtime checkpoint is `c58e154` on branch `feat/cuda-backend`; its
 offline-build checkpoint is `4cf4546`. The local tuple matched the recorded
@@ -483,7 +517,9 @@ The benchmark is not correctness evidence and does not broaden qualification.
 Neighboring GPUs, drivers, toolkits, artifacts, and model sizes remain
 unclaimed.
 
-### CUDA-hybrid implementation gate — 3 September 2026
+## CUDA-hybrid implementation gate — 3 September 2026
+
+This retired profile record is historical and does not define current support.
 
 The qualified runtime checkpoint is `61c8b57` on branch `feat/cuda-backend`.
 The clean working tree matched Linux `x86_64`, compute capability 7.5, 6144

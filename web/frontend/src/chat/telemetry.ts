@@ -12,7 +12,7 @@ import type {
   RuntimePlacement
 } from './types.ts';
 
-const BACKENDS = new Set(['cpu', 'vulkan', 'vulkan-hybrid', 'metal', 'metal-hybrid']);
+const BACKENDS = new Set(['cpu', 'vulkan', 'vulkan-hybrid']);
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 
 export function liveTelemetry(value: GenerationTelemetry | null): GenerationTelemetry | null {

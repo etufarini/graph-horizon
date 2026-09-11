@@ -78,7 +78,7 @@ pub(crate) struct RuntimeModel {
     pub(crate) scheme: crate::kv_cache::scheme::KvQuant,
     pub(crate) memory: ModelMemory,
     pub(crate) backend: selection::SelectedBackend,
-    #[cfg(any(feature = "vulkan", feature = "metal"))]
+    #[cfg(feature = "vulkan")]
     pub(in crate::family::mistral) session_cache:
         std::sync::Mutex<Option<generation::SessionCache>>,
 }
@@ -90,6 +90,13 @@ impl RuntimeModel {
         let context = resolve_context(settings.context_tokens, contract.config.context_length)?;
         let metadata = ModelMetadata::from_gguf(file)?;
         let shape = graph::MistralGraph::shape(&contract.config);
+        #[cfg(not(hybrid_backend))]
+        let memory = memory::homogeneous(
+            &contract.tensors,
+            &contract.config,
+            context,
+            settings.kv_quant,
+        )?;
         let backend = selection::load(
             file,
             &contract.tensors,
@@ -99,14 +106,6 @@ impl RuntimeModel {
             settings.kv_quant,
             settings.vram_weights_percent,
             settings.vram_reserve_mib,
-        )?;
-        #[cfg(not(hybrid_backend))]
-        let memory = memory::homogeneous(
-            &contract.tensors,
-            &contract.config,
-            context,
-            settings.kv_quant,
-            &backend,
         )?;
         #[cfg(hybrid_backend)]
         let memory = memory::hybrid(selection::placement(&backend))?;
@@ -118,7 +117,7 @@ impl RuntimeModel {
             scheme: settings.kv_quant,
             memory,
             backend,
-            #[cfg(any(feature = "vulkan", feature = "metal"))]
+            #[cfg(feature = "vulkan")]
             session_cache: std::sync::Mutex::new(None),
         })
     }
@@ -174,9 +173,9 @@ impl RuntimeModel {
         request: Request,
         sink: &mut dyn EventSink,
     ) {
-        #[cfg(any(feature = "vulkan", feature = "metal"))]
+        #[cfg(feature = "vulkan")]
         generation::generate_cached(self, cache_key, request, sink);
-        #[cfg(not(any(feature = "vulkan", feature = "metal")))]
+        #[cfg(not(feature = "vulkan"))]
         {
             let _ = cache_key;
             generation::generate(self, request, sink);
@@ -198,7 +197,7 @@ fn display_name(md: &std::collections::HashMap<String, GgufValue>) -> Option<Str
     (length > 0 && length <= 128).then(|| name.to_owned())
 }
 
-#[cfg(any(feature = "vulkan", feature = "metal"))]
+#[cfg(feature = "vulkan")]
 impl Drop for RuntimeModel {
     fn drop(&mut self) {
         let slot = self

@@ -6,6 +6,10 @@ accordance with the repository hardware-neutral documentation policy.
 
 # CUDA Amdahl Optimization
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 ## Campaign state
 
 - Branch: `perf/cuda-amdahl-20260904`

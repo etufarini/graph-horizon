@@ -69,7 +69,7 @@ impl<'a, B: Backend, G: LayeredGraph> HomogeneousSession<'a, B, G> {
         self.kv.as_ref().expect("request KV exists until drop")
     }
 
-    #[cfg(any(feature = "vulkan", feature = "metal"))]
+    #[cfg(feature = "vulkan")]
     pub(crate) fn into_state(mut self) -> Kv<B::Buffer> {
         self.kv.take().expect("cached session returns its KV")
     }

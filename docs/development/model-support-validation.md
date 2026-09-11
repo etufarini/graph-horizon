@@ -107,7 +107,7 @@ For a partitioned profile, assert the generic runtime facts: requested mode and
 percentage, positive host and device layer counts for `mixed`, endpoint ownership
 for 0% and 100%, and the expected number of crossings per pass. These assertions
 belong to selected-runtime integration tests; model-family code must not import
-Metal, Vulkan, or any backend pair.
+Vulkan or the CPU/Vulkan pair.
 
 ## Phase 6: Check Oracle Parity
 

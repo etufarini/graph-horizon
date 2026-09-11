@@ -86,11 +86,11 @@ intentional change. Treat the artifact and every recorded field as untrusted
 until catalog authentication and tuple comparison pass.
 
 Run only the profile whose path changed. If the change is shared by standalone
-Metal and hybrid Metal, run two selected rows: `metal` and `metal-hybrid` with
-`weights_percent=25`. CPU is not an automatic control row. Add `int8`, Vulkan,
-8B, or 14B only when the task or measured bottleneck directly depends on that
-scheme, backend, size, layout, capacity, or memory pressure. Select a larger
-model early only when 3B cannot exercise the relevant property.
+Vulkan and Vulkan hybrid, run `vulkan` and `vulkan-hybrid` with
+`weights_percent=25`. CPU is not an automatic control row. Add `int8`, 8B,
+or 14B only when the task or measured bottleneck depends on that scheme,
+size, layout, capacity, or memory pressure. Select a larger model early only
+when 3B cannot exercise the relevant property.
 
 ## Acquire Matching Records
 
@@ -190,7 +190,7 @@ different artifact.
 
 ## Release Qualification Boundary
 
-The 74-row correctness matrix is outside iterative performance Definition of
+The 46-row correctness matrix is outside iterative performance Definition of
 Done. Run it only for release qualification or for a change to a shared backend
 contract, public artifact compatibility, family-wide numeric behavior, KV
 layout, or placement policy. Do not run it merely because one selected

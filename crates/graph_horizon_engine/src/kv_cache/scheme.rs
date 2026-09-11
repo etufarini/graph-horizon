@@ -10,7 +10,6 @@
  * vector and the metadata bytes per role; the byte-region math over whole
  * buffers lives in `layout`, and the int8 quantization arithmetic lives in
  * `int8`. The CPU scalar reference and Vulkan shader use bit-identical coding;
- * Metal stores the same payload and metadata layout.
  *
  * Adding a scheme: a variant here (parse/name/sizing rows), the normative
  * scalar reference under `kv_cache`, one arm in each backend's per-call

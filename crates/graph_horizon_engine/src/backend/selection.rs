@@ -153,8 +153,7 @@ pub(crate) fn placement(backend: &SelectedBackend) -> Option<&HybridPlan> {
 
 #[cfg(hybrid_backend)]
 pub(crate) fn placement_mode(mode: super::hybrid::HybridMode) -> &'static str {
-    let all = "all-gpu";
-    mode.name_for(all)
+    mode.name()
 }
 
 #[cfg(hybrid_backend)]

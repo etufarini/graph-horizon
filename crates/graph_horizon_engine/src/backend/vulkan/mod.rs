@@ -126,10 +126,6 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
         })
     }
 
-    fn all_mode_name() -> &'static str {
-        "all-gpu"
-    }
-
     fn invalid_percentage_error() -> &'static str {
         "invalid Vulkan weight percentage"
     }

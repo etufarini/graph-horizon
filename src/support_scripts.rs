@@ -827,7 +827,7 @@ fn bootstrap_forwards_arguments_and_cleans_temporary_tree() {
     );
     assert!(!temp.exists());
 
-    for backend in ["vulkan-hybrid"] {
+    for backend in ["cpu", "vulkan", "vulkan-hybrid"] {
         fs::remove_file(&argument_log).unwrap();
         let hybrid_args = ["--backend", backend];
         let output = run_bootstrap(&fixture, &bin, &temp, &argument_log, &archive, &hybrid_args);

@@ -124,7 +124,7 @@ pub(crate) fn load<G: HybridDevice>(
     }
     eprintln!(
         "hybrid: mode={} cpu_layers={} gpu_layers={} cpu_bytes={} gpu_bytes={}",
-        plan.mode.name_for(G::all_mode_name()),
+        plan.mode.name(),
         plan.cpu_layers,
         plan.gpu_layers,
         plan.cpu.total,

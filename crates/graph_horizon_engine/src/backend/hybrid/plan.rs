@@ -14,9 +14,9 @@ pub(crate) enum HybridMode {
 }
 
 impl HybridMode {
-    pub(crate) fn name_for(self, all_gpu: &'static str) -> &'static str {
+    pub(crate) fn name(self) -> &'static str {
         match self {
-            Self::AllGpu => all_gpu,
+            Self::AllGpu => "all-gpu",
             Self::Mixed => "mixed",
             Self::CpuOnly => "cpu-only",
         }

@@ -104,10 +104,6 @@ mod tests {
             })
         }
 
-        fn all_mode_name() -> &'static str {
-            "all-test"
-        }
-
         fn invalid_percentage_error() -> &'static str {
             "invalid test percentage"
         }

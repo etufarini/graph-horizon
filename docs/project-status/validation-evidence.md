@@ -52,6 +52,34 @@ Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
 
+## Vulkan-Only GPU Cleanup
+
+The local `refactor/vulkan-only-gpu` branch starts at `6238489`. Engine removal
+is recorded in `ff346ba`, installer and telemetry changes in `1af8c71`, and
+active documentation changes in `92cd3e8`. The remaining cleanup removes the
+obsolete per-backend placement label and simplifies profile tests.
+
+| Local gate | Result |
+|---|---|
+| Locked workspace tests, `cpu` | PASS: 350 passed, 7 ignored |
+| Locked workspace tests, `vulkan` | PASS: 350 passed, 10 ignored |
+| Locked workspace tests, `vulkan-hybrid` | PASS: 418 passed, 9 ignored |
+| All-target Clippy with `-D warnings`, all three profiles | PASS |
+| Rust 1.88 locked all-target checks, all three profiles | PASS |
+| Frontend checks, tests, and production build | PASS: no diagnostics, 135 tests |
+| Shell syntax, Markdown links, source structure, formatting, patch integrity | PASS |
+| Removed profiles and invalid feature combinations | Rejected before execution |
+| Current source, dependency, installer, and documentation audit | Only the three retained profiles remain |
+
+The recorded Linux x86_64 environment has a physical Vulkan device. Ignored
+real-artifact, oracle, long-context qualification, live-provider, and benchmark
+tests were not executed;
+this cleanup does not claim new model qualification or performance results.
+Protected historical reports and generic cross-runtime skills remain available,
+with explicit current-scope notes. No protected Markdown or skill file was
+removed, renamed, or consolidated. References to retired profiles remain only
+in that protected material and rejection tests.
+
 ## v0.1.5 CUDA Profiles Candidate — 3 September 2026
 
 This earlier candidate is historical; current source retains only CPU, Vulkan,

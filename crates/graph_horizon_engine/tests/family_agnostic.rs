@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(any(feature = "vulkan-hybrid",))]
+#[cfg(feature = "vulkan-hybrid")]
 use graph_horizon_engine::BackendMemory;
 #[cfg(feature = "vulkan-hybrid")]
 use graph_horizon_engine::PlacementReport;
@@ -375,7 +375,7 @@ fn required_usize(name: &str) -> usize {
 }
 
 fn assert_placement(engine: &Engine, percentage: Option<u8>) {
-    #[cfg(any(feature = "vulkan-hybrid",))]
+    #[cfg(feature = "vulkan-hybrid")]
     {
         let expected = std::env::var("GRAPH_HORIZON_EXPECTED_MODE")
             .expect("GRAPH_HORIZON_EXPECTED_MODE required for hybrid profiles");
@@ -401,7 +401,7 @@ fn assert_placement(engine: &Engine, percentage: Option<u8>) {
             );
         }
     }
-    #[cfg(not(any(feature = "vulkan-hybrid",)))]
+    #[cfg(not(feature = "vulkan-hybrid"))]
     {
         assert!(percentage.is_none());
         assert!(engine.placement().is_none());

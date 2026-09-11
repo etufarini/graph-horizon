@@ -22,7 +22,6 @@ pub(crate) trait HybridDevice: Backend {
     fn host_available() -> Result<u64>;
     fn acquire() -> Result<Option<Self::Device>>;
     fn budget(device: &Self::Device) -> Result<BudgetInput>;
-    fn all_mode_name() -> &'static str;
     fn invalid_percentage_error() -> &'static str;
     fn prefill_rows(
         device: &Self::Device,

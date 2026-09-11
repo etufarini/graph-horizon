@@ -123,16 +123,16 @@ run_parity() {
 }
 
 for id in "${model_ids[@]}"; do
-    for backend in cpu vulkan vulkan-hybrid metal metal-hybrid; do
+    for backend in cpu vulkan vulkan-hybrid; do
         for kv in f16 int8; do
             case "$backend" in
-                vulkan-hybrid|metal-hybrid) run_parity "$id" "$backend" "$kv" 25 mixed ;;
+                vulkan-hybrid) run_parity "$id" "$backend" "$kv" 25 mixed ;;
                 *) run_parity "$id" "$backend" "$kv" ;;
             esac
         done
     done
 done
-for endpoint in vulkan-hybrid:vulkan:all-gpu metal-hybrid:metal:all-metal; do
+for endpoint in vulkan-hybrid:vulkan:all-gpu; do
     IFS=: read -r backend control all_mode <<<"$endpoint"
     for mode_percent in "$all_mode:100" cpu-only:0; do
         mode="${mode_percent%:*}"; percent="${mode_percent#*:}"

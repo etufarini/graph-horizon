@@ -48,19 +48,19 @@ platform coverage.
 
 ## Quick Install
 
-### Stable v0.1.5 release
+### Stable v0.2.0 release
 
-The commands below build the published `v0.1.5` source release and install it
+The commands below build the published `v0.2.0` source release and install it
 in `$HOME/.local/bin` by default. Review the complete
 [prerequisites and installation options](docs/installation.md) before running them.
-The backend simplification in this checkout is unreleased; tagged releases
-retain their original feature set.
+The supported profiles are CPU, Vulkan, and Vulkan-hybrid. Earlier tagged
+releases retain their original feature set.
 
 On Linux `x86_64` with a working Vulkan loader and driver:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.2.0/install.sh \
   | bash -s -- --backend vulkan
 ```
 
@@ -69,7 +69,7 @@ On Linux `x86_64` with a working Vulkan loader and driver:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.2.0/install.sh \
   | bash -s -- --backend vulkan-hybrid
 ```
 
@@ -88,11 +88,10 @@ export PATH="$HOME/.local/bin:$PATH"
 ## Stable Release And Main
 
 The current published stable release is
-[`v0.1.5`](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5).
+[`v0.2.0`](https://github.com/etufarini/graph-horizon/releases/tag/v0.2.0).
 Its release claims and validation evidence apply only to its exact tagged
-commit. Development changes, including the three-profile backend scope in
-this checkout, belong to a subsequent release and do not alter existing tags
-or archives.
+commit. This release limits execution profiles to CPU, Vulkan, and
+Vulkan-hybrid. Earlier tags and archives retain their original feature set.
 
 See the [release notes](docs/project-status/release-notes.md) and
 [exact validation evidence](docs/project-status/validation-evidence.md) for the

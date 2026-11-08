@@ -23,9 +23,9 @@ Models are acquired separately. See
 
 ## Quick Install
 
-The commands below install the published `v0.1.5` release. The local installer
-reference describes this checkout; its three-profile scope is an unreleased
-change. Existing tagged releases retain their original feature set.
+The commands below install the `v0.2.0` release with CPU, Vulkan, or
+Vulkan-hybrid execution. Earlier tagged releases retain their original feature
+set. CUDA and Metal installation profiles are no longer available in v0.2.0.
 
 ### Linux x86_64 and Vulkan
 
@@ -33,7 +33,7 @@ On Linux `x86_64` with Vulkan:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.2.0/install.sh \
   | bash -s -- --backend vulkan
 ```
 
@@ -43,7 +43,7 @@ On Linux `x86_64` with a working Vulkan loader and driver:
 
 ```sh
 curl --fail --location --silent --show-error \
-  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \
+  https://raw.githubusercontent.com/etufarini/graph-horizon/v0.2.0/install.sh \
   | bash -s -- --backend vulkan-hybrid
 ```
 

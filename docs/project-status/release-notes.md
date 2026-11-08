@@ -7,10 +7,32 @@ mechanics belong in `docs/project-status/validation-evidence.md`.
 
 ## Unreleased
 
+## Graph Horizon v0.2.0
+
 GPU support is focused on Vulkan. The supported execution profiles are CPU,
 Vulkan, and Vulkan-hybrid, including mixed CPU/GPU placement. Existing
 installations continue to use their installed version; source builds of the
-next version must select one of these three profiles.
+new version must select one of these three profiles. CUDA and Metal backends,
+feature flags, build dependencies, and installer paths have been removed to
+keep the maintained backend scope sustainable. CPU and Vulkan numeric kernels
+and the supported Ministral 3 Q4_K_M model contract are preserved.
+
+Frontend dependencies update DOMPurify to 3.4.17, devalue to 5.9.4,
+source-map-js to 1.2.2, and Vite to 7.3.7, including upstream security and
+robustness fixes.
+
+For a fresh installation, select `cpu`, `vulkan`, or `vulkan-hybrid`. Existing
+CUDA/Metal installations stay on their installed version until replaced.
+Historical tags, archives, and qualification evidence remain unchanged.
+See [validation evidence](validation-evidence.md) for this release's checks.
+
+Known limitations: DuckDuckGo currently omits publication timestamps in the
+validated response, so date-filtered Web results are discarded when their date
+cannot be proven. Google News date checks pass. The full frontend dependency
+audit reports three low-severity development-tooling entries from
+[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4),
+with no upstream fix; the production dependency audit reports no vulnerabilities.
+Both limitations also occur on the preceding main revision.
 
 ## Graph Horizon v0.1.5
 

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 #
-# Remote acquisition boundary: downloads and authenticates the v0.1.5 source
+# Remote acquisition boundary: downloads and authenticates the v0.2.0 source
 # release, validates its shape, and delegates every build/install decision
 # unchanged to support/install.sh. It owns no backend/profile/prefix policy.
 
 set -euo pipefail
 
-release_url="https://github.com/etufarini/graph-horizon/releases/download/v0.1.5"
-archive_name="graph-horizon-0.1.5.tar.gz"
+release_url="https://github.com/etufarini/graph-horizon/releases/download/v0.2.0"
+archive_name="graph-horizon-0.2.0.tar.gz"
 archive_url="${release_url}/${archive_name}"
 checksum_url="${release_url}/${archive_name}.sha256"
-expected_root="graph-horizon-0.1.5"
+expected_root="graph-horizon-0.2.0"
 temp_dir=""
 
 fail() {

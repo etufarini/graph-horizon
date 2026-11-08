@@ -57,7 +57,7 @@ version tag:
 ```sh
 support/testing/release-integrity.sh \
   --repository etufarini/graph-horizon \
-  --tag v0.1.5
+  --tag v0.2.0
 ```
 
 The command resolves the local and anonymous remote tag, downloads the named

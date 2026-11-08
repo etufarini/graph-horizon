@@ -12,12 +12,16 @@ and experimental decisions remain in Git history and investigation reports.
 
 ## Current State
 
-Graph Horizon `v0.1.5` was published on 6 September 2026 and is the current
-stable release. The [published release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5)
+Graph Horizon `v0.2.0` focuses execution on CPU, Vulkan, and Vulkan-hybrid.
+Release identity is the commit resolved by its immutable annotated tag; the
+source archive and the external public-readiness report must identify that
+exact commit.
+
+Graph Horizon `v0.1.5` was published on 6 September 2026. The [published release record](https://github.com/etufarini/graph-horizon/releases/tag/v0.1.5)
 identifies source commit `19c3844fc3da35b91db6d889f3eebe5748658c16`.
 Publication was checked through the GitHub release API; the archive checks
 reported there were not rerun during this documentation correction.
-The three-profile cleanup below is unreleased and does not change that release.
+The three-profile cleanup belongs to v0.2.0 and does not change that release.
 
 For the previous `v0.1.4` release, the recorded local and anonymous remote tag,
 published source archive, and archive-embedded commit all resolve to
@@ -46,7 +50,7 @@ use a later version. `main` is the moving development branch and may advance
 beyond a release tag. That normal branch movement is unrelated to the v0.1.2
 defect.
 
-Current Cargo and frontend versions are `0.1.5`. Historical v0.1.2 release
+Current Cargo and frontend versions are `0.2.0`. Historical v0.1.2 release
 identity is exclusively the commit resolved by `v0.1.2^{commit}`. The final
 v0.1.0 campaign supersedes, for its own contract, preliminary runtime evidence at
 `d1bf18f034fd44df5b8e81931e7feea32edeb47f` and
@@ -56,6 +60,64 @@ evidence for their declared revisions only.
 Technical compatibility, numeric correctness, semantic quality, and
 performance are separate claims. A loadable file is not automatically
 qualified, and historical evidence does not qualify later source.
+
+## v0.2.0 Integration Qualification — 8 November 2026
+
+The integration combines PRs #73, #79, #76, #77, and #78. The reference is
+`f6e481c`; CPU and Vulkan numeric kernels are preserved. Release edits change
+version metadata, bootstrap fixtures, installation examples, and evidence only.
+Raw logs, machine identity, model response text, and generated artifacts remain
+outside Git. This evidence applies to the recorded Linux x86_64 validation
+environment, Rust 1.88 and stable, and Vulkan API 1.4 with driver 615.71.09;
+it does not extend qualification to other devices or platforms.
+
+| Gate | Result |
+|---|---|
+| Locked all-target workspace tests, CPU | PASS: 353 passed, 7 declared ignored |
+| Locked all-target workspace tests, Vulkan | PASS: 350 passed, 10 declared ignored |
+| Locked all-target workspace tests, Vulkan-hybrid | PASS: 421 passed, 9 declared ignored |
+| All-target warnings-denied Clippy and release builds, all three profiles | PASS |
+| Rust 1.88 all-target checks, all three profiles, and CPU workspace tests | PASS |
+| Frontend install, tests, diagnostics, and production build | PASS: 135 tests, zero diagnostics |
+| Production frontend dependency audit | PASS: zero advisories |
+| Full frontend dependency audit | FAIL: three low development-tooling entries, one inherited advisory; see below |
+| Authenticated 3B Instruct/Reasoning parity and lifecycle | PASS: 20 rows |
+| Authenticated 14B Instruct mixed-placement capacity | PASS: f16 and int8 |
+| Fresh 3B Reasoning semantic corpus | PASS: critical 4/4, semantic 9/9, complete format 9/9 |
+| Baseline comparison, 3B Instruct f16 | PASS: exact IDs on CPU, Vulkan, and mixed hybrid |
+| Hybrid homogeneous endpoints | PASS: exact standalone-control IDs, both 3B models and both KV schemes |
+| Formatting, 13 shell scripts, documentation, and source structure | PASS |
+| Retired profiles and conflicting CPU/Vulkan features | Rejected before execution |
+| Live Google News checks | PASS: 2/2 |
+| Live date-filtered DuckDuckGo check | FAIL on both reference and candidate; see below |
+
+Model bytes and SHA-256 match the [artifact catalog](../../support/models.tsv).
+The 22 real-model rows use context 4096 and the pinned llama.cpp revision
+`13f2b28b098623391b1aacfd27995e1c8b7de9a9`. Every oracle prompt matches exactly;
+each of 16 teacher-forced oracle tokens is in the local top two, logits are
+finite, completion has one terminal event, and immediate cancellation is
+silent. Primary hybrid rows use 25%/mixed. Each 3B model also covers 100%/all-GPU
+and 0%/CPU-only separately for f16 and int8. No backend, context, or model
+substitution was used. Larger-model performance benchmarking was unnecessary.
+
+The full npm audit reports the inherited development dependency
+[GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)
+in deepmerge and two propagated plugin entries. No upstream fixed version is
+available. The inspected call merges local Svelte/Vite build configuration;
+production dependencies have no advisory. No dependency override, audit
+suppression, or new dependency was added.
+
+The live DuckDuckGo response contains result links and snippets but no
+publication timestamps. Date-filtered results therefore remain empty under
+the existing strict proof requirement. The unchanged reference fails the same
+assertion; neither date validation nor its test was weakened. This is a known
+provider-dependent limitation, distinct from the two passing News checks.
+
+The two non-green checks above require explicit maintainer exceptions before
+publication. Public-readiness must separately pass on the exact clean release
+commit, followed by candidate/tag archive and anonymous published-asset
+verification. Their reports are generated outside the repository to preserve
+the qualified commit identity.
 
 ## Vulkan-Only GPU Cleanup
 

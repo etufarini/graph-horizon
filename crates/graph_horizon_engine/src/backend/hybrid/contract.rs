@@ -10,7 +10,7 @@
 use color_eyre::eyre::Result;
 
 use crate::backend::Backend;
-use crate::backend::hybrid::placement::{BudgetInput, MemoryTopology};
+use crate::backend::hybrid::placement::BudgetInput;
 use crate::backend::hybrid::weights::runtime::{DeviceFixedBytes, RuntimeShape};
 use crate::backend::source::{WeightSelection, WeightSource};
 use crate::gguf::loader::GgufFile;
@@ -22,8 +22,6 @@ pub(crate) trait HybridDevice: Backend {
     fn host_available() -> Result<u64>;
     fn acquire() -> Result<Option<Self::Device>>;
     fn budget(device: &Self::Device) -> Result<BudgetInput>;
-    fn topology() -> MemoryTopology;
-    fn all_mode_name() -> &'static str;
     fn invalid_percentage_error() -> &'static str;
     fn prefill_rows(
         device: &Self::Device,

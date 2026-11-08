@@ -114,9 +114,9 @@ fn docs_contract() {
 
     for document in [&readme, &installation] {
         let flat = document.split_whitespace().collect::<Vec<_>>().join(" ");
-        for backend in ["vulkan-hybrid", "metal-hybrid", "cuda-hybrid"] {
+        for backend in ["vulkan", "vulkan-hybrid"] {
             let command = format!(
-                "https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \\ | bash -s -- --backend {backend}"
+                "https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \\ | bash -s -- --backend {backend} ```"
             );
             assert_eq!(
                 flat.matches(&command).count(),

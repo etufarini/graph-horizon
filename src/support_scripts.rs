@@ -190,16 +190,6 @@ printf '#!/bin/sh\n' > "$GRAPH_HORIZON_FIXTURE_ROOT/target/$profile/graph-horizo
 printf 'rustc %s (fixture)\n' "${GRAPH_HORIZON_TEST_RUST_VERSION:-1.88.0}"
 "#,
     );
-    write_executable(
-        &bin.join("xcrun"),
-        br#"#!/usr/bin/env bash
-[[ -z "${GRAPH_HORIZON_XCRUN_FAIL:-}" ]]
-"#,
-    );
-    write_executable(
-        &bin.join("nvcc"),
-        b"#!/usr/bin/env bash\n[[ -z \"${GRAPH_HORIZON_NVCC_FAIL:-}\" ]]\n",
-    );
     (fixture, root, bin, log)
 }
 
@@ -837,7 +827,7 @@ fn bootstrap_forwards_arguments_and_cleans_temporary_tree() {
     );
     assert!(!temp.exists());
 
-    for backend in ["vulkan-hybrid", "metal-hybrid", "cuda-hybrid"] {
+    for backend in ["cpu", "vulkan", "vulkan-hybrid"] {
         fs::remove_file(&argument_log).unwrap();
         let hybrid_args = ["--backend", backend];
         let output = run_bootstrap(&fixture, &bin, &temp, &argument_log, &archive, &hybrid_args);
@@ -1098,13 +1088,13 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         ("Darwin", "arm64", "cpu", true),
         ("Darwin", "arm64", "vulkan", true),
         ("Darwin", "arm64", "vulkan-hybrid", true),
-        ("Darwin", "arm64", "metal", true),
-        ("Darwin", "arm64", "metal-hybrid", true),
+        ("Darwin", "arm64", "metal", false),
+        ("Darwin", "arm64", "metal-hybrid", false),
         ("Linux", "x86_64", "cpu", true),
         ("Linux", "x86_64", "vulkan", true),
         ("Linux", "x86_64", "vulkan-hybrid", true),
-        ("Linux", "x86_64", "cuda", true),
-        ("Linux", "x86_64", "cuda-hybrid", true),
+        ("Linux", "x86_64", "cuda", false),
+        ("Linux", "x86_64", "cuda-hybrid", false),
         ("Linux", "x86_64", "metal", false),
         ("Linux", "x86_64", "metal-hybrid", false),
         ("Darwin", "arm64", "cuda", false),
@@ -1138,52 +1128,16 @@ fn installer_rejects_unsupported_platform_backend_pairs() {
         } else {
             assert_eq!(output.status.code(), Some(2));
             assert!(fs::read(&log).unwrap().is_empty());
-            assert!(
-                String::from_utf8_lossy(&output.stderr).contains(&format!("{os}/{arch}/{backend}"))
-            );
+            assert!(String::from_utf8_lossy(&output.stderr).contains(
+                if ["cpu", "vulkan", "vulkan-hybrid"].contains(&backend) {
+                    "unsupported platform/backend"
+                } else {
+                    "invalid backend"
+                }
+            ));
         }
     }
 
-    fs::write(&log, []).unwrap();
-    let prefix = fixture.join("metal tools");
-    let output = Command::new("/bin/bash")
-        .arg(root.join("support/install.sh"))
-        .args(["--backend", "metal", "--prefix", prefix.to_str().unwrap()])
-        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("HOME", fixture.join("home"))
-        .env("GRAPH_HORIZON_TEST_OS", "Darwin")
-        .env("GRAPH_HORIZON_TEST_ARCH", "arm64")
-        .env("GRAPH_HORIZON_TEST_LOG", &log)
-        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
-        .env("GRAPH_HORIZON_XCRUN_FAIL", "1")
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("Metal compiler is unavailable"));
-    assert!(fs::read(&log).unwrap().is_empty());
-
-    fs::write(&log, []).unwrap();
-    let prefix = fixture.join("cuda compiler");
-    let output = Command::new("/bin/bash")
-        .arg(root.join("support/install.sh"))
-        .args([
-            "--backend",
-            "cuda-hybrid",
-            "--prefix",
-            prefix.to_str().unwrap(),
-        ])
-        .env("PATH", format!("{}:/usr/bin:/bin", bin.display()))
-        .env("HOME", fixture.join("home"))
-        .env("GRAPH_HORIZON_TEST_OS", "Linux")
-        .env("GRAPH_HORIZON_TEST_ARCH", "x86_64")
-        .env("GRAPH_HORIZON_TEST_LOG", &log)
-        .env("GRAPH_HORIZON_FIXTURE_ROOT", &root)
-        .env("GRAPH_HORIZON_NVCC_FAIL", "1")
-        .output()
-        .unwrap();
-    assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("CUDA compiler is unavailable"));
-    assert!(fs::read(&log).unwrap().is_empty());
     fs::remove_dir_all(fixture).unwrap();
 }
 
@@ -1378,7 +1332,7 @@ fn installer_rejects_linked_frontend_assets_before_rust_build() {
 }
 
 #[test]
-fn installer_requires_profile_and_preflights_gpu_toolchains() {
+fn installer_rejects_removed_backends_before_build() {
     let fixture = fixture_dir("installer preflight");
     let bin = fixture.join("bin");
     let mutation = fixture.join("build tool called");
@@ -1408,7 +1362,7 @@ fn installer_requires_profile_and_preflights_gpu_toolchains() {
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("Metal requires macOS on arm64")
+            .contains("invalid backend")
     );
     assert!(!mutation.exists());
 
@@ -1434,15 +1388,12 @@ fn installer_requires_profile_and_preflights_gpu_toolchains() {
     assert!(
         String::from_utf8(output.stderr)
             .unwrap()
-            .contains("CUDA requires nvcc")
+            .contains("invalid backend")
     );
     assert!(!mutation.exists());
 
     let source = fs::read_to_string(repository().join("support/install.sh")).unwrap();
-    assert!(source.contains("cpu|vulkan|vulkan-hybrid|metal|metal-hybrid|cuda|cuda-hybrid"));
-    assert!(source.find("xcrun -f metallib").unwrap() < source.find("npm ci").unwrap());
-    assert!(source.find("command -v nvcc").unwrap() < source.find("npm ci").unwrap());
-    assert!(source.find("nvcc --version").unwrap() < source.find("npm ci").unwrap());
+    assert!(source.contains("cpu|vulkan|vulkan-hybrid"));
     assert!(!source.contains("sudo"));
     fs::remove_dir_all(fixture).unwrap();
 }
@@ -1469,7 +1420,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda-hybrid",
+            "vulkan-hybrid",
             "--context",
             "1",
             "--kv",
@@ -1500,7 +1451,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda-hybrid",
+            "vulkan-hybrid",
             "--context",
             "1",
             "--kv",
@@ -1514,7 +1465,7 @@ fn support_scripts_preserve_quoted_model_paths_and_model_bytes() {
     assert!(
         fs::read_to_string(&log)
             .unwrap()
-            .contains("--features\ncuda-hybrid\n")
+            .contains("--features\nvulkan-hybrid\n")
     );
 
     assert_scripts_quote_model_variables(&repository());
@@ -1629,7 +1580,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             model.to_str().unwrap(),
             "--backend",
-            "cuda-hybrid",
+            "vulkan-hybrid",
             "--context",
             "4096",
         ])
@@ -1727,7 +1678,7 @@ printf '%s  %s\n' "$digest" "$model"
             "--model",
             "/missing/q4.gguf",
             "--backend",
-            "cuda",
+            "vulkan",
             "--context",
             "4096",
         ],
@@ -1736,7 +1687,7 @@ printf '%s  %s\n' "$digest" "$model"
     assert!(
         String::from_utf8(missing.stdout)
             .unwrap()
-            .contains("Q4_K_M cuda: external verification: artifact is missing or unreadable")
+            .contains("Q4_K_M vulkan: external verification: artifact is missing or unreadable")
     );
 
     let kv_source =
@@ -1944,8 +1895,8 @@ while :; do /bin/sleep 0.05; done
     assert!(cargo_call.contains("context=4096\nkv=int8\npercent=25\nmode=mixed"));
     assert!(cargo_call.contains(&format!("model={}", model.display())));
 
-    let cuda_port = free_port();
-    let cuda = Command::new("bash")
+    let vulkan_port = free_port();
+    let vulkan = Command::new("bash")
         .arg(repository().join("support/testing/parity-check.sh"))
         .args([
             "--models-dir",
@@ -1953,13 +1904,13 @@ while :; do /bin/sleep 0.05; done
             "--model-id",
             "3b-instruct",
             "--backend",
-            "cuda",
+            "vulkan",
             "--kv",
             "f16",
             "--reference-server",
             server.to_str().unwrap(),
             "--reference-port",
-            &cuda_port,
+            &vulkan_port,
         ])
         .env("PATH", &path)
         .env("GRAPH_HORIZON_TEMP_DIR", &temp)
@@ -1970,17 +1921,17 @@ while :; do /bin/sleep 0.05; done
         .output()
         .unwrap();
     assert!(
-        cuda.status.success(),
+        vulkan.status.success(),
         "{}",
-        String::from_utf8_lossy(&cuda.stderr)
+        String::from_utf8_lossy(&vulkan.stderr)
     );
     assert!(
-        String::from_utf8(cuda.stdout)
+        String::from_utf8(vulkan.stdout)
             .unwrap()
-            .starts_with("pass: model_id=3b-instruct backend=cuda kv=f16")
+            .starts_with("pass: model_id=3b-instruct backend=vulkan kv=f16")
     );
     assert!(fs::read_to_string(&cargo_log).unwrap().contains(
-        "--features cuda --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+        "--features vulkan --test family_agnostic real_selected_runtime_parity_and_lifecycle"
     ));
 
     for (percent, mode) in [("100", "all-gpu"), ("25", "mixed"), ("0", "cpu-only")] {
@@ -1993,7 +1944,7 @@ while :; do /bin/sleep 0.05; done
                 "--model-id",
                 "3b-instruct",
                 "--backend",
-                "cuda-hybrid",
+                "vulkan-hybrid",
                 "--kv",
                 "f16",
                 "--reference-server",
@@ -2021,77 +1972,14 @@ while :; do /bin/sleep 0.05; done
         assert!(
             String::from_utf8(hybrid.stdout)
                 .unwrap()
-                .starts_with("pass: model_id=3b-instruct backend=cuda-hybrid kv=f16")
+                .starts_with("pass: model_id=3b-instruct backend=vulkan-hybrid kv=f16")
         );
         let calls = fs::read_to_string(&cargo_log).unwrap();
         assert!(calls.contains(
-            "--features cuda-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
+            "--features vulkan-hybrid --test family_agnostic real_selected_runtime_parity_and_lifecycle"
         ));
         assert!(calls.contains(&format!("percent={percent}\nmode={mode}")));
     }
-
-    let endpoint_port = free_port();
-    let endpoint = Command::new("bash")
-        .arg(repository().join("support/testing/parity-check.sh"))
-        .args([
-            "--models-dir",
-            models.to_str().unwrap(),
-            "--model-id",
-            "3b-instruct",
-            "--backend",
-            "metal-hybrid",
-            "--kv",
-            "f16",
-            "--reference-server",
-            server.to_str().unwrap(),
-            "--reference-port",
-            &endpoint_port,
-            "--weights-percent",
-            "100",
-            "--expect-mode",
-            "all-metal",
-        ])
-        .env("PATH", &path)
-        .env("GRAPH_HORIZON_TEMP_DIR", &temp)
-        .env("GRAPH_HORIZON_CARGO_LOG", &cargo_log)
-        .env("GRAPH_HORIZON_SERVER_LOG", &server_log)
-        .output()
-        .unwrap();
-    assert!(
-        endpoint.status.success(),
-        "{}",
-        String::from_utf8_lossy(&endpoint.stderr)
-    );
-    assert!(
-        String::from_utf8(endpoint.stdout)
-            .unwrap()
-            .starts_with("pass: model_id=3b-instruct backend=metal-hybrid kv=f16")
-    );
-    assert!(!temp.exists());
-
-    let unavailable = Command::new("bash")
-        .arg(repository().join("support/testing/parity-check.sh"))
-        .args([
-            "--models-dir",
-            models.to_str().unwrap(),
-            "--model-id",
-            "3b-instruct",
-            "--backend",
-            "metal",
-            "--kv",
-            "f16",
-            "--reference-server",
-            server.to_str().unwrap(),
-        ])
-        .env("PATH", &path)
-        .env("GRAPH_HORIZON_TEST_UNAME_S", "Linux")
-        .output()
-        .unwrap();
-    assert!(unavailable.status.success());
-    assert_eq!(
-        String::from_utf8(unavailable.stdout).unwrap(),
-        "external verification: metal backend unavailable on this platform\n"
-    );
 
     let port = free_port();
     let malformed = Command::new("bash")
@@ -2303,7 +2191,7 @@ while :; do /bin/sleep 0.05; done
 }
 
 #[test]
-fn matrix_runs_seventy_four_exact_rows() {
+fn matrix_runs_forty_six_exact_rows() {
     use std::collections::HashSet;
     use std::net::TcpListener;
 
@@ -2409,7 +2297,7 @@ exit 1
         .lines()
         .filter(|line| !line.starts_with("summary:"))
         .collect::<Vec<_>>();
-    assert_eq!(statuses.len(), 74);
+    assert_eq!(statuses.len(), 46);
     assert_eq!(
         statuses
             .iter()
@@ -2422,20 +2310,20 @@ exit 1
             .iter()
             .filter(|line| line.starts_with("parity "))
             .count(),
-        68
+        40
     );
-    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 74);
-    assert!(stdout.contains("summary: pass=74 external_verification=0 failure=0 total=74"));
+    assert_eq!(statuses.iter().copied().collect::<HashSet<_>>().len(), 46);
+    assert!(stdout.contains("summary: pass=46 external_verification=0 failure=0 total=46"));
     assert_eq!(fs::read_to_string(&inspect_log).unwrap().lines().count(), 6);
 
     let expected = rows
         .iter()
         .flat_map(|row| {
-            ["cpu", "vulkan", "vulkan-hybrid", "metal", "metal-hybrid"]
+            ["cpu", "vulkan", "vulkan-hybrid"]
                 .into_iter()
                 .flat_map(move |backend| {
                     ["f16", "int8"].into_iter().map(move |kv| match backend {
-                        "vulkan-hybrid" | "metal-hybrid" => {
+                        "vulkan-hybrid" => {
                             format!("{}:{backend}:{kv}:25:mixed", row.id)
                         }
                         _ => format!("{}:{backend}:{kv}::", row.id),
@@ -2443,7 +2331,7 @@ exit 1
                 })
         })
         .chain(
-            [("vulkan-hybrid", "all-gpu"), ("metal-hybrid", "all-metal")]
+            [("vulkan-hybrid", "all-gpu")]
                 .into_iter()
                 .flat_map(|(backend, all_mode)| {
                     [(all_mode, "100"), ("cpu-only", "0")].into_iter().flat_map(
@@ -2477,8 +2365,8 @@ exit 1
     assert!(
         stdout.contains("parity model_id=3b-instruct backend=cpu kv=f16: external verification")
     );
-    assert!(stdout.contains("summary: pass=72 external_verification=2 failure=0 total=74"));
-    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 68);
+    assert!(stdout.contains("summary: pass=44 external_verification=2 failure=0 total=46"));
+    assert_eq!(fs::read_to_string(&parity_log).unwrap().lines().count(), 40);
     fs::write(models.join(rows[0].q8_file), b"Q8 rejection fixture").unwrap();
 
     fs::write(&parity_log, []).unwrap();
@@ -2517,7 +2405,7 @@ exit 1
     assert!(
         stdout.contains("backend=vulkan-hybrid kv=int8 weights_percent=100 mode=all-gpu: failure")
     );
-    assert!(stdout.contains("summary: pass=67 external_verification=0 failure=1 total=68"));
+    assert!(stdout.contains("summary: pass=43 external_verification=0 failure=1 total=44"));
     assert!(!stdout.contains(models.to_str().unwrap()));
 
     fs::write(&parity_log, []).unwrap();
@@ -2566,9 +2454,9 @@ exit 1
     let source = fs::read_to_string(repository().join("support/testing/matrix-check.sh")).unwrap();
     assert!(!source.contains("&\n"));
     assert!(!source.contains("eval "));
-    assert!(source.contains("for backend in cpu vulkan vulkan-hybrid metal metal-hybrid"));
+    assert!(source.contains("for backend in cpu vulkan vulkan-hybrid"));
     assert!(source.contains("for kv in f16 int8"));
-    assert!(source.contains("vulkan-hybrid:vulkan:all-gpu metal-hybrid:metal:all-metal"));
+    assert!(source.contains("vulkan-hybrid:vulkan:all-gpu"));
     assert_eq!(fs::read(&server).unwrap(), b"reference fixture");
     fs::remove_dir_all(fixture).unwrap();
 }

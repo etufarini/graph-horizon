@@ -5,7 +5,7 @@ description: >-
   critical-path profiling, a ranked candidate pool, Amdahl's law, correctness
   gates, and reproducible A/B benchmarks across short, medium, and long
   workloads. Use for Graph Horizon decode, prefill, or TTFT optimization on
-  CUDA, Vulkan, or Metal; do not use for unmeasured micro-optimization or
+  Vulkan; do not use for unmeasured micro-optimization or
   backend-comparison reports without implementation.
 ---
 
@@ -15,6 +15,10 @@ repository's performance process owns benchmark definitions and thresholds.
 -->
 
 # GPU Amdahl Optimizer
+
+For this repository, Vulkan is the only supported GPU backend; CPU and
+Vulkan-hybrid remain available. The generic cross-runtime guidance below does
+not authorize selecting a backend absent from the current Cargo manifests.
 
 Obey `AGENTS.md` and the repository's current performance-investigation
 documentation. Match the user's language unless they request another one.
@@ -26,10 +30,8 @@ commands such as `uname -s` and `uname -m`, then check the repository's current
 build and qualification matrix in `docs/engine/backend-support-status.md`.
 
 - If the invocation already names exactly one build-supported backend, select it.
-- On supported Apple silicon, select Metal automatically and tell the user.
 - When more than one requested-scope backend is build-supported, ask one concise
-  question listing only those choices. On supported Linux x86_64 this is
-  normally: **Which backend should I optimize: CUDA or Vulkan?**
+  question listing only those choices.
 - When exactly one backend is build-supported, select it and state why. When
   none is supported, stop after reporting the exact platform prerequisite.
 

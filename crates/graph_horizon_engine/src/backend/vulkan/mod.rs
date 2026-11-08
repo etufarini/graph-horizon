@@ -121,17 +121,9 @@ impl crate::backend::hybrid::contract::HybridDevice for VulkanBackend {
     fn budget(
         device: &Self::Device,
     ) -> color_eyre::eyre::Result<crate::backend::hybrid::placement::BudgetInput> {
-        Ok(crate::backend::hybrid::placement::BudgetInput::Separate {
+        Ok(crate::backend::hybrid::placement::BudgetInput {
             gpu_available: vram_for_auto(device),
         })
-    }
-
-    fn topology() -> crate::backend::hybrid::placement::MemoryTopology {
-        crate::backend::hybrid::placement::MemoryTopology::Separate
-    }
-
-    fn all_mode_name() -> &'static str {
-        "all-gpu"
     }
 
     fn invalid_percentage_error() -> &'static str {

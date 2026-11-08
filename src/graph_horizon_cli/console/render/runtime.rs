@@ -12,11 +12,6 @@ use super::wrap::push_wrapped_lines;
 use crate::graph_horizon_cli::runtime::RuntimeInfo;
 
 pub(super) fn push_banner(lines: &mut Vec<Line<'static>>, width: u16, info: &RuntimeInfo) {
-    let accelerator = if info.backend.starts_with("metal") {
-        "Metal"
-    } else {
-        "GPU"
-    };
     push_wrapped_lines(
         lines,
         width,
@@ -25,7 +20,7 @@ pub(super) fn push_banner(lines: &mut Vec<Line<'static>>, width: u16, info: &Run
     );
     let placement = info.placement.map(|value| {
         format!(
-            " · {} · {} CPU / {} {accelerator}",
+            " · {} · {} CPU / {} GPU",
             value.mode, value.cpu_layers, value.gpu_layers
         )
     });
@@ -51,7 +46,7 @@ pub(super) fn push_banner(lines: &mut Vec<Line<'static>>, width: u16, info: &Run
             width,
             SectionStyle::Secondary,
             &format!(
-                "budget CPU {} · {accelerator} {}",
+                "budget CPU {} · GPU {}",
                 bytes(value.cpu.total),
                 bytes(value.gpu.total)
             ),
@@ -107,13 +102,13 @@ mod tests {
     }
 
     #[test]
-    fn metal_placement_uses_metal_and_budget_labels() {
+    fn vulkan_placement_uses_gpu_and_budget_labels() {
         let info = RuntimeInfo {
             model_name: "local".into(),
-            backend: "metal-hybrid",
+            backend: "vulkan-hybrid",
             memory: ModelMemory::default(),
             placement: Some(crate::graph_horizon_cli::runtime::PlacementReport {
-                mode: "all-metal",
+                mode: "all-gpu",
                 cpu_layers: 0,
                 gpu_layers: 32,
                 cpu: Default::default(),
@@ -130,7 +125,7 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<Vec<_>>()
             .join("");
-        assert!(text.contains("0 CPU / 32 Metal"));
-        assert!(text.contains("budget CPU 0 B · Metal 0 B"));
+        assert!(text.contains("0 CPU / 32 GPU"));
+        assert!(text.contains("budget CPU 0 B · GPU 0 B"));
     }
 }

@@ -18,7 +18,7 @@ struct Candidate {
     gpu_full: BackendBytes,
 }
 
-pub(super) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
+pub(crate) fn select(weights: &WeightBytes, input: PlacementInput) -> Result<HybridPlan> {
     let block_count = weights.layers.len();
     let first_split = if input.gpu_enabled { 0 } else { block_count };
     let mut base_fit = false;

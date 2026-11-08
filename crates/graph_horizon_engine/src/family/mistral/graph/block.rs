@@ -114,13 +114,7 @@ pub(crate) fn yarn(cfg: &MistralConfig) -> Yarn {
         factor: cfg.yarn_factor,
         beta_fast: cfg.yarn_beta_fast,
         beta_slow: cfg.yarn_beta_slow,
-        #[cfg(any(
-            feature = "cpu",
-            feature = "vulkan-hybrid",
-            feature = "metal-hybrid",
-            feature = "cuda-hybrid",
-            test
-        ))]
+        #[cfg(any(feature = "cpu", feature = "vulkan-hybrid", test))]
         log_multiplier: cfg.yarn_log_multiplier,
         q_temperature_scale: cfg.attention_temperature_scale,
     }

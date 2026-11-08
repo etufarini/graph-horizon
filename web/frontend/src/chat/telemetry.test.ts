@@ -68,7 +68,7 @@ test('runtime properties reject controls, unknown backends and invalid decimal b
   };
   for (const changed of [
     { ...valid, model_name: '\nmodel' },
-    { ...valid, backend: 'cuda' },
+    ...['cuda', 'cuda-hybrid', 'metal', 'metal-hybrid'].map(backend => ({ ...valid, backend })),
     { ...valid, backend: { toString: () => 'cpu' } },
     { ...valid, memory: { weights_bytes: '01', kv_bytes: '2' } },
     { ...valid, memory: null },

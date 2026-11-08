@@ -9,6 +9,10 @@ description: >-
 
 # GPU Backend Benchmark
 
+For this repository, Vulkan is the only supported GPU backend; CPU and
+Vulkan-hybrid remain available. The generic cross-runtime guidance below does
+not authorize selecting a backend absent from the current Cargo manifests.
+
 Measure one model tuple without changing anything except the backend. The
 scripts reject or clearly invalidate comparisons when the physical GPU, model,
 runtime, token counts, context, batch, sampling, or runtime options differ.

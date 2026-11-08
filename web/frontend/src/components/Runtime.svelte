@@ -12,7 +12,6 @@
   let summary: HTMLElement;
 
   $: placement = info.placement;
-  $: accelerator = info.backend.startsWith('metal') ? 'Metal' : 'GPU';
   $: mode = placement?.mode ?? 'homogeneous';
 
   function rows(memory: RuntimeMemory): Array<[string, string]> {
@@ -44,7 +43,7 @@
         <div><dt>Mode</dt><dd>{mode}</dd></div>
         <div><dt>Weights</dt><dd>{formatBytes(info.memory.weights)}</dd></div>
         <div><dt>KV max</dt><dd>{formatBytes(info.memory.kv)}</dd></div>
-        {#if placement}<div><dt>Placement</dt><dd>CPU {placement.cpuLayers}L · {accelerator} {placement.acceleratorLayers}L</dd></div>{/if}
+        {#if placement}<div><dt>Placement</dt><dd>CPU {placement.cpuLayers}L · GPU {placement.acceleratorLayers}L</dd></div>{/if}
       </dl>
       {#if placement}
         <div class="memory-owners">
@@ -53,7 +52,7 @@
             <dl>{#each rows(placement.cpu) as row}<div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>{/each}</dl>
           </section>
           <section>
-            <h2>{accelerator} · budget {formatBytes(placement.accelerator.total)}</h2>
+            <h2>GPU · budget {formatBytes(placement.accelerator.total)}</h2>
             <dl>{#each rows(placement.accelerator) as row}<div><dt>{row[0]}</dt><dd>{row[1]}</dd></div>{/each}</dl>
           </section>
         </div>

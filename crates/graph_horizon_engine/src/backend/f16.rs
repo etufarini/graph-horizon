@@ -7,13 +7,7 @@
  * weights, KV metadata, and Vulkan upload/readback reuse these scalar primitives.
 */
 
-#[cfg(any(
-    feature = "cpu",
-    feature = "vulkan-hybrid",
-    feature = "metal-hybrid",
-    feature = "cuda-hybrid",
-    test
-))]
+#[cfg(any(feature = "cpu", feature = "vulkan-hybrid", test))]
 pub(crate) fn f16_to_f32(h: u16) -> f32 {
     let sign = ((h >> 15) & 1) as u32;
     let exp = ((h >> 10) & 0x1f) as u32;

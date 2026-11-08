@@ -7,7 +7,7 @@
 
 use color_eyre::eyre::{Result, bail, eyre};
 
-use super::{BudgetInput, MemoryTopology};
+use super::BudgetInput;
 use crate::backend::hybrid::contract::HybridDevice;
 use crate::backend::hybrid::weights::model::WeightBytes;
 use crate::backend::hybrid::weights::runtime::{RuntimeBytes, RuntimeShape};
@@ -46,7 +46,7 @@ pub(crate) fn build<G: HybridDevice>(
     reserve_mib: Option<u64>,
     host_available: u64,
     budget: Option<BudgetInput>,
-) -> Result<(MemoryTopology, WeightBytes, PlacementInput)> {
+) -> Result<(WeightBytes, PlacementInput)> {
     if weights_percent > 100 {
         bail!(G::invalid_percentage_error());
     }
@@ -54,29 +54,13 @@ pub(crate) fn build<G: HybridDevice>(
         bail!("hybrid placement layer count mismatch");
     }
     let weights = WeightBytes::from_source(source)?;
-    let topology = G::topology();
     let gpu_enabled = weights_percent > 0 && budget.is_some();
-    let (cpu_available, gpu_available, reserve) = match (topology, budget) {
-        (MemoryTopology::Separate, Some(BudgetInput::Separate { gpu_available })) => (
-            host_available,
-            gpu_available,
-            reserve_bytes(gpu_available, reserve_mib)?,
-        ),
-        (
-            MemoryTopology::Unified,
-            Some(BudgetInput::Unified {
-                physical_memory,
-                recommended_working_set,
-                current_allocated,
-            }),
-        ) => {
-            let gross = super::unified_gross(physical_memory, recommended_working_set)
-                .ok_or_else(overflow)?;
-            let available = super::unified_capacity(gross, current_allocated);
-            (available, available, reserve_bytes(gross, reserve_mib)?)
+    let cpu_available = host_available;
+    let (gpu_available, reserve) = match budget {
+        Some(BudgetInput { gpu_available }) => {
+            (gpu_available, reserve_bytes(gpu_available, reserve_mib)?)
         }
-        (_, None) => (host_available, 0, 0),
-        _ => return Err(eyre!("hybrid placement topology mismatch")),
+        None => (0, 0),
     };
     let weight_total = weights
         .globals
@@ -98,7 +82,6 @@ pub(crate) fn build<G: HybridDevice>(
     let mixed = RuntimeBytes::new(shape, context, scheme, shape.mixed_prefill_rows)?;
     let fixed = G::fixed_bytes(&shape)?;
     Ok((
-        topology,
         weights,
         PlacementInput {
             cpu_available,
@@ -188,7 +171,7 @@ mod tests {
             tensor("layer.1", GgmlType::F16, &[16]),
         ]);
         crate::backend::vulkan::reset_probe_count();
-        let (topology, weights, input) = build::<VulkanBackend>(
+        let (weights, input) = build::<VulkanBackend>(
             &source,
             shape(),
             16,
@@ -196,12 +179,11 @@ mod tests {
             100,
             Some(0),
             10_000,
-            Some(BudgetInput::Separate {
+            Some(BudgetInput {
                 gpu_available: 20_000,
             }),
         )
         .unwrap();
-        assert_eq!(topology, MemoryTopology::Separate);
         assert_eq!(weights.layers.len(), 2);
         assert_eq!(input.cpu_available, 10_000);
         assert_eq!(input.gpu_available, 20_000);

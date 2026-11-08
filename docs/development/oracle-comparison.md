@@ -113,7 +113,7 @@ then runs one bounded local parity test.
 For the current Ministral qualification, the accepted llama.cpp revision is
 exactly `13f2b28b098623391b1aacfd27995e1c8b7de9a9`. The user's main checkout is
 never switched or detached. Build the pinned revision in the disposable worktree
-`target/oracle/llama.cpp-13f2b28b`, with Metal, Vulkan, and CURL disabled, and
+`target/oracle/llama.cpp-13f2b28b`, with GPU backends and CURL disabled, and
 use `build/bin/llama-server` from that worktree.
 
 The wrapper starts one CPU-only, offline oracle on `127.0.0.1`, with context

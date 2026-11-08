@@ -6,6 +6,10 @@ support status belong to docs/project-status/validation-evidence.md.
 
 # AMD deep-clean regression repair
 
+> Historical evidence is preserved at its recorded revisions. The current
+> runtime supports only CPU, Vulkan, and Vulkan-hybrid; references to retired
+> backends below describe past work and are not current build or support claims.
+
 This report records the investigation and correction performed on the final
 backend/model-family cleanup lineage. It deliberately separates the failure
 that stopped AMD qualification from the performance regression assumed by the

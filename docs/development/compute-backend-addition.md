@@ -15,19 +15,15 @@ must not be introduced unless it is the explicitly approved feature.
 
 ## Current Boundary
 
-The current build exposes seven mutually exclusive features:
+The current build exposes three mutually exclusive features:
 
 | Feature | Role |
 |---|---|
 | `cpu` | Compiles `CpuBackend`, the portable numeric reference |
 | `vulkan` | Compiles `VulkanBackend`, with all-GPU-or-error placement |
 | `vulkan-hybrid` | Compiles CPU and Vulkan for an immutable split plan |
-| `metal` | Compiles `MetalBackend`, with all-Metal-or-error placement |
-| `metal-hybrid` | Compiles CPU and Metal for a unified-memory split plan |
-| `cuda` | Compiles `CudaBackend`, with visible-device-0-or-error placement |
-| `cuda-hybrid` | Compiles CPU and CUDA for an immutable separate-memory split plan |
 
-CPU, Vulkan, Metal, and CUDA implement the model-neutral `Backend` trait. A
+CPU and Vulkan implement the model-neutral `Backend` trait. A
 hybrid-capable device also implements `HybridDevice`; the neutral runtime owns
 the immutable partition, backend resources, and crossing between them. Model
 families do not contain backend-pair orchestration.
@@ -171,10 +167,6 @@ Existing build rows must remain green:
 cargo check --workspace --no-default-features --features cpu
 cargo check --workspace --no-default-features --features vulkan
 cargo check --workspace --no-default-features --features vulkan-hybrid
-cargo check --workspace --no-default-features --features metal
-cargo check --workspace --no-default-features --features metal-hybrid
-cargo check --workspace --no-default-features --features cuda
-cargo check --workspace --no-default-features --features cuda-hybrid
 ```
 
 Add the new standalone or combined feature to this matrix. Also verify that

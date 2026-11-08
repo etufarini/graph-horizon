@@ -49,11 +49,7 @@ pub(crate) fn load(
 }
 
 impl CpuBackend {
-    #[cfg(any(
-        feature = "vulkan-hybrid",
-        feature = "metal-hybrid",
-        feature = "cuda-hybrid"
-    ))]
+    #[cfg(feature = "vulkan-hybrid")]
     pub(crate) fn load_selected(
         meta: &crate::gguf::metadata::ModelMetadata,
         ws: &dyn crate::backend::source::WeightSource,

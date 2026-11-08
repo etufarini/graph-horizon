@@ -116,7 +116,7 @@ fn docs_contract() {
         let flat = document.split_whitespace().collect::<Vec<_>>().join(" ");
         for backend in ["vulkan", "vulkan-hybrid"] {
             let command = format!(
-                "https://raw.githubusercontent.com/etufarini/graph-horizon/v0.1.5/install.sh \\ | bash -s -- --backend {backend} ```"
+                "https://raw.githubusercontent.com/etufarini/graph-horizon/v0.2.0/install.sh \\ | bash -s -- --backend {backend} ```"
             );
             assert_eq!(
                 flat.matches(&command).count(),
@@ -129,8 +129,8 @@ fn docs_contract() {
             .filter(|line| line.contains("raw.githubusercontent.com/etufarini/graph-horizon/"))
         {
             assert!(
-                line.contains("/v0.1.5/install.sh"),
-                "quick install must use only the v0.1.5 bootstrap: {line}"
+                line.contains("/v0.2.0/install.sh"),
+                "quick install must use only the v0.2.0 bootstrap: {line}"
             );
         }
     }

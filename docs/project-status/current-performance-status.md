@@ -33,13 +33,12 @@ pushed and integrated as follows.
 | AMD long-context prefill | PR #39, `8e2f8cc` |
 | Final cleanup and AMD synchronization repair | PR #41, `24eac82` |
 
-The package version is `0.1.5`. The immutable annotated `v0.1.0` tag retains
+The package version is `0.2.0`. The immutable annotated `v0.1.0` tag retains
 the numeric qualification evidence; `v0.1.1` remains the packaging correction,
 `v0.1.2` adds explicit Web and News search plus the revised Web workspace, and
 `v0.1.3` corrects release identity, `v0.1.4` prepares generic release model
 selection and a closed family dispatcher. Published `v0.1.5` retains its
-original release scope. This unreleased checkout limits execution profiles to
-CPU, Vulkan, and Vulkan-hybrid.
+original release scope. Version `0.2.0` limits execution profiles to CPU, Vulkan, and Vulkan-hybrid.
 [Validation evidence](validation-evidence.md) owns all tag-derived identities
 and their distinct evidence boundaries.
 
